@@ -26,20 +26,22 @@ def deal_hashtags(view: DealView, brand_name: str) -> list[str]:
     return list(dict.fromkeys(tags))
 
 
-def _detail_lines(view: DealView, lookback_days: int) -> list[str]:
+def _detail_lines(view: DealView) -> list[str]:
     lines = []
     if view.airline:
         flights = {True: " · voos diretos", False: " · com escala", None: ""}[view.direct]
         lines.append(f"🛫 {view.airline}{flights}")
+    if view.arrival_airport:
+        lines.append(f"🛬 Chegada: aeroporto {view.arrival_airport}")
     if view.discount_pct:
-        lines.append(f"📉 {view.discount_pct}% abaixo do preço mediano que registámos nesta rota "
-                     f"(últimos {lookback_days} dias)")
+        lines.append(f"📉 {view.discount_pct}% abaixo do preço mínimo habitual desta rota "
+                     f"para partidas em {view.departure_month}")
     return lines
 
 
-def deal_caption(view: DealView, *, brand_name: str, lookback_days: int) -> str:
+def deal_caption(view: DealView, *, brand_name: str) -> str:
     template = _env.get_template("deal.txt.j2")
-    return _tidy(template.render(v=view, detail_lines=_detail_lines(view, lookback_days),
+    return _tidy(template.render(v=view, detail_lines=_detail_lines(view),
                                  hashtags=deal_hashtags(view, brand_name)))
 
 

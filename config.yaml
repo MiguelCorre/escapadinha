@@ -12,14 +12,15 @@ collector:
   max_nights: 10
   limit_per_request: 100      # max offers returned per route/month call
 
+# A deal = a fresh price well below the route's typical LOW for that departure month:
+# the median of daily lowest prices (day = when travellers found the price).
 detector:
-  threshold: 0.30            # deal when price <= median * (1 - threshold)
-  lookback_days: 90          # history window used for the median
-  min_samples: 20            # below this, the median is not trusted
-  min_history_days: 7        # history must span at least this many days
+  threshold: 0.30            # deal when price <= typical_low * (1 - threshold)
+  lookback_days: 90          # days of daily lows used for the typical low
+  min_baseline_days: 4       # need this many days with a low before trusting it
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
   max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
-  max_offer_age_days: 3      # skip deals whose price was found by users longer ago than this
+  max_offer_age_days: 3      # candidates: prices found in the last N days; older days = baseline
 
 # City or airport IATA codes. Travelpayouts accepts city codes (LON, PAR, ROM, MIL).
 # price_cap_eur (optional): absolute ceiling used ONLY while history is insufficient.

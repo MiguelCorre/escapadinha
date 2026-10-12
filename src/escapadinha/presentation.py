@@ -51,9 +51,13 @@ class DealView:
     destination_iata: str
     origin_city: str
     destination_city: str
+    arrival_code: str | None      # 'BVA'
+    arrival_airport: str | None   # 'Beauvais (BVA)'
+    remote_airport: bool          # True: name the airport next to the city everywhere
     price: str            # '58 €'
     price_compact: str    # '58€'
     dates: str            # '6 a 9 de novembro'
+    departure_month: str  # 'novembro'
     departure_short: str  # 'sex, 6 nov'
     return_short: str
     nights: str           # '3 noites'
@@ -66,6 +70,13 @@ class DealView:
     affiliate_url: str | None
     photo: PhotoCredit
     disclosure: str = DISCLOSURE
+
+    @property
+    def destination_headline(self) -> str:
+        """'Paris (Beauvais)' for remote airports, else just the city."""
+        if self.remote_airport:
+            return f"{self.destination_city} ({pt.AIRPORTS.get(self.arrival_code, self.arrival_code)})"
+        return self.destination_city
 
     def meta(self, deal: Deal, observation: Observation) -> dict:
         """Traceability record written next to the slides."""
@@ -83,8 +94,9 @@ class DealView:
             "return_date": observation.return_date.isoformat(),
             "airline": observation.airline,
             "rule": deal.rule,
+            "baseline": "median of daily lowest prices, same route and departure month",
             "baseline_median": deal.baseline_median,
-            "sample_size": deal.sample_size,
+            "baseline_days": deal.sample_size,
             "discount_pct": deal.discount_pct,
             "threshold": deal.threshold,
             "affiliate_url": self.affiliate_url,
@@ -102,8 +114,12 @@ def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination
         deal_id=deal.id, observation_id=o.id,
         origin_iata=o.origin, destination_iata=o.destination,
         origin_city=origin_city, destination_city=destination_city,
+        arrival_code=o.destination_airport.upper() if o.destination_airport else None,
+        arrival_airport=pt.airport_label(o.destination_airport),
+        remote_airport=(o.destination_airport or "").upper() in pt.REMOTE_AIRPORTS,
         price=pt.eur(o.price), price_compact=pt.eur_compact(o.price),
         dates=pt.date_range(o.departure_date, o.return_date),
+        departure_month=pt.MONTHS[o.departure_date.month - 1],
         departure_short=pt.short_date(o.departure_date), return_short=pt.short_date(o.return_date),
         nights=pt.nights(o.nights), airline=pt.airline_name(o.airline), direct=direct,
         discount_pct=None if deal.discount_pct is None else round(deal.discount_pct * 100),

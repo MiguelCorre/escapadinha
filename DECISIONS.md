@@ -20,13 +20,22 @@ price are dropped, not patched. There is no demo/seed command: tests use synthet
 temp directories only. Deals reference `observation_id` (UNIQUE), and `meta.json`
 repeats the trace.
 
-## D3: Detector: median, per-day dedupe, explicit cold start
-- The median is robust to outliers.
-- Samples are deduped per (offer, day) because the cache repeats offers on every run.
-- History is "insufficient" until `min_samples` samples span `min_history_days`. During
-  that time only an explicit per-route `price_cap_eur` can flag a deal, so nothing is guessed.
-- At most `max_deals_per_route` deals per run (cheapest first), and the same dates are not
-  re-flagged within `dedupe_days` unless the price drops.
+## D3: Detector: typical low per route and month (revised 2026-10-12)
+- The first version used the median of all fares per route. On real data it flagged 9 of 10
+  routes, because a route's cheapest dates always look 40–60% "below" that median.
+- Now:
+  - **Baseline:** the median of daily lows (each day's cheapest found price) per route and
+    departure month.
+  - **Deal:** a fresh price ≤ (1 − threshold) × baseline.
+  - **Sorting:** biggest discount first.
+- Days are keyed by `found_date`, so the first fetch already holds about a week of baseline
+  days. The user chose this so deals can start immediately.
+- Candidates are days inside `max_offer_age_days`, and the baseline uses only older days,
+  so a candidate never lowers its own baseline.
+- The baseline is "insufficient" below `min_baseline_days`. During that time only an
+  explicit per-route `price_cap_eur` can flag a deal.
+- Known bias: the cache keeps fewer old prices, so early baselines are a little noisy. Our
+  own runs fill this in over time.
 
 ## D4: Round-trips, 2–10 nights, 3 departure months
 Matches the "ida e volta desde X €" format. One API call per route per month returns the
@@ -60,6 +69,16 @@ The first real response showed that `prices_for_dates` returns prices users foun
 (schema v2). Captions say "encontrado a <found> … verificado a <fetched>". The detector skips
 offers older than `max_offer_age_days`. API timestamps are UTC, so local trip dates are read
 from the link path (`LIS1811LON2211` → 18/11, 22/11) with UTC as the fallback.
+
+## D11: Always name the arrival airport (2026-10-12)
+The first real deals to Paris all landed at Beauvais (BVA), about 80 km away. Deals show the
+arrival airport on slide 2 and in the caption. Airports listed in `i18n_pt.REMOTE_AIRPORTS`
+(BVA, BGY, …) also appear in the headline and on the cover.
+
+## D9b: Collection every 2 hours (2026-10-12)
+To catch deals before competitors, the task runs every 2 h around the clock (12 runs/day,
+360 API calls/day against a 600/min limit). The runner goes through cmd.exe because
+PowerShell 5.1 turns uv's stderr progress into errors.
 
 ## D8: Stack
 Python 3.14 via uv (latest stable), typer, httpx, pydantic-settings, stdlib sqlite3

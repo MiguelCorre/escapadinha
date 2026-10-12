@@ -42,7 +42,7 @@ def view(o=None, d=None, photo=PHOTO):
 
 
 def caption(**kw):
-    return deal_caption(view(**kw), brand_name="Escapadinha", lookback_days=90)
+    return deal_caption(view(**kw), brand_name="Escapadinha")
 
 
 # --- pt-PT formatting -----------------------------------------------------------
@@ -89,7 +89,9 @@ def test_deal_caption_contains_price_dates_and_traceable_timestamp():
     text = caption()
     assert "Lisboa → Amesterdão desde 58 € ida e volta" in text
     assert "27 de novembro a 4 de dezembro · 7 noites" in text
-    assert "7 noites\n🛫 Transavia · voos diretos\n📉 41% abaixo do preço mediano" in text
+    assert ("7 noites\n🛫 Transavia · voos diretos\n🛬 Chegada: aeroporto Schiphol (AMS)\n"
+            "📉 41% abaixo do preço mínimo habitual "
+            "desta rota para partidas em novembro") in text
     assert "verificado a 12/10/2026 às 10:14 (hora de Lisboa) via Aviasales" in text
 
 
@@ -147,3 +149,22 @@ def test_guide_caption_lists_tips_and_disclosure_only_when_affiliate():
     assert "1. Dica 0\n2. Dica 1\n3. Dica 2" in plain
     assert DISCLOSURE not in plain
     assert DISCLOSURE in guide_caption(guide(affiliate=True), credit)
+
+
+# --- arrival airport --------------------------------------------------------------
+
+def test_arrival_airport_is_always_named():
+    assert "🛬 Chegada: aeroporto Schiphol (AMS)" in caption()
+
+
+def test_remote_airport_is_named_in_the_headline():
+    v = build_deal_view(deal(), observation(destination="PAR", destination_airport="BVA"),
+                        origin_city="Porto", destination_city="Paris", marker="1",
+                        photo=PhotoCredit.from_photo(None, None))
+    text = deal_caption(v, brand_name="Escapadinha")
+    assert text.startswith("✈️ Porto → Paris (Beauvais) desde 58 €")
+    assert "🛬 Chegada: aeroporto Beauvais (BVA)" in text
+
+
+def test_unknown_airport_code_shown_bare():
+    assert pt.airport_label("XYZ") == "XYZ" and pt.airport_label(None) is None

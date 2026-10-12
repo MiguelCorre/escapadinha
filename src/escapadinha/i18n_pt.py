@@ -24,6 +24,27 @@ AIRLINES = {
 }
 
 
+# Arrival airport names. REMOTE airports are far from the city they are sold under
+# (e.g. Paris-Beauvais is ~80 km from Paris); deals there name the airport in the headline.
+AIRPORTS = {
+    "LHR": "Heathrow", "LGW": "Gatwick", "STN": "Stansted", "LTN": "Luton", "LCY": "London City",
+    "SEN": "Southend", "CDG": "Charles de Gaulle", "ORY": "Orly", "BVA": "Beauvais",
+    "FCO": "Fiumicino", "CIA": "Ciampino", "BCN": "El Prat", "GRO": "Girona", "REU": "Reus",
+    "AMS": "Schiphol", "EIN": "Eindhoven", "MXP": "Malpensa", "LIN": "Linate", "BGY": "Bérgamo",
+    "BER": "Brandenburg", "CRL": "Charleroi", "BRU": "Bruxelas", "NYO": "Skavsta",
+    "TSF": "Treviso", "HHN": "Hahn", "WMI": "Modlin", "TRF": "Torp",
+}
+REMOTE_AIRPORTS = {"BVA", "BGY", "GRO", "REU", "EIN", "CRL", "NYO", "TSF", "HHN", "WMI", "TRF", "SEN"}
+
+
+def airport_label(code: str | None) -> str | None:
+    """'Beauvais (BVA)'; unknown codes are shown as the bare code."""
+    if not code:
+        return None
+    name = AIRPORTS.get(code.upper())
+    return f"{name} ({code.upper()})" if name else code.upper()
+
+
 def eur(amount: float) -> str:
     """49 -> '49 €', 49.5 -> '49,50 €', 1299 -> '1299 €' (pt-PT: comma decimals)."""
     if float(amount).is_integer():

@@ -41,8 +41,7 @@ class CollectorConfig(BaseModel):
 class DetectorConfig(BaseModel):
     threshold: float = Field(0.30, gt=0, lt=1)
     lookback_days: int = Field(90, ge=1)
-    min_samples: int = Field(20, ge=1)
-    min_history_days: int = Field(7, ge=0)
+    min_baseline_days: int = Field(4, ge=1)
     dedupe_days: int = Field(7, ge=0)
     max_deals_per_route: int = Field(1, ge=1)
     max_offer_age_days: int = Field(3, ge=0)

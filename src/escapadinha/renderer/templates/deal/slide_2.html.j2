@@ -17,11 +17,12 @@
   <div class="row"><span class="k">Ida</span><span class="val">{{ v.departure_short }}</span></div>
   <div class="row"><span class="k">Volta</span><span class="val">{{ v.return_short }}</span></div>
   <div class="row"><span class="k">Duração</span><span class="val">{{ v.nights }}</span></div>
+  {% if v.arrival_airport %}<div class="row"><span class="k">Chegada</span><span class="val">{{ v.arrival_airport }}</span></div>{% endif %}
   {% if v.airline %}<div class="row"><span class="k">Companhia</span><span class="val">{{ v.airline }}</span></div>{% endif %}
   {% if v.direct is not none %}<div class="row"><span class="k">Voos</span><span class="val">{{ "Diretos" if v.direct else "Com escala" }}</span></div>{% endif %}
   <div class="row"><span class="k">Preço</span><span class="val">{{ v.price }}</span></div>
 </div>
-{% if v.discount_pct %}<div><span class="badge">−{{ v.discount_pct }}% vs. preço mediano da rota</span></div>{% endif %}
+{% if v.discount_pct %}<div><span class="badge">−{{ v.discount_pct }}% vs. mínimo habitual</span></div>{% endif %}
 <div class="spacer"></div>
 {% endblock %}
 {% block footnote %}{% if v.found_on %}Encontrado a {{ v.found_on }} via {{ v.source_label }} · verificado a {{ v.checked_at }}.{% else %}Verificado a {{ v.checked_at }} via {{ v.source_label }}.{% endif %}<br>Preços sujeitos a alterações e disponibilidade.{% endblock %}

@@ -59,16 +59,18 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
         console.print("No completed collection run yet. Run [bold]escapadinha collect[/] first.")
         raise typer.Exit(1)
     table = Table(title=f"Detection for run #{run_id}")
-    for col in ("Route", "Offers", "Cheapest", "History", "Median", "Result", "Deals"):
+    for col in ("Route", "Fresh", "Best offer", "Typical low", "Baseline", "Result", "Deals"):
         table.add_column(col, no_wrap=True)
     labels = {"deals": "[green]deal[/]", "no_deal": "no deal",
-              "insufficient_history": "[yellow]warming up[/]", "no_data": "[dim]no data[/]"}
+              "insufficient_history": "[yellow]warming up[/]", "no_data": "[dim]no data[/]",
+              "no_fresh": "[dim]no fresh[/]"}
+    need = ctx.config.detector.min_baseline_days
     for r in results:
-        median = "–" if r.baseline.median is None else f"{r.baseline.median:g} €"
-        cheapest = "–" if r.cheapest is None else f"{r.cheapest:g} €"
-        history = f"{r.baseline.sample_size}/{ctx.config.detector.min_samples} · {r.baseline.span_days:.0f}d"
-        table.add_row(r.route, str(r.candidates), cheapest, history, median,
-                      labels.get(r.status, r.status), ", ".join(map(str, r.deal_ids)) or "–")
+        best = "–" if r.best is None else f"{r.best.price:g} € ({r.best.departure_date:%d/%m})"
+        low = "–" if r.baseline is None or r.baseline.median is None else f"{r.baseline.median:g} €"
+        days = "–" if r.baseline is None else f"{r.baseline.sample_size}/{need} days"
+        table.add_row(r.route, str(r.fresh), best, low, days, labels.get(r.status, r.status),
+                      ", ".join(map(str, r.deal_ids)) or "–")
     console.print(table)
 
 
@@ -81,14 +83,11 @@ def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
     if not row["n"]:
         console.print(f"No observations for {r.key} yet.")
         return
-    base = pipeline.current_baseline(ctx, conn, r)
-    console.print(f"[bold]{r.key}[/] {r.city_pt}: {row['n']} observations in {row['runs']} runs, "
-                  f"{row['min_price']:g}–{row['max_price']:g} €, first {row['first_seen']}, "
-                  f"last {row['last_seen']}")
-    console.print(f"Baseline ({ctx.config.detector.lookback_days} d): median "
-                  f"{'–' if base.median is None else f'{base.median:g} €'}, "
-                  f"{base.sample_size} samples over {base.span_days:.1f} days "
-                  f"(needs {ctx.config.detector.min_samples} / {ctx.config.detector.min_history_days} d)")
+    console.print(f"Typical low per departure month (median of daily lows, "
+                  f"needs {ctx.config.detector.min_baseline_days} days):")
+    for (year, month), base in sorted(pipeline.current_baselines(ctx, conn, r).items()):
+        low = "–" if base.median is None else f"{base.median:g} €"
+        console.print(f"  {year}-{month:02d}: {low} from {base.sample_size} days")
 
 
 @photos_app.command("fetch")

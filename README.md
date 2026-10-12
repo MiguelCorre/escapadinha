@@ -80,30 +80,40 @@ Output for review lives in `output/<YYYY-MM-DD>/`:
   and an optional `price_cap_eur`.
 - `collector`: `months_ahead` (3 = this month + 2), `min_nights`/`max_nights` (2–10), currency.
 - `detector`:
-  - `threshold: 0.30` flags a price when `price ≤ median × (1 − 0.30)`.
-  - `lookback_days: 90` is the history window.
-  - `min_samples: 20` and `min_history_days: 7` decide when history is mature enough to trust.
+  - `threshold: 0.30` flags a price when `price ≤ typical_low × (1 − 0.30)`.
+  - `lookback_days: 90` is how far back daily lows count.
+  - `min_baseline_days: 4` is how many days with a low are needed before a month's typical low is trusted.
+  - `max_offer_age_days: 3` defines the freshness window. Prices travellers found in the last
+    3 days are candidates, and older days form the baseline.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
-  - `max_deals_per_route: 1` caps deals per route per run.
-  - `max_offer_age_days: 3` skips prices that travellers found longer ago than this. The API is a
-    cache, and real responses contain prices up to a week old.
+  - `max_deals_per_route: 1` caps deals per route per run (biggest discount first).
 
-### How "too little history" is handled
-The median counts each offer at most once per day, because the source is a cache and
-returns the same offers on every run. Until a route has `min_samples` samples spread over
-`min_history_days`, `detect` reports **insufficient_history** and flags nothing. The one
-exception is a route with an explicit `price_cap_eur`: offers at or below the cap are
-flagged as `rule = price_cap`, and the caption then makes no "% below" claim. A fresh
-install therefore needs about a week of scheduled collection before median-based deals appear.
+### What counts as a deal
+A deal is a fresh price well below the route's **typical lowest price for the same departure
+month**: the median of daily lows, where each day's low is the cheapest price travellers found
+that day.
+
+Comparing against all fares would be wrong. A route's cheapest dates are always far below the
+median of all fares, so that rule flags almost every route on every run. On the first real data
+it flagged 9 of 10 routes.
+
+The source cache records when each price was found and covers about a week, so baselines
+exist from the **first run**. Until a month has `min_baseline_days` daily lows, `detect` reports
+**warming up** and flags nothing. The one exception is a route with an explicit
+`price_cap_eur` (`rule = price_cap`); the caption then makes no "% below" claim.
+
+Every deal names its arrival airport. Remote airports (for example Paris-**Beauvais**,
+Milan-**Bérgamo**) also appear in the headline: "Porto → Paris (Beauvais)".
 
 ## Scheduling (Windows Task Scheduler)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1              # 08:00, 14:00, 20:00
-powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Times 07:30,19:30
-powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister
+powershell -ExecutionPolicy Bypass -File scriptsegister-task.ps1                # every 2 h, all day
+powershell -ExecutionPolicy Bypass -File scriptsegister-task.ps1 -EveryHours 1
+powershell -ExecutionPolicy Bypass -File scriptsegister-task.ps1 -Unregister
 ```
-Each run appends to `logs/run-<date>.log`.
+Each run takes about 1 minute and uses 30 API calls. Runs missed while the PC sleeps start
+when it wakes. Output is appended to `logs/run-<date>.log`, ending with `---- exit N ----`.
 
 ## Guides ("guia rápido")
 

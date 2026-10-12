@@ -15,14 +15,15 @@ See README.md for usage and DECISIONS.md for rationale and the roadmap.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in.
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
   installs) and add the ALTER steps to `MIGRATIONS` (existing DBs). Test the upgrade.
-- Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`.
+- Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
+  and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
 - Secrets only via `.env` (`Secrets` in `config.py`). Never commit `.env`, `data/`, `output/`.
 - Update README.md, CLAUDE.md and DECISIONS.md in the same commit as a feature.
 
 ## Layout
 - `src/escapadinha/collector/`: `TravelpayoutsSource`, `runner.collect`
-- `src/escapadinha/detector.py`: `baseline`, `evaluate`, `detect_route`
+- `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate`, `detect_route`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step
 - `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, scrim, logo, fitText) + `deal/`, `guide/`
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`

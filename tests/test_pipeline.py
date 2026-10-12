@@ -74,10 +74,11 @@ def test_collect_and_detect(ctx):
     assert run_id == summary.run_id
     assert by_route["LIS-LON"].status == "deals" and len(by_route["LIS-LON"].deal_ids) == 1
     assert by_route["OPO-BCN"].status == "no_data"
+    assert by_route["LIS-LON"].baseline.median == 101
 
     deal, obs = db.get_deal(conn, by_route["LIS-LON"].deal_ids[0])
     assert obs.price == 58 and obs.run_id == summary.run_id     # traceable to this run
-    assert deal.rule == "median" and deal.sample_size == 25
+    assert deal.rule == "median" and deal.sample_size == 22   # seeded days older than 3 days
 
     # Running detection again on the same run must not flag the same trip twice.
     _, again = pipeline.run_detect(ctx, conn, run_id)

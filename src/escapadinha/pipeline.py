@@ -14,6 +14,7 @@ from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.travelpayouts import TravelpayoutsSource
 from escapadinha.config import Context, Route
 from escapadinha.guides import load_guide
+from escapadinha.models import Observation
 from escapadinha.photos import PixabayClient, fetch_photo
 from escapadinha.presentation import PhotoCredit, build_deal_view
 from escapadinha.renderer import SlideRenderer
@@ -45,58 +46,73 @@ def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
 @dataclass(frozen=True)
 class RouteDetection:
     route: str
-    candidates: int
-    baseline: detector.Baseline
-    status: str                 # deals | no_deal | insufficient_history | no_data
+    fresh: int                          # offers found within the freshness window
+    best: Observation | None            # biggest discount vs its month's typical low (or cheapest)
+    baseline: detector.Baseline | None  # typical low for `best`'s departure month
+    status: str                         # deals | no_deal | insufficient_history | no_fresh | no_data
     deal_ids: list[int]
     note: str
-    cheapest: float | None = None
 
 
 def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None,
                now: datetime | None = None) -> tuple[int | None, list[RouteDetection]]:
-    """Evaluate the given (default: latest completed) run against each route's history."""
+    """Evaluate the given (default: latest completed) run against each route's typical lows."""
     cfg = ctx.config.detector
     now = now or db.utcnow()
     run_id = run_id or db.latest_completed_run_id(conn)
     if run_id is None:
         return None, []
-    fresh = db.observations_for_run(conn, run_id)
+    run_obs = db.observations_for_run(conn, run_id)
 
     results = []
     for route in ctx.config.routes:
-        candidates = [o for o in fresh if o.route_key == route.key]
-        history = db.route_history(conn, route.origin, route.destination,
-                                   since=now - timedelta(days=cfg.lookback_days),
-                                   exclude_run_id=run_id)
-        base = detector.route_baseline(history, cfg, now)
-        if not candidates:
-            results.append(RouteDetection(route.key, 0, base, "no_data", [], "no prices this run"))
+        offers = [o for o in run_obs if o.route_key == route.key]
+        if not offers:
+            results.append(RouteDetection(route.key, 0, None, None, "no_data", [], "no prices this run"))
             continue
+        history = db.route_history(conn, route.origin, route.destination,
+                                   since=now - timedelta(days=cfg.lookback_days), exclude_run_id=None)
         recent = db.recently_flagged_offers(conn, route.origin, route.destination,
                                             since=now - timedelta(days=cfg.dedupe_days))
-        flagged = detector.detect_route(candidates, history, recent, cfg, route.price_cap_eur,
-                                        now, cfg.max_deals_per_route)
+        flags = detector.detect_route(offers, history, recent, cfg, route.price_cap_eur,
+                                      now, cfg.max_deals_per_route)
         deal_ids = [
-            db.insert_deal(conn, observation_id=o.id, rule=d.rule,
-                           baseline_median=base.median, sample_size=base.sample_size,
-                           discount_pct=d.discount_pct, threshold=cfg.threshold)
-            for o, d in flagged
+            db.insert_deal(conn, observation_id=f.observation.id, rule=f.decision.rule,
+                           baseline_median=f.baseline.median, sample_size=f.baseline.sample_size,
+                           discount_pct=f.decision.discount_pct, threshold=cfg.threshold)
+            for f in flags
         ]
-        cheapest = min(candidates, key=lambda o: o.price)
-        sample = detector.evaluate(cheapest, base, cfg, route.price_cap_eur)
-        status = "deals" if deal_ids else sample.kind
-        results.append(RouteDetection(route.key, len(candidates), base, status, deal_ids,
-                                      sample.reason, cheapest.price))
+        results.append(_summarise(route, offers, history, flags, deal_ids, cfg, now))
     return run_id, results
 
 
-def current_baseline(ctx: Context, conn: sqlite3.Connection, route: Route) -> detector.Baseline:
-    """Baseline over all stored history in the lookback window (for `stats`)."""
+def _summarise(route: Route, offers: list[Observation], history: list[Observation],
+               flags: list[detector.Flag], deal_ids: list[int], cfg, now: datetime) -> RouteDetection:
+    fresh = [o for o in offers if detector.is_fresh(o, cfg, now)]
+    if not fresh:
+        return RouteDetection(route.key, 0, None, None, "no_fresh", [],
+                              f"no price found in the last {cfg.max_offer_age_days} days")
+    baselines = detector.month_baselines(history, cfg, now)
+    empty = detector.Baseline(None, 0, 0)
+
+    def discount(o: Observation) -> float:
+        base = baselines.get(detector.month_key(o), empty)
+        return 1 - o.price / base.median if base.median else float("-inf")
+
+    best = flags[0].observation if flags else max(fresh, key=lambda o: (discount(o), -o.price))
+    base = baselines.get(detector.month_key(best), empty)
+    decision = detector.evaluate(best, base, cfg, route.price_cap_eur)
+    status = "deals" if deal_ids else decision.kind
+    return RouteDetection(route.key, len(fresh), best, base, status, deal_ids, decision.reason)
+
+
+def current_baselines(ctx: Context, conn: sqlite3.Connection,
+                      route: Route) -> dict[tuple[int, int], detector.Baseline]:
+    """Typical low per departure month from all stored history (for `stats`)."""
     cfg, now = ctx.config.detector, db.utcnow()
     history = db.route_history(conn, route.origin, route.destination,
                                since=now - timedelta(days=cfg.lookback_days), exclude_run_id=None)
-    return detector.route_baseline(history, cfg, now)
+    return detector.month_baselines(history, cfg, now)
 
 
 # --- photos -------------------------------------------------------------------
@@ -158,9 +174,8 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
                                    marker=ctx.secrets.travelpayouts_marker, photo=credit)
             out_dir = out_root / f"deal-{obs.origin}-{obs.destination}-{deal.id}"
             renderer.render_deal(view, photo_path, out_dir)
-            _write_text(out_dir / "caption.txt", deal_caption(
-                view, brand_name=ctx.config.brand.name,
-                lookback_days=ctx.config.detector.lookback_days))
+            _write_text(out_dir / "caption.txt",
+                        deal_caption(view, brand_name=ctx.config.brand.name))
             _write_text(out_dir / "meta.json",
                         json.dumps(view.meta(deal, obs), ensure_ascii=False, indent=2))
             if deal.status == "new":
