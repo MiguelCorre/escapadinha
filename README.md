@@ -152,4 +152,5 @@ uv run pytest -m "not browser"
 - Affiliate disclosure ("Publicidade · … links de afiliado …") appears on every deal caption
   and on the CTA slide.
 
-See [DECISIONS.md](DECISIONS.md) for why these were chosen and the v2/v3 roadmap.
+See [DECISIONS.md](DECISIONS.md) for why these were chosen and the v2/v3 roadmap, and
+[LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md) for what must happen before the first public post.
