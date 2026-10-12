@@ -54,6 +54,11 @@ def short_date(d: date) -> str:
     return f"{WEEKDAYS_SHORT[d.weekday()]}, {d.day} {MONTHS_SHORT[d.month - 1]}"
 
 
+def numeric_date(d: date) -> str:
+    """'07/10/2026'."""
+    return f"{d:%d/%m/%Y}"
+
+
 def lisbon_timestamp(dt: datetime) -> str:
     """'12/10/2026 às 10:14' in Lisbon local time."""
     local = dt.astimezone(LISBON)

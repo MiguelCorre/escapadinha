@@ -60,7 +60,8 @@ class DealView:
     airline: str | None
     direct: bool | None
     discount_pct: int | None
-    found_at: str         # '12/10/2026 às 10:14'
+    found_on: str | None  # '07/10/2026': day a traveller found the price (source cache)
+    checked_at: str       # '12/10/2026 às 10:14': when we fetched it (Lisbon time)
     source_label: str
     affiliate_url: str | None
     photo: PhotoCredit
@@ -74,6 +75,7 @@ class DealView:
             "run_id": observation.run_id,
             "source": observation.source,
             "fetched_at_utc": observation.fetched_at.isoformat(),
+            "found_date": observation.found_date.isoformat() if observation.found_date else None,
             "price": observation.price,
             "currency": observation.currency,
             "route": observation.route_key,
@@ -105,7 +107,8 @@ def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination
         departure_short=pt.short_date(o.departure_date), return_short=pt.short_date(o.return_date),
         nights=pt.nights(o.nights), airline=pt.airline_name(o.airline), direct=direct,
         discount_pct=None if deal.discount_pct is None else round(deal.discount_pct * 100),
-        found_at=pt.lisbon_timestamp(o.fetched_at),
+        found_on=pt.numeric_date(o.found_date) if o.found_date else None,
+        checked_at=pt.lisbon_timestamp(o.fetched_at),
         source_label="Aviasales" if o.source == "travelpayouts" else o.source,
         affiliate_url=affiliate_link(o.deep_link, marker),
         photo=photo,

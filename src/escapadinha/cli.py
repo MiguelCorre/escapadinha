@@ -59,14 +59,16 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
         console.print("No completed collection run yet. Run [bold]escapadinha collect[/] first.")
         raise typer.Exit(1)
     table = Table(title=f"Detection for run #{run_id}")
-    for col in ("Route", "Offers", "History", "Median", "Result", "Deal ids", "Note"):
-        table.add_column(col)
+    for col in ("Route", "Offers", "Cheapest", "History", "Median", "Result", "Deals"):
+        table.add_column(col, no_wrap=True)
+    labels = {"deals": "[green]deal[/]", "no_deal": "no deal",
+              "insufficient_history": "[yellow]warming up[/]", "no_data": "[dim]no data[/]"}
     for r in results:
         median = "–" if r.baseline.median is None else f"{r.baseline.median:g} €"
-        history = f"{r.baseline.sample_size} / {r.baseline.span_days:.1f} d"
-        colour = {"deals": "green", "insufficient_history": "yellow"}.get(r.status, "white")
-        table.add_row(r.route, str(r.candidates), history, median, f"[{colour}]{r.status}[/]",
-                      ", ".join(map(str, r.deal_ids)) or "–", r.note)
+        cheapest = "–" if r.cheapest is None else f"{r.cheapest:g} €"
+        history = f"{r.baseline.sample_size}/{ctx.config.detector.min_samples} · {r.baseline.span_days:.0f}d"
+        table.add_row(r.route, str(r.candidates), cheapest, history, median,
+                      labels.get(r.status, r.status), ", ".join(map(str, r.deal_ids)) or "–")
     console.print(table)
 
 

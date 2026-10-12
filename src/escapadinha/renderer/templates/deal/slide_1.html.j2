@@ -14,4 +14,4 @@
 <div><div class="display price fit">{{ v.price_compact }}</div></div>
 <div><span class="pill">{{ v.departure_short }} – {{ v.return_short }} · {{ v.nights }}</span></div>
 {% endblock %}
-{% block footnote %}Preço por pessoa · encontrado a {{ v.found_at }}{% endblock %}
+{% block footnote %}Preço por pessoa · {% if v.found_on %}encontrado a {{ v.found_on }}{% else %}verificado a {{ v.checked_at }}{% endif %}{% endblock %}

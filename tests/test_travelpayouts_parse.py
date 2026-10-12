@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from escapadinha.collector.travelpayouts import (
-    API_URL, TravelpayoutsError, TravelpayoutsSource, parse_response,
+    API_URL, TravelpayoutsError, TravelpayoutsSource, found_date, local_dates, parse_response,
 )
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "prices_for_dates_LIS_LON.json")
@@ -82,3 +82,42 @@ def test_source_gives_up_after_max_attempts():
 def test_missing_token_fails_fast():
     with pytest.raises(TravelpayoutsError, match="TRAVELPAYOUTS_TOKEN"):
         TravelpayoutsSource("", currency="eur", min_nights=2, max_nights=10, limit=50)
+
+
+# --- found date and local dates -------------------------------------------------
+
+RECORDED = json.loads((Path(__file__).parent / "fixtures" /
+                       "recorded_prices_for_dates_LIS_LON_2026-11.json").read_text("utf-8"))
+
+
+def test_found_date_comes_from_link_search_date():
+    assert parse()[0].found_date == date(2026, 10, 12)
+    assert found_date("/search/LIS1811LON22111?t=x&search_date=07102026") == date(2026, 10, 7)
+    assert found_date("/search/x?t=1") is None
+    assert found_date("/search/x?search_date=garbage") is None
+    assert found_date(None) is None
+
+
+def test_local_dates_fix_utc_midnight_shift():
+    # A 00:30 departure in Lisbon summer time is 23:30Z the day before; the link has the local date.
+    assert local_dates("/search/LIS1911LON22111?t=x", date(2026, 11, 18), date(2026, 11, 22)) == \
+        (date(2026, 11, 19), date(2026, 11, 22))
+
+
+def test_local_dates_across_new_year_and_fallbacks():
+    assert local_dates("/search/LIS0101LON05011", date(2026, 12, 31), date(2027, 1, 5)) == \
+        (date(2027, 1, 1), date(2027, 1, 5))
+    # Link dates far from the UTC dates are not trusted.
+    assert local_dates("/search/LIS0103LON05031", date(2026, 11, 18), date(2026, 11, 22)) == \
+        (date(2026, 11, 18), date(2026, 11, 22))
+    assert local_dates(None, date(2026, 11, 18), date(2026, 11, 22)) == \
+        (date(2026, 11, 18), date(2026, 11, 22))
+
+
+def test_parses_recorded_real_response():
+    """Recorded from the live API on 2026-10-12 (LIS→LON, November departures)."""
+    result = parse(RECORDED, min_nights=1, max_nights=30)
+    assert len(result) == len(RECORDED["data"])
+    assert all(o.found_date and o.found_date <= date(2026, 10, 12) for o in result)
+    assert all(o.deep_link.startswith("https://www.aviasales.com/search/LIS") for o in result)
+    assert all(o.currency == "EUR" and o.price > 0 for o in result)

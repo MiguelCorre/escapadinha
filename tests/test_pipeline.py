@@ -116,3 +116,30 @@ def test_render_deal_and_guide(ctx):
     guide_dir, reviewed = pipeline.run_render_guide(ctx, conn, "voos-baratos-dicas")
     assert len(list(guide_dir.glob("slide_*.png"))) == 7 and reviewed is False
     assert (guide_dir / "caption.txt").exists()
+
+
+def test_migrates_v1_database(tmp_path):
+    """A v1 database (no found_date column) is upgraded in place, keeping its rows."""
+    import sqlite3
+    path = tmp_path / "v1.db"
+    raw = sqlite3.connect(path)
+    raw.executescript("""
+        CREATE TABLE fetch_runs (id INTEGER PRIMARY KEY, source TEXT NOT NULL, started_at TEXT NOT NULL,
+            finished_at TEXT, status TEXT NOT NULL DEFAULT 'running', n_requests INTEGER NOT NULL DEFAULT 0,
+            n_observations INTEGER NOT NULL DEFAULT 0, error TEXT);
+        CREATE TABLE price_observations (id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL, source TEXT NOT NULL,
+            origin TEXT NOT NULL, destination TEXT NOT NULL, origin_airport TEXT, destination_airport TEXT,
+            departure_date TEXT NOT NULL, return_date TEXT NOT NULL, nights INTEGER NOT NULL,
+            price NUMERIC NOT NULL, currency TEXT NOT NULL, airline TEXT, flight_number TEXT, transfers INTEGER,
+            return_transfers INTEGER, deep_link TEXT, fetched_at TEXT NOT NULL, raw_json TEXT NOT NULL);
+        INSERT INTO fetch_runs (id, source, started_at, status) VALUES (1, 'test', '2026-10-01T00:00:00+00:00', 'ok');
+        INSERT INTO price_observations VALUES (1, 1, 'test', 'LIS', 'LON', 'LIS', 'LGW', '2026-11-01',
+            '2026-11-05', 4, 80, 'EUR', 'TP', '1', 0, 0, NULL, '2026-10-01T00:00:00+00:00', '{}');
+        PRAGMA user_version = 1;
+    """)
+    raw.close()
+    conn = db.connect(path)
+    db.init(conn)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+    obs = db.get_observation(conn, 1)
+    assert obs.price == 80 and obs.found_date is None

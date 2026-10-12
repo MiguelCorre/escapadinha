@@ -13,7 +13,9 @@ See README.md for usage and DECISIONS.md for rationale and the roadmap.
   outside tests (tests use `tmp_path`). Every deal must trace to `price_observations.id`.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in.
-- Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION` and add a migration step.
+- Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
+  installs) and add the ALTER steps to `MIGRATIONS` (existing DBs). Test the upgrade.
+- Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`.
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
 - Secrets only via `.env` (`Secrets` in `config.py`). Never commit `.env`, `data/`, `output/`.
 - Update README.md, CLAUDE.md and DECISIONS.md in the same commit as a feature.

@@ -1,15 +1,18 @@
 """Travelpayouts / Aviasales Data API client (v3 prices_for_dates).
 
 Data is a cache of prices Aviasales users found recently, so it is not live. We store
-every returned item verbatim (raw_json) together with our own fetched_at timestamp.
+every returned item verbatim (raw_json) with our own fetched_at timestamp and the day the
+price was actually found (`search_date` in the item's link), which can be days earlier.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
@@ -23,6 +26,46 @@ SOURCE = "travelpayouts"
 
 class TravelpayoutsError(RuntimeError):
     pass
+
+
+# "/search/LIS1811LON22111?..." -> local departure 18/11 and return 22/11 (then passengers).
+_LINK_DATES = re.compile(r"^/search/[A-Z]{3}(\d{2})(\d{2})[A-Z]{3}(\d{2})(\d{2})\d")
+
+
+def _near(day: int, month: int, utc_day: date) -> date | None:
+    """The date with this day/month that is within one day of the UTC date, if any."""
+    for year in (utc_day.year - 1, utc_day.year, utc_day.year + 1):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if abs(candidate - utc_day) <= timedelta(days=1):
+            return candidate
+    return None
+
+
+def local_dates(link: str | None, departure_utc: date, return_utc: date) -> tuple[date, date]:
+    """Local trip dates from the Aviasales link; API timestamps are UTC, which shifts
+    flights just after midnight to the previous day. Falls back to the UTC dates."""
+    m = _LINK_DATES.match(link or "")
+    if not m:
+        return departure_utc, return_utc
+    dep = _near(int(m[1]), int(m[2]), departure_utc)
+    ret = _near(int(m[3]), int(m[4]), return_utc)
+    if dep is None or ret is None:
+        return departure_utc, return_utc
+    return dep, ret
+
+
+def found_date(link: str | None) -> date | None:
+    """Day an Aviasales user found this price: `search_date=DDMMYYYY` in the link."""
+    if not link:
+        return None
+    values = parse_qs(urlsplit(link).query).get("search_date")
+    try:
+        return datetime.strptime(values[0], "%d%m%Y").date() if values else None
+    except ValueError:
+        return None
 
 
 def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: datetime,
@@ -41,12 +84,12 @@ def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: 
         departure_at, return_at = item.get("departure_at"), item.get("return_at")
         if not departure_at or not return_at or not isinstance(price, (int, float)) or price <= 0:
             continue
-        departure = datetime.fromisoformat(departure_at).date()
-        ret = datetime.fromisoformat(return_at).date()
+        link = item.get("link")
+        departure, ret = local_dates(link, datetime.fromisoformat(departure_at).date(),
+                                     datetime.fromisoformat(return_at).date())
         nights = (ret - departure).days
         if not (min_nights <= nights <= max_nights):
             continue
-        link = item.get("link")
         observations.append(Observation(
             source=SOURCE,
             origin=origin,
@@ -63,6 +106,7 @@ def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: 
             return_transfers=item.get("return_transfers"),
             deep_link=f"{AVIASALES_BASE}{link}" if link and link.startswith("/") else link,
             fetched_at=fetched_at,
+            found_date=found_date(link),
             raw_json=json.dumps(item, ensure_ascii=False, sort_keys=True),
         ))
     return observations

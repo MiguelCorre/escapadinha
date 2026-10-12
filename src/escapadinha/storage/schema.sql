@@ -1,4 +1,4 @@
--- Schema version 1. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 2 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS price_observations (
     return_transfers    INTEGER,
     deep_link           TEXT,
     fetched_at          TEXT    NOT NULL,
+    found_date          TEXT,               -- day a user found the price (source cache)
     raw_json            TEXT    NOT NULL
 );
 

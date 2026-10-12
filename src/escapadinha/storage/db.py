@@ -9,7 +9,12 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Steps that bring an existing database from version N-1 to N.
+MIGRATIONS = {
+    2: ["ALTER TABLE price_observations ADD COLUMN found_date TEXT"],
+}
 
 
 def utcnow() -> datetime:
@@ -32,7 +37,12 @@ def init(conn: sqlite3.Connection) -> None:
     current = conn.execute("PRAGMA user_version").fetchone()[0]
     if current > SCHEMA_VERSION:
         raise RuntimeError(f"Database schema v{current} is newer than this code (v{SCHEMA_VERSION})")
-    conn.executescript(files("escapadinha.storage").joinpath("schema.sql").read_text("utf-8"))
+    if current == 0:
+        conn.executescript(files("escapadinha.storage").joinpath("schema.sql").read_text("utf-8"))
+    else:
+        for version in range(current + 1, SCHEMA_VERSION + 1):
+            for statement in MIGRATIONS[version]:
+                conn.execute(statement)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
@@ -71,13 +81,14 @@ def insert_observations(conn: sqlite3.Connection, run_id: int, observations: lis
         """INSERT INTO price_observations (
                run_id, source, origin, destination, origin_airport, destination_airport,
                departure_date, return_date, nights, price, currency, airline, flight_number,
-               transfers, return_transfers, deep_link, fetched_at, raw_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               transfers, return_transfers, deep_link, fetched_at, found_date, raw_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [
             (run_id, o.source, o.origin, o.destination, o.origin_airport, o.destination_airport,
              o.departure_date.isoformat(), o.return_date.isoformat(), o.nights, o.price,
              o.currency, o.airline, o.flight_number, o.transfers, o.return_transfers,
-             o.deep_link, _ts(o.fetched_at), o.raw_json)
+             o.deep_link, _ts(o.fetched_at),
+             o.found_date.isoformat() if o.found_date else None, o.raw_json)
             for o in observations
         ],
     )
@@ -96,6 +107,7 @@ def _row_to_observation(row: sqlite3.Row) -> Observation:
         flight_number=row["flight_number"], transfers=row["transfers"],
         return_transfers=row["return_transfers"], deep_link=row["deep_link"],
         fetched_at=datetime.fromisoformat(row["fetched_at"]), raw_json=row["raw_json"],
+        found_date=date.fromisoformat(row["found_date"]) if row["found_date"] else None,
     )
 
 

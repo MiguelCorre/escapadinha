@@ -11,13 +11,14 @@ CFG = DetectorConfig(threshold=0.30, lookback_days=90, min_samples=5, min_histor
                      dedupe_days=7)
 
 
-def obs(price, *, days_ago=0.0, dep=date(2026, 11, 6), nights=4, airline="TP", oid=None):
+def obs(price, *, days_ago=0.0, dep=date(2026, 11, 6), nights=4, airline="TP", oid=None,
+        found=None):
     return Observation(
         id=oid, run_id=None, source="test", origin="LIS", destination="LON",
         origin_airport="LIS", destination_airport="LGW", departure_date=dep,
         return_date=dep + timedelta(days=nights), price=float(price), currency="EUR",
         airline=airline, flight_number="1", transfers=0, return_transfers=0, deep_link=None,
-        fetched_at=NOW - timedelta(days=days_ago), raw_json="{}",
+        fetched_at=NOW - timedelta(days=days_ago), raw_json="{}", found_date=found,
     )
 
 
@@ -155,3 +156,13 @@ def test_detect_route_with_no_history_never_flags_without_cap():
 
 def test_decision_is_value_object():
     assert Decision("no_deal", None, None, "x") == Decision("no_deal", None, None, "x")
+
+
+def test_stale_offers_are_never_flagged():
+    history = spread_history([100] * 6)
+    cfg = CFG.model_copy(update={"max_offer_age_days": 3})
+    stale = obs(50, oid=1, found=NOW.date() - timedelta(days=4))
+    fresh = obs(60, oid=2, dep=date(2026, 11, 20), found=NOW.date() - timedelta(days=3))
+    unknown = obs(65, oid=3, dep=date(2026, 11, 21), found=None)
+    flagged = detect_route([stale, fresh, unknown], history, [], cfg, None, NOW, max_deals=3)
+    assert [o.id for o, _ in flagged] == [2, 3]

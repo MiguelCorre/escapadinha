@@ -24,4 +24,4 @@
 {% if v.discount_pct %}<div><span class="badge">−{{ v.discount_pct }}% vs. preço mediano da rota</span></div>{% endif %}
 <div class="spacer"></div>
 {% endblock %}
-{% block footnote %}Encontrado a {{ v.found_at }} via {{ v.source_label }}.<br>Preços sujeitos a alterações e disponibilidade.{% endblock %}
+{% block footnote %}{% if v.found_on %}Encontrado a {{ v.found_on }} via {{ v.source_label }} · verificado a {{ v.checked_at }}.{% else %}Verificado a {{ v.checked_at }} via {{ v.source_label }}.{% endif %}<br>Preços sujeitos a alterações e disponibilidade.{% endblock %}

@@ -75,6 +75,13 @@ def _already_flagged(candidate: Observation, recent: list[Observation]) -> bool:
     )
 
 
+def is_stale(candidate: Observation, cfg: DetectorConfig, now: datetime) -> bool:
+    """The source cache can return prices users found days ago; those are not posted."""
+    if candidate.found_date is None:
+        return False
+    return (now.date() - candidate.found_date).days > cfg.max_offer_age_days
+
+
 def detect_route(candidates: list[Observation], history: list[Observation],
                  recently_flagged: list[Observation], cfg: DetectorConfig,
                  price_cap: float | None, now: datetime, max_deals: int
@@ -86,6 +93,8 @@ def detect_route(candidates: list[Observation], history: list[Observation],
 
     deals = []
     for candidate in sorted(candidates, key=lambda o: o.price):
+        if is_stale(candidate, cfg, now):
+            continue
         decision = evaluate(candidate, base, cfg, price_cap)
         if decision.kind != "deal" or _already_flagged(candidate, recent):
             continue

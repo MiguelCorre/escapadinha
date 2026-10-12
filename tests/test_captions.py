@@ -90,7 +90,13 @@ def test_deal_caption_contains_price_dates_and_traceable_timestamp():
     assert "Lisboa → Amesterdão desde 58 € ida e volta" in text
     assert "27 de novembro a 4 de dezembro · 7 noites" in text
     assert "7 noites\n🛫 Transavia · voos diretos\n📉 41% abaixo do preço mediano" in text
-    assert "encontrado a 12/10/2026 às 10:14 (hora de Lisboa) via Aviasales" in text
+    assert "verificado a 12/10/2026 às 10:14 (hora de Lisboa) via Aviasales" in text
+
+
+def test_caption_states_when_price_was_found_and_when_checked():
+    text = caption(o=observation(found_date=date(2026, 10, 9)))
+    assert ("Preço por pessoa encontrado a 09/10/2026 via Aviasales e verificado a "
+            "12/10/2026 às 10:14 (hora de Lisboa).") in text
 
 
 def test_deal_caption_always_has_disclosure():

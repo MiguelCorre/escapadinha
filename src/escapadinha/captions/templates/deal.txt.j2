@@ -5,7 +5,7 @@
 {{ line }}
 {% endfor %}
 
-Preço por pessoa encontrado a {{ v.found_at }} (hora de Lisboa) via {{ v.source_label }}. Os preços mudam rapidamente e podem já não estar disponíveis.
+{% if v.found_on %}Preço por pessoa encontrado a {{ v.found_on }} via {{ v.source_label }} e verificado a {{ v.checked_at }} (hora de Lisboa).{% else %}Preço por pessoa verificado a {{ v.checked_at }} (hora de Lisboa) via {{ v.source_label }}.{% endif %} Os preços mudam rapidamente e podem já não estar disponíveis.
 
 🔗 Link na bio para ver as datas e reservar.
 

@@ -45,6 +45,7 @@ class DetectorConfig(BaseModel):
     min_history_days: int = Field(7, ge=0)
     dedupe_days: int = Field(7, ge=0)
     max_deals_per_route: int = Field(1, ge=1)
+    max_offer_age_days: int = Field(3, ge=0)
 
 
 class Route(BaseModel):

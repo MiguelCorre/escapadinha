@@ -19,6 +19,7 @@ detector:
   min_history_days: 7        # history must span at least this many days
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
   max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
+  max_offer_age_days: 3      # skip deals whose price was found by users longer ago than this
 
 # City or airport IATA codes. Travelpayouts accepts city codes (LON, PAR, ROM, MIL).
 # price_cap_eur (optional): absolute ceiling used ONLY while history is insufficient.

@@ -6,7 +6,8 @@ route's own historical median, and renders Instagram carousel slides (1080×1350
 pt-PT captions into `./output/<date>/` **for manual review. v1 does not publish anything.**
 
 **Integrity rule:** every price shown comes from a stored API observation (`price_observations`)
-with its source, `fetched_at` timestamp and the verbatim API item (`raw_json`). Nothing is
+with its source, `fetched_at` timestamp, the day a traveller found it (`found_date`) and the
+verbatim API item (`raw_json`). Nothing is
 estimated or invented. Each rendered deal carries a `meta.json` pointing back to that row.
 
 ## Pipeline
@@ -84,6 +85,8 @@ Output for review lives in `output/<YYYY-MM-DD>/`:
   - `min_samples: 20` and `min_history_days: 7` decide when history is mature enough to trust.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
   - `max_deals_per_route: 1` caps deals per route per run.
+  - `max_offer_age_days: 3` skips prices that travellers found longer ago than this. The API is a
+    cache, and real responses contain prices up to a week old.
 
 ### How "too little history" is handled
 The median counts each offer at most once per day, because the source is a cache and
@@ -122,14 +125,16 @@ Bahnschrift or Segoe UI Black (Windows system fonts). Drop an OFL display font a
 uv run pytest               # all tests (the 'browser' test renders real PNGs, ~3 s)
 uv run pytest -m "not browser"
 ```
-`tests/fixtures/prices_for_dates_LIS_LON.json` is a **synthetic** fixture shaped like the API
-response. Replace it with a recorded real response once you have a token.
+- `tests/fixtures/prices_for_dates_LIS_LON.json` is **synthetic** and covers the edge cases.
+- `recorded_prices_for_dates_LIS_LON_2026-11.json` is a real response recorded on 2026-10-12.
 
 ## Data sources and terms
 
 - **Travelpayouts / Aviasales Data API**: a cache of prices users found recently (not live).
-  The limit is 600 req/min on v3 endpoints. Captions always state when and where the price
-  was found and that prices change.
+  The limit is 600 req/min on v3 endpoints. Each item's link carries `search_date`, the day a
+  user found the price, which can be several days old. Captions state both that date and when
+  we checked it, and that prices change. Times are UTC, so trip dates are taken from the link's
+  local dates.
 - **Pixabay**: free commercial use under the Pixabay Content License. The API forbids
   hotlinking, so photos are downloaded once and cached, and every caption credits the
   contributor. Standard keys get `largeImageURL` (max 1280 px, slightly upscaled to

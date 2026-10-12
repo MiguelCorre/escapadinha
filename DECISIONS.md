@@ -54,6 +54,13 @@ first item's ratio.
 Headlines use Bahnschrift or Segoe UI Black. `assets/fonts/display.ttf` (OFL) is picked up
 when present. This keeps the repo free of third-party font binaries until a brand font is chosen.
 
+## D10: Found date vs fetched date (2026-10-12)
+The first real response showed that `prices_for_dates` returns prices users found up to about
+7 days earlier (the link's `search_date`), not only the last 48 hours. We store `found_date`
+(schema v2). Captions say "encontrado a <found> … verificado a <fetched>". The detector skips
+offers older than `max_offer_age_days`. API timestamps are UTC, so local trip dates are read
+from the link path (`LIS1811LON2211` → 18/11, 22/11) with UTC as the fallback.
+
 ## D8: Stack
 Python 3.14 via uv (latest stable), typer, httpx, pydantic-settings, stdlib sqlite3
 (plain SQL, `PRAGMA user_version` for schema versioning), jinja2, playwright, pytest + respx.

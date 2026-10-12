@@ -50,6 +50,7 @@ class RouteDetection:
     status: str                 # deals | no_deal | insufficient_history | no_data
     deal_ids: list[int]
     note: str
+    cheapest: float | None = None
 
 
 def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None,
@@ -86,7 +87,7 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
         sample = detector.evaluate(cheapest, base, cfg, route.price_cap_eur)
         status = "deals" if deal_ids else sample.kind
         results.append(RouteDetection(route.key, len(candidates), base, status, deal_ids,
-                                      f"cheapest: {sample.reason}"))
+                                      sample.reason, cheapest.price))
     return run_id, results
 
 

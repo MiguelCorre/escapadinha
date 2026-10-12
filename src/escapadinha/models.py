@@ -26,6 +26,7 @@ class Observation:
     deep_link: str | None
     fetched_at: datetime
     raw_json: str
+    found_date: date | None = None   # when a user found the price (source cache), if known
     run_id: int | None = None
     id: int | None = None
 
