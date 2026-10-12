@@ -1,7 +1,7 @@
 # Escapadinha configuration. Secrets live in .env, never here.
 
 brand:
-  name: Escapadinha
+  name: "Onde está a Nocas?"
   handle: "@ondestaanocas"    # real Instagram account (name may change later)
 
 collector:
@@ -45,6 +45,13 @@ routes:
 affiliate:
   project_id: 584711
   shorten: true
+
+# Public website (static, rebuilt every run, deployed to Cloudflare Pages when it changed).
+site:
+  base_url: https://ondestaanocas.pages.dev   # switch to the .pt domain once bought
+  cloudflare_project: ondestaanocas
+  wrangler_version: 4.149.0
+  analytics_token: null                       # Cloudflare Web Analytics token (cookieless), optional
 
 origins_pt:
   LIS: Lisboa

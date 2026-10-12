@@ -1,0 +1,34 @@
+{% extends "base.html.j2" %}
+{% from "macros.html.j2" import deal_card %}
+{% block title %}Voos baratos de {{ r.origin_city }} para {{ r.route.city_pt }} · {{ brand.name }}{% endblock %}
+{% block description %}Promoções de voos diretos de {{ r.origin_city }} para {{ r.route.city_pt }} e o preço mínimo habitual de ida e volta por mês, com base nos preços que acompanhamos.{% endblock %}
+{% block content %}
+<p class="lead" style="font-size:14px"><a href="/">Promoções</a> › {{ r.origin_city }} → {{ r.route.city_pt }}</p>
+<h1>Voos baratos de {{ r.origin_city }} para {{ r.route.city_pt }}</h1>
+<p class="lead">Acompanhamos esta rota várias vezes por dia. Aqui estão as promoções ativas e o preço mínimo habitual de ida e volta em voos diretos, para saberes se um preço é mesmo bom.</p>
+
+<h2>Promoções ativas</h2>
+{% if r.live %}
+<div class="grid">{% for d in r.live %}{{ deal_card(d) }}{% endfor %}</div>
+{% else %}
+<p class="empty">Não há promoções ativas nesta rota neste momento.</p>
+{% endif %}
+
+<h2>Preço mínimo habitual por mês de partida</h2>
+{% if r.months %}
+<table>
+  <thead><tr><th>Partida em</th><th>Mínimo habitual</th><th>Dias de dados</th></tr></thead>
+  <tbody>
+  {% for label, price, days in r.months %}<tr><td>{{ label }}</td><td class="num">{{ price }}</td><td>{{ days }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+<p class="lead" style="font-size:14px; margin-top:10px">Mediana dos preços mais baixos encontrados em cada dia, por pessoa, ida e volta, voos diretos. Não é uma garantia de preço.</p>
+{% else %}
+<p class="empty">Ainda estamos a recolher dados suficientes para esta rota.</p>
+{% endif %}
+
+{% if r.recent %}
+<h2>Promoções recentes (já expiradas)</h2>
+<div class="grid">{% for d in r.recent %}{{ deal_card(d) }}{% endfor %}</div>
+{% endif %}
+{% endblock %}

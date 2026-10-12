@@ -1,0 +1,18 @@
+{% extends "base.html.j2" %}
+{% block title %}Privacidade · {{ brand.name }}{% endblock %}
+{% block description %}Que dados este site recolhe (quase nenhuns) e o que acontece quando clicas num link de afiliado.{% endblock %}
+{% block content %}
+<article class="prose">
+<h1>Privacidade</h1>
+<p class="lead">Este site não tem contas, formulários nem newsletter, e não usa cookies próprios.</p>
+
+<h2>O que acontece quando visitas o site</h2>
+<p>O site está alojado na Cloudflare (Cloudflare Pages). Como qualquer servidor web, a Cloudflare processa dados técnicos do pedido, como o endereço IP e o navegador, para entregar as páginas e proteger o serviço.{% if site.analytics_token %} Usamos também o Cloudflare Web Analytics para contar visitas de forma agregada; não usa cookies nem identifica visitantes individualmente.{% endif %}</p>
+
+<h2>Links de afiliado</h2>
+<p>Quando clicas em "Ver voo e reservar", passas pela Travelpayouts e segues para o site parceiro (Aviasales). Esses serviços podem usar cookies para registar que vieste daqui e atribuir a comissão de uma eventual reserva. O que fazem com os teus dados é regido pelas políticas de privacidade deles.</p>
+
+<h2>Contacto</h2>
+<p>Para qualquer questão sobre privacidade, envia mensagem no Instagram <a href="https://www.instagram.com/{{ brand.handle.lstrip('@') }}/">{{ brand.handle }}</a>.</p>
+</article>
+{% endblock %}

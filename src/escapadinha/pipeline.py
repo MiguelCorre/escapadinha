@@ -317,7 +317,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
             out_dir = out_root / f"deal-{obs.origin}-{obs.destination}-{deal.id}"
             renderer.render_deal(view, photo_path, out_dir)
             _write_text(out_dir / "caption.txt",
-                        deal_caption(view, brand_name=ctx.config.brand.name))
+                        deal_caption(view, brand_name=ctx.config.brand.handle.lstrip("@")))
             _write_text(out_dir / "meta.json",
                         json.dumps(view.meta(deal, obs, ctx.config.collector.booking_base),
                                    ensure_ascii=False, indent=2))

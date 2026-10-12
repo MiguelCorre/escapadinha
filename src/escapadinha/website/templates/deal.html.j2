@@ -1,0 +1,51 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ d.view.origin_city }} → {{ d.view.destination_headline }} desde {{ d.view.price }} ida e volta · {{ brand.name }}{% endblock %}
+{% block description %}{{ d.view.origin_city }} → {{ d.view.destination_headline }}, {{ d.view.dates }} ({{ d.view.nights }}), desde {{ d.view.price }} ida e volta.{% if not d.live %} Promoção expirada.{% endif %}{% endblock %}
+{% block robots %}{% if not d.live %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
+{% block og_image %}{% if d.og_image %}<meta property="og:image" content="{{ site.base_url }}{{ d.og_image }}">
+<meta property="og:image:width" content="1080"><meta property="og:image:height" content="1350">{% endif %}{% endblock %}
+{% block style %}
+.deal { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+.slides { display: grid; grid-auto-flow: column; grid-auto-columns: 86%; gap: 10px; overflow-x: auto;
+  scroll-snap-type: x mandatory; padding-bottom: 6px; border-radius: var(--radius); }
+.slides img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 12px; scroll-snap-align: start; background: var(--line); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 18px 0; }
+dt { color: var(--muted); } dd { margin: 0; font-weight: 600; }
+.big { font: 800 clamp(40px, 9vw, 56px) var(--display); letter-spacing: -1px; margin: 4px 0 0; }
+.small { color: var(--muted); font-size: 14px; }
+.expired .big { text-decoration: line-through; color: var(--muted); }
+@media (max-width: 760px) { .deal { grid-template-columns: 1fr; } }
+{% endblock %}
+{% block content %}
+<p class="small"><a href="/">Promoções</a> › <a href="{{ route.url }}">{{ route.origin_city }} → {{ route.route.city_pt }}</a></p>
+<div class="deal{% if not d.live %} expired{% endif %}">
+  <div>
+    {% if d.images %}
+    <div class="slides" aria-label="Imagens da promoção">
+      {% for img in d.images %}<img src="{{ img }}" alt="Imagem {{ loop.index }} da promoção {{ d.view.origin_city }} → {{ d.view.destination_city }}" width="1080" height="1350" {% if not loop.first %}loading="lazy"{% endif %}>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  <div>
+    <h1>{{ d.view.origin_city }} → {{ d.view.destination_headline }}</h1>
+    {% if not d.live %}
+    <div class="notice bad"><strong>Esta promoção já expirou.</strong> O preço mudou ou deixou de estar disponível{% if d.deal.expired_reason %} ({{ d.deal.expired_reason }}){% endif %}. Vê as <a href="/">promoções ativas</a>.</div>
+    {% endif %}
+    <p class="big">{{ d.view.price }}</p>
+    <p class="small">por pessoa, ida e volta</p>
+    <dl>
+      <dt>Datas</dt><dd>{{ d.view.departure_short }} – {{ d.view.return_short }} ({{ d.view.nights }})</dd>
+      {% if d.view.airline %}<dt>Companhia</dt><dd>{{ d.view.airline }}</dd>{% endif %}
+      {% if d.view.direct is not none %}<dt>Voos</dt><dd>{{ "Diretos" if d.view.direct else "Com escala" }}</dd>{% endif %}
+      {% if d.view.arrival_airport %}<dt>Chegada</dt><dd>Aeroporto {{ d.view.arrival_airport }}</dd>{% endif %}
+      {% if d.view.discount_pct %}<dt>Desconto</dt><dd>{{ d.view.discount_pct }}% abaixo do preço mínimo habitual em {{ d.view.departure_month }}</dd>{% endif %}
+      <dt>Preço visto</dt><dd>{% if d.view.found_on %}encontrado a {{ d.view.found_on }} · {% endif %}verificado a {{ d.checked }}</dd>
+    </dl>
+    {% if d.live and d.deal.affiliate_url %}
+    <p><a class="btn" href="{{ d.deal.affiliate_url }}" rel="sponsored nofollow noopener" target="_blank">Ver voo e reservar →</a></p>
+    <p class="small">Abre o site parceiro (Aviasales) em euros. O preço pode já ter mudado: confirma o valor final, a bagagem incluída e o aeroporto antes de pagar.</p>
+    {% endif %}
+    <p class="small"><strong>Publicidade:</strong> link de afiliado. Se reservares, podemos receber uma comissão, sem custo extra para ti.</p>
+  </div>
+</div>
+{% endblock %}

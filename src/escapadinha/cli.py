@@ -13,6 +13,7 @@ from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
 from escapadinha.review import ReviewError
+from escapadinha.website.deploy import DeployError
 from escapadinha.config import Context
 from escapadinha.storage import db
 
@@ -21,11 +22,14 @@ app = typer.Typer(help="Travel deals from Portugal: collect → detect → rende
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
                          no_args_is_help=True)
+site_app = typer.Typer(help="Public website: build, preview, deploy (Cloudflare Pages).",
+                       no_args_is_help=True)
 deal_app = typer.Typer(help="Approval queue actions (same rules as the review page).",
                        no_args_is_help=True)
 app.add_typer(photos_app, name="photos")
 app.add_typer(render_app, name="render")
 app.add_typer(deal_app, name="deal")
+app.add_typer(site_app, name="site")
 
 console = Console()
 
@@ -205,6 +209,51 @@ def deal_published(deal_id: int, url: Annotated[str | None, typer.Option(help="P
     console.print(f"  deal {deal.id}: {deal.status}")
 
 
+@site_app.command("build")
+def site_build() -> None:
+    """Generate the static site into ./site from the database."""
+    from escapadinha.website import build_site
+
+    ctx, conn = _ctx()
+    summary = build_site(ctx, conn)
+    console.print(f"Site built in [bold]{ctx.site_dir}[/]: {summary['live_deals']} live deals, "
+                  f"{summary['expired_pages']} expired pages, {summary['routes']} routes, "
+                  f"{summary['guides']} guides")
+
+
+@site_app.command("preview")
+def site_preview(port: Annotated[int, typer.Option()] = 8766) -> None:
+    """Serve ./site locally (http://127.0.0.1:PORT)."""
+    import functools
+    import http.server
+
+    ctx = Context()
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ctx.site_dir))
+    console.print(f"Site preview at [bold]http://127.0.0.1:{port}[/] (Ctrl+C to stop)")
+    http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
+
+
+@site_app.command("setup")
+def site_setup() -> None:
+    """One-time: create the Cloudflare Pages project."""
+    from escapadinha.website.deploy import create_project
+
+    console.print(create_project(Context()))
+
+
+@site_app.command("deploy")
+def site_deploy(force: Annotated[bool, typer.Option(help="Deploy even if unchanged")] = False) -> None:
+    """Upload ./site to Cloudflare Pages if it changed since the last deploy."""
+    from escapadinha.website.deploy import deploy
+
+    deployed, message = deploy(Context(), force=force)
+    console.print(("[green]Deployed:[/] " if deployed else "") + message)
+
+
+def _site_configured(ctx: Context) -> bool:
+    return bool(ctx.secrets.cloudflare_api_token and ctx.secrets.cloudflare_account_id)
+
+
 @app.command()
 def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
     """collect → recheck open deals → detect → render new deals. What the scheduler runs."""
@@ -213,13 +262,18 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
     detect()
     if render:
         render_deals()
+    site_build()
+    if _site_configured(Context()):
+        site_deploy()
+    else:
+        console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
 
 
 def main() -> None:
     try:
         app()
-    except (TravelpayoutsError, PhotoSourceError, AffiliateError, ReviewError, FileNotFoundError,
-            KeyError) as exc:
+    except (TravelpayoutsError, PhotoSourceError, AffiliateError, ReviewError, DeployError,
+            FileNotFoundError, KeyError) as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise SystemExit(2) from None
 

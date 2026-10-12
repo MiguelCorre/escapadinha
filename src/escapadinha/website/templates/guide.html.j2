@@ -1,0 +1,15 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ g.guide.title }} · {{ brand.name }}{% endblock %}
+{% block description %}{{ g.guide.subtitle or g.guide.title }}{% endblock %}
+{% block og_image %}{% if g.images %}<meta property="og:image" content="{{ site.base_url }}{{ g.images[0] }}">{% endif %}{% endblock %}
+{% block content %}
+<article class="prose">
+  <p class="lead" style="font-size:14px"><a href="/">Início</a> › Guias</p>
+  <h1>{{ g.guide.title }}</h1>
+  {% if g.guide.subtitle %}<p class="lead">{{ g.guide.subtitle }}</p>{% endif %}
+  <ol>
+  {% for tip in g.guide.tips %}<li><h3>{{ tip.title }}</h3><p>{{ tip.body }}</p></li>{% endfor %}
+  </ol>
+  {% if g.guide.affiliate %}<p class="lead" style="font-size:14px"><strong>Publicidade:</strong> este guia contém links de afiliado.</p>{% endif %}
+</article>
+{% endblock %}

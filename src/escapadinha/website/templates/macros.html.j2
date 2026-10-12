@@ -1,0 +1,12 @@
+{% macro deal_card(d) %}
+<a class="card" href="{{ d.url }}">
+  <div class="img">{% if d.thumb %}<img src="{{ d.thumb }}" alt="{{ d.view.origin_city }} para {{ d.view.destination_city }}, desde {{ d.view.price }}" width="540" height="675" loading="lazy">{% endif %}</div>
+  <div class="body">
+    {% if d.view.discount_pct %}<span class="tag">−{{ d.view.discount_pct }}% vs. habitual</span>{% endif %}
+    <span class="route">{{ d.view.origin_city }} → {{ d.view.destination_headline }}</span>
+    <span class="price">{{ d.view.price }} <small style="font: 600 14px var(--text); color: var(--muted)">ida e volta</small></span>
+    <span class="meta">{{ d.view.dates }} · {{ d.view.nights }}</span>
+    <span class="meta">Verificado a {{ d.checked }}</span>
+  </div>
+</a>
+{% endmacro %}

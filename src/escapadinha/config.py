@@ -22,6 +22,8 @@ class Secrets(BaseSettings):
     travelpayouts_token: str = ""
     travelpayouts_marker: str = ""
     pixabay_api_key: str = ""
+    cloudflare_api_token: str = ""
+    cloudflare_account_id: str = ""
 
 
 class Brand(BaseModel):
@@ -61,6 +63,14 @@ class Route(BaseModel):
         return f"{self.origin}-{self.destination}"
 
 
+class SiteConfig(BaseModel):
+    base_url: str = "https://ondestaanocas.pages.dev"   # canonical URLs, sitemap, OG tags
+    cloudflare_project: str = "ondestaanocas"
+    wrangler_version: str = "4.149.0"
+    analytics_token: str | None = None   # Cloudflare Web Analytics (cookieless), optional
+    recent_expired: int = 6              # expired deals listed per route page
+
+
 class AffiliateConfig(BaseModel):
     project_id: int | None = None   # Travelpayouts Project ("trs") subscribed to Aviasales
     shorten: bool = True
@@ -78,6 +88,7 @@ class AppConfig(BaseModel):
     origins_pt: dict[str, str] = {}
     photos: PhotosConfig = PhotosConfig()
     affiliate: AffiliateConfig = AffiliateConfig()
+    site: SiteConfig = SiteConfig()
 
     def route(self, key: str) -> Route:
         for r in self.routes:
@@ -119,6 +130,10 @@ class Context:
     @property
     def assets_dir(self) -> Path:
         return self.root / "assets"
+
+    @property
+    def site_dir(self) -> Path:
+        return self.root / "site"
 
     @property
     def guides_dir(self) -> Path:
