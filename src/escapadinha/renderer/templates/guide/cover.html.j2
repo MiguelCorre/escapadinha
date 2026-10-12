@@ -1,0 +1,15 @@
+{% extends "base.html.j2" %}
+{% block scrim_class %}tall{% endblock %}
+{% block style %}
+.title { font-size: 150px; line-height: 1.02; }
+.subtitle { font-size: 46px; line-height: 1.25; margin-top: 30px; max-width: 880px; font-weight: 600; }
+.swipe { margin-top: 44px; font-family: var(--display); font-weight: 700; font-size: 36px;
+  letter-spacing: 2px; text-transform: uppercase; color: var(--sun); }
+{% endblock %}
+{% block kicker %}<div class="kicker">{{ g.kicker }}</div>{% endblock %}
+{% block body %}
+<div class="spacer"></div>
+<div class="display title">{{ g.title }}</div>
+{% if g.subtitle %}<div class="subtitle">{{ g.subtitle }}</div>{% endif %}
+<div class="swipe">Desliza →</div>
+{% endblock %}

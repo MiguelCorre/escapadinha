@@ -1,0 +1,15 @@
+{{ g.caption.strip() }}
+
+{% for tip in g.tips %}{{ loop.index }}. {{ tip.title }}
+{% endfor %}
+💾 {{ g.cta }}
+{% if g.affiliate %}
+
+{{ disclosure }}
+{% endif %}
+{% if photo.caption_line %}
+
+{{ photo.caption_line }}
+{% endif %}
+
+{{ g.hashtags | join(" ") }}

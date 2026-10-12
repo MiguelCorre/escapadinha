@@ -1,0 +1,15 @@
+{% extends "base.html.j2" %}
+{% block photo_class %}dim{% endblock %}
+{% block style %}
+.num { font-family: var(--display); font-weight: 800; font-size: 220px; line-height: .9; color: var(--sun);
+  margin-top: 60px; }
+.tip-title { font-size: 84px; margin-top: 28px; }
+.tip-body { font-size: 44px; line-height: 1.4; margin-top: 36px; max-width: 900px; }
+{% endblock %}
+{% block kicker %}<div class="kicker">{{ g.kicker }}</div>{% endblock %}
+{% block body %}
+<div class="num">{{ "%02d" | format(index) }}</div>
+<div class="display tip-title">{{ tip.title }}</div>
+<div class="tip-body">{{ tip.body }}</div>
+<div class="spacer"></div>
+{% endblock %}

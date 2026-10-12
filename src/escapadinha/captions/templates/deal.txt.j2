@@ -1,0 +1,18 @@
+✈️ {{ v.origin_city }} → {{ v.destination_city }} desde {{ v.price }} ida e volta!
+
+📅 {{ v.dates }} · {{ v.nights }}
+{% for line in detail_lines %}
+{{ line }}
+{% endfor %}
+
+Preço por pessoa encontrado a {{ v.found_at }} (hora de Lisboa) via {{ v.source_label }}. Os preços mudam rapidamente e podem já não estar disponíveis.
+
+🔗 Link na bio para ver as datas e reservar.
+
+{{ v.disclosure }}
+{% if v.photo.caption_line %}
+
+{{ v.photo.caption_line }}
+{% endif %}
+
+{{ hashtags | join(" ") }}

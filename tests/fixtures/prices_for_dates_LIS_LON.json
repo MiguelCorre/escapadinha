@@ -1,0 +1,49 @@
+{
+  "_comment": "SYNTHETIC fixture shaped like /aviasales/v3/prices_for_dates. Test data only; replace with a recorded real response once a token is available.",
+  "success": true,
+  "currency": "eur",
+  "data": [
+    {
+      "origin": "LIS", "destination": "LON", "origin_airport": "LIS", "destination_airport": "LGW",
+      "price": 58, "airline": "U2", "flight_number": "8540",
+      "departure_at": "2026-11-06T06:15:00+00:00", "return_at": "2026-11-09T21:40:00+00:00",
+      "transfers": 0, "return_transfers": 0, "duration": 330,
+      "link": "/search/LIS0611LON09111?t=U217624098001762410900000155LISLGW_test&search_date=12102026"
+    },
+    {
+      "origin": "LIS", "destination": "LON", "origin_airport": "LIS", "destination_airport": "STN",
+      "price": 71, "airline": "FR", "flight_number": "1893",
+      "departure_at": "2026-11-13T10:05:00+00:00", "return_at": "2026-11-27T12:00:00+00:00",
+      "transfers": 0, "return_transfers": 0, "duration": 320,
+      "link": "/search/LIS1311LON27111?t=test"
+    },
+    {
+      "origin": "LIS", "destination": "LON", "origin_airport": "LIS", "destination_airport": "LHR",
+      "price": 96, "airline": "TP", "flight_number": "1350",
+      "departure_at": "2026-11-20T07:30:00+00:00",
+      "transfers": 0, "duration": 160,
+      "link": "/search/LIS2011LON1?t=test"
+    },
+    {
+      "origin": "LIS", "destination": "LON", "origin_airport": "LIS", "destination_airport": "LHR",
+      "price": 104, "airline": "TP", "flight_number": "1352",
+      "departure_at": "2026-11-21T07:30:00+00:00", "return_at": "2026-11-22T19:00:00+00:00",
+      "transfers": 0, "return_transfers": 0, "duration": 320,
+      "link": "/search/LIS2111LON22111?t=test"
+    },
+    {
+      "origin": "LIS", "destination": "LON", "origin_airport": "LIS", "destination_airport": "LTN",
+      "price": 0, "airline": "W6", "flight_number": "7770",
+      "departure_at": "2026-11-24T07:30:00+00:00", "return_at": "2026-11-28T19:00:00+00:00",
+      "transfers": 1, "return_transfers": 1, "duration": 500,
+      "link": "/search/LIS2411LON28111?t=test"
+    },
+    {
+      "origin": "LIS", "destination": "LON", "origin_airport": "LIS", "destination_airport": "LGW",
+      "price": 89, "airline": "BA", "flight_number": "501",
+      "departure_at": "2026-11-27T12:10:00+00:00", "return_at": "2026-12-04T09:00:00+00:00",
+      "transfers": 1, "return_transfers": 0, "duration": 480,
+      "link": "/search/LIS2711LON04121?t=test"
+    }
+  ]
+}

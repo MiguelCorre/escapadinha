@@ -1,0 +1,27 @@
+{% extends "base.html.j2" %}
+{% block photo_class %}dim{% endblock %}
+{% block style %}
+.title { font-size: 92px; margin: 70px 0 54px; }
+.rows { display: flex; flex-direction: column; gap: 26px; }
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: 30px;
+  padding-bottom: 22px; border-bottom: 2px solid rgba(255,255,255,.22); }
+.row .k { font-size: 34px; color: var(--ink-soft); }
+.row .val { font-family: var(--display); font-weight: 700; font-size: 50px; text-align: right; }
+.badge { margin-top: 44px; display: inline-block; font-family: var(--display); font-weight: 800;
+  font-size: 46px; background: var(--sun); color: #1a1a1a; padding: 14px 26px; border-radius: 18px; }
+{% endblock %}
+{% block kicker %}<div class="kicker">Detalhes</div>{% endblock %}
+{% block body %}
+<div><div class="display title fit">{{ v.destination_city }}</div></div>
+<div class="rows">
+  <div class="row"><span class="k">Ida</span><span class="val">{{ v.departure_short }}</span></div>
+  <div class="row"><span class="k">Volta</span><span class="val">{{ v.return_short }}</span></div>
+  <div class="row"><span class="k">Duração</span><span class="val">{{ v.nights }}</span></div>
+  {% if v.airline %}<div class="row"><span class="k">Companhia</span><span class="val">{{ v.airline }}</span></div>{% endif %}
+  {% if v.direct is not none %}<div class="row"><span class="k">Voos</span><span class="val">{{ "Diretos" if v.direct else "Com escala" }}</span></div>{% endif %}
+  <div class="row"><span class="k">Preço</span><span class="val">{{ v.price }}</span></div>
+</div>
+{% if v.discount_pct %}<div><span class="badge">−{{ v.discount_pct }}% vs. preço mediano da rota</span></div>{% endif %}
+<div class="spacer"></div>
+{% endblock %}
+{% block footnote %}Encontrado a {{ v.found_at }} via {{ v.source_label }}.<br>Preços sujeitos a alterações e disponibilidade.{% endblock %}

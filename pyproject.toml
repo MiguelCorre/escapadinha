@@ -1,0 +1,35 @@
+[project]
+name = "escapadinha"
+version = "0.1.0"
+description = "Travel deals automation for the Portuguese market: collect, detect, render (no publishing in v1)."
+readme = "README.md"
+authors = [
+    { name = "Miguel Correia", email = "miguelahpc@hotmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "playwright>=1.63.0",
+    "pydantic-settings>=2.15.0",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.3",
+    "tzdata>=2026.5",
+]
+
+[project.scripts]
+escapadinha = "escapadinha.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "respx>=0.23.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["browser: renders with Playwright Chromium (slower)"]

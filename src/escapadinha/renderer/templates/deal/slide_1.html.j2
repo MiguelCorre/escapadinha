@@ -1,0 +1,17 @@
+{% extends "base.html.j2" %}
+{% block style %}
+.route { font-size: 76px; margin-bottom: 18px; }
+.route .arrow { color: var(--sun); }
+.lead { font-family: var(--display); font-weight: 700; font-size: 44px; text-transform: uppercase;
+  letter-spacing: 2px; color: var(--ink-soft); }
+.price { font-size: 300px; line-height: .9; margin: 6px 0 30px -8px; letter-spacing: -6px; }
+{% endblock %}
+{% block kicker %}<div class="kicker">Promo voo</div>{% endblock %}
+{% block body %}
+<div class="spacer"></div>
+<div><div class="display route fit">{{ v.origin_city }} <span class="arrow">→</span> {{ v.destination_city }}</div></div>
+<div class="lead">ida e volta desde</div>
+<div><div class="display price fit">{{ v.price_compact }}</div></div>
+<div><span class="pill">{{ v.departure_short }} – {{ v.return_short }} · {{ v.nights }}</span></div>
+{% endblock %}
+{% block footnote %}Preço por pessoa · encontrado a {{ v.found_at }}{% endblock %}

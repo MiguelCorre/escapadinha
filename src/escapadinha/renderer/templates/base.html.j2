@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<style>
+{% if display_font_uri %}
+@font-face { font-family: "Escapadinha Display"; src: url("{{ display_font_uri }}"); font-weight: 100 900; }
+{% endif %}
+:root {
+  --w: 1080px; --h: 1350px;
+  --pad: 84px;
+  --white: #ffffff;
+  --accent: #FF6B4A;          /* placeholder brand coral */
+  --accent-ink: #ffffff;
+  --sun: #FFD23F;
+  --ink-soft: rgba(255,255,255,.86);
+  --fallback-a: #0E3B43;      /* used when no photo is cached */
+  --fallback-b: #1F7A8C;
+  --display: "Escapadinha Display", "Bahnschrift", "Segoe UI Black", "Arial Black", sans-serif;
+  --text: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: var(--w); height: var(--h); overflow: hidden; background: #000; }
+body { font-family: var(--text); color: var(--white); -webkit-font-smoothing: antialiased; }
+.slide { position: relative; width: var(--w); height: var(--h); overflow: hidden;
+  background: linear-gradient(160deg, var(--fallback-a), var(--fallback-b)); }
+.photo { position: absolute; inset: 0; background-size: cover; background-position: center; }
+.photo.dim { filter: brightness(.5) saturate(1.05) blur(4px); transform: scale(1.06); }
+.scrim { position: absolute; inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%),
+    linear-gradient(0deg, rgba(0,0,0,.82) 0%, rgba(0,0,0,.45) 38%, rgba(0,0,0,0) 62%); }
+.scrim.tall { background:
+    linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%),
+    linear-gradient(0deg, rgba(0,0,0,.85) 0%, rgba(0,0,0,.6) 50%, rgba(0,0,0,.25) 75%, rgba(0,0,0,0) 90%); }
+.content { position: absolute; inset: 0; padding: var(--pad); display: flex; flex-direction: column; }
+.top { display: flex; justify-content: space-between; align-items: center; }
+.logo { height: 52px; opacity: .95; }
+.logo svg { height: 52px; width: auto; display: block; }
+.kicker { font-family: var(--display); font-weight: 700; font-size: 30px; letter-spacing: 3px;
+  text-transform: uppercase; background: var(--accent); color: var(--accent-ink);
+  padding: 12px 22px; border-radius: 999px; }
+.spacer { flex: 1; }
+.display { font-family: var(--display); font-weight: 800; line-height: 1.02; text-transform: uppercase;
+  letter-spacing: -1px; text-shadow: 0 2px 6px rgba(0,0,0,.35), 0 4px 24px rgba(0,0,0,.35); }
+.fit { display: inline-block; white-space: nowrap; }
+.pill { display: inline-block; font-weight: 700; font-size: 34px; padding: 14px 26px;
+  border-radius: 999px; background: rgba(255,255,255,.16); border: 2px solid rgba(255,255,255,.5);
+  backdrop-filter: blur(6px); }
+.small { font-size: 24px; color: var(--ink-soft); line-height: 1.35; }
+.footer { margin-top: 28px; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
+.dots { display: flex; gap: 10px; }
+.dots i { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,.4); }
+.dots i.on { background: var(--white); }
+{% block style %}{% endblock %}
+</style>
+</head>
+<body>
+<div class="slide">
+  {% if photo_uri %}<div class="photo {% block photo_class %}{% endblock %}" style="background-image:url('{{ photo_uri }}')"></div>{% endif %}
+  <div class="scrim {% block scrim_class %}{% endblock %}"></div>
+  <div class="content">
+    <div class="top">
+      <div class="logo">{{ logo_svg | safe }}</div>
+      {% block kicker %}{% endblock %}
+    </div>
+    {% block body %}{% endblock %}
+    <div class="footer">
+      <div class="small">{% block footnote %}{% endblock %}</div>
+      {% if total_slides > 1 %}
+      <div class="dots">{% for i in range(total_slides) %}<i class="{{ 'on' if i + 1 == slide_no }}"></i>{% endfor %}</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+<script>
+// Shrink any .fit element until it fits its container width (long city names, prices).
+window.fitText = () => {
+  document.querySelectorAll('.fit').forEach(el => {
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    const max = el.parentElement.clientWidth;
+    while (el.scrollWidth > max && size > 20) { size -= 2; el.style.fontSize = size + 'px'; }
+  });
+};
+</script>
+</body>
+</html>

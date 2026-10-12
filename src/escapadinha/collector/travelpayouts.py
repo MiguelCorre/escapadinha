@@ -1,0 +1,118 @@
+"""Travelpayouts / Aviasales Data API client (v3 prices_for_dates).
+
+Data is a cache of prices Aviasales users found recently, so it is not live. We store
+every returned item verbatim (raw_json) together with our own fetched_at timestamp.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from collections.abc import Callable
+from datetime import date, datetime
+
+import httpx
+
+from escapadinha.models import Observation
+from escapadinha.storage.db import utcnow
+
+API_URL = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates"
+AVIASALES_BASE = "https://www.aviasales.com"
+SOURCE = "travelpayouts"
+
+
+class TravelpayoutsError(RuntimeError):
+    pass
+
+
+def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: datetime,
+                   min_nights: int, max_nights: int) -> list[Observation]:
+    """Turn an API payload into round-trip Observations within the nights range.
+
+    Items without a return date or a positive price are dropped, never patched up.
+    """
+    if not payload.get("success", False):
+        raise TravelpayoutsError(f"API error: {payload.get('error') or 'unknown'}")
+
+    currency = str(payload.get("currency", "")).upper()
+    observations = []
+    for item in payload.get("data") or []:
+        price = item.get("price")
+        departure_at, return_at = item.get("departure_at"), item.get("return_at")
+        if not departure_at or not return_at or not isinstance(price, (int, float)) or price <= 0:
+            continue
+        departure = datetime.fromisoformat(departure_at).date()
+        ret = datetime.fromisoformat(return_at).date()
+        nights = (ret - departure).days
+        if not (min_nights <= nights <= max_nights):
+            continue
+        link = item.get("link")
+        observations.append(Observation(
+            source=SOURCE,
+            origin=origin,
+            destination=destination,
+            origin_airport=item.get("origin_airport"),
+            destination_airport=item.get("destination_airport"),
+            departure_date=departure,
+            return_date=ret,
+            price=float(price),
+            currency=currency,
+            airline=item.get("airline"),
+            flight_number=None if item.get("flight_number") is None else str(item["flight_number"]),
+            transfers=item.get("transfers"),
+            return_transfers=item.get("return_transfers"),
+            deep_link=f"{AVIASALES_BASE}{link}" if link and link.startswith("/") else link,
+            fetched_at=fetched_at,
+            raw_json=json.dumps(item, ensure_ascii=False, sort_keys=True),
+        ))
+    return observations
+
+
+class TravelpayoutsSource:
+    name = SOURCE
+
+    def __init__(self, token: str, *, currency: str, min_nights: int, max_nights: int,
+                 limit: int, client: httpx.Client | None = None,
+                 now: Callable[[], datetime] | None = None,
+                 sleep: Callable[[float], None] = time.sleep, max_attempts: int = 3):
+        if not token:
+            raise TravelpayoutsError("TRAVELPAYOUTS_TOKEN is not set (see .env.example)")
+        self._client = client or httpx.Client(timeout=30)
+        self._headers = {"X-Access-Token": token, "Accept-Encoding": "gzip, deflate"}
+        self._currency = currency.lower()
+        self._min_nights, self._max_nights = min_nights, max_nights
+        self._limit = limit
+        self._now = now or utcnow
+        self._sleep = sleep
+        self._max_attempts = max_attempts
+
+    def fetch_round_trips(self, origin: str, destination: str, month: date) -> list[Observation]:
+        params = {
+            "origin": origin,
+            "destination": destination,
+            "departure_at": month.strftime("%Y-%m"),
+            "one_way": "false",
+            "currency": self._currency,
+            "sorting": "price",
+            "unique": "false",
+            "limit": self._limit,
+        }
+        payload = self._get(params)
+        return parse_response(payload, origin=origin, destination=destination,
+                              fetched_at=self._now(), min_nights=self._min_nights,
+                              max_nights=self._max_nights)
+
+    def _get(self, params: dict) -> dict:
+        for attempt in range(1, self._max_attempts + 1):
+            response = self._client.get(API_URL, params=params, headers=self._headers)
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt == self._max_attempts:
+                    break
+                # Rate limits are per minute; a 429 blocks until the minute resets.
+                retry_after = response.headers.get("Retry-After")
+                self._sleep(float(retry_after) if retry_after else 60.0 if response.status_code == 429 else 5.0)
+                continue
+            if response.status_code != 200:
+                raise TravelpayoutsError(f"HTTP {response.status_code}: {response.text[:200]}")
+            return response.json()
+        raise TravelpayoutsError(f"HTTP {response.status_code} after {self._max_attempts} attempts")

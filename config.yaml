@@ -1,0 +1,52 @@
+# Escapadinha configuration. Secrets live in .env, never here.
+
+brand:
+  name: Escapadinha
+  handle: "@escapadinha.pt"   # placeholder handle, not a real account
+
+collector:
+  source: travelpayouts
+  currency: eur
+  months_ahead: 3            # number of departure months fetched, starting with the current month
+  min_nights: 2
+  max_nights: 10
+  limit_per_request: 100      # max offers returned per route/month call
+
+detector:
+  threshold: 0.30            # deal when price <= median * (1 - threshold)
+  lookback_days: 90          # history window used for the median
+  min_samples: 20            # below this, the median is not trusted
+  min_history_days: 7        # history must span at least this many days
+  dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
+  max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
+
+# City or airport IATA codes. Travelpayouts accepts city codes (LON, PAR, ROM, MIL).
+# price_cap_eur (optional): absolute ceiling used ONLY while history is insufficient.
+routes:
+  - { origin: LIS, destination: LON, city_pt: Londres }
+  - { origin: LIS, destination: PAR, city_pt: Paris }
+  - { origin: LIS, destination: ROM, city_pt: Roma }
+  - { origin: LIS, destination: BCN, city_pt: Barcelona }
+  - { origin: LIS, destination: AMS, city_pt: Amesterdão }
+  - { origin: OPO, destination: LON, city_pt: Londres }
+  - { origin: OPO, destination: PAR, city_pt: Paris }
+  - { origin: OPO, destination: BCN, city_pt: Barcelona }
+  - { origin: OPO, destination: MIL, city_pt: Milão }
+  - { origin: OPO, destination: BER, city_pt: Berlim }
+
+origins_pt:
+  LIS: Lisboa
+  OPO: Porto
+  FAO: Faro
+
+photos:
+  # Search query per destination for the Pexels API. Falls back to city_pt.
+  queries:
+    LON: London skyline
+    PAR: Paris Eiffel tower
+    ROM: Rome Colosseum
+    BCN: Barcelona city
+    AMS: Amsterdam canals
+    MIL: Milan Duomo
+    BER: Berlin Brandenburg gate
+    LIS: Lisbon viewpoint rooftops   # used by the sample guide

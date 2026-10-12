@@ -1,0 +1,26 @@
+# "Guia rápido" carousel content. Written by a human, rendered as-is.
+# Keep 3–8 tips (Instagram carousels max out at 10 slides: cover + tips + CTA).
+# Set reviewed: true only after checking every fact.
+slug: voos-baratos-dicas
+kicker: GUIA RÁPIDO
+title: Voos baratos desde Portugal
+subtitle: 5 hábitos que fazem baixar o preço da tua próxima escapadinha
+photo_destination: LIS
+tips:
+  - title: Sê flexível nas datas
+    body: Voar a meio da semana costuma sair mais barato do que à sexta ou ao domingo. Compara vários dias antes de reservar.
+  - title: Compara Lisboa, Porto e Faro
+    body: O mesmo destino pode custar bem menos a partir de outro aeroporto. Soma o custo da viagem até lá antes de decidir.
+  - title: Leva só bagagem de mão
+    body: Nas low-cost, a mala de porão pode custar mais do que o próprio voo. Confirma as medidas permitidas pela companhia.
+  - title: Ativa as notificações
+    body: Os preços mudam várias vezes por dia. Segue a conta e ativa as notificações para veres as promoções primeiro.
+  - title: Confirma o preço final
+    body: Bagagem, lugar e método de pagamento podem mudar o total. Revê o preço final antes de pagar.
+cta: Guarda este post para a próxima viagem
+caption: |
+  ✈️ Queres pagar menos na próxima escapadinha? Guarda estas 5 dicas:
+hashtags: ["#voosbaratos", "#dicasdeviagem", "#viajarbarato", "#portugal", "#escapadinha"]
+affiliate: false
+reviewed: false
+sources: []
