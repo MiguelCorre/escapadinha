@@ -3,22 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from escapadinha import i18n_pt as pt
 from escapadinha.models import Deal, Observation, Photo
 
 DISCLOSURE = ("Publicidade · Este post contém links de afiliado: se reservares através deles, "
               "podemos receber uma comissão, sem custo extra para ti.")
-
-
-def affiliate_link(deep_link: str | None, marker: str) -> str | None:
-    """Append the Travelpayouts marker so bookings are attributed to us."""
-    if not deep_link or not marker:
-        return deep_link
-    parts = urlsplit(deep_link)
-    query = [(k, v) for k, v in parse_qsl(parts.query) if k != "marker"] + [("marker", marker)]
-    return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 @dataclass(frozen=True)
@@ -67,7 +57,7 @@ class DealView:
     found_on: str | None  # '07/10/2026': day a traveller found the price (source cache)
     checked_at: str       # '12/10/2026 às 10:14': when we fetched it (Lisbon time)
     source_label: str
-    affiliate_url: str | None
+    affiliate_url: str | None     # tracked partner link (None if conversion failed)
     photo: PhotoCredit
     disclosure: str = DISCLOSURE
 
@@ -100,12 +90,14 @@ class DealView:
             "discount_pct": deal.discount_pct,
             "threshold": deal.threshold,
             "affiliate_url": self.affiliate_url,
+            "affiliate_error": deal.affiliate_error,
+            "booking_url": observation.deep_link,
             "photo": asdict(self.photo),
         }
 
 
 def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination_city: str,
-                    marker: str, photo: PhotoCredit) -> DealView:
+                    photo: PhotoCredit) -> DealView:
     if o.transfers is None or o.return_transfers is None:
         direct = None
     else:
@@ -126,6 +118,6 @@ def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination
         found_on=pt.numeric_date(o.found_date) if o.found_date else None,
         checked_at=pt.lisbon_timestamp(o.fetched_at),
         source_label="Aviasales" if o.source == "travelpayouts" else o.source,
-        affiliate_url=affiliate_link(o.deep_link, marker),
+        affiliate_url=deal.affiliate_url,
         photo=photo,
     )

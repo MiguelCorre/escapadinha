@@ -88,11 +88,10 @@ PowerShell 5.1 turns uv's stderr progress into errors.
 - **Marker:** 789000 is the account ID. The dashboard puts `marker=789000` in its own links.
 - **Project:** ID 584711 for https://www.instagram.com/ondestaanocas/ (created 2026-10-12).
   Its channel URL is locked once connected to programs; a renamed handle needs a new project.
-- **Open:** term 1.4 allows only promo materials from the network. Tracked links should come from
-  Travelpayouts tools (link generator / Links API), and those need a registered **Project**,
-  meaning the Instagram account or a site. Until then `meta.json` carries an
-  `aviasales.com/...&marker=789000` deep link. Before posting, swap it for a generated link
-  (planned for v2 via the Links API).
+- **Resolved:** term 1.4 allows only the network's own promo tools. Deals now get links from the
+  partner links API (`POST /links/v1/create`, trs=584711, sub_id=deal-<id>), stored in
+  `deals.affiliate_url` (schema v3). Failures are recorded with no fallback to a hand-built
+  `marker=` URL.
 
 ## D8: Stack
 Python 3.14 via uv (latest stable), typer, httpx, pydantic-settings, stdlib sqlite3

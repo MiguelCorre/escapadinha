@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from escapadinha import pipeline
+from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
 from escapadinha.config import Context
@@ -109,11 +110,15 @@ def render_deals(
 ) -> None:
     """Render deal carousels (3 slides) + caption.txt + meta.json."""
     ctx, conn = _ctx()
-    dirs = pipeline.run_render_deals(ctx, conn, status, deal_id)
-    if not dirs:
+    rendered = pipeline.run_render_deals(ctx, conn, status, deal_id)
+    if not rendered:
         console.print(f"No deals with status '{status}'.")
-    for d in dirs:
-        console.print(f"  [green]✓[/] {d}")
+    for folder, deal in rendered:
+        if deal.affiliate_url:
+            console.print(f"  [green]✓[/] {folder}  [dim]{deal.affiliate_url}[/]")
+        else:
+            console.print(f"  [yellow]![/] {folder}  [yellow]no affiliate link: "
+                          f"{deal.affiliate_error}[/] (retried on next render)")
 
 
 @render_app.command("guide")
@@ -139,7 +144,7 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
 def main() -> None:
     try:
         app()
-    except (TravelpayoutsError, PhotoSourceError, FileNotFoundError, KeyError) as exc:
+    except (TravelpayoutsError, PhotoSourceError, AffiliateError, FileNotFoundError, KeyError) as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise SystemExit(2) from None
 

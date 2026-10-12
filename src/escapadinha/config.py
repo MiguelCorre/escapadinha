@@ -58,6 +58,11 @@ class Route(BaseModel):
         return f"{self.origin}-{self.destination}"
 
 
+class AffiliateConfig(BaseModel):
+    project_id: int | None = None   # Travelpayouts Project ("trs") subscribed to Aviasales
+    shorten: bool = True
+
+
 class PhotosConfig(BaseModel):
     queries: dict[str, str] = {}
 
@@ -69,6 +74,7 @@ class AppConfig(BaseModel):
     routes: list[Route]
     origins_pt: dict[str, str] = {}
     photos: PhotosConfig = PhotosConfig()
+    affiliate: AffiliateConfig = AffiliateConfig()
 
     def route(self, key: str) -> Route:
         for r in self.routes:

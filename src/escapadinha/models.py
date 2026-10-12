@@ -56,6 +56,8 @@ class Deal:
     threshold: float
     detected_at: datetime
     status: str
+    affiliate_url: str | None = None     # tracked link from the partner links API
+    affiliate_error: str | None = None   # why conversion failed, if it did
 
 
 @dataclass(frozen=True)

@@ -72,7 +72,8 @@ uv run escapadinha run                     # collect → detect → render (what
 Output for review lives in `output/<YYYY-MM-DD>/`:
 - `deal-<ORIG>-<DEST>-<id>/slide_01.png … slide_03.png`: cover, details, CTA + disclosure
 - `caption.txt`: pt-PT caption, ready to paste
-- `meta.json`: observation id, run id, source, `fetched_at`, median, sample size, affiliate URL, photo credit
+- `meta.json`: observation id, run id, source, `fetched_at`, `found_date`, typical low, tracked
+  `affiliate_url` (or `affiliate_error`), raw `booking_url`, photo credit
 
 ## Configuration (`config.yaml`)
 
@@ -105,12 +106,27 @@ exist from the **first run**. Until a month has `min_baseline_days` daily lows, 
 Every deal names its arrival airport. Remote airports (for example Paris-**Beauvais**,
 Milan-**Bérgamo**) also appear in the headline: "Porto → Paris (Beauvais)".
 
+## Affiliate links
+
+Each deal gets **one tracked link** from the Travelpayouts partner links API, created at render
+time for the Project in `config.yaml` (`affiliate.project_id`, currently 584711 =
+instagram.com/ondestaanocas). The link is short, like `https://aviasales.tpo.lu/UQWMX2Ed`, and
+carries `sub_id=deal-<id>` so the dashboard shows stats per deal. It's stored on the deal and
+reused on later renders.
+
+If conversion fails, the deal keeps **no** link. `affiliate_error` explains why, the CLI warns,
+and the next render retries. There is deliberately no fallback to a hand-built `marker=` URL,
+because Aviasales program term 1.4 only allows network tools.
+
 ## Scheduling (Windows Task Scheduler)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scriptsegister-task.ps1                # every 2 h, all day
-powershell -ExecutionPolicy Bypass -File scriptsegister-task.ps1 -EveryHours 1
-powershell -ExecutionPolicy Bypass -File scriptsegister-task.ps1 -Unregister
+powershell -ExecutionPolicy Bypass -File scripts
+egister-task.ps1                # every 2 h, all day
+powershell -ExecutionPolicy Bypass -File scripts
+egister-task.ps1 -EveryHours 1
+powershell -ExecutionPolicy Bypass -File scripts
+egister-task.ps1 -Unregister
 ```
 Each run takes about 1 minute and uses 30 API calls. Runs missed while the PC sleeps start
 when it wakes. Output is appended to `logs/run-<date>.log`, ending with `---- exit N ----`.

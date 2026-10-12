@@ -8,13 +8,16 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import httpx
+
 from escapadinha import detector, i18n_pt
+from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.captions import deal_caption, guide_caption
 from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.travelpayouts import TravelpayoutsSource
 from escapadinha.config import Context, Route
 from escapadinha.guides import load_guide
-from escapadinha.models import Observation
+from escapadinha.models import Deal, Observation
 from escapadinha.photos import PixabayClient, fetch_photo
 from escapadinha.presentation import PhotoCredit, build_deal_view
 from escapadinha.renderer import SlideRenderer
@@ -158,11 +161,42 @@ def _write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def ensure_affiliate_links(ctx: Context, conn: sqlite3.Connection,
+                           pairs: list[tuple[Deal, Observation]]) -> list[tuple[Deal, Observation]]:
+    """Generate (once) a tracked partner link per deal; failures are recorded, not hidden.
+
+    Deals without a link are retried on every render. There is deliberately no fallback
+    to a hand-built `marker=` URL: the program terms allow only network tools.
+    """
+    missing = [(d, o) for d, o in pairs if not d.affiliate_url and o.deep_link]
+    if not missing:
+        return pairs
+    project_id = ctx.config.affiliate.project_id
+    if project_id is None:
+        results, failure = {}, "affiliate.project_id is not set in config.yaml"
+    else:
+        try:
+            client = PartnerLinksClient(ctx.secrets.travelpayouts_token,
+                                        marker=ctx.secrets.travelpayouts_marker,
+                                        project_id=project_id, shorten=ctx.config.affiliate.shorten)
+            results = client.create([(o.deep_link, f"deal-{d.id}") for d, o in missing])
+            failure = None
+        except (AffiliateError, httpx.HTTPError) as exc:
+            results, failure = {}, str(exc)
+    for d, o in missing:
+        link = results.get(o.deep_link)
+        db.set_deal_affiliate(conn, d.id, link.partner_url if link else None,
+                              (link.error if link else failure) or None)
+    return [db.get_deal(conn, d.id) for d, _ in pairs]
+
+
 def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new",
-                     deal_id: int | None = None) -> list[Path]:
+                     deal_id: int | None = None) -> list[tuple[Path, Deal]]:
+    """Render slides + caption + meta per deal. Returns (folder, deal) to report link status."""
     pairs = [db.get_deal(conn, deal_id)] if deal_id else db.deals_with_status(conn, status)
     if not pairs:
         return []
+    pairs = ensure_affiliate_links(ctx, conn, pairs)
     out_root = ctx.output_dir / lisbon_today().isoformat()
     written = []
     with SlideRenderer(ctx.assets_dir, ctx.config.brand) as renderer:
@@ -170,8 +204,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
             route = ctx.config.route(obs.route_key)
             credit, photo_path = _photo(ctx, conn, obs.destination)
             view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
-                                   destination_city=route.city_pt,
-                                   marker=ctx.secrets.travelpayouts_marker, photo=credit)
+                                   destination_city=route.city_pt, photo=credit)
             out_dir = out_root / f"deal-{obs.origin}-{obs.destination}-{deal.id}"
             renderer.render_deal(view, photo_path, out_dir)
             _write_text(out_dir / "caption.txt",
@@ -180,7 +213,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
                         json.dumps(view.meta(deal, obs), ensure_ascii=False, indent=2))
             if deal.status == "new":
                 db.set_deal_status(conn, deal.id, "rendered")
-            written.append(out_dir)
+            written.append((out_dir, deal))
     return written
 
 

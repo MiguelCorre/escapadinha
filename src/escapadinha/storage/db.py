@@ -9,11 +9,13 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Steps that bring an existing database from version N-1 to N.
 MIGRATIONS = {
     2: ["ALTER TABLE price_observations ADD COLUMN found_date TEXT"],
+    3: ["ALTER TABLE deals ADD COLUMN affiliate_url TEXT",
+        "ALTER TABLE deals ADD COLUMN affiliate_error TEXT"],
 }
 
 
@@ -171,6 +173,7 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
         discount_pct=None if row["discount_pct"] is None else float(row["discount_pct"]),
         threshold=float(row["threshold"]),
         detected_at=datetime.fromisoformat(row["detected_at"]), status=row["status"],
+        affiliate_url=row["affiliate_url"], affiliate_error=row["affiliate_error"],
     )
 
 
@@ -184,6 +187,13 @@ def get_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]
     if row is None:
         raise KeyError(f"Deal {deal_id} not found")
     return _row_to_deal(row), get_observation(conn, row["observation_id"])
+
+
+def set_deal_affiliate(conn: sqlite3.Connection, deal_id: int, url: str | None,
+                       error: str | None) -> None:
+    conn.execute("UPDATE deals SET affiliate_url = ?, affiliate_error = ? WHERE id = ?",
+                 (url, error, deal_id))
+    conn.commit()
 
 
 def set_deal_status(conn: sqlite3.Connection, deal_id: int, status: str) -> None:

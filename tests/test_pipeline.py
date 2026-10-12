@@ -11,6 +11,7 @@ import pytest
 import respx
 
 from escapadinha import pipeline
+from escapadinha.affiliate import API_URL as LINKS_URL
 from escapadinha.collector.travelpayouts import API_URL
 from escapadinha.config import Context
 from escapadinha.models import Observation
@@ -54,6 +55,17 @@ def mock_api():
         lis_lon = request.url.params["origin"] == "LIS" and request.url.params["destination"] == "LON"
         return httpx.Response(200, json=FIXTURE if lis_lon else EMPTY)
     respx.get(API_URL).mock(side_effect=respond)
+
+
+def mock_links(ok=True):
+    def respond(request):
+        body = json.loads(request.content)
+        links = [{"url": l["url"], "code": "success" if ok else "failed",
+                  "partner_url": f"https://aviasales.tpo.lu/{l.get('sub_id')}" if ok else "",
+                  "message": None if ok else "trs is not subscribed for brand"}
+                 for l in body["links"]]
+        return httpx.Response(200, json={"result": {**body, "links": links}, "code": "success"})
+    return respx.post(LINKS_URL).mock(side_effect=respond)
 
 
 def png_size(path: Path) -> tuple[int, int]:
@@ -104,15 +116,23 @@ def test_render_deal_and_guide(ctx):
     pipeline.run_collect(ctx, conn)
     pipeline.run_detect(ctx, conn)
 
-    [out] = pipeline.run_render_deals(ctx, conn)
+    links = mock_links()
+    [(out, deal)] = pipeline.run_render_deals(ctx, conn)
+    sent = json.loads(links.calls.last.request.content)
+    assert sent["trs"] == 584711 and sent["marker"] == 424242
+    assert deal.affiliate_url == f"https://aviasales.tpo.lu/deal-{deal.id}"
     slides = sorted(out.glob("slide_*.png"))
     assert [png_size(p) for p in slides] == [(1080, 1350)] * 3
     caption = (out / "caption.txt").read_text("utf-8")
     assert DISCLOSURE in caption and "58 €" in caption
     meta = json.loads((out / "meta.json").read_text("utf-8"))
     assert meta["source"] == "travelpayouts" and meta["observation_id"]
-    assert meta["affiliate_url"].endswith("marker=424242")
+    assert meta["affiliate_url"] == deal.affiliate_url
+    assert meta["booking_url"].startswith("https://www.aviasales.com/search/")
     assert pipeline.run_render_deals(ctx, conn) == []      # status moved to 'rendered'
+    # The link is generated once and reused on re-render.
+    pipeline.run_render_deals(ctx, conn, status="rendered")
+    assert links.call_count == 1
 
     guide_dir, reviewed = pipeline.run_render_guide(ctx, conn, "voos-baratos-dicas")
     assert len(list(guide_dir.glob("slide_*.png"))) == 7 and reviewed is False
@@ -120,7 +140,7 @@ def test_render_deal_and_guide(ctx):
 
 
 def test_migrates_v1_database(tmp_path):
-    """A v1 database (no found_date column) is upgraded in place, keeping its rows."""
+    """A v1 database is upgraded in place through every migration, keeping its rows."""
     import sqlite3
     path = tmp_path / "v1.db"
     raw = sqlite3.connect(path)
@@ -133,9 +153,17 @@ def test_migrates_v1_database(tmp_path):
             departure_date TEXT NOT NULL, return_date TEXT NOT NULL, nights INTEGER NOT NULL,
             price NUMERIC NOT NULL, currency TEXT NOT NULL, airline TEXT, flight_number TEXT, transfers INTEGER,
             return_transfers INTEGER, deep_link TEXT, fetched_at TEXT NOT NULL, raw_json TEXT NOT NULL);
+        CREATE TABLE deals (id INTEGER PRIMARY KEY, observation_id INTEGER NOT NULL UNIQUE,
+            rule TEXT NOT NULL, baseline_median NUMERIC, sample_size INTEGER NOT NULL,
+            discount_pct NUMERIC, threshold NUMERIC NOT NULL, detected_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'new');
+        CREATE TABLE photos (destination TEXT PRIMARY KEY, file_path TEXT NOT NULL, source TEXT NOT NULL,
+            source_url TEXT NOT NULL, photographer TEXT NOT NULL, photographer_url TEXT NOT NULL,
+            license TEXT NOT NULL, fetched_at TEXT NOT NULL);
         INSERT INTO fetch_runs (id, source, started_at, status) VALUES (1, 'test', '2026-10-01T00:00:00+00:00', 'ok');
         INSERT INTO price_observations VALUES (1, 1, 'test', 'LIS', 'LON', 'LIS', 'LGW', '2026-11-01',
             '2026-11-05', 4, 80, 'EUR', 'TP', '1', 0, 0, NULL, '2026-10-01T00:00:00+00:00', '{}');
+        INSERT INTO deals VALUES (1, 1, 'median', 100, 5, 0.2, 0.3, '2026-10-01T00:00:00+00:00', 'new');
         PRAGMA user_version = 1;
     """)
     raw.close()
@@ -144,3 +172,20 @@ def test_migrates_v1_database(tmp_path):
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     obs = db.get_observation(conn, 1)
     assert obs.price == 80 and obs.found_date is None
+    deal, _ = db.get_deal(conn, 1)
+    assert deal.status == "new" and deal.affiliate_url is None
+
+
+@respx.mock
+def test_failed_affiliate_link_is_recorded_without_fallback(ctx):
+    conn = pipeline.open_db(ctx)
+    seed_history(conn, days=25, price=100)
+    mock_api()
+    pipeline.run_collect(ctx, conn)
+    _, results = pipeline.run_detect(ctx, conn)
+    deal_id = {r.route: r for r in results}["LIS-LON"].deal_ids[0]
+    mock_links(ok=False)
+    deal, obs = db.get_deal(conn, deal_id)
+    [(deal, _)] = pipeline.ensure_affiliate_links(ctx, conn, [(deal, obs)])
+    assert deal.affiliate_url is None
+    assert deal.affiliate_error == "trs is not subscribed for brand"

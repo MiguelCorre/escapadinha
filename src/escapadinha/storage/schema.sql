@@ -1,4 +1,4 @@
--- Schema version 2 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 3 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS deals (
     threshold       NUMERIC NOT NULL,
     detected_at     TEXT    NOT NULL,
     status          TEXT    NOT NULL DEFAULT 'new'
-        CHECK (status IN ('new', 'rendered', 'approved', 'rejected', 'published'))
+        CHECK (status IN ('new', 'rendered', 'approved', 'rejected', 'published')),
+    affiliate_url   TEXT,
+    affiliate_error TEXT
 );
 
 CREATE TABLE IF NOT EXISTS photos (

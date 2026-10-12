@@ -15,9 +15,8 @@ The steps before the first public post, in order. Tick them as they're done.
       Once a project is connected to programs its link **can't be edited**. If the handle changes,
       create a new project with the new URL and archive the old one.
 - [ ] Create a separate Project for the website.
-- [ ] Generate tracked Aviasales links from the Project (link generator, later the Links API) and
-      use them instead of the raw `aviasales.com/...&marker=789000` link in `meta.json`.
-      Program terms 1.4 only allow network promo tools.
+- [x] Tracked Aviasales links come from the partner links API for Project 584711 (`affiliate_url` in
+      `meta.json`, for example https://aviasales.tpo.lu/UQWMX2Ed). Program term 1.4 only allows network tools.
 - [ ] **Set the payout method (Finance → Payout methods), only once BOTH the website and the
       Instagram page are up and running.**
 

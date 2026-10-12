@@ -36,6 +36,12 @@ routes:
   - { origin: OPO, destination: MIL, city_pt: Milão }
   - { origin: OPO, destination: BER, city_pt: Berlim }
 
+# Tracked links come from the Travelpayouts partner links API for this Project
+# (Instagram https://www.instagram.com/ondestaanocas/). A renamed handle needs a new Project.
+affiliate:
+  project_id: 584711
+  shorten: true
+
 origins_pt:
   LIS: Lisboa
   OPO: Porto

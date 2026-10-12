@@ -6,7 +6,7 @@ from escapadinha import i18n_pt as pt
 from escapadinha.captions import deal_caption, guide_caption
 from escapadinha.guides import Guide
 from escapadinha.models import Deal, Observation, Photo
-from escapadinha.presentation import DISCLOSURE, PhotoCredit, affiliate_link, build_deal_view
+from escapadinha.presentation import DISCLOSURE, PhotoCredit, build_deal_view
 
 FETCHED = datetime(2026, 10, 12, 9, 14, tzinfo=timezone.utc)
 
@@ -37,7 +37,7 @@ PHOTO = Photo(destination="AMS", file_path="assets/photos/AMS.jpg", source="pixa
 
 def view(o=None, d=None, photo=PHOTO):
     return build_deal_view(d or deal(), o or observation(), origin_city="Lisboa",
-                           destination_city="Amesterdão", marker="12345",
+                           destination_city="Amesterdão",
                            photo=PhotoCredit.from_photo(photo, None))
 
 
@@ -128,13 +128,6 @@ def test_caption_has_no_runs_of_blank_lines_and_has_hashtags():
     assert text.rstrip().splitlines()[-1].startswith("#amesterdao #lisboa")
 
 
-def test_affiliate_link_adds_or_replaces_marker():
-    assert affiliate_link("https://a.com/s?t=x", "99") == "https://a.com/s?t=x&marker=99"
-    assert affiliate_link("https://a.com/s?marker=1", "99") == "https://a.com/s?marker=99"
-    assert affiliate_link("https://a.com/s", "") == "https://a.com/s"
-    assert affiliate_link(None, "99") is None
-
-
 # --- guide caption --------------------------------------------------------------
 
 def guide(**overrides):
@@ -159,7 +152,7 @@ def test_arrival_airport_is_always_named():
 
 def test_remote_airport_is_named_in_the_headline():
     v = build_deal_view(deal(), observation(destination="PAR", destination_airport="BVA"),
-                        origin_city="Porto", destination_city="Paris", marker="1",
+                        origin_city="Porto", destination_city="Paris",
                         photo=PhotoCredit.from_photo(None, None))
     text = deal_caption(v, brand_name="Escapadinha")
     assert text.startswith("✈️ Porto → Paris (Beauvais) desde 58 €")
