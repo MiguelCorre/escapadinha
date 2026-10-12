@@ -53,6 +53,16 @@ def day_key(o: Observation) -> date:
     return o.found_date or o.fetched_at.date()
 
 
+def is_direct(o: Observation) -> bool:
+    """Nonstop both ways. Unknown transfer counts are not assumed direct."""
+    return o.transfers == 0 and o.return_transfers == 0
+
+
+def eligible(observations: list[Observation], cfg: DetectorConfig) -> list[Observation]:
+    """Offers that may be deals or baseline: all, or nonstop only when `direct_only`."""
+    return [o for o in observations if is_direct(o)] if cfg.direct_only else list(observations)
+
+
 def month_key(o: Observation) -> Month:
     return (o.departure_date.year, o.departure_date.month)
 
@@ -82,7 +92,7 @@ def baseline(history: list[Observation], *, since: date, before: date) -> Baseli
 def month_baselines(history: list[Observation], cfg: DetectorConfig,
                     now: datetime) -> dict[Month, Baseline]:
     by_month: dict[Month, list[Observation]] = defaultdict(list)
-    for o in history:
+    for o in eligible(history, cfg):
         by_month[month_key(o)].append(o)
     since = now.date() - timedelta(days=cfg.lookback_days)
     before = fresh_since(cfg, now)
@@ -130,7 +140,7 @@ def detect_route(candidates: list[Observation], history: list[Observation],
     empty = Baseline(None, 0, 0)
 
     flags = []
-    for candidate in candidates:
+    for candidate in eligible(candidates, cfg):
         if not is_fresh(candidate, cfg, now) or _already_flagged(candidate, recent):
             continue
         base = baselines.get(month_key(candidate), empty)

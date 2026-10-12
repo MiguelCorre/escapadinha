@@ -75,6 +75,20 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
     console.print(table)
 
 
+@app.command("recheck")
+def recheck_cmd() -> None:
+    """Re-verify open deals against the latest run; expire those whose price moved."""
+    ctx, conn = _ctx()
+    results = pipeline.run_recheck(ctx, conn)
+    if not results:
+        console.print("No open deals to recheck against a newer run.")
+        return
+    for deal, obs, r in results:
+        mark = "[green]✓ valid[/]" if r.valid else "[red]✗ expired[/]"
+        console.print(f"  deal {deal.id} {obs.route_key} {obs.departure_date:%d/%m}–"
+                      f"{obs.return_date:%d/%m} @ {obs.price:g} €: {mark} ({r.reason})")
+
+
 @app.command()
 def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
     """Price history summary for one route."""
@@ -134,8 +148,9 @@ def render_guide(slug: Annotated[str, typer.Argument(help="File name in content/
 
 @app.command()
 def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
-    """collect → detect → render new deals. This is what the scheduler runs."""
+    """collect → recheck open deals → detect → render new deals. What the scheduler runs."""
     collect()
+    recheck_cmd()
     detect()
     if render:
         render_deals()

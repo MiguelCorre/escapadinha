@@ -13,9 +13,11 @@ estimated or invented. Each rendered deal carries a `meta.json` pointing back to
 ## Pipeline
 
 ```
-Travelpayouts API ──collect──▶ SQLite (price_observations)
+Travelpayouts API ──collect──▶ SQLite (price_observations)       (market=pt, every 2 h)
                                    │
-                                detect  (median of the last 90 days, threshold 30%)
+                               recheck  open deals: same trip still ≤ price, fresh, direct?
+                                   │            no → status expired + EXPIRADO.txt
+                                detect  (fresh direct price ≥30% below the month's typical low)
                                    ▼
                               deals (status: new)
                                    │
@@ -59,6 +61,7 @@ traffic rules that **Instagram/social media** traffic is allowed before posting.
 
 ```bash
 uv run escapadinha collect                 # ~30 API calls: 10 routes × 3 departure months
+uv run escapadinha recheck                 # re-verifies open deals against the latest run
 uv run escapadinha detect                  # evaluates the latest run; prints a per-route table
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
 uv run escapadinha photos fetch            # one Pixabay photo per destination (cached)
@@ -66,7 +69,7 @@ uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you
 uv run escapadinha render deals            # renders deals with status 'new' → 'rendered'
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
-uv run escapadinha run                     # collect → detect → render (what the scheduler runs)
+uv run escapadinha run                     # collect → recheck → detect → render (the scheduler)
 ```
 
 Output for review lives in `output/<YYYY-MM-DD>/`:
@@ -88,6 +91,17 @@ Output for review lives in `output/<YYYY-MM-DD>/`:
     3 days are candidates, and older days form the baseline.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
   - `max_deals_per_route: 1` caps deals per route per run (biggest discount first).
+  - `direct_only: true` makes deals and typical lows use nonstop round trips only.
+- `collector.market: pt` and `collector.booking_base: https://www.aviasales.pt` use prices from
+  the Portuguese market, and links open in euros with a 24h clock. Aviasales' UI is English/Russian only.
+
+### Deals expire
+The source is a cache and prices move. On the first real day a 60 € deal was 70 € two hours
+later. Every run rechecks open deals (`new`, `rendered`, `approved`) against the newest prices.
+A deal stays valid only while the same trip is still offered at or below the deal price,
+found within `max_offer_age_days`, and (with `direct_only`) nonstop. Otherwise it becomes
+`expired`, gets an `expired_reason`, and its output folder gets `EXPIRADO.txt` ("NÃO PUBLICAR").
+A route with no data in a run is skipped, so an API hiccup expires nothing.
 
 ### What counts as a deal
 A deal is a fresh price well below the route's **typical lowest price for the same departure

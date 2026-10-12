@@ -128,7 +128,9 @@ def test_render_deal_and_guide(ctx):
     meta = json.loads((out / "meta.json").read_text("utf-8"))
     assert meta["source"] == "travelpayouts" and meta["observation_id"]
     assert meta["affiliate_url"] == deal.affiliate_url
-    assert meta["booking_url"].startswith("https://www.aviasales.com/search/")
+    assert meta["booking_url"].startswith("https://www.aviasales.pt/search/")
+    sent_url = sent["links"][0]["url"]
+    assert sent_url.startswith("https://www.aviasales.pt/search/")
     assert pipeline.run_render_deals(ctx, conn) == []      # status moved to 'rendered'
     # The link is generated once and reused on re-render.
     pipeline.run_render_deals(ctx, conn, status="rendered")
@@ -189,3 +191,52 @@ def test_failed_affiliate_link_is_recorded_without_fallback(ctx):
     [(deal, _)] = pipeline.ensure_affiliate_links(ctx, conn, [(deal, obs)])
     assert deal.affiliate_url is None
     assert deal.affiliate_error == "trs is not subscribed for brand"
+
+
+def _fixture_with(price):
+    """The synthetic fixture with the 58 € LIS-LON trip repriced (and no stale search_date)."""
+    data = json.loads(json.dumps(FIXTURE))
+    first = data["data"][0]
+    first["price"] = price
+    first["link"] = first["link"].split("&search_date=")[0]
+    return data
+
+
+@respx.mock
+def test_recheck_expires_deal_when_price_rises(ctx):
+    conn = pipeline.open_db(ctx)
+    seed_history(conn, days=25, price=100)
+    mock_api()
+    pipeline.run_collect(ctx, conn)
+    _, results = pipeline.run_detect(ctx, conn)
+    deal_id = {r.route: r for r in results}["LIS-LON"].deal_ids[0]
+    folder = ctx.output_dir / "2026-10-12" / f"deal-LIS-LON-{deal_id}"
+    folder.mkdir(parents=True)                       # as if already rendered
+
+    # Same price on the next run: still valid.
+    respx.get(API_URL).mock(side_effect=lambda r: httpx.Response(
+        200, json=_fixture_with(58) if r.url.params["destination"] == "LON" else EMPTY))
+    pipeline.run_collect(ctx, conn)
+    [(deal, _, check)] = pipeline.run_recheck(ctx, conn)
+    assert check.valid and deal.status == "new" and deal.last_seen_price == 58
+
+    # Price rises: expired, with a note in the rendered folder.
+    respx.get(API_URL).mock(side_effect=lambda r: httpx.Response(
+        200, json=_fixture_with(75) if r.url.params["destination"] == "LON" else EMPTY))
+    pipeline.run_collect(ctx, conn)
+    [(deal, _, check)] = pipeline.run_recheck(ctx, conn)
+    assert not check.valid and deal.status == "expired" and deal.expired_reason == "price rose to 75 €"
+    assert "NÃO PUBLICAR" in (folder / "EXPIRADO.txt").read_text("utf-8")
+    assert pipeline.run_recheck(ctx, conn) == []     # expired deals are not rechecked again
+
+
+@respx.mock
+def test_recheck_skips_routes_without_data(ctx):
+    conn = pipeline.open_db(ctx)
+    seed_history(conn, days=25, price=100)
+    mock_api()
+    pipeline.run_collect(ctx, conn)
+    pipeline.run_detect(ctx, conn)
+    respx.get(API_URL).mock(return_value=httpx.Response(200, json=EMPTY))   # e.g. API hiccup
+    pipeline.run_collect(ctx, conn)
+    assert pipeline.run_recheck(ctx, conn) == []

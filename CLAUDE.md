@@ -18,6 +18,8 @@ See README.md for usage and DECISIONS.md for rationale and the roadmap.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
+- No scraping of booking sites or airlines (ToS and legal risk; see DECISIONS D13).
+- Never publish a deal whose status is `expired` (recheck runs every collection).
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it.
 - Secrets only via `.env` (`Secrets` in `config.py`). Never commit `.env`, `data/`, `output/`.

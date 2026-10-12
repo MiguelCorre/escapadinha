@@ -178,3 +178,25 @@ def test_lookback_excludes_old_days():
 
 def test_decision_is_value_object():
     assert Decision("no_deal", None, None, "x") == Decision("no_deal", None, None, "x")
+
+
+# --- direct only --------------------------------------------------------------------------
+
+def _with_stops(o, back=1):
+    from dataclasses import replace
+    return replace(o, return_transfers=back)
+
+
+def test_direct_only_ignores_connections_for_deals_and_baseline():
+    direct_cfg = CFG.model_copy(update={"direct_only": True})
+    cheap_connection = _with_stops(obs(40, oid=1))
+    history = lows([100] * 5) + [_with_stops(o) for o in lows([30] * 5)]   # cheap lows w/ stops
+    flags = detect_route([cheap_connection, obs(65, oid=2)], history, [], direct_cfg, None, NOW, 5)
+    assert [f.observation.id for f in flags] == [2]           # 65 vs direct typical low 100
+    assert flags[0].baseline.median == 100
+
+
+def test_direct_only_off_keeps_everything():
+    any_cfg = CFG.model_copy(update={"direct_only": False})
+    flags = detect_route([_with_stops(obs(40, oid=1))], lows([100] * 5), [], any_cfg, None, NOW, 5)
+    assert [f.observation.id for f in flags] == [1]

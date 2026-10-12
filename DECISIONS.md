@@ -93,6 +93,27 @@ PowerShell 5.1 turns uv's stderr progress into errors.
   `deals.affiliate_url` (schema v3). Failures are recorded with no fallback to a hand-built
   `marker=` URL.
 
+## D13: Portuguese audience, recheck, direct only, no scraping (2026-10-12)
+- **aviasales.pt:** aviasales.com defaults to USD/English/lb/AM-PM even from Lisbon.
+  aviasales.pt shows EUR and EU formats (the UI is English or Russian only). The collector uses
+  `market=pt`, and links go to aviasales.pt; the partner links API accepts .pt URLs.
+- **Alternatives checked:**
+  - Kiwi.com data API needs 50k MAU.
+  - Skyscanner (Impact) needs about 5k visits/month and manual approval.
+  - eDreams/Opodo (Awin) and KAYAK need applications and give no price data.
+  - Only Aviasales gives free price data, and the price shown must come from the same place as
+    the link. Revisit Skyscanner once the website has traffic.
+- **Recheck:** cached prices moved within 2 hours (OPO-PAR 60 → 70 €). Open deals are
+  re-verified on every run and expire when the trip is no longer offered at or below the
+  deal price, or the price is no longer fresh.
+- **direct_only:** a "Lisboa → Paris 91 €" deal returned via Beauvais → Milan-MXP, then
+  self-transfer to Bergamo → Lisbon, sold by an agency. Deals and baselines now use nonstop
+  round trips only (configurable).
+- **No scraping:** Skyscanner, Kiwi, eDreams, Google Flights and airlines forbid automated
+  collection. Ryanair actively litigates (CJEU Ryanair v PR Aviation, 2015), and bypassing bot
+  detection is off-limits. Legitimate routes to more data: the Aviasales Search API (approval),
+  Duffel (paid, live, no Ryanair), Skyscanner affiliate, manual review before posting.
+
 ## D8: Stack
 Python 3.14 via uv (latest stable), typer, httpx, pydantic-settings, stdlib sqlite3
 (plain SQL, `PRAGMA user_version` for schema versioning), jinja2, playwright, pytest + respx.

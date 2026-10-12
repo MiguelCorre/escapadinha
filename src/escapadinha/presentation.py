@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from urllib.parse import urlsplit, urlunsplit
+
 from escapadinha import i18n_pt as pt
 from escapadinha.models import Deal, Observation, Photo
 
 DISCLOSURE = ("Publicidade · Este post contém links de afiliado: se reservares através deles, "
               "podemos receber uma comissão, sem custo extra para ti.")
+
+
+def booking_url(deep_link: str | None, booking_base: str) -> str | None:
+    """Point an Aviasales link at the configured market site (e.g. aviasales.com -> .pt)."""
+    if not deep_link:
+        return None
+    parts = urlsplit(deep_link)
+    if not parts.netloc.removeprefix("www.").startswith("aviasales."):
+        return deep_link
+    base = urlsplit(booking_base)
+    return urlunsplit(parts._replace(scheme=base.scheme, netloc=base.netloc))
 
 
 @dataclass(frozen=True)
@@ -68,7 +81,7 @@ class DealView:
             return f"{self.destination_city} ({pt.AIRPORTS.get(self.arrival_code, self.arrival_code)})"
         return self.destination_city
 
-    def meta(self, deal: Deal, observation: Observation) -> dict:
+    def meta(self, deal: Deal, observation: Observation, booking_base: str) -> dict:
         """Traceability record written next to the slides."""
         return {
             "deal_id": deal.id,
@@ -91,7 +104,7 @@ class DealView:
             "threshold": deal.threshold,
             "affiliate_url": self.affiliate_url,
             "affiliate_error": deal.affiliate_error,
-            "booking_url": observation.deep_link,
+            "booking_url": booking_url(observation.deep_link, booking_base),
             "photo": asdict(self.photo),
         }
 

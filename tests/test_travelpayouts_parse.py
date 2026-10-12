@@ -34,7 +34,7 @@ def test_parse_maps_fields_and_keeps_raw_payload():
     assert first.currency == "EUR" and first.airline == "U2" and first.flight_number == "8540"
     assert first.transfers == 0
     assert first.fetched_at == FETCHED
-    assert first.deep_link.startswith("https://www.aviasales.com/search/LIS0611LON09111")
+    assert first.deep_link.startswith("https://www.aviasales.pt/search/LIS0611LON09111")
     assert json.loads(first.raw_json)["price"] == 58
 
 
@@ -57,6 +57,18 @@ def test_source_sends_token_and_month_params():
     assert request.headers["X-Access-Token"] == "tok"
     assert request.url.params["departure_at"] == "2026-11"
     assert request.url.params["one_way"] == "false"
+    assert "market" not in request.url.params
+
+
+@respx.mock
+def test_source_sends_market_and_uses_booking_base():
+    route = respx.get(API_URL).mock(return_value=httpx.Response(200, json=FIXTURE))
+    source = TravelpayoutsSource("tok", currency="eur", min_nights=2, max_nights=10, limit=50,
+                                 market="pt", booking_base="https://www.aviasales.pt/",
+                                 now=lambda: FETCHED)
+    result = source.fetch_round_trips("LIS", "LON", date(2026, 11, 1))
+    assert route.calls.last.request.url.params["market"] == "pt"
+    assert result[0].deep_link.startswith("https://www.aviasales.pt/search/")
     assert len(result) == 2
 
 
@@ -119,5 +131,5 @@ def test_parses_recorded_real_response():
     result = parse(RECORDED, min_nights=1, max_nights=30)
     assert len(result) == len(RECORDED["data"])
     assert all(o.found_date and o.found_date <= date(2026, 10, 12) for o in result)
-    assert all(o.deep_link.startswith("https://www.aviasales.com/search/LIS") for o in result)
+    assert all(o.deep_link.startswith("https://www.aviasales.pt/search/LIS") for o in result)
     assert all(o.currency == "EUR" and o.price > 0 for o in result)

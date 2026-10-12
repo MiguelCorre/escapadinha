@@ -58,6 +58,9 @@ class Deal:
     status: str
     affiliate_url: str | None = None     # tracked link from the partner links API
     affiliate_error: str | None = None   # why conversion failed, if it did
+    last_checked_at: datetime | None = None
+    last_seen_price: float | None = None
+    expired_reason: str | None = None
 
 
 @dataclass(frozen=True)

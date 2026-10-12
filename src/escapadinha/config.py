@@ -36,6 +36,8 @@ class CollectorConfig(BaseModel):
     min_nights: int = Field(2, ge=1)
     max_nights: int = Field(10, ge=1)
     limit_per_request: int = Field(100, ge=1, le=1000)
+    market: str | None = "pt"                     # Aviasales market whose searches feed the cache
+    booking_base: str = "https://www.aviasales.pt"  # booking site linked from posts (EUR, EU formats)
 
 
 class DetectorConfig(BaseModel):
@@ -45,6 +47,7 @@ class DetectorConfig(BaseModel):
     dedupe_days: int = Field(7, ge=0)
     max_deals_per_route: int = Field(1, ge=1)
     max_offer_age_days: int = Field(3, ge=0)
+    direct_only: bool = True   # only nonstop both ways (no self-transfers between airports)
 
 
 class Route(BaseModel):

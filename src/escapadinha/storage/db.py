@@ -9,13 +9,30 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Steps that bring an existing database from version N-1 to N.
 MIGRATIONS = {
     2: ["ALTER TABLE price_observations ADD COLUMN found_date TEXT"],
     3: ["ALTER TABLE deals ADD COLUMN affiliate_url TEXT",
         "ALTER TABLE deals ADD COLUMN affiliate_error TEXT"],
+    # SQLite can't alter a CHECK constraint: rebuild deals with the 'expired' status.
+    4: ["""CREATE TABLE deals_v4 (
+            id INTEGER PRIMARY KEY,
+            observation_id INTEGER NOT NULL UNIQUE REFERENCES price_observations(id),
+            rule TEXT NOT NULL CHECK (rule IN ('median', 'price_cap')),
+            baseline_median NUMERIC, sample_size INTEGER NOT NULL, discount_pct NUMERIC,
+            threshold NUMERIC NOT NULL, detected_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'new' CHECK (status IN
+                ('new', 'rendered', 'approved', 'rejected', 'published', 'expired')),
+            affiliate_url TEXT, affiliate_error TEXT,
+            last_checked_at TEXT, last_seen_price NUMERIC, expired_reason TEXT)""",
+        """INSERT INTO deals_v4 (id, observation_id, rule, baseline_median, sample_size,
+               discount_pct, threshold, detected_at, status, affiliate_url, affiliate_error)
+           SELECT id, observation_id, rule, baseline_median, sample_size, discount_pct,
+               threshold, detected_at, status, affiliate_url, affiliate_error FROM deals""",
+        "DROP TABLE deals",
+        "ALTER TABLE deals_v4 RENAME TO deals"],
 }
 
 
@@ -145,7 +162,8 @@ def recently_flagged_offers(conn: sqlite3.Connection, origin: str, destination: 
                             since: datetime) -> list[Observation]:
     rows = conn.execute(
         """SELECT o.* FROM deals d JOIN price_observations o ON o.id = d.observation_id
-           WHERE o.origin = ? AND o.destination = ? AND d.detected_at >= ?""",
+           WHERE o.origin = ? AND o.destination = ? AND d.detected_at >= ?
+             AND d.status != 'expired'""",
         (origin, destination, _ts(since)),
     )
     return [_row_to_observation(r) for r in rows]
@@ -174,6 +192,10 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
         threshold=float(row["threshold"]),
         detected_at=datetime.fromisoformat(row["detected_at"]), status=row["status"],
         affiliate_url=row["affiliate_url"], affiliate_error=row["affiliate_error"],
+        last_checked_at=(datetime.fromisoformat(row["last_checked_at"])
+                         if row["last_checked_at"] else None),
+        last_seen_price=None if row["last_seen_price"] is None else float(row["last_seen_price"]),
+        expired_reason=row["expired_reason"],
     )
 
 
@@ -193,6 +215,28 @@ def set_deal_affiliate(conn: sqlite3.Connection, deal_id: int, url: str | None,
                        error: str | None) -> None:
     conn.execute("UPDATE deals SET affiliate_url = ?, affiliate_error = ? WHERE id = ?",
                  (url, error, deal_id))
+    conn.commit()
+
+
+OPEN_STATUSES = ("new", "rendered", "approved")
+
+
+def open_deals(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
+    """Deals that could still be published, so they must be rechecked."""
+    rows = conn.execute(
+        f"SELECT * FROM deals WHERE status IN ({','.join('?' * len(OPEN_STATUSES))}) ORDER BY id",
+        OPEN_STATUSES).fetchall()
+    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+
+
+def record_recheck(conn: sqlite3.Connection, deal_id: int, *, valid: bool,
+                   latest_price: float | None, reason: str) -> None:
+    conn.execute(
+        """UPDATE deals SET last_checked_at = ?, last_seen_price = ?,
+               status = CASE WHEN ? THEN status ELSE 'expired' END,
+               expired_reason = CASE WHEN ? THEN NULL ELSE ? END
+           WHERE id = ?""",
+        (_ts(utcnow()), latest_price, valid, valid, reason, deal_id))
     conn.commit()
 
 

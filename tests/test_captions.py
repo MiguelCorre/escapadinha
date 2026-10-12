@@ -161,3 +161,10 @@ def test_remote_airport_is_named_in_the_headline():
 
 def test_unknown_airport_code_shown_bare():
     assert pt.airport_label("XYZ") == "XYZ" and pt.airport_label(None) is None
+
+
+def test_booking_url_moves_aviasales_links_to_configured_market():
+    from escapadinha.presentation import booking_url
+    assert booking_url("https://www.aviasales.com/search/X?t=1", "https://www.aviasales.pt") ==         "https://www.aviasales.pt/search/X?t=1"
+    assert booking_url("https://example.com/a", "https://www.aviasales.pt") == "https://example.com/a"
+    assert booking_url(None, "https://www.aviasales.pt") is None

@@ -19,7 +19,8 @@ from escapadinha.config import Context, Route
 from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation
 from escapadinha.photos import PixabayClient, fetch_photo
-from escapadinha.presentation import PhotoCredit, build_deal_view
+from escapadinha.presentation import PhotoCredit, booking_url, build_deal_view
+from escapadinha.recheck import Recheck, recheck
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db
 
@@ -40,7 +41,8 @@ def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
     c = ctx.config.collector
     source = TravelpayoutsSource(ctx.secrets.travelpayouts_token, currency=c.currency,
                                  min_nights=c.min_nights, max_nights=c.max_nights,
-                                 limit=c.limit_per_request)
+                                 limit=c.limit_per_request, market=c.market,
+                                 booking_base=c.booking_base)
     return collect(conn, source, ctx.config.routes, today=lisbon_today(), months_ahead=c.months_ahead)
 
 
@@ -91,10 +93,11 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
 
 def _summarise(route: Route, offers: list[Observation], history: list[Observation],
                flags: list[detector.Flag], deal_ids: list[int], cfg, now: datetime) -> RouteDetection:
-    fresh = [o for o in offers if detector.is_fresh(o, cfg, now)]
+    fresh = [o for o in detector.eligible(offers, cfg) if detector.is_fresh(o, cfg, now)]
     if not fresh:
+        kind = "direct " if cfg.direct_only else ""
         return RouteDetection(route.key, 0, None, None, "no_fresh", [],
-                              f"no price found in the last {cfg.max_offer_age_days} days")
+                              f"no {kind}price found in the last {cfg.max_offer_age_days} days")
     baselines = detector.month_baselines(history, cfg, now)
     empty = detector.Baseline(None, 0, 0)
 
@@ -116,6 +119,42 @@ def current_baselines(ctx: Context, conn: sqlite3.Connection,
     history = db.route_history(conn, route.origin, route.destination,
                                since=now - timedelta(days=cfg.lookback_days), exclude_run_id=None)
     return detector.month_baselines(history, cfg, now)
+
+
+# --- recheck ------------------------------------------------------------------
+
+def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None,
+                now: datetime | None = None) -> list[tuple[Deal, Observation, Recheck]]:
+    """Re-verify every open deal against the newest run; expire the ones that moved.
+
+    A deal is only judged when the run is newer than the deal's own data and the run
+    returned prices for that route (a failed request must not expire anything).
+    """
+    now = now or db.utcnow()
+    run_id = run_id or db.latest_completed_run_id(conn)
+    if run_id is None:
+        return []
+    latest = db.observations_for_run(conn, run_id)
+    results = []
+    for deal, obs in db.open_deals(conn):
+        route_latest = [o for o in latest if o.route_key == obs.route_key]
+        if obs.run_id >= run_id or not route_latest:
+            continue
+        result = recheck(obs, route_latest, ctx.config.detector, now)
+        db.record_recheck(conn, deal.id, valid=result.valid, latest_price=result.latest_price,
+                          reason=result.reason)
+        if not result.valid:
+            _mark_expired_outputs(ctx, deal.id, result.reason, now)
+        results.append((db.get_deal(conn, deal.id)[0], obs, result))
+    return results
+
+
+def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime) -> None:
+    """Drop a NÃO PUBLICAR note into any already-rendered folder of this deal."""
+    for folder in ctx.output_dir.glob(f"*/deal-*-{deal_id}"):
+        _write_text(folder / "EXPIRADO.txt",
+                    f"NÃO PUBLICAR: deal expirado a {i18n_pt.lisbon_timestamp(now)}.\n"
+                    f"Motivo: {reason}\n")
 
 
 # --- photos -------------------------------------------------------------------
@@ -168,6 +207,7 @@ def ensure_affiliate_links(ctx: Context, conn: sqlite3.Connection,
     Deals without a link are retried on every render. There is deliberately no fallback
     to a hand-built `marker=` URL: the program terms allow only network tools.
     """
+    base = ctx.config.collector.booking_base
     missing = [(d, o) for d, o in pairs if not d.affiliate_url and o.deep_link]
     if not missing:
         return pairs
@@ -179,12 +219,13 @@ def ensure_affiliate_links(ctx: Context, conn: sqlite3.Connection,
             client = PartnerLinksClient(ctx.secrets.travelpayouts_token,
                                         marker=ctx.secrets.travelpayouts_marker,
                                         project_id=project_id, shorten=ctx.config.affiliate.shorten)
-            results = client.create([(o.deep_link, f"deal-{d.id}") for d, o in missing])
+            results = client.create([(booking_url(o.deep_link, base), f"deal-{d.id}")
+                                     for d, o in missing])
             failure = None
         except (AffiliateError, httpx.HTTPError) as exc:
             results, failure = {}, str(exc)
     for d, o in missing:
-        link = results.get(o.deep_link)
+        link = results.get(booking_url(o.deep_link, base))
         db.set_deal_affiliate(conn, d.id, link.partner_url if link else None,
                               (link.error if link else failure) or None)
     return [db.get_deal(conn, d.id) for d, _ in pairs]
@@ -210,7 +251,8 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
             _write_text(out_dir / "caption.txt",
                         deal_caption(view, brand_name=ctx.config.brand.name))
             _write_text(out_dir / "meta.json",
-                        json.dumps(view.meta(deal, obs), ensure_ascii=False, indent=2))
+                        json.dumps(view.meta(deal, obs, ctx.config.collector.booking_base),
+                                   ensure_ascii=False, indent=2))
             if deal.status == "new":
                 db.set_deal_status(conn, deal.id, "rendered")
             written.append((out_dir, deal))

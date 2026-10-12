@@ -11,6 +11,8 @@ collector:
   min_nights: 2
   max_nights: 10
   limit_per_request: 100      # max offers returned per route/month call
+  market: pt                  # prices found on the Portuguese Aviasales market
+  booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
 
 # A deal = a fresh price well below the route's typical LOW for that departure month:
 # the median of daily lowest prices (day = when travellers found the price).
@@ -21,6 +23,8 @@ detector:
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
   max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
   max_offer_age_days: 3      # candidates: prices found in the last N days; older days = baseline
+  direct_only: true          # deals and typical lows use nonstop round trips only (avoids
+                             # e.g. Paris-Beauvais -> Milan-MXP, change airport -> BGY -> Lisbon)
 
 # City or airport IATA codes. Travelpayouts accepts city codes (LON, PAR, ROM, MIL).
 # price_cap_eur (optional): absolute ceiling used ONLY while history is insufficient.

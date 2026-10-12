@@ -20,7 +20,7 @@ from escapadinha.models import Observation
 from escapadinha.storage.db import utcnow
 
 API_URL = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates"
-AVIASALES_BASE = "https://www.aviasales.com"
+DEFAULT_BOOKING_BASE = "https://www.aviasales.pt"   # euros, 24h clock, EU dates
 SOURCE = "travelpayouts"
 
 
@@ -69,7 +69,8 @@ def found_date(link: str | None) -> date | None:
 
 
 def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: datetime,
-                   min_nights: int, max_nights: int) -> list[Observation]:
+                   min_nights: int, max_nights: int,
+                   booking_base: str = DEFAULT_BOOKING_BASE) -> list[Observation]:
     """Turn an API payload into round-trip Observations within the nights range.
 
     Items without a return date or a positive price are dropped, never patched up.
@@ -104,7 +105,7 @@ def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: 
             flight_number=None if item.get("flight_number") is None else str(item["flight_number"]),
             transfers=item.get("transfers"),
             return_transfers=item.get("return_transfers"),
-            deep_link=f"{AVIASALES_BASE}{link}" if link and link.startswith("/") else link,
+            deep_link=f"{booking_base}{link}" if link and link.startswith("/") else link,
             fetched_at=fetched_at,
             found_date=found_date(link),
             raw_json=json.dumps(item, ensure_ascii=False, sort_keys=True),
@@ -116,7 +117,8 @@ class TravelpayoutsSource:
     name = SOURCE
 
     def __init__(self, token: str, *, currency: str, min_nights: int, max_nights: int,
-                 limit: int, client: httpx.Client | None = None,
+                 limit: int, market: str | None = None,
+                 booking_base: str = DEFAULT_BOOKING_BASE, client: httpx.Client | None = None,
                  now: Callable[[], datetime] | None = None,
                  sleep: Callable[[float], None] = time.sleep, max_attempts: int = 3):
         if not token:
@@ -126,6 +128,8 @@ class TravelpayoutsSource:
         self._currency = currency.lower()
         self._min_nights, self._max_nights = min_nights, max_nights
         self._limit = limit
+        self._market = market
+        self._booking_base = booking_base.rstrip("/")
         self._now = now or utcnow
         self._sleep = sleep
         self._max_attempts = max_attempts
@@ -141,10 +145,12 @@ class TravelpayoutsSource:
             "unique": "false",
             "limit": self._limit,
         }
+        if self._market:
+            params["market"] = self._market
         payload = self._get(params)
         return parse_response(payload, origin=origin, destination=destination,
                               fetched_at=self._now(), min_nights=self._min_nights,
-                              max_nights=self._max_nights)
+                              max_nights=self._max_nights, booking_base=self._booking_base)
 
     def _get(self, params: dict) -> dict:
         for attempt in range(1, self._max_attempts + 1):
