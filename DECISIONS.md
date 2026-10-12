@@ -32,10 +32,17 @@ repeats the trace.
 Matches the "ida e volta desde X €" format. One API call per route per month returns the
 cheapest round-trips. We filter by nights locally.
 
-## D5: Photos: Pexels, downloaded and cached
-The Pexels License allows commercial use and modification, and it suits pre-rendered PNGs.
+## D5: Photos: Pixabay, downloaded and cached (revised 2026-10-12)
+The plan picked Pexels, but its API page says "New API key issuance is currently paused".
+Pixabay replaced it:
+- Free key, 100 req/min.
+- The Content License allows commercial use and modification.
+- The API forbids permanent hotlinking, so images must be downloaded, which fits pre-rendered PNGs.
+
 Unsplash was rejected because its API rules require hotlinking and download-event pings.
-Photographer credit is stored and printed in every caption.
+Contributor credit is stored and printed in every caption even though the license doesn't
+require it. Trade-off: standard keys get at most 1280 px images (`fullHDURL` needs approved
+full access).
 
 ## D6: Rendering: HTML/CSS + Playwright, assets as data URIs
 Templates are plain HTML/CSS that a designer can edit. Photo, font and logo are inlined so

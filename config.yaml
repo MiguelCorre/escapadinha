@@ -40,7 +40,7 @@ origins_pt:
   FAO: Faro
 
 photos:
-  # Search query per destination for the Pexels API. Falls back to city_pt.
+  # Search query per destination for the Pixabay API. Falls back to city_pt.
   queries:
     LON: London skyline
     PAR: Paris Eiffel tower

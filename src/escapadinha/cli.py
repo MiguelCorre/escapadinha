@@ -10,13 +10,13 @@ from rich.table import Table
 
 from escapadinha import pipeline
 from escapadinha.collector.travelpayouts import TravelpayoutsError
-from escapadinha.photos import PexelsError
+from escapadinha.photos import PhotoSourceError
 from escapadinha.config import Context
 from escapadinha.storage import db
 
 app = typer.Typer(help="Travel deals from Portugal: collect → detect → render (no publishing).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
-photos_app = typer.Typer(help="Destination photo cache (Pexels).", no_args_is_help=True)
+photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
                          no_args_is_help=True)
 app.add_typer(photos_app, name="photos")
@@ -138,7 +138,7 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
 def main() -> None:
     try:
         app()
-    except (TravelpayoutsError, PexelsError, FileNotFoundError, KeyError) as exc:
+    except (TravelpayoutsError, PhotoSourceError, FileNotFoundError, KeyError) as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise SystemExit(2) from None
 

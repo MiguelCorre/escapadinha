@@ -29,9 +29,9 @@ def deal(rule="median", discount=0.4123):
                 detected_at=FETCHED, status="new")
 
 
-PHOTO = Photo(destination="AMS", file_path="assets/photos/AMS.jpg", source="pexels",
-              source_url="https://www.pexels.com/photo/1/", photographer="Ana Silva",
-              photographer_url="https://www.pexels.com/@ana", license="Pexels License",
+PHOTO = Photo(destination="AMS", file_path="assets/photos/AMS.jpg", source="pixabay",
+              source_url="https://pixabay.com/photos/x-1/", photographer="Ana Silva",
+              photographer_url="https://pixabay.com/users/ana-1/", license="Pixabay Content License",
               fetched_at=FETCHED)
 
 
@@ -105,7 +105,7 @@ def test_price_cap_deal_makes_no_discount_claim():
 
 
 def test_photo_credit_line():
-    assert "📷 Foto: Ana Silva / Pexels" in caption()
+    assert "📷 Foto: Ana Silva / Pixabay" in caption()
     assert "📷" not in caption(photo=None)
 
 

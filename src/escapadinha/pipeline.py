@@ -14,7 +14,7 @@ from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.travelpayouts import TravelpayoutsSource
 from escapadinha.config import Context, Route
 from escapadinha.guides import load_guide
-from escapadinha.photos import PexelsClient, fetch_photo
+from escapadinha.photos import PixabayClient, fetch_photo
 from escapadinha.presentation import PhotoCredit, build_deal_view
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db
@@ -101,7 +101,7 @@ def current_baseline(ctx: Context, conn: sqlite3.Connection, route: Route) -> de
 # --- photos -------------------------------------------------------------------
 
 def photo_targets(ctx: Context) -> dict[str, str]:
-    """Destination key -> Pexels query, for every route destination plus extra config keys."""
+    """Destination key -> Pixabay search query, for every route destination plus extra config keys."""
     cfg = ctx.config
     targets = {r.destination: cfg.photos.queries.get(r.destination, r.city_pt) for r in cfg.routes}
     for key, query in cfg.photos.queries.items():
@@ -115,7 +115,7 @@ def run_fetch_photos(ctx: Context, conn: sqlite3.Connection, dest: str | None, f
     if dest:
         dest = dest.upper()
         targets = {dest: targets.get(dest) or ctx.config.origin_name(dest)}
-    client = PexelsClient(ctx.secrets.pexels_api_key)
+    client = PixabayClient(ctx.secrets.pixabay_api_key)
     done = []
     for key, query in targets.items():
         if not force and db.get_photo(conn, key) is not None:

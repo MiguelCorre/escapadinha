@@ -21,7 +21,7 @@ class Secrets(BaseSettings):
 
     travelpayouts_token: str = ""
     travelpayouts_marker: str = ""
-    pexels_api_key: str = ""
+    pixabay_api_key: str = ""
 
 
 class Brand(BaseModel):

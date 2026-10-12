@@ -27,7 +27,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations)
 | `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`), `runner.collect` (route × month loop) |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py` |
 | `detector.py` | Pure functions: `baseline`, `evaluate`, `detect_route` |
-| `photos.py` | Pexels search + download, credit stored in `photos` |
+| `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG |
 | `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) |
 | `pipeline.py` | Wires the DB to each step; `cli.py` exposes them |
@@ -49,7 +49,7 @@ Keys (`.env`, never committed):
 |---|---|
 | `TRAVELPAYOUTS_TOKEN` | travelpayouts.com → sign up → *Profile → API token* |
 | `TRAVELPAYOUTS_MARKER` | Your partner marker (numeric). Appended to Aviasales links as `marker=` |
-| `PEXELS_API_KEY` | pexels.com/api (free) |
+| `PIXABAY_API_KEY` | pixabay.com/api/docs: free key, shown on that page once you're logged in |
 
 In the Travelpayouts dashboard, join the **Aviasales** program and check under its
 traffic rules that **Instagram/social media** traffic is allowed before posting.
@@ -60,7 +60,7 @@ traffic rules that **Instagram/social media** traffic is allowed before posting.
 uv run escapadinha collect                 # ~30 API calls: 10 routes × 3 departure months
 uv run escapadinha detect                  # evaluates the latest run; prints a per-route table
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
-uv run escapadinha photos fetch            # one Pexels photo per destination (cached)
+uv run escapadinha photos fetch            # one Pixabay photo per destination (cached)
 uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you don't like
 uv run escapadinha render deals            # renders deals with status 'new' → 'rendered'
 uv run escapadinha render deals --deal-id 12
@@ -130,8 +130,10 @@ response. Replace it with a recorded real response once you have a token.
 - **Travelpayouts / Aviasales Data API**: a cache of prices users found recently (not live).
   The limit is 600 req/min on v3 endpoints. Captions always state when and where the price
   was found and that prices change.
-- **Pexels**: free commercial use under the Pexels License. Photos appear only as slide
-  backgrounds, and every caption credits the photographer.
+- **Pixabay**: free commercial use under the Pixabay Content License. The API forbids
+  hotlinking, so photos are downloaded once and cached, and every caption credits the
+  contributor. Standard keys get `largeImageURL` (max 1280 px, slightly upscaled to
+  1080×1350). Approved full API access unlocks `fullHDURL`, which is used automatically.
 - Affiliate disclosure ("Publicidade · … links de afiliado …") appears on every deal caption
   and on the CTA slide.
 
