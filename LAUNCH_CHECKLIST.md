@@ -5,13 +5,15 @@ The steps before the first public post, in order. Tick them as they're done.
 ## 1. Brand and channels
 - [ ] Pick the real brand name and Instagram handle. "Escapadinha" is a placeholder, so check
       availability first.
-- [ ] Create the Instagram account and switch it to a **professional** (Business/Creator) account.
-      v2 publishing via the Graph API needs this.
+- [x] Instagram account: https://www.instagram.com/ondestaanocas/ (handle may still change).
+- [ ] Switch it to a **professional** (Business/Creator) account. v2 publishing via the Graph API needs this.
 - [ ] Put the website up (v3). Even a simple landing page works as a second traffic source and
       as the "link na bio".
 
 ## 2. Travelpayouts
-- [ ] Create a **Project** for the Instagram profile (Profile → Projects → Create Project → paste its URL).
+- [x] Project for the Instagram profile: **ID 584711** "Instagram", Content creation, Portuguese (2026-10-12).
+      Once a project is connected to programs its link **can't be edited**. If the handle changes,
+      create a new project with the new URL and archive the old one.
 - [ ] Create a separate Project for the website.
 - [ ] Generate tracked Aviasales links from the Project (link generator, later the Links API) and
       use them instead of the raw `aviasales.com/...&marker=789000` link in `meta.json`.
