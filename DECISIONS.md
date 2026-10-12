@@ -114,6 +114,17 @@ PowerShell 5.1 turns uv's stderr progress into errors.
   detection is off-limits. Legitimate routes to more data: the Aviasales Search API (approval),
   Duffel (paid, live, no Ryanair), Skyscanner affiliate, manual review before posting.
 
+## D14: Approval queue (v2, 2026-10-12)
+- A local FastAPI page on 127.0.0.1 with no login. It only runs on this PC, while
+  `escapadinha review` is open.
+- The rules live in `review.py` and `pipeline.py`, so the CLI and the page can't disagree.
+- **Approve = live price check + approval:** the cache moved 60 → 70 € within hours on day one.
+  A live check costs one API call (route and departure month), and its prices are stored as a
+  `live_check` run that is excluded from "latest full run".
+- **Statuses:** `published` is set by hand until Instagram publishing exists (next v2 step).
+- **Schema v5:** `fetch_runs.scope`, plus deal `output_path`, `reviewed_at`, `review_note`,
+  `published_at` and `post_url`.
+
 ## D8: Stack
 Python 3.14 via uv (latest stable), typer, httpx, pydantic-settings, stdlib sqlite3
 (plain SQL, `PRAGMA user_version` for schema versioning), jinja2, playwright, pytest + respx.
@@ -123,7 +134,7 @@ Runs `escapadinha run` 3×/day on this PC with daily log files. The SQLite DB st
 so nothing has to be hosted.
 
 ## Roadmap
-- **v2: approval queue + Instagram publishing.**
+- **v2: approval queue (done, D14) + Instagram publishing (next).**
   - Review step moves deals `rendered → approved/rejected`.
   - Optional Duffel live re-check before posting.
   - PNG → JPEG (the Graph API accepts JPEG only), uploaded to public storage (R2/S3).

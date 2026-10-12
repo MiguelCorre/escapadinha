@@ -5,7 +5,8 @@ See README.md for usage and DECISIONS.md for rationale and the roadmap.
 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
-- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `detect`, `stats`, `photos fetch`, `render deals|guide`, `run`).
+- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `photos fetch`,
+  `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 
 ## Rules
@@ -28,7 +29,8 @@ See README.md for usage and DECISIONS.md for rationale and the roadmap.
 ## Layout
 - `src/escapadinha/collector/`: `TravelpayoutsSource`, `runner.collect`
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate`, `detect_route`
-- `src/escapadinha/pipeline.py`: DB wiring per CLI step
+- `src/escapadinha/pipeline.py`: DB wiring per CLI step, plus review actions (`live_check`, `approve`, ...)
+- `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page
 - `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, scrim, logo, fitText) + `deal/`, `guide/`
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)

@@ -225,7 +225,7 @@ def test_recheck_expires_deal_when_price_rises(ctx):
         200, json=_fixture_with(75) if r.url.params["destination"] == "LON" else EMPTY))
     pipeline.run_collect(ctx, conn)
     [(deal, _, check)] = pipeline.run_recheck(ctx, conn)
-    assert not check.valid and deal.status == "expired" and deal.expired_reason == "price rose to 75 €"
+    assert not check.valid and deal.status == "expired" and deal.expired_reason == "o preço subiu para 75 €"
     assert "NÃO PUBLICAR" in (folder / "EXPIRADO.txt").read_text("utf-8")
     assert pipeline.run_recheck(ctx, conn) == []     # expired deals are not rechecked again
 

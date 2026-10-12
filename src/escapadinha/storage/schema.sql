@@ -1,4 +1,4 @@
--- Schema version 4 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 5 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS fetch_runs (
     started_at     TEXT    NOT NULL,
     finished_at    TEXT,
     status         TEXT    NOT NULL DEFAULT 'running',  -- running | ok | partial | failed
+    scope          TEXT    NOT NULL DEFAULT 'full',     -- full (all routes) | live_check (one deal)
     n_requests     INTEGER NOT NULL DEFAULT 0,
     n_observations INTEGER NOT NULL DEFAULT 0,
     error          TEXT
@@ -52,7 +53,12 @@ CREATE TABLE IF NOT EXISTS deals (
     affiliate_error TEXT,
     last_checked_at TEXT,      -- last recheck against a newer collection run
     last_seen_price NUMERIC,   -- cheapest price for the same trip at that recheck
-    expired_reason  TEXT
+    expired_reason  TEXT,
+    output_path     TEXT,      -- folder with slides/caption/meta from the last render
+    reviewed_at     TEXT,      -- approve/reject time
+    review_note     TEXT,
+    published_at    TEXT,
+    post_url        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS photos (

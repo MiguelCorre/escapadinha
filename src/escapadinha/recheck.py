@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from escapadinha import i18n_pt as pt
 from escapadinha.config import DetectorConfig
 from escapadinha.detector import eligible, is_direct, is_fresh
 from escapadinha.models import Observation
@@ -26,17 +27,17 @@ def recheck(deal_obs: Observation, latest: list[Observation], cfg: DetectorConfi
             now: datetime, tolerance_eur: float = 0.0) -> Recheck:
     """`latest`: the newest run's observations for the deal's route."""
     if cfg.direct_only and not is_direct(deal_obs):
-        return Recheck(False, None, "not a direct round trip (direct_only is on)")
+        return Recheck(False, None, "não é ida e volta com voos diretos (regra direct_only)")
     same_trip = [o for o in eligible(latest, cfg)
                  if o.departure_date == deal_obs.departure_date
                  and o.return_date == deal_obs.return_date]
     if not same_trip:
-        return Recheck(False, None, "trip no longer in the latest prices")
+        return Recheck(False, None, "a viagem já não aparece nos preços mais recentes")
     best = min(same_trip, key=lambda o: o.price)
     if best.price > deal_obs.price + tolerance_eur:
-        return Recheck(False, best.price, f"price rose to {best.price:g} €")
+        return Recheck(False, best.price, f"o preço subiu para {pt.eur(best.price)}")
     if not is_fresh(best, cfg, now):
         return Recheck(False, best.price,
-                       f"price last found {best.found_date:%d/%m}, older than "
-                       f"{cfg.max_offer_age_days} days")
-    return Recheck(True, best.price, f"still {best.price:g} €")
+                       f"o preço foi visto pela última vez a {best.found_date:%d/%m}, há mais "
+                       f"de {cfg.max_offer_age_days} dias")
+    return Recheck(True, best.price, f"continua a {pt.eur(best.price)}")

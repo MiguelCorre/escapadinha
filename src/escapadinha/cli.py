@@ -12,6 +12,7 @@ from escapadinha import pipeline
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
+from escapadinha.review import ReviewError
 from escapadinha.config import Context
 from escapadinha.storage import db
 
@@ -20,8 +21,11 @@ app = typer.Typer(help="Travel deals from Portugal: collect → detect → rende
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
                          no_args_is_help=True)
+deal_app = typer.Typer(help="Approval queue actions (same rules as the review page).",
+                       no_args_is_help=True)
 app.add_typer(photos_app, name="photos")
 app.add_typer(render_app, name="render")
+app.add_typer(deal_app, name="deal")
 
 console = Console()
 
@@ -84,7 +88,7 @@ def recheck_cmd() -> None:
         console.print("No open deals to recheck against a newer run.")
         return
     for deal, obs, r in results:
-        mark = "[green]✓ valid[/]" if r.valid else "[red]✗ expired[/]"
+        mark = "[green]✓ válido[/]" if r.valid else "[red]✗ expirado[/]"
         console.print(f"  deal {deal.id} {obs.route_key} {obs.departure_date:%d/%m}–"
                       f"{obs.return_date:%d/%m} @ {obs.price:g} €: {mark} ({r.reason})")
 
@@ -147,6 +151,61 @@ def render_guide(slug: Annotated[str, typer.Argument(help="File name in content/
 
 
 @app.command()
+def review(
+    port: Annotated[int, typer.Option(help="Local port")] = 8765,
+    open_browser: Annotated[bool, typer.Option("--open/--no-open", help="Open the page")] = True,
+) -> None:
+    """Open the local approval queue (http://127.0.0.1:PORT). Ctrl+C to stop."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from escapadinha.web import create_app
+
+    url = f"http://127.0.0.1:{port}"
+    console.print(f"Fila de aprovação em [bold]{url}[/] (Ctrl+C para parar)")
+    if open_browser:
+        threading.Timer(1.0, webbrowser.open, args=[url]).start()
+    uvicorn.run(create_app(Context()), host="127.0.0.1", port=port, log_level="warning")
+
+
+def _print_check(deal, check) -> None:
+    mark = "[green]✓ preço confirmado[/]" if check.valid else "[red]✗ expirado[/]"
+    console.print(f"  deal {deal.id}: {mark} ({check.reason}) → status {deal.status}")
+
+
+@deal_app.command("check")
+def deal_check(deal_id: int) -> None:
+    """Fetch this deal's prices now and recheck it."""
+    ctx, conn = _ctx()
+    _print_check(*pipeline.live_check(ctx, conn, deal_id))
+
+
+@deal_app.command("approve")
+def deal_approve(deal_id: int, note: Annotated[str | None, typer.Option()] = None) -> None:
+    """Approve after a live price check (expires the deal if the price moved)."""
+    ctx, conn = _ctx()
+    _print_check(*pipeline.approve(ctx, conn, deal_id, note))
+
+
+@deal_app.command("reject")
+def deal_reject(deal_id: int, note: Annotated[str | None, typer.Option()] = None) -> None:
+    """Reject a deal (final)."""
+    _, conn = _ctx()
+    deal = pipeline.reject(conn, deal_id, note)
+    console.print(f"  deal {deal.id}: {deal.status}")
+
+
+@deal_app.command("published")
+def deal_published(deal_id: int, url: Annotated[str | None, typer.Option(help="Post URL")] = None) -> None:
+    """Mark an approved deal as published."""
+    _, conn = _ctx()
+    deal = pipeline.mark_published(conn, deal_id, url)
+    console.print(f"  deal {deal.id}: {deal.status}")
+
+
+@app.command()
 def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
     """collect → recheck open deals → detect → render new deals. What the scheduler runs."""
     collect()
@@ -159,7 +218,8 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
 def main() -> None:
     try:
         app()
-    except (TravelpayoutsError, PhotoSourceError, AffiliateError, FileNotFoundError, KeyError) as exc:
+    except (TravelpayoutsError, PhotoSourceError, AffiliateError, ReviewError, FileNotFoundError,
+            KeyError) as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise SystemExit(2) from None
 

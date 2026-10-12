@@ -28,7 +28,7 @@ def test_still_valid_at_same_or_lower_price():
 def test_expires_when_price_rose():
     """The real case from 2026-10-12: OPO-PAR 25/11 went from 60 € to 70 €."""
     r = recheck(DEAL, [obs(70), obs(200, dep=date(2026, 11, 26))], CFG, NOW)
-    assert not r.valid and r.latest_price == 70 and "70" in r.reason
+    assert not r.valid and r.latest_price == 70 and r.reason == "o preço subiu para 70 €"
 
 
 def test_expires_when_trip_disappears():
@@ -38,7 +38,7 @@ def test_expires_when_trip_disappears():
 
 def test_expires_when_price_is_no_longer_fresh():
     r = recheck(DEAL, [obs(60, found_ago=4)], CFG, NOW)
-    assert not r.valid and "older than 3 days" in r.reason
+    assert not r.valid and "há mais de 3 dias" in r.reason
 
 
 def test_tolerance():
@@ -49,5 +49,5 @@ def test_direct_only_expires_deals_with_connections():
     from dataclasses import replace
     connection = replace(DEAL, return_transfers=1)
     r = recheck(connection, [connection], DetectorConfig(direct_only=True), NOW)
-    assert not r.valid and "direct" in r.reason
+    assert not r.valid and "voos diretos" in r.reason
     assert recheck(connection, [connection], DetectorConfig(direct_only=False, max_offer_age_days=3), NOW).valid

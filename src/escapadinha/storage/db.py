@@ -9,7 +9,7 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Steps that bring an existing database from version N-1 to N.
 MIGRATIONS = {
@@ -33,6 +33,12 @@ MIGRATIONS = {
                threshold, detected_at, status, affiliate_url, affiliate_error FROM deals""",
         "DROP TABLE deals",
         "ALTER TABLE deals_v4 RENAME TO deals"],
+    5: ["ALTER TABLE fetch_runs ADD COLUMN scope TEXT NOT NULL DEFAULT 'full'",
+        "ALTER TABLE deals ADD COLUMN output_path TEXT",
+        "ALTER TABLE deals ADD COLUMN reviewed_at TEXT",
+        "ALTER TABLE deals ADD COLUMN review_note TEXT",
+        "ALTER TABLE deals ADD COLUMN published_at TEXT",
+        "ALTER TABLE deals ADD COLUMN post_url TEXT"],
 }
 
 
@@ -68,9 +74,10 @@ def init(conn: sqlite3.Connection) -> None:
 
 # --- fetch runs -------------------------------------------------------------
 
-def start_run(conn: sqlite3.Connection, source: str) -> int:
+def start_run(conn: sqlite3.Connection, source: str, scope: str = "full") -> int:
     cur = conn.execute(
-        "INSERT INTO fetch_runs (source, started_at) VALUES (?, ?)", (source, _ts(utcnow()))
+        "INSERT INTO fetch_runs (source, started_at, scope) VALUES (?, ?, ?)",
+        (source, _ts(utcnow()), scope),
     )
     conn.commit()
     return cur.lastrowid
@@ -88,7 +95,8 @@ def finish_run(conn: sqlite3.Connection, run_id: int, *, status: str, n_requests
 
 def latest_completed_run_id(conn: sqlite3.Connection) -> int | None:
     row = conn.execute(
-        "SELECT id FROM fetch_runs WHERE status IN ('ok', 'partial') ORDER BY id DESC LIMIT 1"
+        """SELECT id FROM fetch_runs WHERE status IN ('ok', 'partial') AND scope = 'full'
+           ORDER BY id DESC LIMIT 1"""
     ).fetchone()
     return row["id"] if row else None
 
@@ -196,12 +204,39 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
                          if row["last_checked_at"] else None),
         last_seen_price=None if row["last_seen_price"] is None else float(row["last_seen_price"]),
         expired_reason=row["expired_reason"],
+        output_path=row["output_path"],
+        reviewed_at=_dt(row["reviewed_at"]), review_note=row["review_note"],
+        published_at=_dt(row["published_at"]), post_url=row["post_url"],
     )
 
 
-def deals_with_status(conn: sqlite3.Connection, status: str) -> list[tuple[Deal, Observation]]:
-    rows = conn.execute("SELECT * FROM deals WHERE status = ? ORDER BY id", (status,)).fetchall()
+def _dt(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value) if value else None
+
+
+def deals_with_status(conn: sqlite3.Connection, *statuses: str) -> list[tuple[Deal, Observation]]:
+    rows = conn.execute(
+        f"SELECT * FROM deals WHERE status IN ({','.join('?' * len(statuses))}) ORDER BY id DESC",
+        statuses).fetchall()
     return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+
+
+def set_deal_output_path(conn: sqlite3.Connection, deal_id: int, path: str) -> None:
+    conn.execute("UPDATE deals SET output_path = ? WHERE id = ?", (path, deal_id))
+    conn.commit()
+
+
+def record_review(conn: sqlite3.Connection, deal_id: int, *, status: str,
+                  note: str | None) -> None:
+    conn.execute("UPDATE deals SET status = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
+                 (status, _ts(utcnow()), note, deal_id))
+    conn.commit()
+
+
+def record_published(conn: sqlite3.Connection, deal_id: int, post_url: str | None) -> None:
+    conn.execute("UPDATE deals SET status = 'published', published_at = ?, post_url = ? WHERE id = ?",
+                 (_ts(utcnow()), post_url, deal_id))
+    conn.commit()
 
 
 def get_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]:

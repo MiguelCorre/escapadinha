@@ -21,6 +21,7 @@ from escapadinha.models import Deal, Observation
 from escapadinha.photos import PixabayClient, fetch_photo
 from escapadinha.presentation import PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, recheck
+from escapadinha.review import STATUS_PT, ReviewError, ensure_transition
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db
 
@@ -38,12 +39,8 @@ def lisbon_today() -> date:
 # --- collect ------------------------------------------------------------------
 
 def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
-    c = ctx.config.collector
-    source = TravelpayoutsSource(ctx.secrets.travelpayouts_token, currency=c.currency,
-                                 min_nights=c.min_nights, max_nights=c.max_nights,
-                                 limit=c.limit_per_request, market=c.market,
-                                 booking_base=c.booking_base)
-    return collect(conn, source, ctx.config.routes, today=lisbon_today(), months_ahead=c.months_ahead)
+    return collect(conn, _source(ctx), ctx.config.routes, today=lisbon_today(),
+                   months_ahead=ctx.config.collector.months_ahead)
 
 
 # --- detect -------------------------------------------------------------------
@@ -157,6 +154,76 @@ def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime
                     f"Motivo: {reason}\n")
 
 
+# --- review (approval queue) ---------------------------------------------------
+
+def _source(ctx: Context) -> TravelpayoutsSource:
+    c = ctx.config.collector
+    return TravelpayoutsSource(ctx.secrets.travelpayouts_token, currency=c.currency,
+                               min_nights=c.min_nights, max_nights=c.max_nights,
+                               limit=c.limit_per_request, market=c.market,
+                               booking_base=c.booking_base)
+
+
+def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
+               now: datetime | None = None) -> tuple[Deal, Recheck]:
+    """Fetch this deal's route and departure month right now and recheck the price.
+
+    The prices are stored as a `live_check` run (traceable like any other data). A deal
+    whose price moved expires immediately.
+    """
+    deal, obs = db.get_deal(conn, deal_id)
+    if deal.status not in db.OPEN_STATUSES:
+        raise ReviewError(f"O deal {deal_id} está '{STATUS_PT[deal.status]}' e já não é verificado.")
+    source = _source(ctx)
+    run_id = db.start_run(conn, source.name, scope="live_check")
+    try:
+        fresh = source.fetch_round_trips(obs.origin, obs.destination,
+                                         obs.departure_date.replace(day=1))
+    except Exception as exc:
+        db.finish_run(conn, run_id, status="failed", n_requests=1, n_observations=0, error=str(exc))
+        raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
+    db.insert_observations(conn, run_id, fresh)
+    db.finish_run(conn, run_id, status="ok", n_requests=1, n_observations=len(fresh), error=None)
+    now = now or db.utcnow()
+    result = recheck(obs, fresh, ctx.config.detector, now)
+    db.record_recheck(conn, deal_id, valid=result.valid, latest_price=result.latest_price,
+                      reason=result.reason)
+    if not result.valid:
+        _mark_expired_outputs(ctx, deal_id, result.reason, now)
+    return db.get_deal(conn, deal_id)[0], result
+
+
+def approve(ctx: Context, conn: sqlite3.Connection, deal_id: int,
+            note: str | None = None) -> tuple[Deal, Recheck]:
+    """Approve only after a live price check passes; a moved price expires the deal instead."""
+    deal, _ = db.get_deal(conn, deal_id)
+    ensure_transition(deal.status, "approved")
+    if not deal.affiliate_url:
+        raise ReviewError("Este deal ainda não tem link de afiliado. Volta a renderizar "
+                          f"({deal.affiliate_error or 'sem erro registado'}).")
+    deal, result = live_check(ctx, conn, deal_id)
+    if result.valid:
+        db.record_review(conn, deal_id, status="approved", note=note)
+        deal = db.get_deal(conn, deal_id)[0]
+    return deal, result
+
+
+def reject(conn: sqlite3.Connection, deal_id: int, note: str | None = None) -> Deal:
+    deal, _ = db.get_deal(conn, deal_id)
+    ensure_transition(deal.status, "rejected")
+    db.record_review(conn, deal_id, status="rejected", note=note)
+    return db.get_deal(conn, deal_id)[0]
+
+
+def mark_published(conn: sqlite3.Connection, deal_id: int, post_url: str | None = None) -> Deal:
+    deal, _ = db.get_deal(conn, deal_id)
+    ensure_transition(deal.status, "published")
+    if post_url and not post_url.startswith(("https://", "http://")):
+        raise ReviewError("O link do post tem de começar por https://")
+    db.record_published(conn, deal_id, post_url or None)
+    return db.get_deal(conn, deal_id)[0]
+
+
 # --- photos -------------------------------------------------------------------
 
 def photo_targets(ctx: Context) -> dict[str, str]:
@@ -235,6 +302,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
                      deal_id: int | None = None) -> list[tuple[Path, Deal]]:
     """Render slides + caption + meta per deal. Returns (folder, deal) to report link status."""
     pairs = [db.get_deal(conn, deal_id)] if deal_id else db.deals_with_status(conn, status)
+    pairs = [db.get_deal(conn, d.id) for d, _ in pairs]   # fresh rows (status may have moved)
     if not pairs:
         return []
     pairs = ensure_affiliate_links(ctx, conn, pairs)
@@ -253,6 +321,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
             _write_text(out_dir / "meta.json",
                         json.dumps(view.meta(deal, obs, ctx.config.collector.booking_base),
                                    ensure_ascii=False, indent=2))
+            db.set_deal_output_path(conn, deal.id, str(out_dir))
             if deal.status == "new":
                 db.set_deal_status(conn, deal.id, "rendered")
             written.append((out_dir, deal))

@@ -120,6 +120,38 @@ exist from the **first run**. Until a month has `min_baseline_days` daily lows, 
 Every deal names its arrival airport. Remote airports (for example Paris-**Beauvais**,
 Milan-**Bérgamo**) also appear in the headline: "Porto → Paris (Beauvais)".
 
+## Approval queue
+
+```bash
+uv run escapadinha review            # opens http://127.0.0.1:8765 (local only; Ctrl+C to stop)
+```
+
+The page (in Portuguese) has four tabs: **Por rever**, **Aprovados**, **Publicados** and **Fechados**
+(expired or rejected). Each deal shows its three slides, the caption with a copy button, the
+affiliate link, and the facts behind it: price, typical low, discount, arrival airport,
+found/checked dates and the last recheck.
+
+- **Verificar preço agora** fetches that route and month from the API now and rechecks the deal.
+- **Aprovar** runs that same live check first. If the price moved, the deal expires instead of
+  being approved. A deal without an affiliate link can't be approved.
+- **Rejeitar** (optional note) and **Marcar como publicado** (optional post URL) record the decision.
+  Publishing to Instagram is still manual.
+- Approved deals keep being rechecked every 2 h. If the price moves before you post, the deal
+  expires and the page tells you.
+
+Live checks are stored as `live_check` runs, so their prices are traceable, but they never count
+as the latest full collection. The CLI applies the same rules:
+
+```bash
+uv run escapadinha deal check 12
+uv run escapadinha deal approve 12 --note "bom deal"
+uv run escapadinha deal reject 12 --note "datas fracas"
+uv run escapadinha deal published 12 --url https://www.instagram.com/p/...
+```
+
+Status flow: `new → rendered → approved → published`. `rejected` and `expired` are final;
+`expired` is only set by price checks.
+
 ## Affiliate links
 
 Each deal gets **one tracked link** from the Travelpayouts partner links API, created at render

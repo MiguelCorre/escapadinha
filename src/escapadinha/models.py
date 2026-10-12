@@ -61,6 +61,11 @@ class Deal:
     last_checked_at: datetime | None = None
     last_seen_price: float | None = None
     expired_reason: str | None = None
+    output_path: str | None = None
+    reviewed_at: datetime | None = None
+    review_note: str | None = None
+    published_at: datetime | None = None
+    post_url: str | None = None
 
 
 @dataclass(frozen=True)
