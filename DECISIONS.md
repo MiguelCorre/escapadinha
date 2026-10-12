@@ -80,6 +80,18 @@ To catch deals before competitors, the task runs every 2 h around the clock (12 
 360 API calls/day against a 600/min limit). The runner goes through cmd.exe because
 PowerShell 5.1 turns uv's stderr progress into errors.
 
+## D12: Aviasales program terms, checked 2026-10-12
+- **Allowed:** "Content creation: any channels", which covers Instagram. Reward is 1.1–1.3%
+  with a 30-day cookie.
+- **Not allowed:** paid search and media buying. Using the brand in PPC, or PPC linking straight
+  to Aviasales, gets the account blacklisted (term 1.2).
+- **Marker:** 789000 is the account ID. The dashboard puts `marker=789000` in its own links.
+- **Open:** term 1.4 allows only promo materials from the network. Tracked links should come from
+  Travelpayouts tools (link generator / Links API), and those need a registered **Project**,
+  meaning the Instagram account or a site. Until then `meta.json` carries an
+  `aviasales.com/...&marker=789000` deep link. Before posting, swap it for a generated link
+  (planned for v2 via the Links API).
+
 ## D8: Stack
 Python 3.14 via uv (latest stable), typer, httpx, pydantic-settings, stdlib sqlite3
 (plain SQL, `PRAGMA user_version` for schema versioning), jinja2, playwright, pytest + respx.
