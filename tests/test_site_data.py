@@ -314,6 +314,36 @@ def test_without_new_links_the_export_sends_no_partner_request(ctx, tmp_path):  
     assert links.call_count - before == made
 
 
+@respx.mock
+def test_export_and_site_build_share_one_new_link_budget_per_run(ctx, tmp_path):  # noqa: F811
+    """`site.max_new_links_per_build` caps a run's export + site build together (D24, D27):
+    the export takes the biggest discounts, the build only what is left."""
+    links = mock_links()
+    conn = pipeline.open_db(ctx)
+    build_scenario(ctx, conn)
+    ctx.config.site.max_new_links_per_build = 2
+
+    def low_link_requests() -> list[int]:
+        return [int(link["sub_id"].removeprefix("site-low-")) for call in links.calls
+                for link in json.loads(call.request.content)["links"]
+                if link["sub_id"].startswith("site-low-")]
+
+    site_data.export_site_data(ctx, conn, tmp_path / "data")
+    run_id = db.latest_completed_run_id(conn)
+    by_price = {(o.route_key, o.price): o.id for o in db.observations_seen_since(conn, run_id)}
+    # LIS-ROM 70 € (-42 %) and LIS-LON 60 € (-40 %) are the biggest discounts.
+    assert sorted(low_link_requests()) == sorted([by_price["LIS-ROM", 70], by_price["LIS-LON", 60]])
+    summary = build_site(ctx, conn)
+    assert len(low_link_requests()) == 2 and summary["low_price_links_created"] == 0
+    site_data.export_site_data(ctx, conn, tmp_path / "data")
+    assert len(low_link_requests()) == 2                      # still the same run: spent
+
+    next_run = store_run(conn, db.observations_seen_since(conn, run_id))   # same offers again
+    assert db.latest_completed_run_id(conn) == next_run
+    site_data.export_site_data(ctx, conn, tmp_path / "data")
+    assert len(low_link_requests()) == 4                      # a new run, a new budget
+
+
 # --- size budget (D27) --------------------------------------------------------------------
 
 @respx.mock

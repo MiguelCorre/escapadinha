@@ -18,7 +18,7 @@ from escapadinha.website import build_site, slugify
 from escapadinha.website import deploy as site_deploy
 from test_pipeline import ctx, mock_links, seed_history  # noqa: F401
 from test_review import price_api, rendered_deal
-from test_traceability import build_scenario
+from test_traceability import build_scenario, store_run
 
 
 def real_slides(conn, deal_id):
@@ -200,8 +200,10 @@ def test_new_links_per_build_are_capped_biggest_discounts_first(ctx):
     assert "site-low-" in html(ctx, "voos/lisboa-roma/index.html")
     row = low_rows(html(ctx, "voos/lisboa-londres/index.html"))[s.low_only[0]]
     assert "Link de reserva indisponível" in row and "href" not in row
-    build_site(ctx, conn)
-    build_site(ctx, conn)
+    assert build_site(ctx, conn)["low_price_links_created"] == 0    # the run's budget is spent
+    for _ in range(2):                          # the next runs see the same offers again
+        store_run(conn, db.observations_seen_since(conn, db.latest_completed_run_id(conn)))
+        build_site(ctx, conn)
     row = low_rows(html(ctx, "voos/lisboa-londres/index.html"))[s.low_only[0]]
     assert f"site-low-{s.low_only[0]}" in row
 

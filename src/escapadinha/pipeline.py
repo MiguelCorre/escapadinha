@@ -726,17 +726,39 @@ class LowLinks:
     pending: int             # low prices still without a link (cap reached or API failure)
 
 
+LINK_BUDGET = "site.link_budget"   # meta: {"run": collection run id, "used": links requested}
+
+
+def _budget_used(conn: sqlite3.Connection) -> tuple[int | None, int]:
+    """(latest completed run, new low-price links already requested against it)."""
+    run_id = db.latest_completed_run_id(conn)
+    spent = json.loads(db.get_meta(conn, LINK_BUDGET) or "{}")
+    return run_id, spent.get("used", 0) if spent.get("run") == run_id else 0
+
+
+def link_budget(ctx: Context, conn: sqlite3.Connection) -> int:
+    """New low-price links still allowed for the latest collection run (D24, D27): the export
+    spends first, the site build after it gets the rest; the next run starts a new budget."""
+    return max(0, ctx.config.site.max_new_links_per_build - _budget_used(conn)[1])
+
+
+def _spend_link_budget(conn: sqlite3.Connection, requested: int) -> None:
+    run_id, used = _budget_used(conn)
+    db.set_meta(conn, LINK_BUDGET, json.dumps({"run": run_id, "used": used + requested}))
+
+
 def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.LowPrice],
                     now: datetime | None = None, create: bool = True) -> LowLinks:
     """A tracked booking link per low price, from the website's Travelpayouts Project (D24).
 
     Each link is created once per (observation, Project) through `PartnerLinksClient`
     (sub_id `site-low-<observation id>`) and stored in `partner_links`, so a build only asks
-    the API for new low prices: at most `site.max_new_links_per_build`, biggest discounts
-    first (10 links per request, API limit 100 requests/min). Failed ones are retried on
-    later builds. Low prices without a link are shown without a booking button; never a
-    hand-built `marker=` URL. `create=False` only reads the stored links (no API request,
-    nothing written).
+    the API for new low prices, biggest discounts first, within one budget per collection
+    run: `site.max_new_links_per_build` links in all, shared by the run's site data export
+    and site build (`link_budget`; 10 links per request, API limit 100 requests/min). Failed
+    ones are retried on later runs. Low prices without a link are shown without a booking
+    button; never a hand-built `marker=` URL. `create=False` only reads the stored links (no
+    API request, nothing written).
     """
     now = now or db.utcnow()
     project = ctx.config.affiliate.project_for("website")
@@ -747,12 +769,12 @@ def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.
     if create:
         db.prune_partner_links(conn, now - LINK_RETENTION)
     stored = db.partner_links(conn, project, [o.id for o in usable])
-    todo = [o for o in usable
-            if not stored.get(o.id, (None, None))[0]][: ctx.config.site.max_new_links_per_build]
-    todo = todo if create else []
+    todo = [o for o in usable if not stored.get(o.id, (None, None))[0]]
+    todo = todo[: link_budget(ctx, conn)] if create else []
     if todo:
         made = _partner_links(ctx, "website", [(o.id, o) for o in todo], "site-low")
         db.save_partner_links(conn, project, made)
+        _spend_link_budget(conn, len(todo))
         stored |= made
     urls = {oid: url for oid, (url, _) in stored.items() if url}
     return LowLinks(urls, sum(1 for o in todo if urls.get(o.id)),

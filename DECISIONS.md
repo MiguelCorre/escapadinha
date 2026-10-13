@@ -484,7 +484,8 @@ so nothing has to be hosted.
   (#7) keeps no files (D21: `data/site_links.json` isn't synced yet). Each build converts at most
   `site.max_new_links_per_build` (300 = 30 requests, ≤ 900 enforced so one build stays under the
   per-minute limit), biggest discounts first; the rest and failures wait for the next build and are
-  shown meanwhile without a button. Rows older than 30 days are pruned (their offers left the
+  shown meanwhile without a button. Since D27 the cap is one budget per collection run, shared by
+  the site data export and the site build (meta `site.link_budget`, see D27). Rows older than 30 days are pruned (their offers left the
   freshness window long before). On a copy of the real database (2026-10-13, baselines still
   warming up after discovery): 7 low prices on 360 route pages, 0 promotion candidates.
 - **Traceability test (D2 enforced, story 22):** price elements carry `data-obs` / `data-deal` /
@@ -694,10 +695,13 @@ so nothing has to be hosted.
   render `data-obs` / `data-route` / `data-deal` from these ids.
 - **Links:** only from the partner links API. The export calls `pipeline.low_price_links` (for
   every exported low price, not just the 5 per route page) and `pipeline.website_links`, which
-  create missing links once (capped by `site.max_new_links_per_build`, biggest discounts first) and
-  store them; `site build` right after finds them stored and sends nothing. `--no-new-links` (and
-  the fixtures) only read stored links (`create=False`). With both steps at the 900 maximum one run
-  could send 180 requests in a few minutes, above the API's 100/min: keep the default 300.
+  create missing links once and store them; `site build` right after finds them stored.
+  **One link budget per collection run** (D24's `site.max_new_links_per_build`): the export
+  spends first (biggest discounts first), the build gets what is left (`pipeline.link_budget`;
+  meta `site.link_budget` = `{run, used}`, reset when a new collection run completes), so a run
+  sends at most 90 requests even at the 900 maximum, under the API's 100/min. Failed requests
+  count against it and are retried next run. `--no-new-links` (and the fixtures) only read
+  stored links (`create=False`).
 - **Per-origin low-price files (size budget):** rows are arrays in a fixed column order
   (`obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link`), one row
   per line, sorted by departure, return, destination, price, id; sorted keys, no other whitespace:

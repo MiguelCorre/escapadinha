@@ -179,7 +179,8 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
   - `max_deals_per_route: 1` caps deals per route per run (biggest discount first).
 - `site.low_prices_per_route: 5` (biggest discounts listed per route page) and
-  `site.max_new_links_per_build: 300` (partner links created per build, ≤ 900).
+  `site.max_new_links_per_build: 300` (new low-price partner links per collection run, shared
+  by the site data export and the site build, ≤ 900).
 - `site.data_dir: output/site-data/v1` (where `export site-data` writes; `web/src/data` once the
   Astro package exists) and `site.max_low_prices_per_origin: 1500` (row cap per low-price file).
 - `collector.market: pt` and `collector.booking_base: https://www.aviasales.pt` use prices from
@@ -368,7 +369,8 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 - **Traceable:** every price sits next to its observation id; typical lows and averages next to
   their route (recomputable); a promotion's typical low is its deal's stored baseline.
 - **Links:** only from the partner links API (`pipeline.low_price_links` / `website_links`); the
-  export creates missing ones (capped per build, D24) so `site build` right after reuses them.
+  export creates missing ones (from the run's link budget, D24) so `site build` right after
+  reuses them and only gets what the export left of the budget.
 - **Size budget:** a low-price file holds at most `site.max_low_prices_per_origin` (1500) rows,
   biggest discounts kept, ~135 bytes per row (tested ≤ 160), one row per line, sorted and
   deterministic (stable diffs, gzip ~4× smaller).
@@ -428,9 +430,10 @@ program, so a new domain or handle means a new Project (runbook steps 8–9).
 **Low prices** get one link each, for the website Project (falls back to Instagram's), with
 `sub_id=site-low-<observation id>`, stored in the `partner_links` table (in the database, so it
 survives a CI runner; rows older than 30 days are pruned). A build only asks the API for low
-prices without a stored link, biggest discounts first, at most `site.max_new_links_per_build`
-(300 = 30 requests; the API allows 100 requests/min, 10 links each). The rest, and failures,
-wait for the next build and are shown meanwhile without a booking button. `site build` prints
+prices without a stored link, biggest discounts first, within one budget per collection run:
+`site.max_new_links_per_build` (300 = 30 requests; the API allows 100 requests/min, 10 links
+each) for the run's site data export and site build together (the export goes first). The rest,
+and failures, wait for the next run and are shown meanwhile without a booking button. `site build` prints
 how many were created and how many still have no link.
 
 If conversion fails, the deal keeps **no** link. `affiliate_error` explains why, the CLI warns,

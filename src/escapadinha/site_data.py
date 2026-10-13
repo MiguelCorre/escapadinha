@@ -130,7 +130,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
                  new_links: bool = True, only_routes: set[str] | None = None,
                  fixture: bool = False) -> Export:
     """Every contract file as a document. Creates missing partner links when `new_links`
-    (capped per build, D24); writes nothing else."""
+    (from the run's link budget, `pipeline.link_budget`, D24); writes nothing else."""
     now = now or db.utcnow()
     cfg = ctx.config
     run_id = db.latest_completed_run_id(conn)

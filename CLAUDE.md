@@ -76,7 +76,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with
   `affiliate.project_for("instagram"|"website")`; never read `project_id` directly (D19).
   Low prices' links go through `pipeline.low_price_links` (created once, stored in
-  `partner_links`, capped per build by `site.max_new_links_per_build`).
+  `partner_links`, capped per collection run, export + build together, by
+  `site.max_new_links_per_build`).
 - Domain moves go through `site.base_url` + `site.legacy_hosts` and the Bulk Redirect in
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
   key in `SiteBuilder._write_routing` so renamed slugs get a 301 (`website/redirects.py`).

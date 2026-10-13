@@ -179,7 +179,8 @@ class SiteConfig(BaseModel):
     # Low prices on route pages (D24): the biggest discounts per route, each with its own
     # tracked link from the partner links API, created once and stored in `partner_links`.
     low_prices_per_route: int = Field(5, ge=0)
-    # New partner links per build, biggest discounts first; the rest wait for the next build.
+    # New low-price partner links per collection run, shared by the site data export and the
+    # site build (the export first), biggest discounts first; the rest wait for the next run.
     # <= 900 keeps one build under the API's 100 requests/min (10 links per request).
     max_new_links_per_build: int = Field(300, ge=0, le=900)
     # Website data contract v1 (D27): where `export site-data` writes (relative to the
