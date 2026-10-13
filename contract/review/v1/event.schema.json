@@ -29,7 +29,7 @@
       "description": "Link to the published post; only on 'published' events."
     },
     "live_check": {
-      "description": "The live price check done right before writing an approval (required, and valid, on 'approve'; null otherwise).",
+      "description": "The live price check done right before writing an approval (required, and valid, on 'approve'; null otherwise). An approval whose checked_at is older than the snapshot's review_rules.approve_max_age_hours (24) when the pipeline applies it is refused.",
       "oneOf": [
         {"type": "null"},
         {

@@ -594,6 +594,14 @@ so nothing has to be hosted.
   deal that expired between the check and the run is refused, and approved deals keep being
   rechecked by every run, so "never publish expired" holds. `deal check` keeps storing a
   `live_check` run and expiring on a moved price (a recheck, pipeline-owned).
+- **Approvals expire after 24 h (Miguel, 2026-10-13):** the applier refuses an `approve` event
+  whose `live_check.checked_at` (else `created_at`) is older than `review.approve_max_age_hours`
+  (config, default 24) at apply time, reason "Aprovação com mais de 24 h: verifica o preço outra
+  vez."; the reviewer approves again with a fresh check. Normally a run applies an event within
+  2 h (D25); this bounds the stale-approval case (runs failing or paused, an event written from
+  an old snapshot). `reject` and `published` have no age limit. The limit is passed into
+  `review_events.apply_pending` (`approve_max_age`), never read from a global, and the snapshot
+  carries it (`review_rules.approve_max_age_hours`) so the Function can warn before then.
 - **CLI and local page:** `deal approve/reject/published` and the page's buttons pre-check the
   same rules (and refuse while the deal has a pending decision), write the event and print the
   pending list. Without R2 keys nothing else owns the database, so they apply pending events at

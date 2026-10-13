@@ -22,7 +22,7 @@ import socket
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from escapadinha.recheck import Recheck
 from escapadinha.review import DECISIONS, ReviewError, check_decision
@@ -234,7 +234,23 @@ def _archive(store: ObjectStore, key: str, raw: object, outcome: Outcome, now: d
         pass
 
 
-def _decide(conn: sqlite3.Connection, event: Event, now: datetime) -> Outcome:
+def _hours(value: float) -> str:
+    return f"{value:g}"
+
+
+def _check_age(event: Event, now: datetime, approve_max_age: timedelta | None) -> None:
+    """An approval rests on a live price check: past `approve_max_age` (from the check, else from
+    the event's creation) it no longer says anything about today's price."""
+    if event.type != "approve" or approve_max_age is None:
+        return
+    checked = event.live_check.checked_at if event.live_check else event.created_at
+    if now - checked > approve_max_age:
+        hours = _hours(approve_max_age.total_seconds() / 3600)
+        raise ReviewError(f"Aprovação com mais de {hours} h: verifica o preço outra vez.")
+
+
+def _decide(conn: sqlite3.Connection, event: Event, now: datetime,
+            approve_max_age: timedelta | None = None) -> Outcome:
     """Validate against the current status, then record (and apply) in one transaction."""
     def done(outcome: str, reason: str | None = None, before: str | None = None,
              after: str | None = None) -> Outcome:
@@ -252,6 +268,7 @@ def _decide(conn: sqlite3.Connection, event: Event, now: datetime) -> Outcome:
                                 post_url=event.post_url)
         if event.type == "approve" and not (event.live_check and event.live_check.valid):
             raise ReviewError("Aprovação sem uma verificação de preço válida.")
+        _check_age(event, now, approve_max_age)
     except ReviewError as exc:
         result = done("refused", str(exc), deal.status, deal.status)
         db.settle_review_event(conn, event.id, result.to_json())
@@ -263,13 +280,14 @@ def _decide(conn: sqlite3.Connection, event: Event, now: datetime) -> Outcome:
 
 
 def apply_pending(store: ObjectStore, conn: sqlite3.Connection, *, now: datetime,
-                  durable: bool) -> list[Outcome]:
+                  durable: bool, approve_max_age: timedelta | None = None) -> list[Outcome]:
     """Apply every pending event, oldest first; returns the outcomes decided by this call.
 
     `durable`: the database is saved as soon as it commits (no R2), so events are archived at
     once. Otherwise (a `run` with R2, pushed at its end) an event is archived by the first call
     whose database already has its outcome. Malformed objects are archived at once; nothing
-    here raises for a bad event.
+    here raises for a bad event. `approve_max_age`: an approve event whose live check (else its
+    creation) is older than this at `now` is refused (`review.approve_max_age_hours`).
     """
     decided = []
     for key in store.list(PENDING):
@@ -287,7 +305,7 @@ def apply_pending(store: ObjectStore, conn: sqlite3.Connection, *, now: datetime
         if recorded is not None:
             _archive(store, key, raw, Outcome.from_json(recorded), now)
             continue
-        outcome = _decide(conn, event, now)
+        outcome = _decide(conn, event, now, approve_max_age)
         decided.append(outcome)
         if durable:
             _archive(store, key, raw, outcome, now)

@@ -428,9 +428,11 @@ def mark_published(ctx: Context, conn: sqlite3.Connection, deal_id: int,
 
 def apply_review_events(ctx: Context, conn: sqlite3.Connection,
                         now: datetime | None = None) -> list[review_events.Outcome]:
-    """First step of every run: apply pending review events (D26). Never raises for a bad event."""
+    """First step of every run: apply pending review events (D26). Never raises for a bad event.
+    Approve events older than `review.approve_max_age_hours` are refused."""
+    max_age = timedelta(hours=ctx.config.review.approve_max_age_hours)
     return review_events.apply_pending(ctx.object_store, conn, now=now or db.utcnow(),
-                                       durable=not ctx.remote_store)
+                                       durable=not ctx.remote_store, approve_max_age=max_age)
 
 
 def export_review_snapshot(ctx: Context, conn: sqlite3.Connection,

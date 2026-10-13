@@ -5,12 +5,23 @@
   "description": "Written by the pipeline to review/snapshot.json at the end of every run (fast or full). What a review UI (the review Function, #9) shows. Read-only: decisions go back as review events (event.schema.json). Timestamps are UTC with a Z suffix; fields ending in _pt or holding pt-PT text (price, dates, found_on, checked_at) are display strings already formatted in Europe/Lisbon.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "generated_at", "site_base_url", "queue", "approved", "published", "closed",
-               "pending_events", "recent_outcomes"],
+  "required": ["version", "generated_at", "site_base_url", "review_rules", "queue", "approved",
+               "published", "closed", "pending_events", "recent_outcomes"],
   "properties": {
     "version": {"const": 1},
     "generated_at": {"$ref": "#/$defs/timestamp"},
     "site_base_url": {"type": "string", "pattern": "^https://[^/]+$"},
+    "review_rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approve_max_age_hours"],
+      "properties": {
+        "approve_max_age_hours": {
+          "type": "number", "exclusiveMinimum": 0,
+          "description": "The pipeline refuses an approve event whose live_check.checked_at (else created_at) is older than this when it applies it ('Aprovação com mais de 24 h: verifica o preço outra vez.'). A UI should warn before then and offer a fresh check; reject and published events have no age limit."
+        }
+      }
+    },
     "queue": {"type": "array", "items": {"$ref": "#/$defs/deal"},
               "description": "Waiting for review: status rendered or new, newest first."},
     "approved": {"type": "array", "items": {"$ref": "#/$defs/deal"},

@@ -272,11 +272,16 @@ the pipeline applies them:
   longer fits (the deal expired meanwhile, was already decided, doesn't exist, the file is broken)
   is archived as *recusada* with the reason and the run carries on. Applying the same event twice
   does nothing.
+- An **approval expires after 24 hours** (`review.approve_max_age_hours` in `config.yaml`): if its
+  live price check is older than that when a run applies it, it's refused ("Aprovação com mais de
+  24 h: verifica o preço outra vez.") and you approve again, with a fresh check. Reject and
+  published have no age limit.
 
 At the end of every run the pipeline writes **`review/snapshot.json`** (`contract/review/v1/
 snapshot.schema.json`): the queue, approved deals, the latest published and closed ones, each with
 price, dates, discount, caption, slide links, the live-check query and last recheck, plus the
-pending decisions and the latest outcomes. Slides of deals still under review are copied to
+pending decisions, the latest outcomes and the review rules (`review_rules.approve_max_age_hours`,
+so a review UI can warn before an approval gets too old). Slides of deals still under review are copied to
 `review/slides/<id>/` as WebP (they aren't on the public site yet).
 
 ## Public website

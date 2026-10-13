@@ -2,6 +2,7 @@
 applied by the pipeline, exported as a snapshot. Through the pipeline seam with the local store."""
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import jsonschema
@@ -381,3 +382,49 @@ def test_invalid_events_are_archived_with_a_reason_and_never_stop_the_run(ctx):
     assert store.list(PENDING) == []
     assert len(store.list(ARCHIVE)) == 7
     assert all(k.startswith(f"{ARCHIVE}2026-10/") for k in store.list(ARCHIVE))
+
+
+@respx.mock
+def test_approve_events_older_than_the_limit_are_refused_others_never_expire(remote, tmp_path):
+    """Miguel's rule (D26): an approval rests on a live check at most 24 h old when applied."""
+    ctx, store = remote
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    price_api(58)
+    now = db.utcnow().replace(microsecond=0)
+    approval = pipeline.approve(ctx, conn, deal_id, actor="miguel@example.com", now=now)
+    assert pipeline.export_review_snapshot(ctx, conn, now)["review_rules"] == \
+        {"approve_max_age_hours": 24}
+
+    within = copy_db(conn, tmp_path / "within.db")
+    [ok] = pipeline.apply_review_events(ctx, within, now=now + timedelta(hours=23, minutes=59))
+    assert ok.applied and db.get_deal(within, deal_id)[0].status == "approved"
+
+    [late] = pipeline.apply_review_events(ctx, conn, now=now + timedelta(hours=24, seconds=1))
+    assert (late.event_id, late.outcome) == (approval.event.id, "refused")
+    assert late.reason == "Aprovação com mais de 24 h: verifica o preço outra vez."
+    assert db.get_deal(conn, deal_id)[0].status == "rendered"
+    pipeline.apply_review_events(ctx, conn, now=now + timedelta(hours=25))     # archives it
+    [record] = archived(store)
+    assert record["outcome"] == "refused" and record["event"]["id"] == approval.event.id
+
+    # Reject (and published) carry no live check and never expire.
+    rejection = pipeline.reject(ctx, conn, deal_id, "datas fracas", actor="cli:test", now=now)
+    [later] = pipeline.apply_review_events(ctx, conn, now=now + timedelta(days=10))
+    assert later.event_id == rejection.event.id and later.applied
+
+
+@respx.mock
+def test_the_approve_age_limit_comes_from_config(remote):
+    ctx, _ = remote
+    ctx.config.review.approve_max_age_hours = 2
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    price_api(58)
+    now = db.utcnow().replace(microsecond=0)
+    pipeline.approve(ctx, conn, deal_id, actor="cli:test", now=now)
+    [late] = pipeline.apply_review_events(ctx, conn, now=now + timedelta(hours=3))
+    assert late.reason == "Aprovação com mais de 2 h: verifica o preço outra vez."
+    snap = pipeline.export_review_snapshot(ctx, conn, now)
+    validate("snapshot", snap)
+    assert snap["review_rules"] == {"approve_max_age_hours": 2}

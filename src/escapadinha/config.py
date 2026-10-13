@@ -268,8 +268,15 @@ class PhotosConfig(BaseModel):
     max_per_run: int = Field(40, ge=0, le=45)
 
 
+class ReviewConfig(BaseModel):
+    # An approval's live price check stays valid this long: older approve events are refused
+    # when the pipeline applies them (D26). Reject and published events never expire.
+    approve_max_age_hours: float = Field(24, gt=0)
+
+
 class AppConfig(BaseModel):
     brand: Brand = Brand()
+    review: ReviewConfig = ReviewConfig()
     collector: CollectorConfig = CollectorConfig()
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()

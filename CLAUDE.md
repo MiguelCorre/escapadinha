@@ -68,8 +68,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `reject` / `mark_published`, the review page, the review Function) only write
   `review/events/pending/`; `review_events.apply_pending` is the only code that changes those
   statuses (`tests/test_review_events.py` checks it). Approve needs a passing live check in the
-  event (`pipeline.price_now`, stores nothing); the applier re-checks every transition and archives
-  refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
+  event (`pipeline.price_now`, stores nothing); the applier re-checks every transition, refuses
+  approvals whose check is older than `review.approve_max_age_hours` (passed in as
+  `approve_max_age`), and archives refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
   them only with a new version. Render (new → rendered) and rechecks stay pipeline-owned.
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with

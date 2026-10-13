@@ -188,6 +188,7 @@ def build(ctx: Context, conn: sqlite3.Connection, now: datetime) -> dict:
         "version": VERSION,
         "generated_at": review_events.iso(now),
         "site_base_url": ctx.config.site.base_url,
+        "review_rules": {"approve_max_age_hours": ctx.config.review.approve_max_age_hours},
         **{tab: [_deal(ctx, conn, rendered, d, o, store_keys.get(d.id, [])) for d, o in pairs]
            for tab, pairs in tabs.items()},
         "pending_events": [e.to_json() for e in review_events.pending(ctx.object_store, conn)],
