@@ -24,6 +24,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from escapadinha import i18n_pt
 from escapadinha.recheck import Recheck
 from escapadinha.review import DECISIONS, ReviewError, check_decision
 from escapadinha.storage import db
@@ -234,10 +235,6 @@ def _archive(store: ObjectStore, key: str, raw: object, outcome: Outcome, now: d
         pass
 
 
-def _hours(value: float) -> str:
-    return f"{value:g}"
-
-
 def _check_age(event: Event, now: datetime, approve_max_age: timedelta | None) -> None:
     """An approval rests on a live price check: past `approve_max_age` (from the check, else from
     the event's creation) it no longer says anything about today's price."""
@@ -245,7 +242,7 @@ def _check_age(event: Event, now: datetime, approve_max_age: timedelta | None) -
         return
     checked = event.live_check.checked_at if event.live_check else event.created_at
     if now - checked > approve_max_age:
-        hours = _hours(approve_max_age.total_seconds() / 3600)
+        hours = i18n_pt.number(approve_max_age.total_seconds() / 3600)
         raise ReviewError(f"Aprovação com mais de {hours} h: verifica o preço outra vez.")
 
 

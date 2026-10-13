@@ -311,10 +311,10 @@ def _print_decision(ctx, conn, decision: pipeline.Decision) -> None:
     if not waiting:
         console.print("Nenhuma decisão pendente.")
         return
-    console.print(f"{len(waiting)} decis{'ão' if len(waiting) == 1 else 'ões'} pendente"
-                  f"{'' if len(waiting) == 1 else 's'}: " + "; ".join(
-                      f"deal {e.deal_id}: {DECISION_PT[e.type]} ({e.actor}, "
-                      f"{pt.lisbon_timestamp(e.created_at)})" for e in waiting))
+    pending = pt.count(len(waiting), "decisão pendente", "decisões pendentes")
+    console.print(f"{pending}: " + "; ".join(
+        f"deal {e.deal_id}: {DECISION_PT[e.type]} ({e.actor}, {pt.lisbon_timestamp(e.created_at)})"
+        for e in waiting))
 
 
 @deal_app.command("approve")

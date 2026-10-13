@@ -497,3 +497,16 @@ def test_the_approve_age_limit_comes_from_config(remote):
     snap = pipeline.export_review_snapshot(ctx, conn, now)
     validate("snapshot", snap)
     assert snap["review_rules"] == {"approve_max_age_hours": 2}
+
+
+@respx.mock
+def test_a_fractional_approve_age_limit_reads_in_pt_pt(remote):
+    ctx, _ = remote
+    ctx.config.review.approve_max_age_hours = 1.5
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    price_api(58)
+    now = db.utcnow().replace(microsecond=0)
+    pipeline.approve(ctx, conn, deal_id, actor="cli:test", now=now)
+    [late] = pipeline.apply_review_events(ctx, conn, now=now + timedelta(hours=2))
+    assert late.reason == "Aprovação com mais de 1,5 h: verifica o preço outra vez."
