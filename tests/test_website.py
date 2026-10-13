@@ -65,7 +65,7 @@ def test_empty_site_has_routes_and_static_pages(ctx):
                 "voos/lisboa-paris/index.html", "voos/porto-milao/index.html"):
         assert (ctx.site_dir / rel).exists(), rel
     sitemap = html(ctx, "sitemap.xml")
-    assert "https://ondestaanocas.pages.dev/voos/lisboa-londres/" in sitemap
+    assert f"{ctx.config.site.base_url}/voos/lisboa-londres/" in sitemap
     assert not internal_links_resolve(ctx.site_dir)
 
 

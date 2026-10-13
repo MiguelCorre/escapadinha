@@ -258,6 +258,12 @@ so nothing has to be hosted.
   (Free plan, no DNS records yet, AI crawler defaults left as recommended); `.pt` active at PTisp,
   DNSSEC off, nameservers set to `laura.ns.cloudflare.com` / `rene.ns.cloudflare.com`. Pages custom
   domain (runbook step 4) waits until Cloudflare reports the zone active.
+- **Progress 2026-10-13 evening:** the `.pt` registry took the new nameservers (PTisp showed them saved
+  before DNS.pt published them) and the zone went active. Pages custom domains `pontonomada.pt` and
+  `www.pontonomada.pt` added (step 4; Cloudflare created the proxied CNAMEs). `site.base_url` is now
+  `https://pontonomada.pt`, `www.pontonomada.pt` joined `legacy_hosts`; built and deployed with
+  `--force` (step 5): canonical links and `sitemap.xml` use the new domain and `ondestaanocas.pages.dev`
+  answers `X-Robots-Tag: noindex`. Next: Bulk Redirect (step 6), then the website Travelpayouts Project.
 
 ## D20: Visual direction A "Caderno de Viagem" (2026-10-13, #11)
 - **Decided by Miguel (2026-10-13): direction A, as is** (no mix, no further notes). Three

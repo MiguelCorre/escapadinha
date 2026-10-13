@@ -121,10 +121,11 @@ affiliate:
 # Public website (static, rebuilt every run, deployed to Cloudflare Pages when it changed).
 # Domain switch: docs/runbooks/brand-switch.md (DECISIONS D19).
 site:
-  base_url: https://ondestaanocas.pages.dev   # -> https://pontonomada.pt once the domain is connected
-  domain: pontonomada.pt                      # final domain, pending registration
+  base_url: https://pontonomada.pt            # connected 2026-10-13 (Pages custom domain, D19)
+  domain: pontonomada.pt                      # final domain (PTisp, Cloudflare nameservers)
   legacy_hosts:                               # Bulk Redirect -> base_url; noindex once not base_url
     - ondestaanocas.pages.dev
+    - www.pontonomada.pt
   redirects: {}                               # extra "/old/path/": "/new/path/" (301), if ever needed
   cloudflare_project: ondestaanocas           # Pages project names can't be renamed; stays
   wrangler_version: 4.149.0

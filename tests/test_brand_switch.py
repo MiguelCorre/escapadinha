@@ -30,6 +30,7 @@ def test_repo_config_has_final_domain_and_channel_projects(ctx):
     assert cfg.affiliate.project_for("instagram") == 584711
     assert cfg.site.domain == "pontonomada.pt"
     assert "ondestaanocas.pages.dev" in cfg.site.legacy_hosts
+    assert cfg.site.on_final_domain and cfg.site.base_url == "https://pontonomada.pt"
 
 
 @pytest.mark.parametrize("raw, instagram, website", [
