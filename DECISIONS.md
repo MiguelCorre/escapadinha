@@ -263,7 +263,11 @@ so nothing has to be hosted.
   `www.pontonomada.pt` added (step 4; Cloudflare created the proxied CNAMEs). `site.base_url` is now
   `https://pontonomada.pt`, `www.pontonomada.pt` joined `legacy_hosts`; built and deployed with
   `--force` (step 5): canonical links and `sitemap.xml` use the new domain and `ondestaanocas.pages.dev`
-  answers `X-Robots-Tag: noindex`. Next: Bulk Redirect (step 6), then the website Travelpayouts Project.
+  answers `X-Robots-Tag: noindex`. Bulk Redirect (step 6) live the same evening: list
+  `pontonomada_hosts` (`ondestaanocas.pages.dev` incl. subdomains, `www.pontonomada.pt`; 301, query, subpath
+  and path suffix kept) enabled by rule "Dominios antigos para pontonomada.pt"; checked with curl
+  (`/voos/lisboa-londres/?x=1`, a per-deploy `<hash>.` host and `www` all 301 to the same path on
+  `pontonomada.pt`). Next: the website Travelpayouts Project (step 8).
 
 ## D20: Visual direction A "Caderno de Viagem" (2026-10-13, #11)
 - **Decided by Miguel (2026-10-13): direction A, as is** (no mix, no further notes). Three
