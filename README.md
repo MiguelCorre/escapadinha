@@ -2,7 +2,7 @@
 
 Travel-deals automation for the Portuguese market (placeholder brand). It collects round-trip
 flight prices for every direct route from Lisbon, Porto, Faro, Madeira, Ponta Delgada and
-Terceira (discovered automatically) plus ~20 long-haul destinations, keeps a price history, flags prices well below each
+Terceira (discovered automatically) plus ~20 long-haul destinations, keeps a price history, lists low prices on the website and flags promotions well below each
 route's own historical median, and renders Instagram carousel slides (1080×1350 PNG) with
 pt-PT captions into `./output/<date>/` **for manual review. v1 does not publish anything.**
 
@@ -22,7 +22,9 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
                                    │
                                recheck  open deals: same trip still ≤ price, fresh, direct?
                                    │            no → status expired + EXPIRADO.txt
-                                detect  (fresh direct price ≥30% below the month's typical low)
+                                detect  two tiers vs the month's typical low (D24):
+                                   │      low price  ≥15% below          → route pages (no review)
+                                   │      candidate  ≥30% and ≥15 € below → a deal for review
                                    ▼
                               deals (status: new)
                                    │
@@ -36,7 +38,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `discovery.py` | Pure: catalogues + supplements → direct routes with kind and pt-PT name |
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups) |
-| `detector.py` | Pure functions: `baseline`, `evaluate`, `detect_route` |
+| `detector.py` | Pure functions: `baseline`, `evaluate`, `low_prices`, `detect_route`, `detect` (both tiers) |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
 | `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) |
@@ -73,7 +75,7 @@ uv run escapadinha routes discover --dry-run --no-photos   # show what would cha
 uv run escapadinha routes list             # every route + active/dormant counts per origin (pt-PT)
 uv run escapadinha collect                 # active routes × 3 departure months (~1080 calls at 360 routes)
 uv run escapadinha recheck                 # re-verifies open deals against the latest run
-uv run escapadinha detect                  # evaluates the latest run; prints a per-route table
+uv run escapadinha detect                  # latest run: low prices + promotion candidates per route
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
 uv run escapadinha photos fetch            # one Pixabay photo per destination (cached)
 uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you don't like
@@ -163,13 +165,17 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 - `photos`: `queries` (Pixabay search per destination code) and `max_per_run` (40).
 - `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
 - `detector`:
-  - `threshold: 0.30` flags a price when `price ≤ typical_low × (1 − 0.30)`.
+  - `threshold: 0.30` and `min_saving_eur: 15`: a promotion candidate needs
+    `price ≤ typical_low × (1 − 0.30)` **and** `typical_low − price ≥ 15 €`.
+  - `low_threshold: 0.15`: a low price needs `price ≤ typical_low × (1 − 0.15)` (must be ≤ `threshold`).
   - `lookback_days: 90` is how far back daily lows count.
   - `min_baseline_days: 4` is how many days with a low are needed before a month's typical low is trusted.
   - `max_offer_age_days: 3` defines the freshness window. Prices travellers found in the last
     3 days are candidates, and older days form the baseline.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
   - `max_deals_per_route: 1` caps deals per route per run (biggest discount first).
+- `site.low_prices_per_route: 5` (biggest discounts listed per route page) and
+  `site.max_new_links_per_build: 300` (partner links created per build, ≤ 900).
 - `collector.market: pt` and `collector.booking_base: https://www.aviasales.pt` use prices from
   the Portuguese market, and links open in euros with a 24h clock. Aviasales' UI is English/Russian only.
 
@@ -182,10 +188,22 @@ at most `max_transfers` stops per direction, nights range). Otherwise it becomes
 `expired`, gets an `expired_reason`, and its output folder gets `EXPIRADO.txt` ("NÃO PUBLICAR").
 A route with no data in a run is skipped, so an API hiccup expires nothing.
 
-### What counts as a deal
-A deal is a fresh price well below the route's **typical lowest price for the same departure
+### What counts as a deal: two tiers (DECISIONS D24)
+Every price is measured against the route's **typical lowest price for the same departure
 month**: the median of daily lows, where each day's low is the cheapest price travellers found
-that day.
+that day. Each run yields two outputs:
+
+- **Low prices** (*preços baixos*): fresh offers at least `low_threshold` (15 %) below the typical
+  low, one per trip dates. Not reviewed: the route pages list the latest run's low prices
+  automatically, each with its found date and its own tracked link. They need a mature
+  typical low (`min_baseline_days`); a `price_cap_eur` never makes a low price.
+- **Promotion candidates**: fresh offers at least `threshold` (30 %) **and** `min_saving_eur`
+  (15 €) below the typical low, at most `max_deals_per_route` per route per run, not the same
+  trip again within `dedupe_days` unless cheaper, never an offer that already is a deal. They
+  become deals in status `new` for review. The 15 € floor keeps small-fare routes out of the
+  queue: on a 40 € route, 26 € is 35 % off but saves 14 €, so it is only a low price.
+
+`detect` prints both per route (column "Lows" and the deals created).
 
 Comparing against all fares would be wrong. A route's cheapest dates are always far below the
 median of all fares, so that rule flags almost every route on every run. On the first real data
@@ -250,7 +268,7 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
 |---|---|
 | `/` | Live deals (approved or published, not expired), routes, reviewed guides |
 | `/promos/<id>-<origem>-<destino>/` | Slides, details, "Ver voo e reservar" (tracked link, `rel="sponsored nofollow"`) |
-| `/voos/<origem>-<destino>/` | Live deals, typical low per departure month (real data), recent expired deals |
+| `/voos/<origem>-<destino>/` | Live deals, recent low prices (found date, tracked link, disclosure), typical low per departure month (real data), recent expired deals |
 | `/guias/<slug>/` | Only guides with `reviewed: true` |
 | `/sobre/`, `/privacidade/`, `404.html`, `sitemap.xml`, `robots.txt` | |
 | `_redirects`, `_headers` | Cloudflare Pages rules (not pages), see "Domain and redirects" |
@@ -259,6 +277,12 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
   shared links don't break. That page says the deal expired, drops the booking button, is
   marked `noindex` and is left out of the sitemap. Deals that expired or were rejected before
   approval never appear.
+- **Low prices** (D24) appear on route pages without review: the latest completed run's low
+  prices, at most `site.low_prices_per_route` (biggest discounts), listed by departure date with
+  "encontrado a" (the day a traveller found it) and "visto por nós a" (our first sighting, Lisbon
+  time). A live promotion's own offer is not repeated there. The home page lists promotions only.
+- **Traceable prices:** every element showing a price carries `data-obs`, `data-deal` or
+  `data-route`; `tests/test_traceability.py` checks each price string against them (D2).
 - **Images:** slides become WebP (1080 px), plus a 540 px thumbnail and a JPEG for Open Graph.
 - **Run integration:** `escapadinha run` rebuilds the site every time. It deploys only when
   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set and the content changed (the
@@ -323,6 +347,14 @@ the deal's link). Its links are created at `site build` with `sub_id=site-deal-<
 per Project in `data/site_links.json`. A website link that fails falls back to the deal's own
 tracked link and is retried on the next build. A Project's URL can't change once it joined a
 program, so a new domain or handle means a new Project (runbook steps 8–9).
+
+**Low prices** get one link each, for the website Project (falls back to Instagram's), with
+`sub_id=site-low-<observation id>`, stored in the `partner_links` table (in the database, so it
+survives a CI runner; rows older than 30 days are pruned). A build only asks the API for low
+prices without a stored link, biggest discounts first, at most `site.max_new_links_per_build`
+(300 = 30 requests; the API allows 100 requests/min, 10 links each). The rest, and failures,
+wait for the next build and are shown meanwhile without a booking button. `site build` prints
+how many were created and how many still have no link.
 
 If conversion fails, the deal keeps **no** link. `affiliate_error` explains why, the CLI warns,
 and the next render retries. There is deliberately no fallback to a hand-built `marker=` URL,
@@ -440,6 +472,10 @@ uv run pytest -m "not browser"
 - `fixtures/discovery/` holds real catalogue and supplement payloads recorded on 2026-10-13,
   trimmed to the rows the tests need (`RECORDED.txt` lists the URLs and what was kept).
 - `fixtures/schema_v5.sql` and `schema_v7.sql` are older schemas, to test the upgrades.
+- `test_traceability.py` (normal run, no browser) builds a database with promotions (live,
+  expired, new), low prices and typical lows, renders the whole site and every caption, and fails
+  on any price string that isn't a referenced observation's price, a referenced deal's stored
+  baseline or recheck price, or a typical low computed from the referenced route's observations.
 
 ## Data sources and terms
 

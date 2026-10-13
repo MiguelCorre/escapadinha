@@ -81,14 +81,15 @@ def collect() -> None:
 
 @app.command()
 def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (default: latest)")] = None) -> None:
-    """Flag deals in a collection run against each route's price history."""
+    """Two tiers per route: low prices (counted; route pages list them) and promotion
+    candidates (become deals for review)."""
     ctx, conn = _ctx()
     run_id, results = pipeline.run_detect(ctx, conn, run_id)
     if run_id is None:
         console.print("No completed collection run yet. Run [bold]escapadinha collect[/] first.")
         raise typer.Exit(1)
     table = Table(title=f"Detection for run #{run_id}")
-    for col in ("Route", "Fresh", "Best offer", "Typical low", "Baseline", "Result", "Deals"):
+    for col in ("Route", "Fresh", "Best offer", "Typical low", "Baseline", "Result", "Lows", "Deals"):
         table.add_column(col, no_wrap=True)
     labels = {"deals": "[green]deal[/]", "no_deal": "no deal",
               "insufficient_history": "[yellow]warming up[/]", "no_data": "[dim]no data[/]",
@@ -99,8 +100,10 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
         low = "–" if r.baseline is None or r.baseline.median is None else f"{r.baseline.median:g} €"
         days = "–" if r.baseline is None else f"{r.baseline.sample_size}/{need} days"
         table.add_row(r.route, str(r.fresh), best, low, days, labels.get(r.status, r.status),
-                      ", ".join(map(str, r.deal_ids)) or "–")
+                      str(r.low_prices or "–"), ", ".join(map(str, r.deal_ids)) or "–")
     console.print(table)
+    console.print(f"{sum(r.low_prices for r in results)} low prices, "
+                  f"{sum(len(r.deal_ids) for r in results)} new promotion candidates.")
 
 
 @app.command("recheck")
@@ -307,6 +310,9 @@ def site_build() -> None:
     console.print(f"Site built in [bold]{ctx.site_dir}[/]: {summary['live_deals']} live deals, "
                   f"{summary['expired_pages']} expired pages, {summary['routes']} routes, "
                   f"{summary['guides']} guides, {summary['redirects']} redirects")
+    console.print(f"  {summary['low_prices']} low prices on route pages: "
+                  f"{summary['low_price_links_created']} new partner links, "
+                  f"{summary['low_prices_without_link']} without a link yet")
     for skipped in summary["skipped_redirects"]:
         console.print(f"  [yellow]![/] redirect left out: {skipped}")
     site = ctx.config.site

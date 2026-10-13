@@ -18,7 +18,7 @@ dt { color: var(--muted); } dd { margin: 0; font-weight: 600; }
 {% endblock %}
 {% block content %}
 <p class="small"><a href="/">Promoções</a> › <a href="{{ route.url }}">{{ route.origin_city }} → {{ route.route.city_pt }}</a></p>
-<div class="deal{% if not d.live %} expired{% endif %}">
+<div class="deal{% if not d.live %} expired{% endif %}" data-deal="{{ d.deal.id }}" data-obs="{{ d.obs.id }}">
   <div>
     {% if d.images %}
     <div class="slides" aria-label="Imagens da promoção">

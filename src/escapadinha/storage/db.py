@@ -11,7 +11,19 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
+
+# Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
+# created once through the partner links API, kept in the database because it is synced to
+# R2 and a CI runner keeps no local files between runs.
+PARTNER_LINKS_TABLE = """CREATE TABLE IF NOT EXISTS partner_links (
+    observation_id INTEGER NOT NULL REFERENCES price_observations(id),
+    project_id     INTEGER NOT NULL,             -- Travelpayouts Project ("trs")
+    partner_url    TEXT,                         -- NULL when the conversion failed
+    error          TEXT,
+    created_at     TEXT NOT NULL,                -- UTC, last attempt
+    PRIMARY KEY (observation_id, project_id)
+)"""
 
 ROUTES_TABLE = """CREATE TABLE IF NOT EXISTS routes (
     origin               TEXT NOT NULL,              -- airport IATA (LIS, OPO, ...)
@@ -65,6 +77,8 @@ MIGRATIONS = {
     # pipeline bookkeeping such as the last discovery time.
     8: ["ALTER TABLE routes ADD COLUMN city_en TEXT",
         "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"],
+    # Two publication tiers: cached partner links for low prices on route pages.
+    9: [PARTNER_LINKS_TABLE],
 }
 
 
@@ -463,6 +477,44 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) "
                  "ON CONFLICT (key) DO UPDATE SET value = excluded.value", (key, value))
     conn.commit()
+
+
+# --- partner links (low prices on the website) -------------------------------------
+
+def partner_links(conn: sqlite3.Connection, project_id: int,
+                  observation_ids: list[int]) -> dict[int, tuple[str | None, str | None]]:
+    """observation id -> (partner_url, error) already stored for this Project."""
+    out: dict[int, tuple[str | None, str | None]] = {}
+    ids = list(dict.fromkeys(observation_ids))
+    for start in range(0, len(ids), 500):            # SQLite's bound-parameter limit
+        chunk = ids[start:start + 500]
+        rows = conn.execute(
+            f"""SELECT observation_id, partner_url, error FROM partner_links
+                WHERE project_id = ? AND observation_id IN ({','.join('?' * len(chunk))})""",
+            (project_id, *chunk))
+        out |= {r["observation_id"]: (r["partner_url"], r["error"]) for r in rows}
+    return out
+
+
+def save_partner_links(conn: sqlite3.Connection, project_id: int,
+                       links: dict[int, tuple[str | None, str | None]]) -> None:
+    """Store each attempt; a later success replaces an earlier failure."""
+    now = _ts(utcnow())
+    conn.executemany(
+        """INSERT INTO partner_links (observation_id, project_id, partner_url, error, created_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (observation_id, project_id) DO UPDATE SET
+               partner_url = excluded.partner_url, error = excluded.error,
+               created_at = excluded.created_at""",
+        [(oid, project_id, url, error, now) for oid, (url, error) in links.items()])
+    conn.commit()
+
+
+def prune_partner_links(conn: sqlite3.Connection, before: datetime) -> int:
+    """Forget links created before `before`: their offers are long past the freshness window."""
+    n = conn.execute("DELETE FROM partner_links WHERE created_at < ?", (_ts(before),)).rowcount
+    conn.commit()
+    return n
 
 
 # --- stats --------------------------------------------------------------------

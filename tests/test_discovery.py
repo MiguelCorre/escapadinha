@@ -377,21 +377,24 @@ def test_upgrade_from_v7_adds_city_en_and_meta_and_keeps_routes(ctx):
     conn.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 8
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     dub = pipeline.route_for(ctx, conn, "FAO-DUB")
     assert (dub.status, dub.city_pt, dub.city_en) == ("dormant", "Dublin", None)
     assert db.get_meta(conn, pipeline.DISCOVERED_AT) is None
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
-    for table in ("routes", "meta", "price_observations", "deals", "fetch_runs", "photos"):
+    for table in ("routes", "meta", "price_observations", "deals", "fetch_runs", "photos",
+                  "partner_links"):
         assert _columns(conn, table) == _columns(fresh, table), table
 
 
-def test_upgrade_from_v5_reaches_v8(ctx):
+def test_upgrade_from_v5_reaches_current_version(ctx):
     v5_database(ctx.db_path).close()
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert "city_en" in _columns(conn, "routes")
+    assert _columns(conn, "partner_links") == {"observation_id", "project_id", "partner_url",
+                                               "error", "created_at"}           # v9
     db.set_meta(conn, "k", "v")
     db.set_meta(conn, "k", "w")
     assert db.get_meta(conn, "k") == "w"

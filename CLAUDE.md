@@ -15,6 +15,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 ## Rules
 - **Never fabricate prices.** Observations come only from API payloads. No seed/demo data
   outside tests (tests use `tmp_path`). Every deal must trace to `price_observations.id`.
+  Every element on the site that shows a price carries `data-obs`, `data-deal` or `data-route`;
+  `tests/test_traceability.py` fails on any price string on a page or caption it can't trace.
+- Two tiers (D24): **low prices** (`low_threshold`, automatic on route pages, mature baseline
+  only) and **promotion candidates** (`threshold` AND `min_saving_eur`, become deals for review).
+  Only candidates create deals; the home page shows promotions only.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
   passed in too; never read a global `direct_only` or nights range.
@@ -42,6 +47,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with
   `affiliate.project_for("instagram"|"website")`; never read `project_id` directly (D19).
+  Low prices' links go through `pipeline.low_price_links` (created once, stored in
+  `partner_links`, capped per build by `site.max_new_links_per_build`).
 - Domain moves go through `site.base_url` + `site.legacy_hosts` and the Bulk Redirect in
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
   key in `SiteBuilder._write_routing` so renamed slugs get a 301 (`website/redirects.py`).
@@ -56,7 +63,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/storage/objects.py`: `ObjectStore` + `LocalObjectStore` (`data/objects/`); `archive.py`: per-run raw archive
 - `src/escapadinha/storage/s3.py`: `S3ObjectStore` (R2, conditional-write lock); `sync.py`: database
   pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`
-- `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate`, `detect_route`
+- `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate` (candidates),
+  `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page
@@ -67,8 +75,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `assets/fonts/` (OFL WOFF2), logos `assets/logo-light.svg` / `logo-dark.svg`.
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
-- `src/escapadinha/website/`: static site builder (`build_site`), `redirects.py` (`_redirects`,
-  `_headers`), `deploy.py` (wrangler), `templates/`
+- `src/escapadinha/website/`: static site builder (`build_site`; route pages list low prices),
+  `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler), `templates/`
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
 - `src/escapadinha/design_directions/`: M2 visual directions (`build_directions` → `output/directions/`);
   palettes + fonts in `directions.py` (contrast computed by `contrast.py`), read-only data in `data.py`

@@ -26,7 +26,8 @@ repeats the trace.
 - Now:
   - **Baseline:** the median of daily lows (each day's cheapest found price) per route and
     departure month.
-  - **Deal:** a fresh price ≤ (1 − threshold) × baseline.
+  - **Deal:** a fresh price ≤ (1 − threshold) × baseline (and, since D24, ≥ `min_saving_eur`
+    below it; lower tier "low price" at `low_threshold`).
   - **Sorting:** biggest discount first.
 - Days are keyed by `found_date`, so the first fetch already holds about a week of baseline
   days. The user chose this so deals can start immediately.
@@ -428,3 +429,56 @@ so nothing has to be hosted.
   `photos.queries` for the remaining bad ones; `max_per_run` 20 (up to 5 calls per destination).
   Pixabay's tags are keyword-stuffed and some cities have few photos (Algiers), so a deal's photo
   is still checked by Miguel on the slides before posting (`photos fetch --dest X --force --pick N`).
+
+## D24: Two publication tiers, partner links per low price, traceability test (2026-10-13, #6)
+- **Why:** at ~360 routes (D23) one 30 % threshold gives either an empty site or a flooded review
+  queue. The spec (#1, stories 17–22) splits a run's output in two, both measured against the
+  same typical low (D3, unchanged).
+- **Low prices** (`detector.low_prices`): fresh offers within the route's rules at least
+  `low_threshold` (0.15) below a **mature** typical low (≥ `min_baseline_days`), one per trip
+  dates (the cheapest), biggest discount first. No price-cap path: without a typical low there is
+  nothing to be "low" against, and they go out without review. Offers that already are deals still
+  count (a low price is not a post).
+- **Promotion candidates** (`detector.detect_route`, unchanged rules plus one): ≥ `threshold`
+  (0.30) **and** ≥ `min_saving_eur` (15 €) below the typical low; one per route per run, 7-day
+  dedupe, never an offer that already is a deal. The euro floor keeps cheap routes out of the
+  queue (40 € typical low: 26 € is −35 % but 14 €). The price-cap path is unchanged and has no
+  euro floor (there is no typical low to save against). `low_threshold ≤ threshold` is enforced.
+- **One call, two outputs:** `detector.detect` returns `Detection(low_prices, candidates)` from one
+  set of month baselines; `taken` (deal observation ids) only filters candidates. `run_detect`
+  creates deals from candidates only and reports the low-price count per route.
+- **No low-price table:** low prices are a pure function of the latest completed run
+  (`observations_seen_since`, D18) and the stored history, so the site recomputes them at build
+  time (`pipeline.route_low_prices`). The JSON export for the Astro site is #10.
+- **Route pages** list the latest run's low prices (at most `site.low_prices_per_route` = 5,
+  biggest discounts, shown by departure date) with price, −% vs. habitual, dates, airline, arrival
+  airport, "encontrado a" (`found_date`) and "visto por nós a" (first `fetched_at`, Lisbon time;
+  stable across runs, unlike `last_seen_at`, so an unchanged list doesn't force a deploy), and the
+  affiliate disclosure next to the buttons. A live promotion's own offer is not repeated. Home and
+  promotion pages are unchanged.
+- **Partner links, volume:** the price must come from the same place as the link (D13), so each low
+  price links its own offer (its `deep_link`, moved to aviasales.pt), converted by
+  `PartnerLinksClient` for the website Project (`sub_id=site-low-<observation id>`); never a
+  hand-built `marker=` URL. Estimate: 230 routes with prices × ≤ 5 = ≤ 1150 links when the
+  baselines mature, turning over within ~3 days (freshness window), so tens of new ones per
+  2-hourly run. Rejected: one link per route (a dateless search URL wouldn't show the price we
+  print) and a new link per low price on every build (~115 requests in one burst, above the API's
+  100 requests/min, and ~1150 throwaway short links every 2 hours). Chosen: create once per (observation, Project) and **store it in the
+  database** (`partner_links`, schema v9), because the database is synced to R2 and a CI runner
+  (#7) keeps no files (D21: `data/site_links.json` isn't synced yet). Each build converts at most
+  `site.max_new_links_per_build` (300 = 30 requests, ≤ 900 enforced so one build stays under the
+  per-minute limit), biggest discounts first; the rest and failures wait for the next build and are
+  shown meanwhile without a button. Rows older than 30 days are pruned (their offers left the
+  freshness window long before). On a copy of the real database (2026-10-13, baselines still
+  warming up after discovery): 7 low prices on 360 route pages, 0 promotion candidates.
+- **Traceability test (D2 enforced, story 22):** price elements carry `data-obs` / `data-deal` /
+  `data-route`. `tests/test_traceability.py` (normal run, no browser) builds a database with live,
+  expired and new promotions, low prices (including a decimal one and a 14 € small-fare low) and an
+  even-count typical low (100,50 €), renders the site and every deal and guide caption, and fails on
+  any price string that is not a referenced observation's price, a referenced deal's stored
+  `baseline_median` or recheck price (only if a stored observation of that trip has it), or a typical
+  low recomputed from the referenced route's observations. It also proves the checker catches a
+  fabricated price and a real price the page doesn't reference. Slides (PNG) aren't checked; they
+  render the same `DealView` as the caption.
+- **Schema v9:** table `partner_links (observation_id, project_id, partner_url, error, created_at)`.
+  Upgrades tested from v5 and v7.

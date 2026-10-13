@@ -5,7 +5,12 @@ tracked affiliate link; once a deal expires its page stays (shared links don't b
 but says so, drops the booking button and is hidden from search engines. Guides are
 published only when `reviewed: true`. Everything shown is traceable to stored data.
 
-Booking links come from the website's Travelpayouts Project (`pipeline.website_links`).
+Route pages also list the route's *low prices* from the latest run (D24): automatic, not
+reviewed, each one observation with its found date and its own tracked link.
+
+Booking links come from the website's Travelpayouts Project (`pipeline.website_links` for
+deals, `pipeline.low_price_links` for low prices). Elements showing a price carry
+`data-obs` / `data-deal` / `data-route` so tests can trace every price on a page (D2).
 `_redirects`/`_headers` keep old URLs working and old hosts out of search (`redirects.py`).
 """
 
@@ -29,7 +34,9 @@ from escapadinha import i18n_pt as pt
 from escapadinha.config import Context
 from escapadinha.guides import Guide
 from escapadinha.models import Deal, Observation, Route
-from escapadinha.presentation import PhotoCredit, build_deal_view
+from escapadinha.presentation import (
+    SITE_DISCLOSURE, LowPriceView, PhotoCredit, build_deal_view, build_low_price_view,
+)
 from escapadinha.storage import db
 from escapadinha.website import redirects
 
@@ -68,6 +75,8 @@ class RoutePage:
     live: list[SiteDeal]
     recent: list[SiteDeal]
     months: list[tuple[str, str, int]]    # (month label, typical low, days)
+    lows: list[detector.LowPrice] = field(default_factory=list)   # biggest discount first
+    low_views: list[LowPriceView] = field(default_factory=list)   # shown, by departure date
 
     @property
     def url(self) -> str:
@@ -93,7 +102,9 @@ class SiteBuilder:
         self.env = Environment(loader=PackageLoader("escapadinha.website", "templates"),
                                autoescape=True, trim_blocks=True, lstrip_blocks=True)
         self.env.globals.update(brand=self.cfg.brand, site=self.cfg.site,
-                                built_at=pt.lisbon_timestamp(self.now))
+                                built_at=pt.lisbon_timestamp(self.now),
+                                site_disclosure=SITE_DISCLOSURE, detector_cfg=self.cfg.detector)
+        self.low_links: pipeline.LowLinks | None = None
 
     # --- data -----------------------------------------------------------------
 
@@ -119,6 +130,8 @@ class SiteBuilder:
         return deals
 
     def route_pages(self, deals: list[SiteDeal]) -> list[RoutePage]:
+        run_id = db.latest_completed_run_id(self.conn)
+        run_offers = db.observations_seen_since(self.conn, run_id) if run_id else []
         pages = []
         for route in routes.all_routes(self.conn, self.cfg.routes):
             history = db.route_history(self.conn, route.origin, route.destination,
@@ -127,15 +140,33 @@ class SiteBuilder:
             baselines = detector.month_baselines(history, self.cfg.detector, self.now, route.rules)
             months = [(f"{pt.MONTHS[m - 1]} {y}", pt.eur(b.median), b.sample_size)
                       for (y, m), b in sorted(baselines.items())
-                      if b.median is not None and b.sample_size >= self.cfg.detector.min_baseline_days]
+                      if detector.is_mature(b, self.cfg.detector)]
             on_route = [d for d in deals if d.obs.route_key == route.key]
+            live = [d for d in on_route if d.live]
+            # Low prices (D24); a live promotion's own offer is already shown above them.
+            promoted = {d.obs.id for d in live}
+            lows = [lp for lp in pipeline.route_low_prices(self.ctx, self.conn, route, history,
+                                                           self.now, run_offers)
+                    if lp.observation.id not in promoted][: self.cfg.site.low_prices_per_route]
             origin_city = self.cfg.origin_name(route.origin)
             pages.append(RoutePage(
                 route, origin_city, f"{slugify(origin_city)}-{slugify(route.city_pt)}",
-                live=[d for d in on_route if d.live],
-                recent=[d for d in on_route if not d.live][: self.cfg.site.recent_expired],
-                months=months))
+                live=live, recent=[d for d in on_route if not d.live][: self.cfg.site.recent_expired],
+                months=months, lows=lows))
+        self._link_low_prices(pages)
         return pages
+
+    def _link_low_prices(self, pages: list[RoutePage]) -> None:
+        """Tracked links for every listed low price (created once, D24), then the views."""
+        self.low_links = pipeline.low_price_links(self.ctx, self.conn,
+                                                  [lp for p in pages for lp in p.lows], self.now)
+        for p in pages:
+            p.low_views = [
+                build_low_price_view(lp.observation, typical_low=lp.baseline.median,
+                                     discount_pct=lp.discount_pct,
+                                     booking_link=self.low_links.urls.get(lp.observation.id))
+                for lp in sorted(p.lows, key=lambda lp: (lp.observation.departure_date,
+                                                         lp.observation.return_date))]
 
     def guide_pages(self) -> list[GuidePage]:
         pages = []
@@ -243,8 +274,12 @@ class SiteBuilder:
         self._write("sitemap.xml", "sitemap.xml.j2", urls=indexed)
         self._write("robots.txt", "robots.txt.j2")
         plan = self._write_routing(deals, routes, guides)
+        links = self.low_links
         summary = {"live_deals": len(live), "expired_pages": len(deals) - len(live),
-                   "routes": len(routes), "guides": len(guides), "pages": len(indexed),
+                   "routes": len(routes), "low_prices": sum(len(r.lows) for r in routes),
+                   "low_price_links_created": links.created if links else 0,
+                   "low_prices_without_link": links.pending if links else 0,
+                   "guides": len(guides), "pages": len(indexed),
                    "redirects": len(plan.rules), "skipped_redirects": plan.skipped}
         (self.out / "build.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         return summary

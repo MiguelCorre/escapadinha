@@ -11,6 +11,9 @@ from escapadinha.models import Deal, Observation, Photo
 
 DISCLOSURE = ("Publicidade · Este post contém links de afiliado: se reservares através deles, "
               "podemos receber uma comissão, sem custo extra para ti.")
+# The disclosure next to low prices' booking links on route pages (D24).
+SITE_DISCLOSURE = ("Publicidade: os botões de reserva são links de afiliado. Se reservares através "
+                   "deles, podemos receber uma comissão, sem custo extra para ti.")
 
 
 def booking_url(deep_link: str | None, booking_base: str) -> str | None:
@@ -109,12 +112,49 @@ class DealView:
         }
 
 
+@dataclass(frozen=True)
+class LowPriceView:
+    """One low price on a route page (D24): automatic, not reviewed, one observation."""
+
+    observation_id: int
+    price: str             # '58 €'
+    discount_pct: int      # 22 (% below the typical low of the departure month)
+    typical_low: str       # '75 €'
+    departure_month: str   # 'novembro'
+    dates: str             # 'sex, 6 nov – seg, 9 nov'
+    nights: str
+    airline: str | None
+    direct: bool | None
+    arrival_airport: str | None
+    found_on: str | None   # day a traveller found the price (source cache)
+    fetched_at: str        # when our collection first saw it, Lisbon time (stable across runs,
+                           # so an unchanged list doesn't trigger a deploy)
+    booking_link: str | None   # tracked link from the partner links API, or None (no button)
+
+
+def _direct(o: Observation) -> bool | None:
+    if o.transfers is None or o.return_transfers is None:
+        return None
+    return o.transfers == 0 and o.return_transfers == 0
+
+
+def build_low_price_view(o: Observation, *, typical_low: float, discount_pct: float,
+                         booking_link: str | None) -> LowPriceView:
+    return LowPriceView(
+        observation_id=o.id, price=pt.eur(o.price), discount_pct=round(discount_pct * 100),
+        typical_low=pt.eur(typical_low), departure_month=pt.MONTHS[o.departure_date.month - 1],
+        dates=f"{pt.short_date(o.departure_date)} – {pt.short_date(o.return_date)}",
+        nights=pt.nights(o.nights), airline=pt.airline_name(o.airline), direct=_direct(o),
+        arrival_airport=pt.airport_label(o.destination_airport),
+        found_on=pt.numeric_date(o.found_date) if o.found_date else None,
+        fetched_at=pt.lisbon_timestamp(o.fetched_at),
+        booking_link=booking_link,
+    )
+
+
 def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination_city: str,
                     photo: PhotoCredit) -> DealView:
-    if o.transfers is None or o.return_transfers is None:
-        direct = None
-    else:
-        direct = o.transfers == 0 and o.return_transfers == 0
+    direct = _direct(o)
     return DealView(
         deal_id=deal.id, observation_id=o.id,
         origin_iata=o.origin, destination_iata=o.destination,

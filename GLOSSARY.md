@@ -10,8 +10,9 @@ Vocabulário do projeto. Só conceitos do domínio; nada de implementação.
 - **Descoberta** — a procura mensal, nos dados do fornecedor, de todas as rotas diretas que saem de Lisboa, Porto, Faro, Madeira, Ponta Delgada e Terceira, mais a lista escolhida de destinos de longo curso. Junta rotas novas e reativa as adormecidas que volta a encontrar; nunca apaga nenhuma.
 - **Adormecida** — uma rota sem preços há 30 dias; deixa de ser consultada até a descoberta a voltar a encontrar. A página e o histórico mantêm-se.
 - **Preço habitual** (no código: *typical low*) — a mediana dos mínimos diários de uma rota para um mês de partida. É o nível contra o qual se avalia um preço. Não é a média de todas as tarifas.
-- **Preço baixo** — uma observação recente abaixo do preço habitual da rota. Aparece automaticamente nas páginas de rota e no explorador, sem revisão humana.
-- **Promoção** (deal) — um preço baixo que passou a revisão humana e é destacado (home, Instagram). Toda a promoção aponta para exatamente uma observação.
+- **Preço baixo** — uma observação recente pelo menos 15 % abaixo do preço habitual da rota (só quando o preço habitual já tem dias de dados suficientes). Aparece automaticamente nas páginas de rota e no explorador, sem revisão humana, com a data em que foi encontrado e o seu próprio link de reserva.
+- **Candidata a promoção** — um preço baixo pelo menos 30 % **e** pelo menos 15 € abaixo do preço habitual; no máximo uma por rota em cada recolha. Entra na fila de revisão do Miguel (estado "novo").
+- **Promoção** (deal) — uma candidata que passou a revisão humana e é destacada (home, Instagram). Toda a promoção aponta para exatamente uma observação.
 - **Expirada** — uma promoção cujo preço já não se confirma (subiu, desapareceu, deixou de ser direto ou está demasiado antigo). Mantém-se visível como histórico, sem botão de reserva.
 - **Explorador** — a pesquisa sobre o nosso histórico: "para onde posso ir desde X por menos de Y €", mês mais barato por rota. Mostra preços encontrados, não preços ao vivo.
 - **Pesquisa ao vivo** — o widget do parceiro (Aviasales) para procurar voos com preços atuais; a reserva faz-se no parceiro.
