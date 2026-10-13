@@ -191,7 +191,9 @@ async function act(action, id, button) {
       const c = data.check;
       flash[id] = c.valid
         ? {kind: "ok", text: action === "approve" ? `Preço confirmado (${c.latest_price}) e deal aprovado.` : `Preço confirmado agora: ${c.latest_price}.`}
-        : {kind: "bad", text: `O preço mudou: ${c.reason}. O deal expirou e não foi aprovado.`};
+        : {kind: "bad", text: `O preço mudou: ${c.reason}. ` + (data.deal.status === "expired"
+            ? "O deal expirou e não foi aprovado."
+            : "Não aprovado: a próxima recolha expira o deal.")};
     } else {
       flash[id] = {kind: "ok", text: action === "reject" ? "Deal rejeitado." : "Marcado como publicado."};
     }
