@@ -141,8 +141,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     all_routes = sorted((r for r in routes.all_routes(conn, cfg.routes)
                          if only_routes is None or r.key in only_routes), key=lambda r: r.key)
     keys = {r.key for r in all_routes}
-    observed = {f"{row[0]}-{row[1]}": row[2] for row in conn.execute(
-        "SELECT origin, destination, COUNT(*) FROM price_observations GROUP BY origin, destination")}
+    observed = db.observation_counts(conn)
 
     # Typical lows, low prices and the cheapest fresh offer per route.
     months: dict[str, list[dict]] = {}
@@ -236,9 +235,7 @@ def generate_fixtures(ctx: Context, db_path: Path, out: Path | None = None) -> E
     routes.sync(conn, ctx.config.routes, db.utcnow())
     _fixture_promotions(conn)
     run_id = db.latest_completed_run_id(conn)
-    finished = run_id and conn.execute("SELECT finished_at FROM fetch_runs WHERE id = ?",
-                                       (run_id,)).fetchone()[0]
-    now = datetime.fromisoformat(finished) if finished else db.utcnow()
+    now = (db.run_finished_at(conn, run_id) if run_id else None) or db.utcnow()
     full = build_export(ctx, conn, now, new_links=False, fixture=True)
     export = anonymize(build_export(ctx, conn, now, new_links=False, fixture=True,
                                     only_routes=fixture_routes(full)))
@@ -248,18 +245,17 @@ def generate_fixtures(ctx: Context, db_path: Path, out: Path | None = None) -> E
 
 def _fixture_promotions(conn: sqlite3.Connection) -> None:
     public = public_deal_rows(conn)
-    rows = conn.execute("SELECT id, status, reviewed_at FROM deals ORDER BY id DESC").fetchall()
+    newest_first = [(deal_id, status) for deal_id, status, _ in reversed(db.deal_states(conn))]
     used = {d.id for d, _ in public}
-    if rows and not any(d.status in LIVE for d, _ in public):
-        pick = next((r for r in rows if r["id"] not in used), None)
+    if newest_first and not any(d.status in LIVE for d, _ in public):
+        pick = next((i for i, _ in newest_first if i not in used), None)
         if pick:
-            conn.execute("""UPDATE deals SET status = 'approved', reviewed_at = detected_at,
-                            expired_reason = NULL WHERE id = ?""", (pick["id"],))
-            used.add(pick["id"])
+            db.fixture_mark_live(conn, pick)
+            used.add(pick)
     if not any(d.status == "expired" for d, _ in public):
-        pick = next((r for r in rows if r["id"] not in used and r["status"] == "expired"), None)
+        pick = next((i for i, s in newest_first if i not in used and s == "expired"), None)
         if pick:
-            conn.execute("UPDATE deals SET reviewed_at = detected_at WHERE id = ?", (pick["id"],))
+            db.fixture_mark_reviewed(conn, pick)
 
 
 def fixture_routes(export: Export, origins: int = 3, per_origin: int = 3) -> set[str]:
@@ -394,12 +390,8 @@ def _latest_seen(conn: sqlite3.Connection, deal: Deal, o: Observation) -> dict |
     """The recheck's price with the stored observation of the same trip that has it."""
     if deal.last_seen_price is None:
         return None
-    row = conn.execute(
-        """SELECT id, price FROM price_observations WHERE origin = ? AND destination = ?
-           AND departure_date = ? AND return_date = ? AND price = ? ORDER BY id DESC LIMIT 1""",
-        (o.origin, o.destination, o.departure_date.isoformat(), o.return_date.isoformat(),
-         deal.last_seen_price)).fetchone()
-    return {"obs": row[0], "price": _eur(row[1])} if row else None
+    seen = db.trip_observation_at(conn, o, deal.last_seen_price)
+    return {"obs": seen.id, "price": _eur(seen.price)} if seen else None
 
 
 def _promotion(ctx: Context, conn: sqlite3.Connection, d: Deal, o: Observation, route: Route,
@@ -458,10 +450,7 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
     det = ctx.config.detector
     run = None
     if run_id is not None:
-        finished = conn.execute("SELECT finished_at FROM fetch_runs WHERE id = ?",
-                                (run_id,)).fetchone()[0]
-        run = {"id": run_id,
-               "finished_at": _ts(datetime.fromisoformat(finished)) if finished else None}
+        run = {"id": run_id, "finished_at": _ts(db.run_finished_at(conn, run_id))}
     promotions = files["promotions.json"]["promotions"]
     return {
         "version": VERSION, "generated_at": _ts(now), "fixture": fixture, "run": run,

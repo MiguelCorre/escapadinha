@@ -144,6 +144,11 @@ def run_archive_key(conn: sqlite3.Connection, run_id: int) -> str | None:
     return row["archive_key"] if row else None
 
 
+def run_finished_at(conn: sqlite3.Connection, run_id: int) -> datetime | None:
+    row = conn.execute("SELECT finished_at FROM fetch_runs WHERE id = ?", (run_id,)).fetchone()
+    return datetime.fromisoformat(row["finished_at"]) if row and row["finished_at"] else None
+
+
 def latest_completed_run_id(conn: sqlite3.Connection) -> int | None:
     row = conn.execute(
         """SELECT id FROM fetch_runs WHERE status IN ('ok', 'partial') AND scope = 'full'
@@ -243,6 +248,24 @@ def deal_observation_ids(conn: sqlite3.Connection) -> set[int]:
     return {r[0] for r in conn.execute("SELECT observation_id FROM deals")}
 
 
+def observation_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """Stored offers per route key ('LIS-LON')."""
+    rows = conn.execute("SELECT origin, destination, COUNT(*) AS n FROM price_observations "
+                        "GROUP BY origin, destination")
+    return {f"{r['origin']}-{r['destination']}": r["n"] for r in rows}
+
+
+def trip_observation_at(conn: sqlite3.Connection, o: Observation,
+                        price: float) -> Observation | None:
+    """The newest stored observation of `o`'s trip (route, dates) at `price`, if any."""
+    row = conn.execute(
+        """SELECT * FROM price_observations WHERE origin = ? AND destination = ?
+           AND departure_date = ? AND return_date = ? AND price = ? ORDER BY id DESC LIMIT 1""",
+        (o.origin, o.destination, o.departure_date.isoformat(), o.return_date.isoformat(),
+         price)).fetchone()
+    return _row_to_observation(row) if row else None
+
+
 def get_observation(conn: sqlite3.Connection, observation_id: int) -> Observation:
     row = conn.execute("SELECT * FROM price_observations WHERE id = ?", (observation_id,)).fetchone()
     if row is None:
@@ -312,6 +335,21 @@ def deal_states(conn: sqlite3.Connection) -> list[tuple[int, str, bool]]:
     rows = conn.execute("SELECT id, status, affiliate_url IS NOT NULL AS linked FROM deals "
                         "ORDER BY id").fetchall()
     return [(r["id"], r["status"], bool(r["linked"])) for r in rows]
+
+
+def fixture_mark_live(conn: sqlite3.Connection, deal_id: int) -> None:
+    """Fixture generation only, on an in-memory copy (D27): the deal as if approved when it
+    was detected. Real review decisions go through `settle_review_event` (D26)."""
+    conn.execute("""UPDATE deals SET status = 'approved', reviewed_at = detected_at,
+                    expired_reason = NULL WHERE id = ?""", (deal_id,))
+    conn.commit()
+
+
+def fixture_mark_reviewed(conn: sqlite3.Connection, deal_id: int) -> None:
+    """Fixture generation only, on an in-memory copy (D27): an expired deal as if a human had
+    approved it before it expired."""
+    conn.execute("UPDATE deals SET reviewed_at = detected_at WHERE id = ?", (deal_id,))
+    conn.commit()
 
 
 def deals_with_output(conn: sqlite3.Connection) -> list[Deal]:
