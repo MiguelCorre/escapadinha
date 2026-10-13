@@ -435,7 +435,7 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     monkeypatch.setattr(cli.pipeline, "mirror_local_files", lambda ctx, conn: [])
     monkeypatch.setattr(run_path, "record_full_path",
                         lambda ctx, conn: calls.append("record_full_path"))
-    monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.Decision(force, "x"))
+    monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.PathDecision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
     assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
                      "render_deals", "export_site_data", "site_build", "site_deploy",

@@ -130,7 +130,7 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
 
     actor = review_events.local_actor("review-page")
 
-    def action_result(conn, deal: Deal, check=None, decision: pipeline.Decision | None = None) -> dict:
+    def action_result(conn, deal: Deal, check=None, decision: pipeline.ReviewResult | None = None) -> dict:
         _, obs = db.get_deal(conn, deal.id)
         out = {"deal": deal_json(ctx, conn, deal, obs, pipeline.pending_decisions(ctx, conn))}
         if check is not None:
@@ -144,7 +144,7 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
                                "reason": None if o is None else o.reason}
         return out
 
-    def decided(conn, decision: pipeline.Decision) -> dict:
+    def decided(conn, decision: pipeline.ReviewResult) -> dict:
         return action_result(conn, decision.deal, decision.check, decision)
 
     @app.post("/api/deals/{deal_id}/check")

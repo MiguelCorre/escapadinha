@@ -56,7 +56,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
   `run_path.fingerprint`, or a routine run won't publish it.
 - Public deals, page slugs and image paths come from one place (`website.is_public`,
-  `public_deal_rows`, `promo_slug`, `route_slug`, `promo_images`, `deal_image_paths`): the site,
+  `public_deal_rows`, `promo_slug`, `route_slug`, `promo_image_dir`, `deal_image_paths`): the site,
   the site data export and the review snapshot all use them.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).

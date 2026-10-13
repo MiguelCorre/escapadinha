@@ -73,11 +73,8 @@ def _wrangler(ctx: Context, *args: str) -> subprocess.CompletedProcess:
 def _last_deploy(ctx: Context, conn: sqlite3.Connection) -> dict:
     """{hash, url} of the last deployment, from the database (synced to R2, D25); before D25
     it was data/site_deploy.json, still read when the database has none."""
-    stored = db.get_meta(conn, DEPLOYED)
-    if stored:
-        return json.loads(stored)
-    legacy = ctx.db_path.parent / "site_deploy.json"
-    return json.loads(legacy.read_text("utf-8")) if legacy.is_file() else {}
+    from escapadinha.pipeline import legacy_json
+    return db.get_meta_json(conn, DEPLOYED) or legacy_json(ctx, "site_deploy.json")
 
 
 def create_project(ctx: Context, client: httpx.Client | None = None) -> str:

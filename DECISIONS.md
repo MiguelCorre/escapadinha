@@ -659,7 +659,7 @@ so nothing has to be hosted.
   D25's fingerprint, so an applied approval takes the full path without the applier knowing.
 - **No schema change:** outcomes live in `meta` (one row per decision, a few a day).
 - **Shared with the site (D27):** "public" (`website.is_public`), page slugs (`promo_slug`) and
-  the image folder (`promo_images`) are the site's own helpers, so the snapshot's `page_url` and
+  the image folder (`promo_image_dir`) are the site's own helpers, so the snapshot's `page_url` and
   slide URLs are the paths `site build` and the site data export write.
 
 ## D27: Website data contract v1: JSON Schema, export, committed fixtures (2026-10-13, #10)
@@ -678,7 +678,7 @@ so nothing has to be hosted.
 - **Same rules as the Jinja site, not a second implementation:** routes from `routes.all_routes`,
   typical lows from `detector.month_baselines`, low prices from `detector.low_prices` over the
   latest run, public deals from `website.public_deal_rows` (shared with `SiteBuilder`, as are
-  `is_public`, `route_slug`, `promo_slug`, `promo_images` and `deal_image_paths`; the review
+  `is_public`, `route_slug`, `promo_slug`, `promo_image_dir` and `deal_image_paths`; the review
   snapshot of D26 uses the same ones), so page paths and image URLs are the ones the current site
   serves (a test builds both and checks the files exist). The Jinja site is unchanged. Slide
   names come from `pipeline.deal_slide_names` (the local folder, else the `output/` listing of

@@ -27,17 +27,13 @@ from escapadinha.models import Deal, Observation
 from escapadinha.presentation import PhotoCredit, build_deal_view
 from escapadinha.review import STATUS_PT, TABS
 from escapadinha.storage import db
-from escapadinha.website import is_public, promo_images, promo_slug
+from escapadinha.website import is_public, promo_image_dir, promo_slug
 
 VERSION = 1
 KEY = "review/snapshot.json"
 SLIDES = "review/slides/"
 RECENT = 20          # published / closed deals listed (newest first)
 REVIEWABLE = db.OPEN_STATUSES
-
-
-def _iso(dt: datetime | None) -> str | None:
-    return review_events.iso(dt) if dt else None
 
 
 class _Rendered:
@@ -109,7 +105,7 @@ def _slides(ctx: Context, rendered: _Rendered, deal: Deal, store_keys: list[str]
     by_stem = {Path(k).stem: k for k in store_keys}
     base = ctx.config.site.base_url
     public = is_public(deal)
-    return [{"url": f"{base}/img/{promo_images(deal.id)}/{stem}.webp" if public else None,
+    return [{"url": f"{base}/img/{promo_image_dir(deal.id)}/{stem}.webp" if public else None,
              "key": by_stem.get(stem)}
             for stem in sorted(rendered.stems(deal) | set(by_stem))]
 
@@ -119,7 +115,6 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
     route = pipeline.route_for(ctx, conn, obs.route_key)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=PhotoCredit.from_photo(None, None))
-    rules = route.rules
     c = ctx.config.collector
     return {
         "id": deal.id,
@@ -147,9 +142,9 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "baseline_days": deal.sample_size,
         "found_date": obs.found_date.isoformat() if obs.found_date else None,
         "found_on": view.found_on,
-        "fetched_at": _iso(obs.fetched_at),
+        "fetched_at": db.utc_iso(obs.fetched_at),
         "checked_at": view.checked_at,
-        "detected_at": _iso(deal.detected_at),
+        "detected_at": db.utc_iso(deal.detected_at),
         "affiliate_url": deal.affiliate_url,
         "affiliate_error": deal.affiliate_error,
         "caption": rendered.caption(deal),
@@ -159,19 +154,18 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
                      if is_public(deal) else None),
         "slides": _slides(ctx, rendered, deal, store_keys),
         "live_check": {
-            "last_checked_at": _iso(deal.last_checked_at),
+            "last_checked_at": db.utc_iso(deal.last_checked_at),
             "last_seen_price_eur": deal.last_seen_price,
             "expired_reason": deal.expired_reason,
             "query": request_params(obs.origin, obs.destination, obs.departure_date.replace(day=1),
                                     currency=c.currency, limit=c.limit_per_request,
                                     market=c.market),
-            "rules": {"direct_only": rules.direct_only, "max_transfers": rules.max_transfers,
-                      "min_nights": rules.min_nights, "max_nights": rules.max_nights,
+            "rules": {**route.rules.to_json(),
                       "max_offer_age_days": ctx.config.detector.max_offer_age_days},
         },
         "review_note": deal.review_note,
-        "reviewed_at": _iso(deal.reviewed_at),
-        "published_at": _iso(deal.published_at),
+        "reviewed_at": db.utc_iso(deal.reviewed_at),
+        "published_at": db.utc_iso(deal.published_at),
         "post_url": deal.post_url,
     }
 
@@ -185,7 +179,7 @@ def build(ctx: Context, conn: sqlite3.Connection, now: datetime) -> dict:
     store_keys = _sync_slides(ctx, rendered, [d for pairs in tabs.values() for d, _ in pairs])
     return {
         "version": VERSION,
-        "generated_at": review_events.iso(now),
+        "generated_at": db.utc_iso(now),
         "site_base_url": ctx.config.site.base_url,
         "review_rules": {"approve_max_age_hours": ctx.config.review.approve_max_age_hours},
         **{tab: [_deal(ctx, conn, rendered, d, o, store_keys.get(d.id, [])) for d, o in pairs]

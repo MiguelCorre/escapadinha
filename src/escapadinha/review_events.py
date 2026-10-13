@@ -36,11 +36,6 @@ ARCHIVE = "review/events/archive/"
 _NAME = re.compile(r"^(\d{4})(\d{2})\d{2}T\d{6}Z-.+\.json$")
 
 
-def iso(dt: datetime) -> str:
-    """UTC, second precision, 'Z' suffix: what both writers (Python and the Function) emit."""
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _parse_time(value: object, field: str) -> datetime:
     if not isinstance(value, str):
         raise ValueError(f"'{field}' em falta")
@@ -105,13 +100,13 @@ class Event:
             "id": self.id,
             "type": self.type,
             "deal_id": self.deal_id,
-            "created_at": iso(self.created_at),
+            "created_at": db.utc_iso(self.created_at),
             "actor": self.actor,
             "note": self.note,
             "post_url": self.post_url,
             "live_check": None if lc is None else {
                 "valid": lc.valid, "price_eur": lc.price_eur, "reason": lc.reason,
-                "checked_at": iso(lc.checked_at)},
+                "checked_at": db.utc_iso(lc.checked_at)},
         }
 
     @classmethod
@@ -172,7 +167,7 @@ class Outcome:
     def to_json(self) -> dict:
         return {"event_id": self.event_id, "type": self.type, "deal_id": self.deal_id,
                 "actor": self.actor, "outcome": self.outcome, "reason": self.reason,
-                "settled_at": iso(self.settled_at), "status_before": self.status_before,
+                "settled_at": db.utc_iso(self.settled_at), "status_before": self.status_before,
                 "status_after": self.status_after}
 
     @classmethod

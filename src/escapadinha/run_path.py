@@ -24,7 +24,7 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import escapadinha
@@ -39,7 +39,7 @@ LABELS = {"promotions": "promotions", "low_prices": "low prices", "routes": "rou
 
 
 @dataclass(frozen=True)
-class Decision:
+class PathDecision:
     full: bool
     reason: str
 
@@ -76,13 +76,11 @@ def _shown_low_prices(ctx: Context, conn: sqlite3.Connection, now: datetime) -> 
     run_offers = db.observations_seen_since(conn, run_id) if run_id else []
     with_offers = {o.route_key for o in run_offers}
     promoted = {o.id for _, o in db.deals_with_status(conn, *LIVE)}
-    since = now - timedelta(days=ctx.config.detector.lookback_days)
     shown = []
     for route in routes.all_routes(conn, ctx.config.routes):
         if route.key not in with_offers:
             continue                                   # no offers this run: no low prices
-        history = db.route_history(conn, route.origin, route.destination, since=since,
-                                   exclude_run_id=None)
+        history = pipeline.route_history(ctx, conn, route, now)
         shown += [lp.observation.id for lp in pipeline.shown_low_prices(
             ctx, conn, route, history, now, run_offers, promoted)]
     return sorted(shown)
@@ -101,18 +99,18 @@ def fingerprint(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
 
 
 def decide(ctx: Context, conn: sqlite3.Connection, *, force: bool = False,
-           now: datetime | None = None) -> Decision:
+           now: datetime | None = None) -> PathDecision:
     """Full path when forced, on the first run, or when a component changed."""
     if force:
-        return Decision(True, "forced with --full")
+        return PathDecision(True, "forced with --full")
     stored = db.get_meta(conn, FINGERPRINT)
     if stored is None:
-        return Decision(True, "first full path")
+        return PathDecision(True, "first full path")
     before, current = json.loads(stored), fingerprint(ctx, conn, now)
     changed = [LABELS[k] for k in current if before.get(k) != current[k]]
     if changed:
-        return Decision(True, "changed: " + ", ".join(changed))
-    return Decision(False, "nothing the site shows changed")
+        return PathDecision(True, "changed: " + ", ".join(changed))
+    return PathDecision(False, "nothing the site shows changed")
 
 
 def record_full_path(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None) -> None:

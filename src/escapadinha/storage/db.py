@@ -90,6 +90,15 @@ def _ts(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
 
+def utc_iso(dt: datetime | None, *, minutes: bool = False) -> str | None:
+    """UTC with a 'Z' suffix, to the second (or minute): what the JSON contracts carry (review
+    events and snapshot, site data) and what the review Function emits too."""
+    if dt is None:
+        return None
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ" if minutes
+                                                else "%Y-%m-%dT%H:%M:%SZ")
+
+
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
@@ -553,6 +562,11 @@ def touch_routes_observed(conn: sqlite3.Connection, run_id: int) -> None:
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
     row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
+
+
+def get_meta_json(conn: sqlite3.Connection, key: str) -> dict:
+    """A JSON object stored under `key`, {} when there is none."""
+    return json.loads(get_meta(conn, key) or "{}")
 
 
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:

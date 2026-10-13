@@ -72,7 +72,7 @@ def public_deal_rows(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]
             if is_public(deal)]
 
 
-def promo_images(deal_id: int) -> str:
+def promo_image_dir(deal_id: int) -> str:
     """Folder of a promotion's images on the site, under /img/ (slide_NN.webp, thumb, og)."""
     return f"promos/{deal_id}"
 
@@ -84,7 +84,7 @@ def deal_image_paths(ctx: Context, deal: Deal) -> tuple[list[str], str | None, s
     names = pipeline.deal_slide_names(ctx, deal)
     if not names:
         return None
-    base = f"/img/{promo_images(deal.id)}"
+    base = f"/img/{promo_image_dir(deal.id)}"
     slides = [f"{base}/{name.removesuffix('.png')}.webp" for name in names]
     cover = "slide_01.png" in names
     return slides, f"{base}/thumb.webp" if cover else None, f"{base}/og.jpg" if cover else None
@@ -230,7 +230,7 @@ class SiteBuilder:
         folder = pipeline.deal_folder(self.ctx, d.deal, pipeline.SLIDES)   # stored on a runner
         if folder is None:
             return
-        dest = promo_images(d.deal.id)
+        dest = promo_image_dir(d.deal.id)
         d.images = self._images(folder, dest)
         cover = folder / "slide_01.png"
         if cover.exists():

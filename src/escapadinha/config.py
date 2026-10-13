@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
 import yaml
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict

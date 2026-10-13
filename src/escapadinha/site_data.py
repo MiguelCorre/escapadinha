@@ -28,7 +28,7 @@ import json
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from escapadinha import detector, i18n_pt, pipeline, routes
@@ -72,13 +72,6 @@ def dumps(doc: dict) -> str:
 def _eur(value: float) -> float | int:
     value = float(value)
     return int(value) if value.is_integer() else round(value, 2)
-
-
-def _ts(dt: datetime | None, minutes: bool = False) -> str | None:
-    if dt is None:
-        return None
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ" if minutes
-                                                else "%Y-%m-%dT%H:%M:%SZ")
 
 
 def _day(d) -> str | None:
@@ -201,7 +194,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
         for d, o in promotions]}
     for code in origin_codes:
         files[f"low-prices/{code}.json"] = {
-            "version": VERSION, "origin": code, "generated_at": _ts(now), "run": run_id,
+            "version": VERSION, "origin": code, "generated_at": db.utc_iso(now), "run": run_id,
             "cols": LOW_COLS, "truncated": truncated.get(code, 0),
             "rows": [_low_row(lp, low_links.get(lp.observation.id))
                      for lp in sorted(kept.get(code, []), key=_row_order)]}
@@ -324,7 +317,7 @@ def _offer(o: Observation) -> dict:
             "nights": o.nights, "airline": _code(o.airline), "transfers": o.transfers,
             "return_transfers": o.return_transfers,
             "arrival_airport": _code(o.destination_airport),
-            "found_date": _day(o.found_date), "fetched_at": _ts(o.fetched_at)}
+            "found_date": _day(o.found_date), "fetched_at": db.utc_iso(o.fetched_at)}
 
 
 def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | None,
@@ -334,13 +327,12 @@ def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | N
         "key": r.key, "origin": r.origin, "destination": r.destination, "city": r.city_pt,
         "city_en": r.city_en, "kind": r.kind, "status": r.status,
         "airports": sorted(a for a in (r.destination_airports or "").split(",") if a),
-        "rules": {"direct_only": r.rules.direct_only, "min_nights": r.rules.min_nights,
-                  "max_nights": r.rules.max_nights, "max_transfers": r.rules.max_transfers},
+        "rules": r.rules.to_json(),
         "path": f"/voos/{route_slug(origin_city, r.city_pt)}/", "months": months,
         "cheapest": _offer(cheapest) if cheapest else None,
         "counts": {"observations": observations, "low_prices": low_prices,
                    "promotions_live": live, "promotions_expired": expired},
-        "discovered_at": _ts(r.discovered_at), "last_observed_at": _ts(r.last_observed_at),
+        "discovered_at": db.utc_iso(r.discovered_at), "last_observed_at": db.utc_iso(r.last_observed_at),
     }
 
 
@@ -405,9 +397,9 @@ def _promotion(ctx: Context, conn: sqlite3.Connection, d: Deal, o: Observation, 
         "typical_low": None if d.baseline_median is None else _eur(d.baseline_median),
         "baseline_days": d.sample_size, "rule": d.rule,
         "discount_pct": None if d.discount_pct is None else round(d.discount_pct, 4),
-        "detected_at": _ts(d.detected_at), "approved_at": _ts(d.reviewed_at),
-        "published_at": _ts(d.published_at),
-        "checked_at": _ts(d.last_checked_at or o.fetched_at),
+        "detected_at": db.utc_iso(d.detected_at), "approved_at": db.utc_iso(d.reviewed_at),
+        "published_at": db.utc_iso(d.published_at),
+        "checked_at": db.utc_iso(d.last_checked_at or o.fetched_at),
         "booking_link": link if live else None,
         "expired": None if live else {"reason": d.expired_reason,
                                       "latest": _latest_seen(conn, d, o)},
@@ -429,7 +421,7 @@ def _stops(o: Observation) -> int | None:
 def _low_row(lp: detector.LowPrice, link: str | None) -> list:
     o = lp.observation
     return [o.id, o.destination, _eur(o.price), _day(o.departure_date), _day(o.return_date),
-            _day(o.found_date), _ts(o.fetched_at, minutes=True), _code(o.airline), _stops(o),
+            _day(o.found_date), db.utc_iso(o.fetched_at, minutes=True), _code(o.airline), _stops(o),
             _code(o.destination_airport), _eur(lp.baseline.median), link]
 
 
@@ -450,10 +442,10 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
     det = ctx.config.detector
     run = None
     if run_id is not None:
-        run = {"id": run_id, "finished_at": _ts(db.run_finished_at(conn, run_id))}
+        run = {"id": run_id, "finished_at": db.utc_iso(db.run_finished_at(conn, run_id))}
     promotions = files["promotions.json"]["promotions"]
     return {
-        "version": VERSION, "generated_at": _ts(now), "fixture": fixture, "run": run,
+        "version": VERSION, "generated_at": db.utc_iso(now), "fixture": fixture, "run": run,
         "currency": "EUR", "base_url": ctx.config.site.base_url,
         "detector": {"low_threshold": det.low_threshold, "threshold": det.threshold,
                      "min_saving_eur": det.min_saving_eur,

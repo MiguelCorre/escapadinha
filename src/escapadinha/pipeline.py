@@ -363,7 +363,7 @@ def price_now(ctx: Context, conn: sqlite3.Connection, deal_id: int,
 
 
 @dataclass(frozen=True)
-class Decision:
+class ReviewResult:
     """A review decision written as an event (D26)."""
 
     event: review_events.Event
@@ -413,18 +413,18 @@ def _decidable(ctx: Context, conn: sqlite3.Connection, deal_id: int, kind: str,
 
 
 def _decide(ctx: Context, conn: sqlite3.Connection, event: review_events.Event,
-            check: Recheck | None = None) -> Decision:
+            check: Recheck | None = None) -> ReviewResult:
     """Write the event. With a local database (no R2 keys) nothing else owns it, so apply at
     once; with R2 the next `run` applies it to the bucket's database."""
     review_events.write(ctx.object_store, event)
     outcome = None
     if not ctx.remote_store:
         outcome = next((o for o in apply_review_events(ctx, conn) if o.event_id == event.id), None)
-    return Decision(event, db.get_deal(conn, event.deal_id)[0], outcome, check)
+    return ReviewResult(event, db.get_deal(conn, event.deal_id)[0], outcome, check)
 
 
 def approve(ctx: Context, conn: sqlite3.Connection, deal_id: int, note: str | None = None, *,
-            actor: str, now: datetime | None = None) -> Decision:
+            actor: str, now: datetime | None = None) -> ReviewResult:
     """Live price check, then an `approve` event carrying it. A moved price refuses (ReviewError
     with the reason) and writes nothing."""
     _decidable(ctx, conn, deal_id, "approve")
@@ -439,7 +439,7 @@ def approve(ctx: Context, conn: sqlite3.Connection, deal_id: int, note: str | No
 
 
 def reject(ctx: Context, conn: sqlite3.Connection, deal_id: int, note: str | None = None, *,
-           actor: str, now: datetime | None = None) -> Decision:
+           actor: str, now: datetime | None = None) -> ReviewResult:
     _decidable(ctx, conn, deal_id, "reject")
     event = review_events.Event.new("reject", deal_id, actor=actor, now=now or db.utcnow(),
                                     note=note)
@@ -448,7 +448,7 @@ def reject(ctx: Context, conn: sqlite3.Connection, deal_id: int, note: str | Non
 
 def mark_published(ctx: Context, conn: sqlite3.Connection, deal_id: int,
                    post_url: str | None = None, *, actor: str,
-                   now: datetime | None = None) -> Decision:
+                   now: datetime | None = None) -> ReviewResult:
     _decidable(ctx, conn, deal_id, "published", post_url)
     event = review_events.Event.new("published", deal_id, actor=actor, now=now or db.utcnow(),
                                     post_url=post_url)
@@ -687,7 +687,7 @@ SITE_LINKS = "site.links"   # meta: website Project -> deal id -> {url, error} (
 SITE_PATHS = "site.paths"   # meta: stable page key -> every path it was published at (D19, D25)
 
 
-def _legacy_json(ctx: Context, name: str) -> dict:
+def legacy_json(ctx: Context, name: str) -> dict:
     """A data/ file written before D25 (a CI runner has none; the PC keeps its last copy)."""
     path = ctx.db_path.parent / name
     return json.loads(path.read_text("utf-8")) if path.is_file() else {}
@@ -696,8 +696,8 @@ def _legacy_json(ctx: Context, name: str) -> dict:
 def site_links(ctx: Context, conn: sqlite3.Connection) -> dict[str, dict[str, dict]]:
     """Cached website links per Project and deal, from the database (synced to R2), with
     the entries of the old data/site_links.json it lacks merged in."""
-    cache = json.loads(db.get_meta(conn, SITE_LINKS) or "{}")
-    for project, entries in _legacy_json(ctx, "site_links.json").items():
+    cache = db.get_meta_json(conn, SITE_LINKS)
+    for project, entries in legacy_json(ctx, "site_links.json").items():
         for deal_id, entry in entries.items():
             cache.setdefault(project, {}).setdefault(deal_id, entry)
     return cache
@@ -706,8 +706,8 @@ def site_links(ctx: Context, conn: sqlite3.Connection) -> dict[str, dict[str, di
 def site_paths(ctx: Context, conn: sqlite3.Connection) -> dict[str, list[str]]:
     """Redirect history from the database, with the old data/site_paths.json merged in
     (append-only, so merging it again changes nothing)."""
-    history = json.loads(db.get_meta(conn, SITE_PATHS) or "{}")
-    for key, paths in _legacy_json(ctx, "site_paths.json").items():
+    history = db.get_meta_json(conn, SITE_PATHS)
+    for key, paths in legacy_json(ctx, "site_paths.json").items():
         known = history.setdefault(key, [])
         known += [p for p in paths if p not in known]
     return history
@@ -761,7 +761,7 @@ LINK_BUDGET = "site.link_budget"   # meta: {"run": collection run id, "used": li
 def _budget_used(conn: sqlite3.Connection) -> tuple[int | None, int]:
     """(latest completed run, new low-price links already requested against it)."""
     run_id = db.latest_completed_run_id(conn)
-    spent = json.loads(db.get_meta(conn, LINK_BUDGET) or "{}")
+    spent = db.get_meta_json(conn, LINK_BUDGET)
     return run_id, spent.get("used", 0) if spent.get("run") == run_id else 0
 
 

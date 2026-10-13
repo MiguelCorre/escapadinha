@@ -297,7 +297,7 @@ def deal_check(deal_id: int) -> None:
     _print_check(*pipeline.live_check(ctx, conn, deal_id))
 
 
-def _print_decision(ctx, conn, decision: pipeline.Decision) -> None:
+def _print_decision(ctx, conn, decision: pipeline.ReviewResult) -> None:
     """What happened to the event just written, then every decision still pending (D26)."""
     o, deal = decision.outcome, decision.deal
     if o is None:
