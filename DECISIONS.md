@@ -125,6 +125,23 @@ PowerShell 5.1 turns uv's stderr progress into errors.
 - **Schema v5:** `fetch_runs.scope`, plus deal `output_path`, `reviewed_at`, `review_note`,
   `published_at` and `post_url`.
 
+## D15: Website (v3, 2026-10-13)
+- **Choices (by the user):**
+  - Brand "Onde está a Nocas?", matching the Instagram account.
+  - Cloudflare Pages on the free `*.pages.dev` subdomain (.pt later).
+  - The site shows approved and published deals while they're valid.
+- **Static generation from SQLite with Jinja,** the same stack as the slides. There's nothing
+  to host or patch, and the site is rebuilt on every collection run.
+- **Deploy:** wrangler Direct Upload (pinned version). It skips the upload when the content
+  hash is unchanged, ignoring the build timestamp, to avoid a deployment every 2 h with the
+  same deals.
+- **Trust rules carry over:** only human-approved deals. Expired pages stay but are
+  `noindex` with no CTA. Every page shows when the price was found and checked, and has the
+  affiliate disclosure. Route pages publish only typical lows backed by
+  ≥ `min_baseline_days` days of data.
+- **No cookies of our own;** analytics are optional via Cloudflare Web Analytics (cookieless).
+- **Brand hashtag** comes from the handle (`#ondestaanocas`), not the display name.
+
 ## D8: Stack
 Python 3.14 via uv (latest stable), typer, httpx, pydantic-settings, stdlib sqlite3
 (plain SQL, `PRAGMA user_version` for schema versioning), jinja2, playwright, pytest + respx.
@@ -142,6 +159,6 @@ so nothing has to be hosted.
   - Needs: an Instagram professional account, Business Login with
     `instagram_business_content_publish`, and `/content_publishing_limit` checks
     (100 posts/24 h). Confirm the Standard vs Advanced access needs at the start of v2.
-- **v3: website + hotels.**
+- **v3: website (built, D15; awaiting Cloudflare account) + hotels.**
   - Static site generated from the DB (Cloudflare Pages) with per-route SEO pages.
   - Hotels: redo the API research then.

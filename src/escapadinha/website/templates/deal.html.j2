@@ -8,7 +8,7 @@
 .deal { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
 .slides { display: grid; grid-auto-flow: column; grid-auto-columns: 86%; gap: 10px; overflow-x: auto;
   scroll-snap-type: x mandatory; padding-bottom: 6px; border-radius: var(--radius); }
-.slides img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 12px; scroll-snap-align: start; background: var(--line); }
+.slides img { width: 100%; height: auto; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 12px; scroll-snap-align: start; background: var(--line); }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 18px 0; }
 dt { color: var(--muted); } dd { margin: 0; font-weight: 600; }
 .big { font: 800 clamp(40px, 9vw, 56px) var(--display); letter-spacing: -1px; margin: 4px 0 0; }

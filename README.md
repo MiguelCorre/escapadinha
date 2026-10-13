@@ -152,6 +152,38 @@ uv run escapadinha deal published 12 --url https://www.instagram.com/p/...
 Status flow: `new → rendered → approved → published`. `rejected` and `expired` are final;
 `expired` is only set by price checks.
 
+## Public website
+
+The website is static and generated from the database into `site/` (git-ignored). It's the
+Instagram "link na bio". The brand is **Onde está a Nocas?** and the site is hosted on
+Cloudflare Pages (`https://ondestaanocas.pages.dev` until a .pt domain is connected).
+
+```bash
+uv run escapadinha site build     # generate ./site
+uv run escapadinha site preview   # http://127.0.0.1:8766
+uv run escapadinha site setup     # one-time: create the Cloudflare Pages project
+uv run escapadinha site deploy    # upload if the content changed (--force to always upload)
+```
+
+| Page | What it shows |
+|---|---|
+| `/` | Live deals (approved or published, not expired), routes, reviewed guides |
+| `/promos/<id>-<origem>-<destino>/` | Slides, details, "Ver voo e reservar" (tracked link, `rel="sponsored nofollow"`) |
+| `/voos/<origem>-<destino>/` | Live deals, typical low per departure month (real data), recent expired deals |
+| `/guias/<slug>/` | Only guides with `reviewed: true` |
+| `/sobre/`, `/privacidade/`, `404.html`, `sitemap.xml`, `robots.txt` | |
+
+- **Only approved deals go public.** A deal that expires after approval keeps its page, so
+  shared links don't break. That page says the deal expired, drops the booking button, is
+  marked `noindex` and is left out of the sitemap. Deals that expired or were rejected before
+  approval never appear.
+- **Images:** slides become WebP (1080 px), plus a 540 px thumbnail and a JPEG for Open Graph.
+- **Run integration:** `escapadinha run` rebuilds the site every time. It deploys only when
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set and the content changed (the
+  footer's "Atualizado a" timestamp is ignored). Deploys use `npx wrangler@<site.wrangler_version>`,
+  so Node.js is required.
+- **To review before going live:** the "Como funciona" and "Privacidade" texts.
+
 ## Affiliate links
 
 Each deal gets **one tracked link** from the Travelpayouts partner links API, created at render

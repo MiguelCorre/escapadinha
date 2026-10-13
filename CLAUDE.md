@@ -6,7 +6,8 @@ See README.md for usage and DECISIONS.md for rationale and the roadmap.
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `photos fetch`,
-  `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`).
+  `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`,
+  `site build|preview|setup|deploy`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 
 ## Rules
@@ -20,7 +21,8 @@ See README.md for usage and DECISIONS.md for rationale and the roadmap.
   and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
 - No scraping of booking sites or airlines (ToS and legal risk; see DECISIONS D13).
-- Never publish a deal whose status is `expired` (recheck runs every collection).
+- Never publish a deal whose status is `expired` (recheck runs every collection). The website
+  only shows deals a human approved; expired pages stay `noindex` without a booking link.
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it.
 - Secrets only via `.env` (`Secrets` in `config.py`). Never commit `.env`, `data/`, `output/`.
@@ -34,3 +36,4 @@ See README.md for usage and DECISIONS.md for rationale and the roadmap.
 - `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, scrim, logo, fitText) + `deal/`, `guide/`
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
+- `src/escapadinha/website/`: static site builder (`build_site`), `deploy.py` (wrangler), `templates/`
