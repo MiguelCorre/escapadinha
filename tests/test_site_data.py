@@ -379,7 +379,8 @@ def test_low_price_files_stay_inside_the_size_budget(ctx, tmp_path):  # noqa: F8
     run_id = store_run(conn, trips)
     ctx.config.site.max_low_prices_per_origin = 150
     out = tmp_path / "data"
-    site_data.export_site_data(ctx, conn, out)
+    now = db.utcnow()          # both exports at the same time: generated_at must not differ
+    site_data.export_site_data(ctx, conn, out, now)
 
     path = out / "low-prices" / "LIS.json"
     doc = read(out, "low-prices/LIS.json")
@@ -392,7 +393,7 @@ def test_low_price_files_stay_inside_the_size_budget(ctx, tmp_path):  # noqa: F8
     assert len(raw) / len(doc["rows"]) <= site_data.ROW_BUDGET_BYTES
     assert len(gzip.compress(raw)) < len(raw) / 3                      # gzip-friendly
     assert raw.count(b"\n") == len(doc["rows"]) + 2                    # one row per line
-    site_data.export_site_data(ctx, conn, tmp_path / "again")
+    site_data.export_site_data(ctx, conn, tmp_path / "again", now)
     assert (tmp_path / "again" / "low-prices" / "LIS.json").read_bytes() == raw   # deterministic    assert validation_errors(out) == []
 
 
