@@ -46,10 +46,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `tests/test_objects.py` (S3 runs on moto, no network). The database file is only uploaded via
   `storage/sync.py` (backup-API snapshot under the run lock), never the live file (D21).
 - CI keeps no files between runs (D21, D25). Anything a run needs from an earlier run lives in the
-  database (`meta`: `site.paths`, `site.links`, `site.deployed`, the run-path fingerprint) or goes
+  database (`meta`: `site.paths`, `site.links`, `site.deployed`, `site.link_budget`, the run-path
+  fingerprint) or goes
   through a `storage.mirror.Mirror` (`pipeline.photo_files` / `output_files`): upload when made,
   `file`/`folder` to read (downloads when missing). Never read `output/` or `assets/photos/`
-  directly; use `pipeline.deal_folder`, `guide_folder`, `deal_view` (its photo).
+  directly; use `pipeline.deal_folder` / `guide_folder` (pass `files=` the glob you read, e.g.
+  `pipeline.SLIDES`, so a runner downloads only those, once), `deal_slide_names` (names only, no
+  download), `deal_view` (its photo).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → upkeep → collect → recheck →
   detect → `run_path.decide` → full path only (render → `export site-data` (D27) → site build →
   deploy → `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
