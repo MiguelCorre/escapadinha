@@ -9,11 +9,14 @@ wheels/
 # Virtual environments
 .venv
 
-# Secrets and local state
+# Secrets and local state (root-level folders only: contract/site/, web/src/data/ are tracked)
 .env
-data/
-output/
+/data/
+/output/
 /site/
-logs/
+/logs/
 assets/photos/
 assets/fonts/*.ttf
+
+# Agent worktrees
+.claude/worktrees/
