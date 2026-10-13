@@ -250,3 +250,26 @@ so nothing has to be hosted.
   stored tracked link (Instagram Project) and is retried on the next build; never a `marker=` URL.
 - **Order matters:** website Project only after the domain is live; Instagram rename together
   with its new Project and `brand.handle`; keep Project 584711 while live deals use its links.
+
+## D20: Visual directions (pending Miguel's choice) (2026-10-13)
+- **Status: open.** Three directions are built as real pages (`uv run escapadinha design directions`,
+  then open `output/directions/index.html`). Miguel picks one or a mix; the choice, his notes and
+  the resulting tokens get recorded here and in the M2 design-system document (#12).
+- **A · Caderno de Viagem** (editorial magazine): Fraunces + Source Serif 4; paper, ink and a
+  terracotta rust; large captioned photos, column rules, drop caps; literary tone where each price
+  is a verified fact. Most aspirational and best for long itineraries, slowest to scan for a price.
+- **B · Pôr do Sol** (warm sunset/coastal, closest to the partner's sketch): DM Serif Display + DM Sans;
+  sand, coral, dusk purple and sea teal, night-blue in dark mode; rounded "postcard" photos with a warm
+  wash, sun-over-mountain-and-sea mark, wave dividers; warm "tu" voice. Best fit with Instagram; risks
+  looking generic if the gradient is overused.
+- **C · Quadro de Partidas** (bold utilitarian deal board): Space Grotesk + JetBrains Mono; black,
+  signal yellow (only behind black text), green for "below typical", red for "expired"; dense tables,
+  tabular numbers, small black-and-white photos; terse factual copy. Fastest to read, furthest from
+  the sketch.
+- **Common rules:** all fonts are SIL Open Font License 1.1 (loaded from Google Fonts for the preview
+  only; the chosen ones get self-hosted, which replaces D7). Palettes are defined once in Python and
+  emitted as CSS tokens, so the contrast table on each page is computed from the shipped colours; every
+  body-text pair passes WCAG AA (4.5:1) in light and dark, text on photos is measured on its scrim over a
+  white pixel. Pages use real data only (DB opened read-only), mark expired promotions without a booking
+  link and carry the disclosure. The mountain marks are provisional SVGs; the designer's logo is M6.
+

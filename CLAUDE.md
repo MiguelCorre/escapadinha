@@ -8,7 +8,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list`, `photos fetch`,
   `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`,
-  `site build|preview|setup|deploy`).
+  `site build|preview|setup|deploy`, `design directions`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 
 ## Rules
@@ -53,3 +53,5 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/website/`: static site builder (`build_site`), `redirects.py` (`_redirects`,
   `_headers`), `deploy.py` (wrangler), `templates/`
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
+- `src/escapadinha/design_directions/`: M2 visual directions (`build_directions` → `output/directions/`);
+  palettes + fonts in `directions.py` (contrast computed by `contrast.py`), read-only data in `data.py`

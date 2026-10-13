@@ -1,0 +1,121 @@
+{% extends "b-por-do-sol/_layout.html.j2" %}
+{% set title = brand.name ~ " · Direção B · Início" %}
+{% block style %}
+.hero { position: relative; min-height: min(86vh, 760px); display: grid; align-items: end; color: #FFFFFF; overflow: hidden; background: var(--dusk); isolation: isolate; }
+.hero > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -1; mix-blend-mode: soft-light;
+  background: linear-gradient(180deg, rgba(242, 165, 65, .7) 0%, rgba(214, 84, 47, .45) 50%, rgba(61, 44, 94, .7) 100%); }
+.hero .inner { position: relative; background: var(--scrim); padding: 8px 0 34px; }
+.hero .inner::before { content: ""; position: absolute; left: 0; right: 0; bottom: calc(100% - 1px); height: 160px; background: linear-gradient(to bottom, transparent, var(--scrim)); }
+.hero .brand { display: flex; align-items: center; gap: 14px; }
+.hero .brand span { font: 400 clamp(26px, 4vw, 34px)/1 var(--display); }
+.hero h1 { font-size: clamp(42px, 8.4vw, 92px); margin: 18px 0 10px; max-width: 14ch; }
+.hero h1 em { font-style: italic; color: #FFFFFF; }
+.hero p.lede { font-size: clamp(17px, 2.2vw, 20px); max-width: 52ch; margin: 0 0 18px; }
+.hero .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.hero .tags span { border: 1px solid rgba(255, 255, 255, .7); border-radius: 999px; padding: 3px 12px; font-size: 14px; }
+.hero .credit { font-size: 12px; margin-top: 16px; }
+.hero .credit a { color: #FFFFFF; }
+.hero-wave { margin-top: -47px; position: relative; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 22px; }
+.card { background: var(--surface); border-radius: var(--r); overflow: hidden; box-shadow: 0 1px 0 var(--line), 0 18px 40px -28px rgba(42, 30, 46, .45); display: flex; flex-direction: column; }
+.card .photo { border-radius: var(--r) var(--r) 0 0; aspect-ratio: 4 / 3; }
+.card .photo .pill { position: absolute; top: 14px; left: 14px; z-index: 1; }
+.card .b { padding: 18px 20px 22px; display: grid; gap: 4px; }
+.card h3 { font-size: 26px; }
+.card .price { font: 400 40px/1.1 var(--display); color: var(--coral); }
+.card .price small { font: 600 15px var(--text); color: var(--muted); }
+.card .meta { font-size: 15px; color: var(--muted); }
+.card .credit { font-size: 12px; color: var(--muted); }
+.card .credit a { color: inherit; }
+.card.gone .price { text-decoration: line-through; color: var(--muted); }
+.card.gone .photo img { filter: grayscale(.7); }
+.band { background: var(--surface); }
+.band .wave path { fill: var(--surface); }
+.values { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 18px; padding: 10px 0 40px; }
+.values div { border-top: 3px solid var(--sun); padding-top: 12px; }
+.values h3 { font-size: 26px; }
+.values p { color: var(--muted); margin: 6px 0 0; }
+{% endblock %}
+{% block body %}
+{% set lead = d.hero %}
+<header class="hero">
+  {% if lead and has_photo(lead.trip) %}{{ ui.img(lead.trip, root, has_photo, eager=true) }}{% endif %}
+  <div class="inner">
+    <div class="wrap">
+      <div class="brand">{{ ui.mark("sunset", 44) }}<span>{{ brand.name }}</span></div>
+      {% if lead %}
+      <h1>{{ lead.trip.destination_headline }} a partir de <em>{{ lead.trip.price }}</em></h1>
+      <p class="lede">{{ brand.tagline }} Esta semana, quem parte de {{ lead.trip.origin_city }} chega a {{ lead.trip.destination_city }} por {{ lead.trip.price }} ida e volta ({{ lead.trip.dates }}, {{ lead.trip.nights }}), {{ lead.discount_pct }}% abaixo do habitual em {{ lead.trip.month }}.</p>
+      {% else %}
+      <h1>{{ brand.tagline }}</h1>
+      {% endif %}
+      <div class="tags"><span>Viagens</span><span>Inspiração</span><span>Experiências</span></div>
+      {% if lead %}<a class="cta" href="#precos">Ver os preços baixos</a>
+      <p class="credit">{{ lead.trip.destination_city }} · {{ ui.credit(lead.trip.photo) }}</p>{% endif %}
+    </div>
+  </div>
+</header>
+<svg class="wave hero-wave" viewBox="0 0 1440 48" preserveAspectRatio="none" aria-hidden="true"><path d="M0 24 C 240 0 480 48 720 24 C 960 0 1200 48 1440 24 L1440 48 L0 48 Z"/></svg>
+
+<main>
+<section class="section" id="precos" aria-labelledby="lows-title">
+  <div class="wrap">
+    <h2 id="lows-title">Preços baixos desde Portugal</h2>
+    <p class="intro">Encontrados por viajantes nos últimos dias, abaixo do preço habitual de cada rota para o mês da partida. Verificámos cada um; mesmo assim, os preços mudam depressa.</p>
+    {% if d.lows %}
+    <div class="cards">
+      {% for low in d.lows[:6] %}
+      <article class="card">
+        <div class="photo">{{ ui.img(low.trip, root, has_photo) }}<span class="pill coral">−{{ low.discount_pct }}% vs. habitual</span></div>
+        <div class="b">
+          <h3>{{ low.trip.origin_city }} → {{ low.trip.destination_headline }}</h3>
+          <div class="price">{{ low.trip.price }} <small>ida e volta</small></div>
+          <div>{{ low.trip.dates }} · {{ low.trip.nights }}{% if low.trip.airline %} · {{ low.trip.airline }}{% endif %}</div>
+          <div class="meta">Habitual em {{ low.trip.month }}: {{ low.typical_low }} · chegada {{ low.trip.arrival_airport }}</div>
+          <div class="meta">Encontrado a {{ low.trip.found_on }} · verificado a {{ low.trip.fetched_at }}</div>
+          <div class="credit">{{ ui.credit(low.trip.photo) }}</div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="intro">Hoje nenhuma rota está abaixo do habitual. Volta depois da próxima recolha.</p>
+    {% endif %}
+  </div>
+</section>
+
+<div class="band">
+  <svg class="wave" viewBox="0 0 1440 48" preserveAspectRatio="none" aria-hidden="true" style="background: var(--bg)"><path d="M0 30 C 360 0 1080 60 1440 18 L1440 48 L0 48 Z"/></svg>
+  <section class="section" aria-labelledby="promos-title" style="padding-top: 6px">
+    <div class="wrap">
+      <h2 id="promos-title">Promoções recentes</h2>
+      <p class="intro">As promoções passam por revisão humana. Quando o preço deixa de se confirmar, ficam aqui como memória, sem botão de reserva.</p>
+      {% if d.promos %}
+      <div class="cards">
+        {% for p in d.promos %}
+        <article class="card{% if not p.live %} gone{% endif %}">
+          <div class="photo">{{ ui.img(p.trip, root, has_photo) }}<span class="pill {{ 'coral' if p.live else 'gone' }}">{{ "Ativa" if p.live else "Expirada" }}</span></div>
+          <div class="b">
+            <h3>{% if d.featured and p.deal_id == d.featured.deal_id %}<a href="promocao.html" style="color: inherit">{{ p.trip.origin_city }} → {{ p.trip.destination_headline }}</a>{% else %}{{ p.trip.origin_city }} → {{ p.trip.destination_headline }}{% endif %}</h3>
+            <div class="price">{{ p.trip.price }} <small>ida e volta</small></div>
+            <div>{{ p.trip.dates }} · {{ p.trip.nights }}</div>
+            <div class="meta">{% if not p.live and p.expired_reason %}{{ p.expired_reason|capitalize }} · {% endif %}verificado a {{ p.checked_at }}</div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="intro">Ainda não há promoções revistas.</p>
+      {% endif %}
+      <div class="values">
+        <div><h3>Viagens</h3><p>Voos de ida e volta desde Lisboa e Porto, com o aeroporto de chegada sempre à vista.</p></div>
+        <div><h3>Inspiração</h3><p>{{ d.n_observations }} preços guardados até hoje para saber o que é barato a sério em cada rota.</p></div>
+        <div><h3>Experiências</h3><p>Roteiros e dicas escritos por nós e revistos antes de irem ao ar.</p></div>
+      </div>
+    </div>
+  </section>
+</div>
+</main>
+{% endblock %}

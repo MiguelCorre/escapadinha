@@ -1,0 +1,109 @@
+{% extends "b-por-do-sol/_layout.html.j2" %}
+{% set p = d.featured %}
+{% set title = brand.name ~ " · Direção B · Promoção" %}
+{% block style %}
+.top { display: flex; align-items: center; gap: 12px; padding-block: 18px; }
+.top a { color: var(--ink); text-decoration: none; font: 400 26px var(--display); display: inline-flex; align-items: center; gap: 10px; }
+.big-photo { aspect-ratio: 16 / 7; min-height: 340px; }
+.big-photo h1 { font-size: clamp(36px, 6.4vw, 72px); }
+.big-photo .sub { font-size: 18px; margin: 6px 0 0; }
+.big-photo .credit { font-size: 12px; margin-top: 8px; }
+.ticket { position: relative; z-index: 2; margin: -48px auto 0; max-width: 980px; background: var(--surface); border-radius: var(--r);
+  box-shadow: 0 1px 0 var(--line), 0 26px 50px -30px rgba(42, 30, 46, .5); display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+.ticket .price-side { padding: 28px; border-right: 2px dashed var(--line); display: grid; align-content: start; gap: 8px; }
+.ticket .price { font: 400 clamp(56px, 9vw, 84px)/1 var(--display); color: var(--coral); }
+.ticket .price.gone { text-decoration: line-through; color: var(--muted); }
+.ticket .facts { padding: 28px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 22px; margin: 0; }
+.ticket dt { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.ticket dd { margin: 2px 0 0; font-size: 17px; }
+.note { max-width: 980px; margin: 22px auto 0; border-radius: 18px; padding: 16px 20px; background: var(--surface); border-left: 6px solid var(--coral); }
+.note strong { color: var(--coral); }
+.months { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 0; padding: 0; list-style: none; }
+.months li { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 10px 16px; }
+.months b { font: 400 26px var(--display); color: var(--ink); display: block; }
+.mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 14px; margin-top: 16px; }
+.mini article { background: var(--surface); border-radius: 18px; padding: 16px 18px; border: 1px solid var(--line); }
+.mini .p { font: 400 34px/1.1 var(--display); color: var(--coral); }
+.disclosure-box { max-width: 980px; margin: 0 auto; font-size: 15px; color: var(--muted); }
+@media (max-width: 760px) {
+  .big-photo { aspect-ratio: auto; min-height: 420px; }
+  .ticket { grid-template-columns: 1fr; margin-top: -28px; }
+  .ticket .price-side { border-right: 0; border-bottom: 2px dashed var(--line); }
+  .ticket .facts { grid-template-columns: 1fr 1fr; }
+}
+{% endblock %}
+{% block body %}
+<div class="wrap top"><a href="index.html">{{ ui.mark("sunset", 34) }} {{ brand.name }}</a></div>
+<main>
+{% if p %}
+<div class="wrap">
+  <div class="photo big-photo">
+    {{ ui.img(p.trip, root, has_photo, eager=true) }}
+    <div class="on-photo">
+      <span class="pill {{ 'coral' if p.live else 'soft' }}">{{ "Promoção ativa" if p.live else "Promoção expirada" }}</span>
+      <h1>{{ p.trip.origin_city }} → {{ p.trip.destination_headline }}</h1>
+      <p class="sub">{{ p.trip.dates }} · {{ p.trip.nights }}</p>
+      <p class="credit">{{ ui.credit(p.trip.photo) }}</p>
+    </div>
+  </div>
+</div>
+<div class="wrap">
+  <section class="ticket" aria-label="Detalhes da promoção">
+    <div class="price-side">
+      <span class="muted">Ida e volta, por pessoa</span>
+      <span class="price{% if not p.live %} gone{% endif %}">{{ p.trip.price }}</span>
+      {% if p.discount_pct %}<span class="pill soft">{{ p.discount_pct }}% abaixo do habitual ({{ p.typical_low }})</span>{% endif %}
+      {% if p.live and p.booking_url %}
+      <a class="cta" href="{{ p.booking_url }}" rel="sponsored nofollow noopener" target="_blank">Ver voo e reservar</a>
+      {% endif %}
+    </div>
+    <dl class="facts">
+      <div><dt>Partida</dt><dd>{{ p.trip.departure_short }}</dd></div>
+      <div><dt>Regresso</dt><dd>{{ p.trip.return_short }}</dd></div>
+      {% if p.trip.airline %}<div><dt>Companhia</dt><dd>{{ p.trip.airline }}</dd></div>{% endif %}
+      {% if p.trip.direct is not none %}<div><dt>Voos</dt><dd>{{ "Diretos" if p.trip.direct else "Com escala" }}</dd></div>{% endif %}
+      <div><dt>Chegada</dt><dd>{{ p.trip.arrival_airport or p.trip.destination_iata }}</dd></div>
+      <div><dt>Encontrado</dt><dd>{{ p.trip.found_on or "sem data" }}</dd></div>
+      <div><dt>Verificado</dt><dd>{{ p.checked_at }}</dd></div>
+      <div><dt>Estado</dt><dd>{{ "Ativa" if p.live else "Expirada" }}</dd></div>
+    </dl>
+  </section>
+  {% if not p.live %}
+  <p class="note"><strong>Chegaste tarde a esta.</strong> {{ ui.expired_note(p) }}{% if d.route_lows %} Mas a rota continua com preços abaixo do habitual, logo abaixo.{% endif %}</p>
+  {% endif %}
+  {% if p.trip.remote_airport %}
+  <p class="note"><strong>Atenção ao aeroporto.</strong> Este voo chega a {{ p.trip.arrival_airport }}, longe do centro de {{ p.trip.destination_city }}: conta com o transfer.</p>
+  {% endif %}
+</div>
+
+<section class="section" aria-labelledby="route-title">
+  <div class="wrap" style="max-width: 1012px">
+    <h2 id="route-title">{{ p.trip.origin_city }} → {{ p.trip.destination_city }}, agora</h2>
+    {% if d.route_lows %}
+    <div class="mini">
+      {% for low in d.route_lows %}
+      <article>
+        <div class="p">{{ low.trip.price }}</div>
+        <div>{{ low.trip.dates }} · {{ low.trip.nights }}</div>
+        <div class="muted" style="font-size: 15px">Habitual {{ low.typical_low }} · encontrado a {{ low.trip.found_on }} · chegada {{ low.trip.arrival_airport }}</div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="intro">Nenhum preço desta rota está hoje abaixo do habitual.</p>
+    {% endif %}
+    {% if d.route_months %}
+    <h3 style="font-size: 26px; margin-top: 30px">Quanto costuma custar</h3>
+    <ul class="months">
+      {% for m in d.route_months %}<li><span class="muted">{{ m.label|capitalize }}</span><b>{{ m.typical_low }}</b><span class="muted" style="font-size: 14px">{{ m.days }} dias de dados</span></li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</section>
+<p class="wrap disclosure-box">{{ p.disclosure }}</p>
+<div style="height: 36px"></div>
+{% else %}
+<div class="wrap section"><h1>Ainda não há promoções revistas.</h1></div>
+{% endif %}
+</main>
+{% endblock %}

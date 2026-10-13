@@ -232,6 +232,36 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
   uses a path that is a page now (Pages applies redirects before files); skipped config rules are
   printed by `site build`.
 
+## Visual directions (M2, issue #11)
+
+Three candidate looks for Ponto Nómada, each as a home page and a promotion page built from
+the real database and the cached photos. Miguel picks one (or a mix); see DECISIONS D20.
+
+```bash
+uv run escapadinha design directions               # writes output/directions/ (7 pages + photos)
+uv run escapadinha design directions --deal-id 2   # choose the promotion shown on the promo pages
+```
+
+Open `output/directions/index.html` in a browser (double-click works; fonts load from Google
+Fonts, so be online). For dark mode, switch the OS theme or use the "Tema" button on each page.
+To view on a phone on the same network:
+`uv run python -m http.server 8781 --directory output/directions --bind 0.0.0.0`.
+
+| Folder | Direction |
+|---|---|
+| `a-caderno/` | A · Caderno de Viagem: editorial magazine (Fraunces + Source Serif 4) |
+| `b-por-do-sol/` | B · Pôr do Sol: warm sunset/sea, closest to the brand sketch (DM Serif Display + DM Sans) |
+| `c-quadro/` | C · Quadro de Partidas: airport departure board (Space Grotesk + JetBrains Mono) |
+
+- **Real data only.** The DB is opened read-only. Prices are promotions (approved, published
+  or expired; never new/rendered/rejected) and *preços baixos*: direct offers from the latest
+  run, found inside the freshness window, below the route's typical low for that month.
+  Expired promotions are marked and have no booking link. Every page carries the disclosure.
+- **Palettes live in Python** (`design_directions/directions.py`) and are emitted as CSS
+  tokens, so the WCAG contrast table on each page is computed from the same values. Body text
+  pairs must reach 4.5:1 in light and dark (tests enforce it); text on photos is checked on
+  its scrim over a white pixel (worst case).
+
 ## Affiliate links
 
 Each deal gets **one tracked link** from the Travelpayouts partner links API, created at render

@@ -33,6 +33,9 @@ app.add_typer(routes_app, name="routes")
 app.add_typer(render_app, name="render")
 app.add_typer(deal_app, name="deal")
 app.add_typer(site_app, name="site")
+design_app = typer.Typer(help="Design exploration pages built from real data (M2).",
+                         no_args_is_help=True)
+app.add_typer(design_app, name="design")
 
 console = Console()
 
@@ -284,6 +287,28 @@ def site_deploy(force: Annotated[bool, typer.Option(help="Deploy even if unchang
 
     deployed, message = deploy(Context(), force=force)
     console.print(("[green]Deployed:[/] " if deployed else "") + message)
+
+
+@design_app.command("directions")
+def design_directions(
+    deal_id: Annotated[int | None, typer.Option(help="Promotion shown on the promotion pages")] = None,
+) -> None:
+    """Three visual directions (home + promotion page each) into ./output/directions/."""
+    import sqlite3
+
+    from escapadinha.design_directions import build_directions
+
+    ctx = Context()
+    if not ctx.db_path.exists():
+        console.print(f"No database at {ctx.db_path}. Run [bold]escapadinha collect[/] first.")
+        raise typer.Exit(1)
+    pipeline.open_db(ctx).close()             # migrate + sync routes first, then read only
+    conn = sqlite3.connect(f"{ctx.db_path.resolve().as_uri()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    summary = build_directions(ctx, conn, deal_id=deal_id)
+    console.print(f"{len(summary['pages'])} pages, {summary['promos']} promotions, "
+                  f"{summary['lows']} low prices, {summary['photos']} photos")
+    console.print(f"Open [bold]{summary['index']}[/]")
 
 
 def _site_configured(ctx: Context) -> bool:

@@ -1,0 +1,83 @@
+{% extends "c-quadro/_layout.html.j2" %}
+{% set title = brand.name ~ " · Direção C · Início" %}
+{% block style %}
+.hero { padding: 30px 0 8px; }
+.hero h1 { font-size: clamp(34px, 7vw, 76px); text-transform: uppercase; max-width: 18ch; }
+.hero h1 .hl { white-space: nowrap; background: var(--signal); color: var(--on-signal); padding: 0 .12em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.hero p { max-width: 64ch; margin: 14px 0 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); border: 2px solid var(--line); margin: 24px 0 0; }
+.stats div { padding: 14px 16px; border-right: 2px solid var(--line); }
+.stats div:last-child { border-right: 0; }
+.stats b { display: block; font: 800 clamp(28px, 4vw, 40px)/1.1 var(--mono); }
+@media (max-width: 640px) { .stats div { border-right: 0; border-bottom: 2px solid var(--line); } .stats div:last-child { border-bottom: 0; } }
+.how { font-size: 14px; color: var(--muted); margin-top: 12px; max-width: 80ch; }
+{% endblock %}
+{% block body %}
+<main>
+<section class="hero">
+  <div class="wrap">
+    {% set lead = d.hero %}
+    <h1>{% if lead %}{{ lead.trip.origin_iata }} → {{ lead.trip.destination_headline }} <span class="hl">{{ lead.trip.price }}</span>{% else %}Partidas de hoje{% endif %}</h1>
+    <p>Preços de ida e volta que viajantes encontraram nos últimos dias, abaixo do preço habitual da rota. Sem adjetivos: rota, datas, preço, quanto costuma custar, quando foi visto.</p>
+    <div class="stats">
+      <div><span class="label">Preços observados</span><b>{{ d.n_observations }}</b></div>
+      <div><span class="label">Rotas seguidas</span><b>{{ d.n_routes }}</b></div>
+      <div><span class="label">Abaixo do habitual hoje</span><b>{{ d.lows|length }}</b></div>
+      <div><span class="label">Última recolha</span><b style="font-size: clamp(18px, 2.2vw, 22px)">{{ d.latest_run_at or "—" }}</b></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" aria-labelledby="board-title">
+  <div class="wrap">
+    <h2 id="board-title">Partidas · preços baixos <span class="tag signal">{{ d.lows|length }} rotas</span></h2>
+    {% if d.lows %}
+    <table class="board">
+      <thead><tr><th>Destino</th><th>Datas</th><th>Cia</th><th class="r">Habitual</th><th class="r">Abaixo</th><th>Encontrado</th><th class="r">Preço</th></tr></thead>
+      <tbody>
+      {% for low in d.lows %}
+      <tr>
+        <td class="dest-cell"><div class="dest">{{ ui.img(low.trip, root, has_photo, cls="thumb") }}<div><div class="city">{{ low.trip.destination_headline }}</div><div class="code mono">{{ low.trip.origin_iata }} → {{ low.trip.arrival_code or low.trip.destination_iata }} · desde {{ low.trip.origin_city }}</div></div></div></td>
+        <td class="mono wide" data-l="Datas">{{ low.trip.departure_short }} – {{ low.trip.return_short }} · {{ low.trip.nights }}</td>
+        <td class="wide" data-l="Cia">{{ low.trip.airline or "—" }}</td>
+        <td class="mono r wide" data-l="Habitual">{{ low.typical_low }}</td>
+        <td class="mono r good wide" data-l="Abaixo">−{{ low.discount_pct }}%</td>
+        <td class="mono wide" data-l="Encontrado">{{ low.trip.found_on }}</td>
+        <td class="price-cell r"><span class="price">{{ low.trip.price_compact }}</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="how">Habitual = mediana dos preços mais baixos de cada dia, por rota e mês de partida, com pelo menos {{ min_days }} dias de dados. Só voos diretos nos dois sentidos. Fotos: {% for low in d.lows if low.trip.photo %}{{ low.trip.destination_city }} ({{ ui.credit(low.trip.photo) }}){{ ", " if not loop.last }}{% endfor %}.</p>
+    {% else %}
+    <p>Nenhuma rota abaixo do habitual nesta recolha.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="block" aria-labelledby="promo-title">
+  <div class="wrap">
+    <h2 id="promo-title">Promoções <span class="tag bad">{{ d.promos|rejectattr("live")|list|length }} expiradas</span></h2>
+    {% if d.promos %}
+    <table class="board">
+      <thead><tr><th>Destino</th><th>Datas</th><th>Estado</th><th>Motivo</th><th>Verificado</th><th class="r">Preço</th></tr></thead>
+      <tbody>
+      {% for p in d.promos %}
+      <tr>
+        <td class="dest-cell"><div class="dest">{{ ui.img(p.trip, root, has_photo, cls="thumb") }}<div><div class="city">{% if d.featured and p.deal_id == d.featured.deal_id %}<a href="promocao.html">{{ p.trip.destination_headline }}</a>{% else %}{{ p.trip.destination_headline }}{% endif %}</div><div class="code mono">{{ p.trip.origin_iata }} → {{ p.trip.arrival_code or p.trip.destination_iata }} · #{{ p.deal_id }}</div></div></div></td>
+        <td class="mono wide" data-l="Datas">{{ p.trip.departure_short }} – {{ p.trip.return_short }}</td>
+        <td class="wide">{% if p.live %}<span class="tag good">Ativa</span>{% else %}<span class="tag bad">Expirada</span>{% endif %}</td>
+        <td class="wide" data-l="Motivo">{{ p.expired_reason or "—" }}</td>
+        <td class="mono wide" data-l="Verificado">{{ p.checked_at }}</td>
+        <td class="price-cell r">{% if p.live %}<span class="price">{{ p.trip.price_compact }}</span>{% else %}<s class="price">{{ p.trip.price_compact }}</s>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>Ainda não há promoções revistas.</p>
+    {% endif %}
+  </div>
+</section>
+</main>
+{% endblock %}

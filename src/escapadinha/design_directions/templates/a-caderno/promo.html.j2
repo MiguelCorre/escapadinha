@@ -1,0 +1,112 @@
+{% extends "a-caderno/_layout.html.j2" %}
+{% set p = d.featured %}
+{% set title = brand.name ~ " · Direção A · Promoção" %}
+{% block style %}
+.crumbs { font-size: 14px; color: var(--muted); padding: 22px 0 0; }
+.crumbs a { color: inherit; }
+.headline { padding: 26px 0 26px; max-width: 900px; }
+.headline h1 { font-size: clamp(40px, 7vw, 84px); font-weight: 500; letter-spacing: -0.02em; }
+.headline .deck { font: italic 400 clamp(20px, 2.8vw, 27px)/1.4 var(--display); margin: 16px 0 0; color: var(--muted); }
+.headline .deck strong { font-style: normal; font-weight: 600; color: var(--ink); }
+.headline .deck s { color: var(--muted); }
+.notice { border-top: 1px solid var(--accent); border-bottom: 1px solid var(--accent); padding: 14px 0; margin: 0 0 26px;
+  font-size: 17px; }
+.notice strong { color: var(--accent); text-transform: uppercase; letter-spacing: .12em; font-size: 13px; margin-right: 8px; }
+.hero img { width: 100%; aspect-ratio: 21 / 9; object-fit: cover; }
+.body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); gap: 48px; padding-block: 34px 40px; }
+.body .prose p { margin: 0 0 1em; max-width: 64ch; }
+.body .prose p:first-child::first-letter { font: 600 3.4em/0.8 var(--display); float: left; padding: 6px 8px 0 0; color: var(--accent); }
+.body h2 { font-size: 26px; font-style: italic; font-weight: 500; margin: 28px 0 10px; }
+.ficha { border-top: 3px double var(--ink); padding-top: 14px; }
+.ficha h2 { margin-top: 0; font-size: 22px; font-style: normal; text-transform: uppercase; letter-spacing: .12em; font-family: var(--text); font-weight: 600; }
+.ficha dl { margin: 0; }
+.ficha dt { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin-top: 12px; }
+.ficha dd { margin: 2px 0 0; font-size: 18px; }
+table.months { border-collapse: collapse; width: 100%; font-size: 17px; }
+table.months td, table.months th { text-align: left; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+table.months td.n { text-align: right; font-family: var(--display); }
+.related { list-style: none; padding: 0; margin: 0; }
+.related li { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.related .p { font: 500 24px var(--display); margin-right: 8px; }
+.cta { display: inline-block; background: var(--accent); color: var(--on-accent); text-decoration: none; padding: 14px 22px;
+  font: 600 17px var(--text); letter-spacing: .04em; }
+.disclosure-box { border: 1px solid var(--rule); padding: 14px 16px; font-size: 15px; color: var(--muted); margin-top: 22px; }
+@media (max-width: 860px) {
+  .body { grid-template-columns: 1fr; gap: 18px; }
+  .hero img { aspect-ratio: 4 / 3; }
+}
+{% endblock %}
+{% block body %}
+<header class="wrap masthead small">
+  <a class="brand" href="index.html">{{ ui.mark("line", 32) }}<span class="name">{{ brand.name }}</span></a>
+</header>
+<div class="wrap"><hr class="double"></div>
+<main>
+{% if p %}
+<article>
+  <div class="wrap">
+    <p class="crumbs"><a href="index.html">Início</a> › Promoções › {{ p.trip.origin_city }} → {{ p.trip.destination_city }}</p>
+    <header class="headline">
+      <p class="kicker">Promoção{% if not p.live %} · expirada{% endif %}{% if p.discount_pct %} · {{ p.discount_pct }}% abaixo do habitual quando a encontrámos{% endif %}</p>
+      <h1>{{ p.trip.origin_city }} → {{ p.trip.destination_headline }}</h1>
+      <p class="deck">{% if p.live %}<strong>{{ p.trip.price }}</strong>{% else %}<s>{{ p.trip.price }}</s>{% endif %} ida e volta, de {{ p.trip.dates }}: {{ p.trip.nights }} com chegada a {{ p.trip.arrival_airport or p.trip.destination_city }}.</p>
+    </header>
+    {% if not p.live %}
+    <p class="notice"><strong>Expirada</strong>{{ ui.expired_note(p) }}</p>
+    {% endif %}
+  </div>
+  {% if has_photo(p.trip) %}
+  <figure class="wrap hero">
+    {{ ui.img(p.trip, root, has_photo, eager=true) }}
+    <figcaption>{{ p.trip.destination_city }}. {{ ui.credit(p.trip.photo) }}</figcaption>
+  </figure>
+  {% endif %}
+  <div class="wrap body">
+    <div class="prose">
+      <p>A {{ p.trip.found_on or "data desconhecida" }}, um viajante encontrou no Aviasales um voo de ida e volta entre {{ p.trip.origin_city }} e {{ p.trip.destination_city }} por {{ p.trip.price }}, para {{ p.trip.dates }}.{% if p.typical_low %} Nessa altura, o preço habitual da rota para {{ p.trip.month }} era {{ p.typical_low }}: a mediana dos preços mais baixos de cada dia.{% endif %}</p>
+      {% if p.trip.remote_airport %}<p>Repara no aeroporto: o voo chega a {{ p.trip.arrival_airport }}, longe do centro de {{ p.trip.destination_city }}. Conta com o transfer no tempo e no orçamento.</p>{% endif %}
+      <p>Verificámos o preço a {{ p.checked_at }}.{% if not p.live %} Entretanto deixou de se confirmar{% if p.expired_reason %} ({{ p.expired_reason }}){% endif %}, por isso esta página não tem ligação de reserva.{% endif %}</p>
+      {% if p.live and p.booking_url %}
+      <p><a class="cta" href="{{ p.booking_url }}" rel="sponsored nofollow noopener" target="_blank">Ver voo e reservar</a></p>
+      {% endif %}
+
+      {% if d.route_lows %}
+      <h2>Preços baixos atuais nesta rota</h2>
+      <ul class="related">
+        {% for low in d.route_lows %}
+        <li><span class="p">{{ low.trip.price }}</span>{{ low.trip.dates }} · {{ low.trip.nights }}{% if low.trip.airline %} · {{ low.trip.airline }}{% endif %}<br><span class="meta">Habitual {{ low.typical_low }} · encontrado a {{ low.trip.found_on }} · verificado a {{ low.trip.fetched_at }} · chegada {{ low.trip.arrival_airport }}</span></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+
+      {% if d.route_months %}
+      <h2>Preço habitual por mês de partida</h2>
+      <table class="months">
+        <tbody>
+        {% for m in d.route_months %}<tr><td>{{ m.label|capitalize }}</td><td class="n">{{ m.typical_low }}</td><td class="n meta">{{ m.days }} dias de dados</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      <p class="disclosure-box">{{ p.disclosure }}</p>
+    </div>
+    <aside class="ficha" aria-label="Ficha da viagem">
+      <h2>Ficha</h2>
+      <dl>
+        <dt>Partida</dt><dd>{{ p.trip.departure_short }}</dd>
+        <dt>Regresso</dt><dd>{{ p.trip.return_short }} ({{ p.trip.nights }})</dd>
+        {% if p.trip.airline %}<dt>Companhia</dt><dd>{{ p.trip.airline }}</dd>{% endif %}
+        {% if p.trip.direct is not none %}<dt>Voos</dt><dd>{{ "Diretos nos dois sentidos" if p.trip.direct else "Com escala" }}</dd>{% endif %}
+        <dt>Chegada</dt><dd>Aeroporto {{ p.trip.arrival_airport or p.trip.destination_iata }}</dd>
+        <dt>Encontrado por um viajante</dt><dd>{{ p.trip.found_on or "sem data" }}</dd>
+        <dt>Verificado por nós</dt><dd>{{ p.checked_at }}</dd>
+        {% if p.typical_low %}<dt>Habitual em {{ p.trip.month }}</dt><dd>{{ p.typical_low }}{% if p.discount_pct %} ({{ p.discount_pct }}% abaixo){% endif %}</dd>{% endif %}
+        <dt>Estado</dt><dd>{{ "Ativa" if p.live else "Expirada" }}</dd>
+      </dl>
+    </aside>
+  </div>
+</article>
+{% else %}
+<div class="wrap"><p class="headline">Ainda não há promoções revistas para mostrar.</p></div>
+{% endif %}
+</main>
+{% endblock %}
