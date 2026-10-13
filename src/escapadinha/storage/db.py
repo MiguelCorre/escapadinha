@@ -90,6 +90,15 @@ def _ts(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
 
+def utc_iso(dt: datetime | None, *, minutes: bool = False) -> str | None:
+    """UTC with a 'Z' suffix, to the second (or minute): what the JSON contracts carry (review
+    events and snapshot, site data) and what the review Function emits too."""
+    if dt is None:
+        return None
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ" if minutes
+                                                else "%Y-%m-%dT%H:%M:%SZ")
+
+
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
@@ -142,6 +151,11 @@ def set_run_archive(conn: sqlite3.Connection, run_id: int, key: str) -> None:
 def run_archive_key(conn: sqlite3.Connection, run_id: int) -> str | None:
     row = conn.execute("SELECT archive_key FROM fetch_runs WHERE id = ?", (run_id,)).fetchone()
     return row["archive_key"] if row else None
+
+
+def run_finished_at(conn: sqlite3.Connection, run_id: int) -> datetime | None:
+    row = conn.execute("SELECT finished_at FROM fetch_runs WHERE id = ?", (run_id,)).fetchone()
+    return datetime.fromisoformat(row["finished_at"]) if row and row["finished_at"] else None
 
 
 def latest_completed_run_id(conn: sqlite3.Connection) -> int | None:
@@ -243,6 +257,24 @@ def deal_observation_ids(conn: sqlite3.Connection) -> set[int]:
     return {r[0] for r in conn.execute("SELECT observation_id FROM deals")}
 
 
+def observation_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """Stored offers per route key ('LIS-LON')."""
+    rows = conn.execute("SELECT origin, destination, COUNT(*) AS n FROM price_observations "
+                        "GROUP BY origin, destination")
+    return {f"{r['origin']}-{r['destination']}": r["n"] for r in rows}
+
+
+def trip_observation_at(conn: sqlite3.Connection, o: Observation,
+                        price: float) -> Observation | None:
+    """The newest stored observation of `o`'s trip (route, dates) at `price`, if any."""
+    row = conn.execute(
+        """SELECT * FROM price_observations WHERE origin = ? AND destination = ?
+           AND departure_date = ? AND return_date = ? AND price = ? ORDER BY id DESC LIMIT 1""",
+        (o.origin, o.destination, o.departure_date.isoformat(), o.return_date.isoformat(),
+         price)).fetchone()
+    return _row_to_observation(row) if row else None
+
+
 def get_observation(conn: sqlite3.Connection, observation_id: int) -> Observation:
     row = conn.execute("SELECT * FROM price_observations WHERE id = ?", (observation_id,)).fetchone()
     if row is None:
@@ -307,22 +339,81 @@ def deals_with_status(conn: sqlite3.Connection, *statuses: str) -> list[tuple[De
     return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
 
 
+def deal_states(conn: sqlite3.Connection) -> list[tuple[int, str, bool]]:
+    """(id, status, has a tracked link) for every deal: what the fast/full decision watches."""
+    rows = conn.execute("SELECT id, status, affiliate_url IS NOT NULL AS linked FROM deals "
+                        "ORDER BY id").fetchall()
+    return [(r["id"], r["status"], bool(r["linked"])) for r in rows]
+
+
+def fixture_mark_live(conn: sqlite3.Connection, deal_id: int) -> None:
+    """Fixture generation only, on an in-memory copy (D27): the deal as if approved when it
+    was detected. Real review decisions go through `settle_review_event` (D26)."""
+    conn.execute("""UPDATE deals SET status = 'approved', reviewed_at = detected_at,
+                    expired_reason = NULL WHERE id = ?""", (deal_id,))
+    conn.commit()
+
+
+def fixture_mark_reviewed(conn: sqlite3.Connection, deal_id: int) -> None:
+    """Fixture generation only, on an in-memory copy (D27): an expired deal as if a human had
+    approved it before it expired."""
+    conn.execute("UPDATE deals SET reviewed_at = detected_at WHERE id = ?", (deal_id,))
+    conn.commit()
+
+
+def deals_with_output(conn: sqlite3.Connection) -> list[Deal]:
+    rows = conn.execute("SELECT * FROM deals WHERE output_path IS NOT NULL ORDER BY id").fetchall()
+    return [_row_to_deal(r) for r in rows]
+
+
 def set_deal_output_path(conn: sqlite3.Connection, deal_id: int, path: str) -> None:
     conn.execute("UPDATE deals SET output_path = ? WHERE id = ?", (path, deal_id))
     conn.commit()
 
 
+def _review_update(conn: sqlite3.Connection, deal_id: int, status: str, *, note: str | None,
+                   post_url: str | None, at: datetime) -> None:
+    if status == "published":
+        conn.execute("UPDATE deals SET status = 'published', published_at = ?, post_url = ? "
+                     "WHERE id = ?", (_ts(at), post_url, deal_id))
+    else:
+        conn.execute("UPDATE deals SET status = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
+                     (status, _ts(at), note, deal_id))
+
+
 def record_review(conn: sqlite3.Connection, deal_id: int, *, status: str,
                   note: str | None) -> None:
-    conn.execute("UPDATE deals SET status = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
-                 (status, _ts(utcnow()), note, deal_id))
+    """Test setup only: the pipeline changes review statuses through `settle_review_event`."""
+    _review_update(conn, deal_id, status, note=note, post_url=None, at=utcnow())
     conn.commit()
 
 
-def record_published(conn: sqlite3.Connection, deal_id: int, post_url: str | None) -> None:
-    conn.execute("UPDATE deals SET status = 'published', published_at = ?, post_url = ? WHERE id = ?",
-                 (_ts(utcnow()), post_url, deal_id))
-    conn.commit()
+REVIEW_EVENT_KEY = "review_event:"   # meta key prefix: outcome of each applied review event (D26)
+
+
+def settle_review_event(conn: sqlite3.Connection, event_id: str, outcome: dict, *,
+                        deal_id: int | None = None, status: str | None = None,
+                        note: str | None = None, post_url: str | None = None,
+                        at: datetime | None = None) -> None:
+    """Record a review event's outcome and, when it was applied, the deal's new status, in one
+    transaction: the database alone tells whether an event was already applied."""
+    with conn:
+        if status is not None:
+            _review_update(conn, deal_id, status, note=note, post_url=post_url, at=at or utcnow())
+        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
+                     (REVIEW_EVENT_KEY + event_id, json.dumps(outcome, ensure_ascii=False)))
+
+
+def review_event_outcome(conn: sqlite3.Connection, event_id: str) -> dict | None:
+    value = get_meta(conn, REVIEW_EVENT_KEY + event_id)
+    return json.loads(value) if value else None
+
+
+def review_event_outcomes(conn: sqlite3.Connection) -> list[dict]:
+    """Every recorded outcome, newest first."""
+    rows = conn.execute("SELECT value FROM meta WHERE key LIKE ?", (REVIEW_EVENT_KEY + "%",))
+    return sorted((json.loads(r["value"]) for r in rows), key=lambda o: o["settled_at"],
+                  reverse=True)
 
 
 def get_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]:
@@ -471,6 +562,11 @@ def touch_routes_observed(conn: sqlite3.Connection, run_id: int) -> None:
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
     row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
+
+
+def get_meta_json(conn: sqlite3.Connection, key: str) -> dict:
+    """A JSON object stored under `key`, {} when there is none."""
+    return json.loads(get_meta(conn, key) or "{}")
 
 
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:

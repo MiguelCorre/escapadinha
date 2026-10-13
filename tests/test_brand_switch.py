@@ -157,8 +157,7 @@ def test_failed_website_link_falls_back_to_the_deals_tracked_link(ctx):
     build_site(ctx, conn)
     deal, _ = db.get_deal(conn, deal_id)
     assert f'href="{deal.affiliate_url}"' in html(ctx, f"promos/{deal_id}-lisboa-londres/index.html")
-    cache = json.loads((ctx.db_path.parent / "site_links.json").read_text("utf-8"))
-    entry = cache["700001"][str(deal_id)]
+    entry = pipeline.site_links(ctx, conn)["700001"][str(deal_id)]
     assert entry["url"] is None and "MARKER" in entry["error"]          # recorded, not hidden
     ctx.secrets.travelpayouts_marker = "424242"      # retried on the next build
     build_site(ctx, conn)

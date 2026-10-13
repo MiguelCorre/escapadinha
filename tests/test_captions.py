@@ -72,6 +72,14 @@ def test_short_date_and_nights():
     assert pt.nights(1) == "1 noite" and pt.nights(3) == "3 noites"
 
 
+def test_numbers_and_counted_nouns():
+    assert pt.number(24) == "24" and pt.number(24.0) == "24" and pt.number(1.5) == "1,5"
+    assert pt.number(0.25) == "0,25"
+    assert pt.count(1, "decisão pendente", "decisões pendentes") == "1 decisão pendente"
+    assert pt.count(2, "decisão pendente", "decisões pendentes") == "2 decisões pendentes"
+    assert pt.count(0, "decisão pendente", "decisões pendentes") == "0 decisões pendentes"
+
+
 def test_lisbon_timestamp_handles_summer_and_winter_time():
     assert pt.lisbon_timestamp(FETCHED) == "12/10/2026 às 10:14"            # WEST, UTC+1
     assert pt.lisbon_timestamp(datetime(2026, 12, 1, 9, 14, tzinfo=timezone.utc)) == \

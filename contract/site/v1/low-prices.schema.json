@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/low-prices.schema.json",
+  "title": "low-prices/<ORIGIN>.json: one origin's low prices, for the explorer",
+  "description": "Every low price (D24: fresh, within the route's rules, at least meta.detector.low_threshold below a mature typical low) of the latest run from one origin, one per route and trip dates. Compact on purpose: rows are arrays in the order of `cols`, no pretty-print, sorted by departure, return, destination, price, obs. Size budget (D27): at most 160 bytes per row on average and at most site.max_low_prices_per_origin rows (biggest discounts kept; a live promotion's own offer can also be a row), so a file stays under 240 KB raw (~135 bytes per row measured, about 200 KB at the cap; gzip roughly 4x smaller).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "origin", "generated_at", "run", "cols", "rows", "truncated"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "origin": {"$ref": "defs.schema.json#/$defs/airport"},
+    "generated_at": {"$ref": "defs.schema.json#/$defs/timestamp"},
+    "run": {"type": ["integer", "null"], "minimum": 1, "description": "Collection run the rows come from."},
+    "cols": {
+      "const": ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops", "airport", "typical", "link"],
+      "description": "obs = price_observations.id; dest = destination city code (route = origin-dest); price; dep/ret = departure/return date; found = found_date (traveller) or null; fetched = first fetched by us (UTC, minutes); airline code or null; stops = most stops in either direction (null = unknown); airport = arrival airport or null; typical = the departure month's typical low (routes.json months); link = tracked partner link or null (no button)."
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {"$ref": "defs.schema.json#/$defs/obs_id"},
+          {"$ref": "defs.schema.json#/$defs/city"},
+          {"$ref": "defs.schema.json#/$defs/eur"},
+          {"$ref": "defs.schema.json#/$defs/date"},
+          {"$ref": "defs.schema.json#/$defs/date"},
+          {"anyOf": [{"$ref": "defs.schema.json#/$defs/date"}, {"type": "null"}]},
+          {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z$"},
+          {"$ref": "defs.schema.json#/$defs/airline"},
+          {"type": ["integer", "null"], "minimum": 0},
+          {"anyOf": [{"$ref": "defs.schema.json#/$defs/airport"}, {"type": "null"}]},
+          {"$ref": "defs.schema.json#/$defs/eur"},
+          {"$ref": "defs.schema.json#/$defs/link"}
+        ],
+        "minItems": 12,
+        "items": false
+      }
+    },
+    "truncated": {"type": "integer", "minimum": 0, "description": "Low prices left out by the row cap (smallest discounts first)."}
+  }
+}

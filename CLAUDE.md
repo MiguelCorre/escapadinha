@@ -7,8 +7,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
-  `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`,
-  `site build|preview|setup|deploy`, `design directions`,
+  `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`,
+  `site build|preview|setup|deploy`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 
@@ -17,6 +17,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   outside tests (tests use `tmp_path`). Every deal must trace to `price_observations.id`.
   Every element on the site that shows a price carries `data-obs`, `data-deal` or `data-route`;
   `tests/test_traceability.py` fails on any price string on a page or caption it can't trace.
+  In the website JSON (`contract/site/v1`, D27) every price is an `eur` field next to its
+  observation id, route key or deal id; a new price field must be taught to the checker in
+  `tests/test_site_data.py` (a guard fails otherwise).
+- The website data contract is versioned: change `contract/site/v1/*.schema.json` together with
+  `site_data.py`, keep changes additive within v1 (a breaking change is `v2/`), and regenerate the
+  committed fixtures with `escapadinha export fixtures` (read-only DB copy, anonymous links and
+  credits). Fixtures are test data (`meta.fixture: true`), never deployed.
 - Two tiers (D24): **low prices** (`low_threshold`, automatic on route pages, mature baseline
   only) and **promotion candidates** (`threshold` AND `min_saving_eur`, become deals for review).
   Only candidates create deals; the home page shows promotions only.
@@ -38,17 +45,42 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   never write the bucket or `data/objects/` directly. Every `ObjectStore` implementation passes
   `tests/test_objects.py` (S3 runs on moto, no network). The database file is only uploaded via
   `storage/sync.py` (backup-API snapshot under the run lock), never the live file (D21).
+- CI keeps no files between runs (D21, D25). Anything a run needs from an earlier run lives in the
+  database (`meta`: `site.paths`, `site.links`, `site.deployed`, `site.link_budget`, the run-path
+  fingerprint) or goes
+  through a `storage.mirror.Mirror` (`pipeline.photo_files` / `output_files`): upload when made,
+  `file`/`folder` to read (downloads when missing). Never read `output/` or `assets/photos/`
+  directly; use `pipeline.deal_folder` / `guide_folder` (pass `files=` the glob you read, e.g.
+  `pipeline.SLIDES`, so a runner downloads only those, once), `deal_slide_names` (names only, no
+  download), `deal_view` (its photo).
+- `run` order (`cli._run_steps`): `apply_review_events` (D26) → upkeep → collect → recheck →
+  detect → `run_path.decide` → full path only (render → `export site-data` (D27) → site build →
+  deploy → `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
+  full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
+  `run_path.fingerprint`, or a routine run won't publish it.
+- Public deals, page slugs and image paths come from one place (`website.is_public`,
+  `public_deal_rows`, `promo_slug`, `route_slug`, `promo_image_dir`, `deal_image_paths`): the site,
+  the site data export and the review snapshot all use them.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
 - No scraping of booking sites or airlines (ToS and legal risk; see DECISIONS D13).
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
   only shows deals a human approved; expired pages stay `noindex` without a booking link.
+- Review decisions (approve, reject, published) are events (D26): writers (`pipeline.approve` /
+  `reject` / `mark_published`, the review page, the review Function) only write
+  `review/events/pending/`; `review_events.apply_pending` is the only code that changes those
+  statuses (`tests/test_review_events.py` checks it). Approve needs a passing live check in the
+  event (`pipeline.price_now`, stores nothing); the applier re-checks every transition, refuses
+  approvals whose check is older than `review.approve_max_age_hours` (passed in as
+  `approve_max_age`), and archives refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
+  them only with a new version. Render (new → rendered) and rechecks stay pipeline-owned.
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with
   `affiliate.project_for("instagram"|"website")`; never read `project_id` directly (D19).
   Low prices' links go through `pipeline.low_price_links` (created once, stored in
-  `partner_links`, capped per build by `site.max_new_links_per_build`).
+  `partner_links`, capped per collection run, export + build together, by
+  `site.max_new_links_per_build`).
 - Domain moves go through `site.base_url` + `site.legacy_hosts` and the Bulk Redirect in
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
   key in `SiteBuilder._write_routing` so renamed slugs get a 301 (`website/redirects.py`).
@@ -62,12 +94,18 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `all_routes`/`active_routes`/`get_route`
 - `src/escapadinha/storage/objects.py`: `ObjectStore` + `LocalObjectStore` (`data/objects/`); `archive.py`: per-run raw archive
 - `src/escapadinha/storage/s3.py`: `S3ObjectStore` (R2, conditional-write lock); `sync.py`: database
-  pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`
+  pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`;
+  `mirror.py`: `Mirror` (a local folder also kept under a store prefix: `photos/`, `output/`)
+- `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint`, `record_full_path`)
+- `.github/workflows/pipeline.yml`: 2-hourly `escapadinha run` on Actions; dispatch → `--full` (D25)
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate` (candidates),
   `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
-- `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page
+- `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,
+  `pending`, `apply_pending`); `review_snapshot.py`: `review/snapshot.json` + `review/slides/`;
+  `web.py` + `templates/review.html.j2`: the local review page
+- `contract/review/v1/`: JSON Schemas of review events and the snapshot (the review Function's contract)
 - `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, fonts, scrims, components, fitText),
   `_ui.html.j2` (masthead, price block, dots, credit) + `deal/`, `guide/`
 - `docs/design/`: `design-system.md` (the visual contract) + `tokens.json`, generated from
@@ -76,7 +114,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: static site builder (`build_site`; route pages list low prices),
-  `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler), `templates/`
+  `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler), `templates/`; shared with
+  the export: `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`
+- `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
+  `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
 - `src/escapadinha/design_directions/`: M2 visual directions (`build_directions` → `output/directions/`);
   palettes + fonts in `directions.py` (contrast computed by `contrast.py`), read-only data in `data.py`

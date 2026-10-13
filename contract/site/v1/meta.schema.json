@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/meta.schema.json",
+  "title": "meta.json: build metadata",
+  "description": "When and from which collection run the data was exported, the detector settings the numbers were computed with, and the other files of this export.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "generated_at", "fixture", "run", "currency", "base_url", "detector", "files", "counts"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "generated_at": {"$ref": "defs.schema.json#/$defs/timestamp", "description": "The `now` every freshness window and typical low was computed at."},
+    "fixture": {"type": "boolean", "description": "true only in contract/site/v1/fixtures: test data, never deploy a site built from it."},
+    "run": {
+      "type": ["object", "null"],
+      "description": "The latest completed collection run (low prices come from it); null before the first one.",
+      "additionalProperties": false,
+      "required": ["id", "finished_at"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "finished_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]}
+      }
+    },
+    "currency": {"const": "EUR"},
+    "base_url": {"type": "string", "pattern": "^https://[^/]+$"},
+    "detector": {
+      "type": "object",
+      "description": "Settings behind typical lows, low prices and promotions (DECISIONS D3, D24).",
+      "additionalProperties": false,
+      "required": ["low_threshold", "threshold", "min_saving_eur", "min_baseline_days", "max_offer_age_days", "lookback_days"],
+      "properties": {
+        "low_threshold": {"type": "number"},
+        "threshold": {"type": "number"},
+        "min_saving_eur": {"type": "number"},
+        "min_baseline_days": {"type": "integer"},
+        "max_offer_age_days": {"type": "integer"},
+        "lookback_days": {"type": "integer"}
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origins", "routes", "destinations", "promotions", "labels", "low_prices"],
+      "properties": {
+        "origins": {"const": "origins.json"},
+        "routes": {"const": "routes.json"},
+        "destinations": {"const": "destinations.json"},
+        "promotions": {"const": "promotions.json"},
+        "labels": {"const": "labels.json"},
+        "low_prices": {
+          "type": "object",
+          "description": "Origin airport -> its low-price file (one per origin, loaded lazily by the explorer).",
+          "propertyNames": {"$ref": "defs.schema.json#/$defs/airport"},
+          "additionalProperties": {"type": "string", "pattern": "^low-prices/[A-Z0-9]{3}\\.json$"}
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origins", "routes", "destinations", "promotions_live", "promotions_expired", "low_prices"],
+      "properties": {
+        "origins": {"type": "integer", "minimum": 0},
+        "routes": {"type": "integer", "minimum": 0},
+        "destinations": {"type": "integer", "minimum": 0},
+        "promotions_live": {"type": "integer", "minimum": 0},
+        "promotions_expired": {"type": "integer", "minimum": 0},
+        "low_prices": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

@@ -18,7 +18,7 @@ from escapadinha.website import build_site, slugify
 from escapadinha.website import deploy as site_deploy
 from test_pipeline import ctx, mock_links, seed_history  # noqa: F401
 from test_review import price_api, rendered_deal
-from test_traceability import build_scenario
+from test_traceability import build_scenario, store_run
 
 
 def real_slides(conn, deal_id):
@@ -32,8 +32,9 @@ def approved_deal(ctx, conn):
     deal_id = rendered_deal(ctx, conn)
     real_slides(conn, deal_id)
     price_api(58)
-    deal, check = pipeline.approve(ctx, conn, deal_id)
-    assert check.valid and deal.status == "approved"
+    decision = pipeline.approve(ctx, conn, deal_id, actor="test")
+    pipeline.apply_review_events(ctx, conn)     # already applied without R2; with R2, as a run would
+    assert decision.check.valid and db.get_deal(conn, deal_id)[0].status == "approved"
     return deal_id
 
 
@@ -108,7 +109,7 @@ def test_expired_after_approval_keeps_page_without_booking(ctx):
 def test_never_approved_deals_stay_private(ctx):
     conn = pipeline.open_db(ctx)
     rejected = rendered_deal(ctx, conn)
-    pipeline.reject(conn, rejected, "datas fracas")
+    pipeline.reject(ctx, conn, rejected, "datas fracas", actor="test")
     build_site(ctx, conn)
     assert not (ctx.site_dir / "promos").exists()
 
@@ -199,8 +200,10 @@ def test_new_links_per_build_are_capped_biggest_discounts_first(ctx):
     assert "site-low-" in html(ctx, "voos/lisboa-roma/index.html")
     row = low_rows(html(ctx, "voos/lisboa-londres/index.html"))[s.low_only[0]]
     assert "Link de reserva indisponível" in row and "href" not in row
-    build_site(ctx, conn)
-    build_site(ctx, conn)
+    assert build_site(ctx, conn)["low_price_links_created"] == 0    # the run's budget is spent
+    for _ in range(2):                          # the next runs see the same offers again
+        store_run(conn, db.observations_seen_since(conn, db.latest_completed_run_id(conn)))
+        build_site(ctx, conn)
     row = low_rows(html(ctx, "voos/lisboa-londres/index.html"))[s.low_only[0]]
     assert f"site-low-{s.low_only[0]}" in row
 
@@ -272,9 +275,9 @@ def test_deploy_skips_unchanged_site(ctx, monkeypatch):
         stdout = "✨ Deployment complete! https://abc123.ondestaanocas.pages.dev"
 
     monkeypatch.setattr(site_deploy, "_wrangler", lambda c, *args: calls.append(args) or Done())
-    assert site_deploy.deploy(ctx) == (True, "https://abc123.ondestaanocas.pages.dev")
-    assert site_deploy.deploy(ctx) == (False, "site unchanged since last deploy, skipped")
-    assert site_deploy.deploy(ctx, force=True)[0]
+    assert site_deploy.deploy(ctx, conn) == (True, "https://abc123.ondestaanocas.pages.dev")
+    assert site_deploy.deploy(ctx, conn) == (False, "site unchanged since last deploy, skipped")
+    assert site_deploy.deploy(ctx, conn, force=True)[0]
     assert len(calls) == 2 and calls[0][:2] == ("pages", "deploy")
 
 
@@ -284,7 +287,7 @@ def test_deploy_requires_keys(ctx, monkeypatch):
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     with pytest.raises(site_deploy.DeployError, match="CLOUDFLARE_API_TOKEN"):
-        site_deploy.deploy(ctx)
+        site_deploy.deploy(ctx, conn)
 
 
 @respx.mock

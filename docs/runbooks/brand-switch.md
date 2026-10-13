@@ -177,7 +177,7 @@ a programas, por isso tem de ser já o domínio final.
   ```
 - [ ] `uv run escapadinha site build` → abre uma promoção ativa em `site/` e confirma que o botão
       "Ver voo e reservar" tem um link `https://aviasales.tpo.lu/...` (os links do site ficam
-      guardados em `data/site_links.json`, com `sub_id=site-deal-<id>`). Se um link falhar, o
+      guardados na base de dados, com `sub_id=site-deal-<id>`). Se um link falhar, o
       site usa o link da promoção (Projeto do Instagram) e volta a tentar no build seguinte.
 - [ ] `uv run escapadinha site deploy` e faz commit do `config.yaml`.
 - [ ] Marca no `LAUNCH_CHECKLIST.md`: "Create a separate Project for the website".

@@ -22,7 +22,7 @@ import shutil
 import sqlite3
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -47,6 +47,47 @@ def slugify(text: str) -> str:
     """'Amesterdão' -> 'amesterdao', 'Onde está?' -> 'onde-esta'."""
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-")
+
+
+def route_slug(origin_city: str, city_pt: str) -> str:
+    """A route page's slug: /voos/<slug>/ ('lisboa-londres')."""
+    return f"{slugify(origin_city)}-{slugify(city_pt)}"
+
+
+def promo_slug(deal_id: int, origin_city: str, city_pt: str) -> str:
+    """A promotion page's slug: /promos/<slug>/ ('12-lisboa-londres')."""
+    return f"{deal_id}-{slugify(origin_city)}-{slugify(city_pt)}"
+
+
+def is_public(deal: Deal) -> bool:
+    """Approved/published deals, plus expired ones a human had approved before. A deal that
+    expired before anyone approved it is never public (site, site data, review snapshot)."""
+    return deal.status in LIVE or (deal.status == "expired" and deal.reviewed_at is not None)
+
+
+def public_deal_rows(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
+    """Every public deal (`is_public`) with its observation."""
+    return [(deal, obs)
+            for deal, obs in db.deals_with_status(conn, "approved", "published", "expired")
+            if is_public(deal)]
+
+
+def promo_image_dir(deal_id: int) -> str:
+    """Folder of a promotion's images on the site, under /img/ (slide_NN.webp, thumb, og)."""
+    return f"promos/{deal_id}"
+
+
+def deal_image_paths(ctx: Context, deal: Deal) -> tuple[list[str], str | None, str | None] | None:
+    """(slides, thumb, og) site paths the build writes for a rendered deal, else None. The
+    slide names come from `pipeline.deal_slide_names` (on a runner: the object store's listing,
+    nothing downloaded; the build downloads the slides it converts, D25)."""
+    names = pipeline.deal_slide_names(ctx, deal)
+    if not names:
+        return None
+    base = f"/img/{promo_image_dir(deal.id)}"
+    slides = [f"{base}/{name.removesuffix('.png')}.webp" for name in names]
+    cover = "slide_01.png" in names
+    return slides, f"{base}/thumb.webp" if cover else None, f"{base}/og.jpg" if cover else None
 
 
 @dataclass
@@ -110,21 +151,18 @@ class SiteBuilder:
 
     def public_deals(self) -> list[SiteDeal]:
         """Approved/published deals, plus expired ones a human had approved before."""
-        rows = db.deals_with_status(self.conn, "approved", "published", "expired")
         deals = []
-        for deal, obs in rows:
-            if deal.status == "expired" and deal.reviewed_at is None:
-                continue   # expired before anyone approved it: never public
+        for deal, obs in public_deal_rows(self.conn):
             route = routes.get_route(self.conn, self.cfg.routes, obs.route_key)
             view = build_deal_view(deal, obs, origin_city=self.cfg.origin_name(obs.origin),
                                    destination_city=route.city_pt,
                                    photo=PhotoCredit.from_photo(None, None))
-            slug = f"{deal.id}-{slugify(view.origin_city)}-{slugify(view.destination_city)}"
+            slug = promo_slug(deal.id, view.origin_city, view.destination_city)
             checked_at = deal.last_checked_at or obs.fetched_at
             deals.append(SiteDeal(deal, obs, view, deal.status in LIVE, slug,
                                   checked=pt.lisbon_timestamp(checked_at)))
         live = [d for d in deals if d.live]
-        links = pipeline.website_links(self.ctx, [(d.deal, d.obs) for d in live])
+        links = pipeline.website_links(self.ctx, self.conn, [(d.deal, d.obs) for d in live])
         for d in live:
             d.booking_link = links.get(d.deal.id)
         return deals
@@ -134,9 +172,7 @@ class SiteBuilder:
         run_offers = db.observations_seen_since(self.conn, run_id) if run_id else []
         pages = []
         for route in routes.all_routes(self.conn, self.cfg.routes):
-            history = db.route_history(self.conn, route.origin, route.destination,
-                                       since=self.now - timedelta(days=self.cfg.detector.lookback_days),
-                                       exclude_run_id=None)
+            history = pipeline.route_history(self.ctx, self.conn, route, self.now)
             baselines = detector.month_baselines(history, self.cfg.detector, self.now, route.rules)
             months = [(f"{pt.MONTHS[m - 1]} {y}", pt.eur(b.median), b.sample_size)
                       for (y, m), b in sorted(baselines.items())
@@ -144,13 +180,11 @@ class SiteBuilder:
             on_route = [d for d in deals if d.obs.route_key == route.key]
             live = [d for d in on_route if d.live]
             # Low prices (D24); a live promotion's own offer is already shown above them.
-            promoted = {d.obs.id for d in live}
-            lows = [lp for lp in pipeline.route_low_prices(self.ctx, self.conn, route, history,
-                                                           self.now, run_offers)
-                    if lp.observation.id not in promoted][: self.cfg.site.low_prices_per_route]
+            lows = pipeline.shown_low_prices(self.ctx, self.conn, route, history, self.now,
+                                             run_offers, promoted={d.obs.id for d in live})
             origin_city = self.cfg.origin_name(route.origin)
             pages.append(RoutePage(
-                route, origin_city, f"{slugify(origin_city)}-{slugify(route.city_pt)}",
+                route, origin_city, route_slug(origin_city, route.city_pt),
                 live=live, recent=[d for d in on_route if not d.live][: self.cfg.site.recent_expired],
                 months=months, lows=lows))
         self._link_low_prices(pages)
@@ -174,10 +208,8 @@ class SiteBuilder:
             guide = Guide.model_validate(yaml.safe_load(path.read_text("utf-8")))
             if not guide.reviewed:
                 continue
-            rendered = sorted(self.ctx.output_dir.glob(f"*/guia-{guide.slug}"))
-            images = []
-            if rendered:
-                images = self._images(rendered[-1], f"guias/{guide.slug}")
+            rendered = pipeline.guide_folder(self.ctx, guide.slug, pipeline.SLIDES)
+            images = self._images(rendered, f"guias/{guide.slug}") if rendered else []
             pages.append(GuidePage(guide, images))
         return pages
 
@@ -195,20 +227,21 @@ class SiteBuilder:
         return paths
 
     def _deal_images(self, d: SiteDeal) -> None:
-        folder = Path(d.deal.output_path) if d.deal.output_path else None
-        if not folder or not folder.exists():
+        folder = pipeline.deal_folder(self.ctx, d.deal, pipeline.SLIDES)   # stored on a runner
+        if folder is None:
             return
-        d.images = self._images(folder, f"promos/{d.deal.id}")
+        dest = promo_image_dir(d.deal.id)
+        d.images = self._images(folder, dest)
         cover = folder / "slide_01.png"
         if cover.exists():
-            thumb = self.out / "img" / "promos" / str(d.deal.id) / "thumb.webp"
-            og = self.out / "img" / "promos" / str(d.deal.id) / "og.jpg"
+            thumb = self.out / "img" / dest / "thumb.webp"
+            og = self.out / "img" / dest / "og.jpg"
             with Image.open(cover) as im:
                 rgb = im.convert("RGB")
                 rgb.resize((540, 675), Image.LANCZOS).save(thumb, "WEBP", quality=78, method=6)
                 rgb.save(og, "JPEG", quality=82, optimize=True, progressive=True)
-            d.thumb = f"/img/promos/{d.deal.id}/thumb.webp"
-            d.og_image = f"/img/promos/{d.deal.id}/og.jpg"
+            d.thumb = f"/img/{dest}/thumb.webp"
+            d.og_image = f"/img/{dest}/og.jpg"
 
     # --- output -------------------------------------------------------------------
 
@@ -225,8 +258,7 @@ class SiteBuilder:
         pages |= {f"deal:{d.deal.id}": d.url for d in deals}
         pages |= {f"route:{r.route.key}": r.url for r in routes}
         pages |= {f"guide:{g.guide.slug}": g.url for g in guides}
-        history_file = self.ctx.db_path.parent / "site_paths.json"
-        history = json.loads(history_file.read_text("utf-8")) if history_file.exists() else {}
+        history = pipeline.site_paths(self.ctx, self.conn)   # in the database (D25)
         aliases = {f"/promos/{d.deal.id}": d.url
                    for d in sorted(deals, key=lambda d: d.deal.id, reverse=True)}
         plan = redirects.plan_redirects(pages, history, extra=self.cfg.site.redirects,
@@ -234,9 +266,7 @@ class SiteBuilder:
         (self.out / "_redirects").write_text(plan.text(), encoding="utf-8", newline="\n")
         (self.out / "_headers").write_text(redirects.headers_text(self.cfg.site),
                                            encoding="utf-8", newline="\n")
-        history_file.parent.mkdir(parents=True, exist_ok=True)
-        history_file.write_text(json.dumps(redirects.update_history(history, pages), indent=2,
-                                           sort_keys=True), encoding="utf-8", newline="\n")
+        pipeline.save_site_paths(self.conn, redirects.update_history(history, pages))
         return plan
 
     def build(self) -> dict:

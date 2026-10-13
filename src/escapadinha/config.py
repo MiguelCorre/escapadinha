@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
 import yaml
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -179,9 +178,17 @@ class SiteConfig(BaseModel):
     # Low prices on route pages (D24): the biggest discounts per route, each with its own
     # tracked link from the partner links API, created once and stored in `partner_links`.
     low_prices_per_route: int = Field(5, ge=0)
-    # New partner links per build, biggest discounts first; the rest wait for the next build.
+    # New low-price partner links per collection run, shared by the site data export and the
+    # site build (the export first), biggest discounts first; the rest wait for the next run.
     # <= 900 keeps one build under the API's 100 requests/min (10 links per request).
     max_new_links_per_build: int = Field(300, ge=0, le=900)
+    # Website data contract v1 (D27): where `export site-data` writes (relative to the
+    # project root) and the row cap of each per-origin low-price file (size budget).
+    data_dir: str = "output/site-data/v1"
+    max_low_prices_per_origin: int = Field(1500, ge=1)
+    # Expired promotions stay in the export this many days after they expired (the Jinja
+    # site's own expired pages are unchanged: they stay, noindex, D27).
+    expired_promotions_days: int = Field(30, ge=0)
 
     @field_validator("base_url")
     @classmethod
@@ -264,8 +271,15 @@ class PhotosConfig(BaseModel):
     max_per_run: int = Field(40, ge=0, le=45)
 
 
+class ReviewConfig(BaseModel):
+    # An approval's live price check stays valid this long: older approve events are refused
+    # when the pipeline applies them (D26). Reject and published events never expire.
+    approve_max_age_hours: float = Field(24, gt=0)
+
+
 class AppConfig(BaseModel):
     brand: Brand = Brand()
+    review: ReviewConfig = ReviewConfig()
     collector: CollectorConfig = CollectorConfig()
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()

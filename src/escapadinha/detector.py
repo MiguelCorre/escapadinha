@@ -47,6 +47,7 @@ class Baseline:
     median: float | None      # median of daily lowest prices
     sample_size: int          # number of days with a low
     span_days: int            # first to last baseline day
+    mean: float | None = None  # plain average of the same daily lows: context only (D27)
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,7 @@ def baseline(history: list[Observation], *, since: date, before: date) -> Baseli
     if not lows:
         return Baseline(median=None, sample_size=0, span_days=0)
     return Baseline(median=statistics.median(lows.values()), sample_size=len(lows),
-                    span_days=(max(lows) - min(lows)).days)
+                    span_days=(max(lows) - min(lows)).days, mean=statistics.fmean(lows.values()))
 
 
 def month_baselines(history: list[Observation], cfg: DetectorConfig, now: datetime,

@@ -6,26 +6,27 @@ import json
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import httpx
 
-from escapadinha import archive, detector, discovery, i18n_pt, routes
+from escapadinha import archive, detector, discovery, i18n_pt, review_events, routes
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.captions import deal_caption, guide_caption
 from escapadinha.collector.runner import RunSummary, collect
-from escapadinha.collector.base import departure_months
+from escapadinha.collector.base import Fetched, departure_months
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
 from escapadinha.collector.travelpayouts import RateLimiter, TravelpayoutsError, TravelpayoutsSource
 from escapadinha.config import Context
 from escapadinha.guides import load_guide
-from escapadinha.models import Deal, Observation, Route
+from escapadinha.models import Deal, Observation, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
 from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, recheck
-from escapadinha.review import STATUS_PT, ReviewError, ensure_transition
+from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, UnknownDeal, check_decision
 from escapadinha.renderer import SlideRenderer
-from escapadinha.storage import db
+from escapadinha.storage import db, sync
+from escapadinha.storage.mirror import Mirror
 
 
 def open_db(ctx: Context) -> sqlite3.Connection:
@@ -48,7 +49,7 @@ def lisbon_today() -> date:
 # --- collect ------------------------------------------------------------------
 
 def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
-    return collect(conn, _source(ctx), routes.active_routes(conn, ctx.config.routes),
+    return collect(conn, price_source(ctx), routes.active_routes(conn, ctx.config.routes),
                    today=lisbon_today(), months_ahead=ctx.config.collector.months_ahead,
                    store=ctx.object_store, workers=ctx.config.collector.workers)
 
@@ -226,13 +227,29 @@ def route_low_prices(ctx: Context, conn: sqlite3.Connection, route: Route,
     return detector.low_prices(offers, history, ctx.config.detector, now, route.rules)
 
 
+def route_history(ctx: Context, conn: sqlite3.Connection, route: Route,
+                  now: datetime) -> list[Observation]:
+    """The route's stored offers inside the typical low's lookback window."""
+    return db.route_history(conn, route.origin, route.destination,
+                            since=now - timedelta(days=ctx.config.detector.lookback_days),
+                            exclude_run_id=None)
+
+def shown_low_prices(ctx: Context, conn: sqlite3.Connection, route: Route,
+                     history: list[Observation], now: datetime, run_offers: list[Observation],
+                     promoted: set[int]) -> list[detector.LowPrice]:
+    """The low prices a route page lists: the run's low prices minus the offers of live
+    promotions (`promoted`, shown above them), at most `site.low_prices_per_route`."""
+    lows = route_low_prices(ctx, conn, route, history, now, run_offers)
+    shown = [lp for lp in lows if lp.observation.id not in promoted]
+    return shown[: ctx.config.site.low_prices_per_route]
+
+
 def current_baselines(ctx: Context, conn: sqlite3.Connection,
                       route: Route) -> dict[tuple[int, int], detector.Baseline]:
     """Typical low per departure month from all stored history (for `stats`)."""
-    cfg, now = ctx.config.detector, db.utcnow()
-    history = db.route_history(conn, route.origin, route.destination,
-                               since=now - timedelta(days=cfg.lookback_days), exclude_run_id=None)
-    return detector.month_baselines(history, cfg, now, route.rules)
+    now = db.utcnow()
+    return detector.month_baselines(route_history(ctx, conn, route, now), ctx.config.detector,
+                                    now, route.rules)
 
 
 # --- recheck ------------------------------------------------------------------
@@ -274,7 +291,7 @@ def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime
 
 # --- review (approval queue) ---------------------------------------------------
 
-def _source(ctx: Context) -> TravelpayoutsSource:
+def price_source(ctx: Context) -> TravelpayoutsSource:
     c = ctx.config.collector
     return TravelpayoutsSource(ctx.secrets.travelpayouts_token, currency=c.currency,
                                limit=c.limit_per_request, market=c.market,
@@ -282,22 +299,37 @@ def _source(ctx: Context) -> TravelpayoutsSource:
                                limiter=RateLimiter(c.requests_per_minute))
 
 
+def _fetch_trip_month(ctx: Context, conn: sqlite3.Connection,
+                      obs: Observation) -> tuple[Fetched, RouteRules]:
+    """The deal's route and departure month, priced now (one request)."""
+    rules = route_for(ctx, conn, obs.route_key).rules
+    fetched = price_source(ctx).fetch(obs.origin, obs.destination,
+                                      obs.departure_date.replace(day=1),
+                                      min_nights=rules.min_nights, max_nights=rules.max_nights)
+    return fetched, rules
+
+
 def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
                now: datetime | None = None) -> tuple[Deal, Recheck]:
     """Fetch this deal's route and departure month right now and recheck the price.
 
-    The prices are stored as a `live_check` run (traceable like any other data). A deal
-    whose price moved expires immediately.
+    Without R2 keys this database is the real one: the prices are stored as a `live_check` run
+    (traceable like any other data) and a deal whose price moved expires immediately (a
+    recheck, owned by the pipeline like `run_recheck`). With R2 keys it is a local copy a later
+    pull sets aside, so the check only reports (`price_now`: nothing stored, no status change)
+    and the next run's recheck expires the deal (D26).
     """
-    deal, obs = db.get_deal(conn, deal_id)
+    try:
+        deal, obs = db.get_deal(conn, deal_id)
+    except KeyError:
+        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
     if deal.status not in db.OPEN_STATUSES:
         raise ReviewError(f"O deal {deal_id} está '{STATUS_PT[deal.status]}' e já não é verificado.")
-    rules = route_for(ctx, conn, obs.route_key).rules
-    source = _source(ctx)
-    run_id = db.start_run(conn, source.name, scope="live_check")
+    if ctx.remote_store:
+        return deal, price_now(ctx, conn, deal_id, now)
+    run_id = db.start_run(conn, TravelpayoutsSource.name, scope="live_check")
     try:
-        fetched = source.fetch(obs.origin, obs.destination, obs.departure_date.replace(day=1),
-                               min_nights=rules.min_nights, max_nights=rules.max_nights)
+        fetched, rules = _fetch_trip_month(ctx, conn, obs)
     except Exception as exc:
         db.finish_run(conn, run_id, status="failed", n_requests=1, n_observations=0, error=str(exc))
         raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
@@ -315,35 +347,128 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     return db.get_deal(conn, deal_id)[0], result
 
 
-def approve(ctx: Context, conn: sqlite3.Connection, deal_id: int,
-            note: str | None = None) -> tuple[Deal, Recheck]:
-    """Approve only after a live price check passes; a moved price expires the deal instead."""
-    deal, _ = db.get_deal(conn, deal_id)
-    ensure_transition(deal.status, "approved")
-    if not deal.affiliate_url:
-        raise ReviewError("Este deal ainda não tem link de afiliado. Volta a renderizar "
-                          f"({deal.affiliate_error or 'sem erro registado'}).")
-    deal, result = live_check(ctx, conn, deal_id)
-    if result.valid:
-        db.record_review(conn, deal_id, status="approved", note=note)
-        deal = db.get_deal(conn, deal_id)[0]
-    return deal, result
+def price_now(ctx: Context, conn: sqlite3.Connection, deal_id: int,
+              now: datetime | None = None) -> Recheck:
+    """The approval gate: this deal's trip priced right now, same rule as the recheck.
+
+    Stores nothing and changes no status, like the review Function (which has no database):
+    a moved price refuses the approval, and the run's own recheck expires the deal (D26).
+    """
+    _, obs = db.get_deal(conn, deal_id)
+    try:
+        fetched, rules = _fetch_trip_month(ctx, conn, obs)
+    except Exception as exc:
+        raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
+    return recheck(obs, fetched.observations, ctx.config.detector, now or db.utcnow(), rules=rules)
 
 
-def reject(conn: sqlite3.Connection, deal_id: int, note: str | None = None) -> Deal:
-    deal, _ = db.get_deal(conn, deal_id)
-    ensure_transition(deal.status, "rejected")
-    db.record_review(conn, deal_id, status="rejected", note=note)
-    return db.get_deal(conn, deal_id)[0]
+@dataclass(frozen=True)
+class ReviewResult:
+    """A review decision written as an event (D26)."""
+
+    event: review_events.Event
+    deal: Deal                                   # as the database has it now
+    outcome: review_events.Outcome | None        # None: pending, applied by the next run (R2)
+    check: Recheck | None = None                 # the live price check behind an approval
 
 
-def mark_published(conn: sqlite3.Connection, deal_id: int, post_url: str | None = None) -> Deal:
-    deal, _ = db.get_deal(conn, deal_id)
-    ensure_transition(deal.status, "published")
-    if post_url and not post_url.startswith(("https://", "http://")):
-        raise ReviewError("O link do post tem de começar por https://")
-    db.record_published(conn, deal_id, post_url or None)
-    return db.get_deal(conn, deal_id)[0]
+def pending_decisions(ctx: Context, conn: sqlite3.Connection) -> list[review_events.Event]:
+    """Decisions written but not applied to this database yet, oldest first."""
+    return review_events.pending(ctx.object_store, conn)
+
+
+def ensure_current_copy(ctx: Context) -> None:
+    """With R2 keys the bucket's database is the real one and this machine decides on a local
+    copy: refuse (ReviewError) when the bucket has a newer generation than the copy came from,
+    so a decision is never made on statuses a run has since changed (D26)."""
+    if not ctx.remote_store:
+        return
+    remote = sync.remote_meta(ctx.object_store)
+    if remote is None:
+        return
+    state = sync.read_state(ctx.sync_state_path)
+    if state is None or remote.generation > state.generation:
+        have = f"da geração {state.generation}" if state else "nunca sincronizada"
+        raise ReviewError(f"A base de dados no bucket é mais recente (geração "
+                          f"{remote.generation}; esta cópia é {have}): corre "
+                          "`escapadinha store pull` primeiro.")
+
+
+def _decidable(ctx: Context, conn: sqlite3.Connection, deal_id: int, kind: str,
+               post_url: str | None = None) -> Deal:
+    """Refuse up front what the applier would refuse now (same rules), so the reviewer hears
+    it at once; the applier still re-checks against the status at application time."""
+    ensure_current_copy(ctx)
+    try:
+        deal, _ = db.get_deal(conn, deal_id)
+    except KeyError:
+        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
+    waiting = [e for e in pending_decisions(ctx, conn) if e.deal_id == deal_id]
+    if waiting:
+        e = waiting[-1]
+        raise ReviewError(f"Já há uma decisão pendente para o deal {deal_id} "
+                          f"({DECISION_PT[e.type]}, {e.actor}): é aplicada na próxima execução.")
+    check_decision(kind, deal.status, affiliate_url=deal.affiliate_url, post_url=post_url)
+    return deal
+
+
+def _decide(ctx: Context, conn: sqlite3.Connection, event: review_events.Event,
+            check: Recheck | None = None) -> ReviewResult:
+    """Write the event. With a local database (no R2 keys) nothing else owns it, so apply at
+    once; with R2 the next `run` applies it to the bucket's database."""
+    review_events.write(ctx.object_store, event)
+    outcome = None
+    if not ctx.remote_store:
+        outcome = next((o for o in apply_review_events(ctx, conn) if o.event_id == event.id), None)
+    return ReviewResult(event, db.get_deal(conn, event.deal_id)[0], outcome, check)
+
+
+def approve(ctx: Context, conn: sqlite3.Connection, deal_id: int, note: str | None = None, *,
+            actor: str, now: datetime | None = None) -> ReviewResult:
+    """Live price check, then an `approve` event carrying it. A moved price refuses (ReviewError
+    with the reason) and writes nothing."""
+    _decidable(ctx, conn, deal_id, "approve")
+    now = now or db.utcnow()
+    check = price_now(ctx, conn, deal_id, now)
+    if not check.valid:
+        raise ReviewError(f"O preço mudou ({check.reason}): não aprovado. "
+                          "A próxima recolha expira o deal.")
+    event = review_events.Event.new("approve", deal_id, actor=actor, now=now, note=note,
+                                    live_check=review_events.LiveCheck.from_recheck(check, now))
+    return _decide(ctx, conn, event, check)
+
+
+def reject(ctx: Context, conn: sqlite3.Connection, deal_id: int, note: str | None = None, *,
+           actor: str, now: datetime | None = None) -> ReviewResult:
+    _decidable(ctx, conn, deal_id, "reject")
+    event = review_events.Event.new("reject", deal_id, actor=actor, now=now or db.utcnow(),
+                                    note=note)
+    return _decide(ctx, conn, event)
+
+
+def mark_published(ctx: Context, conn: sqlite3.Connection, deal_id: int,
+                   post_url: str | None = None, *, actor: str,
+                   now: datetime | None = None) -> ReviewResult:
+    _decidable(ctx, conn, deal_id, "published", post_url)
+    event = review_events.Event.new("published", deal_id, actor=actor, now=now or db.utcnow(),
+                                    post_url=post_url)
+    return _decide(ctx, conn, event)
+
+
+def apply_review_events(ctx: Context, conn: sqlite3.Connection,
+                        now: datetime | None = None) -> list[review_events.Outcome]:
+    """First step of every run: apply pending review events (D26). Never raises for a bad event.
+    Approve events older than `review.approve_max_age_hours` are refused."""
+    max_age = timedelta(hours=ctx.config.review.approve_max_age_hours)
+    return review_events.apply_pending(ctx.object_store, conn, now=now or db.utcnow(),
+                                       durable=not ctx.remote_store, approve_max_age=max_age)
+
+
+def export_review_snapshot(ctx: Context, conn: sqlite3.Connection,
+                           now: datetime | None = None) -> dict:
+    """Last step of every run (fast or full): `review/snapshot.json` for any review UI (D26)."""
+    from escapadinha import review_snapshot      # imports the site builder, which imports us
+    return review_snapshot.export(ctx, conn, now or db.utcnow())
 
 
 # --- photos -------------------------------------------------------------------
@@ -398,6 +523,7 @@ def run_missing_photos(ctx: Context, conn: sqlite3.Connection,
         except (PhotoSourceError, httpx.HTTPError) as exc:
             done.append((key, f"failed ({query}): {exc}"))
             continue
+        photo_files(ctx).put(ctx.photos_dir / photo.file_path)
         db.upsert_photo(conn, photo)
         done.append((key, f"{photo.photographer} ({photo.source_url})"))
     return done, len(missing_photos(ctx, conn))
@@ -417,6 +543,7 @@ def run_fetch_photos(ctx: Context, conn: sqlite3.Connection, dest: str | None, f
             done.append((key, "cached"))
             continue
         photo = fetch_photo(client, key, query, ctx.photos_dir, pick=pick, must=musts.get(key))
+        photo_files(ctx).put(ctx.photos_dir / photo.file_path)
         db.upsert_photo(conn, photo)
         done.append((key, f"{photo.photographer} ({photo.source_url})"))
     return done
@@ -426,8 +553,82 @@ def _photo(ctx: Context, conn: sqlite3.Connection, key: str | None) -> tuple[Pho
     photo = db.get_photo(conn, key) if key else None
     if photo is None:
         return PhotoCredit.from_photo(None, None), None
-    path = ctx.photos_dir / photo.file_path
+    path = photo_files(ctx).file(photo.file_path) or ctx.photos_dir / photo.file_path
     return PhotoCredit.from_photo(photo, path.as_uri()), path
+
+
+# --- files a fresh runner lacks (D25) -------------------------------------------------
+
+def photo_files(ctx: Context) -> Mirror:
+    """The Pixabay photo cache, also kept under `photos/` in the object store when R2 is set."""
+    return Mirror(ctx.object_store if ctx.remote_store else None, ctx.photos_dir, "photos")
+
+
+def output_files(ctx: Context) -> Mirror:
+    """Rendered slides and captions, also kept under `output/` in the object store when R2 is set."""
+    return Mirror(ctx.object_store if ctx.remote_store else None, ctx.output_dir, "output")
+
+
+def deal_rel(output_path: str) -> str:
+    """'<date>/deal-<O>-<D>-<id>' from a stored output path (absolute, written on any OS)."""
+    return "/".join(PureWindowsPath(output_path).parts[-2:])
+
+
+SLIDES = "slide_*.png"      # a rendered folder's slides (what the site and review pages show)
+
+
+def deal_folder(ctx: Context, deal: Deal, files: str | None = "*") -> Path | None:
+    """The deal's rendered folder. `files`: the glob of the files the caller reads; those only
+    the object store has are downloaded first, each once per machine (D25). None: never
+    download, only a folder this machine already has."""
+    if not deal.output_path:
+        return None
+    local = Path(deal.output_path)
+    if local.is_dir() and (files is None or any(local.glob(files))):
+        return local
+    rel = deal_rel(deal.output_path)
+    if files is None:
+        path = ctx.output_dir / rel
+        return path if path.is_dir() else None
+    return output_files(ctx).folder(rel, files)
+
+
+def deal_slide_names(ctx: Context, deal: Deal) -> list[str]:
+    """'slide_01.png', ... of the deal's rendered folder, local or listed in the object store,
+    without downloading anything."""
+    if not deal.output_path:
+        return []
+    local = deal_folder(ctx, deal, files=None)
+    if local is not None:
+        return sorted(p.name for p in local.glob(SLIDES))
+    return output_files(ctx).names(deal_rel(deal.output_path), SLIDES)
+
+
+def guide_folder(ctx: Context, slug: str, files: str = "*") -> Path | None:
+    """The guide's latest rendered folder (`output/<date>/guia-<slug>`), local or stored
+    (`files` as in `deal_folder`)."""
+    name = f"guia-{slug}"
+    local = sorted(ctx.output_dir.glob(f"*/{name}"))
+    if local:
+        return local[-1]
+    mirror = output_files(ctx)
+    dates = sorted({rel.split("/")[0] for rel in mirror.keys() if rel.split("/")[1:2] == [name]})
+    return mirror.folder(f"{dates[-1]}/{name}", files) if dates else None
+
+
+def mirror_local_files(ctx: Context, conn: sqlite3.Connection) -> list[str]:
+    """Upload the photos and rendered folders this machine made before D25 that the object
+    store lacks (a no-op without R2 keys or on a fresh runner). Returns the keys uploaded."""
+    photos = {p.name: p for p in ctx.photos_dir.glob("*") if p.is_file()}
+    outputs: dict[str, Path] = {}
+    folders = [(deal_rel(d.output_path), Path(d.output_path))
+               for d in db.deals_with_output(conn) if Path(d.output_path).is_dir()]
+    folders += [(f.relative_to(ctx.output_dir).as_posix(), f)
+                for f in ctx.output_dir.glob("*/guia-*") if f.is_dir()]
+    for rel, folder in folders:
+        outputs |= {f"{rel}/{p.relative_to(folder).as_posix()}": p
+                    for p in folder.rglob("*") if p.is_file()}
+    return photo_files(ctx).upload_missing(photos) + output_files(ctx).upload_missing(outputs)
 
 
 # --- render -------------------------------------------------------------------
@@ -482,33 +683,65 @@ def _partner_links(ctx: Context, channel: str, items: list[tuple[int, Observatio
     return out
 
 
-def _site_links_file(ctx: Context) -> Path:
-    return ctx.db_path.parent / "site_links.json"
+SITE_LINKS = "site.links"   # meta: website Project -> deal id -> {url, error} (D25)
+SITE_PATHS = "site.paths"   # meta: stable page key -> every path it was published at (D19, D25)
 
 
-def website_links(ctx: Context, pairs: list[tuple[Deal, Observation]]) -> dict[int, str | None]:
+def legacy_json(ctx: Context, name: str) -> dict:
+    """A data/ file written before D25 (a CI runner has none; the PC keeps its last copy)."""
+    path = ctx.db_path.parent / name
+    return json.loads(path.read_text("utf-8")) if path.is_file() else {}
+
+
+def site_links(ctx: Context, conn: sqlite3.Connection) -> dict[str, dict[str, dict]]:
+    """Cached website links per Project and deal, from the database (synced to R2), with
+    the entries of the old data/site_links.json it lacks merged in."""
+    cache = db.get_meta_json(conn, SITE_LINKS)
+    for project, entries in legacy_json(ctx, "site_links.json").items():
+        for deal_id, entry in entries.items():
+            cache.setdefault(project, {}).setdefault(deal_id, entry)
+    return cache
+
+
+def site_paths(ctx: Context, conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Redirect history from the database, with the old data/site_paths.json merged in
+    (append-only, so merging it again changes nothing)."""
+    history = db.get_meta_json(conn, SITE_PATHS)
+    for key, paths in legacy_json(ctx, "site_paths.json").items():
+        known = history.setdefault(key, [])
+        known += [p for p in paths if p not in known]
+    return history
+
+
+def save_site_paths(conn: sqlite3.Connection, history: dict[str, list[str]]) -> None:
+    db.set_meta(conn, SITE_PATHS, json.dumps(history, sort_keys=True))
+
+
+def website_links(ctx: Context, conn: sqlite3.Connection, pairs: list[tuple[Deal, Observation]],
+                  create: bool = True) -> dict[int, str | None]:
     """Booking link per deal for the website, from the website's Travelpayouts Project.
 
     Without a separate website Project (`affiliate.projects.website: null`) the site uses
     the deal's stored link, exactly as before. With one, a link per (Project, deal) is created
-    once (sub_id `site-deal-<id>`) and cached in data/site_links.json; failures are retried on
-    the next build and meanwhile fall back to the deal's own tracked link (also from the
-    partner links API, only attributed to the Instagram Project).
+    once (sub_id `site-deal-<id>`) and cached in the database (`site_links`, D25); failures are
+    retried on the next build and meanwhile fall back to the deal's own tracked link (also from
+    the partner links API, only attributed to the Instagram Project). `create=False` only
+    reads what is already cached (no API request, nothing written).
     """
     aff = ctx.config.affiliate
     project = aff.project_for("website")
     if project is None or project == aff.project_for("instagram"):
         return {d.id: d.affiliate_url for d, _ in pairs}
-    path = _site_links_file(ctx)
-    cache = json.loads(path.read_text("utf-8")) if path.exists() else {}
+    cache = site_links(ctx, conn)
     known = cache.setdefault(str(project), {})
     missing = [(d, o) for d, o in pairs if o.deep_link and not known.get(str(d.id), {}).get("url")]
-    if missing:
+    if missing and create:
         made = _partner_links(ctx, "website", [(d.id, o) for d, o in missing], "site-deal")
         for deal_id, (url, error) in made.items():
             known[str(deal_id)] = {"url": url, "error": error}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(cache, indent=2), encoding="utf-8", newline="\n")
+    value = json.dumps(cache, sort_keys=True)
+    if create and value != db.get_meta(conn, SITE_LINKS):   # new links, or the old file merged in
+        db.set_meta(conn, SITE_LINKS, value)
     return {d.id: known.get(str(d.id), {}).get("url") or d.affiliate_url for d, _ in pairs}
 
 
@@ -522,16 +755,39 @@ class LowLinks:
     pending: int             # low prices still without a link (cap reached or API failure)
 
 
+LINK_BUDGET = "site.link_budget"   # meta: {"run": collection run id, "used": links requested}
+
+
+def _budget_used(conn: sqlite3.Connection) -> tuple[int | None, int]:
+    """(latest completed run, new low-price links already requested against it)."""
+    run_id = db.latest_completed_run_id(conn)
+    spent = db.get_meta_json(conn, LINK_BUDGET)
+    return run_id, spent.get("used", 0) if spent.get("run") == run_id else 0
+
+
+def link_budget(ctx: Context, conn: sqlite3.Connection) -> int:
+    """New low-price links still allowed for the latest collection run (D24, D27): the export
+    spends first, the site build after it gets the rest; the next run starts a new budget."""
+    return max(0, ctx.config.site.max_new_links_per_build - _budget_used(conn)[1])
+
+
+def _spend_link_budget(conn: sqlite3.Connection, requested: int) -> None:
+    run_id, used = _budget_used(conn)
+    db.set_meta(conn, LINK_BUDGET, json.dumps({"run": run_id, "used": used + requested}))
+
+
 def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.LowPrice],
-                    now: datetime | None = None) -> LowLinks:
+                    now: datetime | None = None, create: bool = True) -> LowLinks:
     """A tracked booking link per low price, from the website's Travelpayouts Project (D24).
 
     Each link is created once per (observation, Project) through `PartnerLinksClient`
     (sub_id `site-low-<observation id>`) and stored in `partner_links`, so a build only asks
-    the API for new low prices: at most `site.max_new_links_per_build`, biggest discounts
-    first (10 links per request, API limit 100 requests/min). Failed ones are retried on
-    later builds. Low prices without a link are shown without a booking button; never a
-    hand-built `marker=` URL.
+    the API for new low prices, biggest discounts first, within one budget per collection
+    run: `site.max_new_links_per_build` links in all, shared by the run's site data export
+    and site build (`link_budget`; 10 links per request, API limit 100 requests/min). Failed
+    ones are retried on later runs. Low prices without a link are shown without a booking
+    button; never a hand-built `marker=` URL. `create=False` only reads the stored links (no
+    API request, nothing written).
     """
     now = now or db.utcnow()
     project = ctx.config.affiliate.project_for("website")
@@ -539,13 +795,15 @@ def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.
               if lp.observation.deep_link and lp.observation.id is not None]
     if project is None or not usable:
         return LowLinks({}, 0, len(lows))
-    db.prune_partner_links(conn, now - LINK_RETENTION)
+    if create:
+        db.prune_partner_links(conn, now - LINK_RETENTION)
     stored = db.partner_links(conn, project, [o.id for o in usable])
-    todo = [o for o in usable
-            if not stored.get(o.id, (None, None))[0]][: ctx.config.site.max_new_links_per_build]
+    todo = [o for o in usable if not stored.get(o.id, (None, None))[0]]
+    todo = todo[: link_budget(ctx, conn)] if create else []
     if todo:
         made = _partner_links(ctx, "website", [(o.id, o) for o in todo], "site-low")
         db.save_partner_links(conn, project, made)
+        _spend_link_budget(conn, len(todo))
         stored |= made
     urls = {oid: url for oid, (url, _) in stored.items() if url}
     return LowLinks(urls, sum(1 for o in todo if urls.get(o.id)),
@@ -586,6 +844,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
             meta = view.meta(deal, obs, ctx.config.collector.booking_base)
             meta["archive_key"] = db.run_archive_key(conn, obs.run_id)   # raw payload of run_id
             _write_text(out_dir / "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
+            output_files(ctx).put_tree(out_dir)            # the site build may run elsewhere
             db.set_deal_output_path(conn, deal.id, str(out_dir))
             if deal.status == "new":
                 db.set_deal_status(conn, deal.id, "rendered")
@@ -604,4 +863,5 @@ def run_render_guide(ctx: Context, conn: sqlite3.Connection, slug: str) -> tuple
         {"guide": guide.slug, "reviewed": guide.reviewed, "sources": guide.sources,
          "photo": None if credit.photographer is None else asdict(credit)},
         ensure_ascii=False, indent=2))
+    output_files(ctx).put_tree(out_dir)
     return out_dir, guide.reviewed

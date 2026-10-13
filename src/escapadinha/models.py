@@ -63,6 +63,11 @@ class RouteRules:
     max_nights: int = 10
     max_transfers: int | None = 0      # per direction; None = no limit
 
+    def to_json(self) -> dict:
+        """The rules as the data contracts carry them (site data, review snapshot)."""
+        return {"direct_only": self.direct_only, "min_nights": self.min_nights,
+                "max_nights": self.max_nights, "max_transfers": self.max_transfers}
+
     def allows(self, o: Observation) -> bool:
         """Within the nights range and the stop limit. Unknown transfer counts never pass a limit."""
         if not self.min_nights <= o.nights <= self.max_nights:

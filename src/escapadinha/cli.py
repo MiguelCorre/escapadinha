@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 
 import httpx
@@ -12,15 +15,16 @@ from rich.console import Console
 from rich.table import Table
 
 from escapadinha import i18n_pt as pt
-from escapadinha import pipeline, routes
+from escapadinha import pipeline, review_events, routes, run_path
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
-from escapadinha.review import ReviewError
+from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError
 from escapadinha.website.deploy import DeployError
 from escapadinha.config import Context
 from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LockHeld
+from escapadinha.storage.s3 import STORE_ERRORS
 
 app =typer.Typer(help="Travel deals from Portugal: collect → detect → render (no publishing).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
@@ -43,6 +47,9 @@ app.add_typer(design_app, name="design")
 store_app = typer.Typer(help="Database sync with the R2 bucket (pull, push, status, check).",
                         no_args_is_help=True)
 app.add_typer(store_app, name="store")
+export_app = typer.Typer(help="Website data contract v1 (contract/site/v1): JSON for the Astro site.",
+                         no_args_is_help=True)
+app.add_typer(export_app, name="export")
 
 console = Console()
 
@@ -62,6 +69,12 @@ def init_db() -> None:
 @app.command()
 def collect() -> None:
     """Fetch round-trip prices for every active route and store them."""
+    if _collect().status == "failed":
+        raise typer.Exit(1)
+
+
+def _collect():
+    """Collect and report; a request that fails is listed and the others go on (D25)."""
     ctx, conn = _ctx()
     summary = pipeline.run_collect(ctx, conn)
     console.print(f"Run #{summary.run_id}: [bold]{summary.status}[/] · "
@@ -75,8 +88,7 @@ def collect() -> None:
         days = ctx.config.routes.dormant_after_days
         console.print(f"{len(dormant)} rotas adormecidas (sem preços há {days} dias): "
                       + ", ".join(r.key for r in dormant))
-    if summary.status == "failed":
-        raise typer.Exit(1)
+    return summary
 
 
 @app.command()
@@ -266,38 +278,68 @@ def review(
 
 
 def _print_check(deal, check) -> None:
-    mark = "[green]✓ preço confirmado[/]" if check.valid else "[red]✗ expirado[/]"
+    if check.valid:
+        mark = "[green]✓ preço confirmado[/]"
+    elif deal.status == "expired":
+        mark = "[red]✗ expirado[/]"
+    else:                                   # R2: report only, the run's recheck expires it (D26)
+        mark = "[red]✗ o preço mudou[/]"
     console.print(f"  deal {deal.id}: {mark} ({check.reason}) → status {deal.status}")
+    if not check.valid and deal.status != "expired":
+        console.print("  Não guardado: a próxima recolha expira o deal (`escapadinha run`).")
 
 
 @deal_app.command("check")
 def deal_check(deal_id: int) -> None:
-    """Fetch this deal's prices now and recheck it."""
+    """Fetch this deal's prices now and recheck it (with R2 keys: report only, the next run's
+    recheck expires a deal whose price moved)."""
     ctx, conn = _ctx()
     _print_check(*pipeline.live_check(ctx, conn, deal_id))
 
 
+def _print_decision(ctx, conn, decision: pipeline.ReviewResult) -> None:
+    """What happened to the event just written, then every decision still pending (D26)."""
+    o, deal = decision.outcome, decision.deal
+    if o is None:
+        console.print(f"  Decisão registada ({DECISION_PT[decision.event.type]}): aplicada na "
+                      "próxima execução (`escapadinha run`).")
+    elif o.applied:
+        console.print(f"  deal {deal.id}: {STATUS_PT[deal.status]}")
+    else:
+        console.print(f"  [red]Decisão recusada:[/] {o.reason}")
+    waiting = pipeline.pending_decisions(ctx, conn)
+    if not waiting:
+        console.print("Nenhuma decisão pendente.")
+        return
+    pending = pt.count(len(waiting), "decisão pendente", "decisões pendentes")
+    console.print(f"{pending}: " + "; ".join(
+        f"deal {e.deal_id}: {DECISION_PT[e.type]} ({e.actor}, {pt.lisbon_timestamp(e.created_at)})"
+        for e in waiting))
+
+
 @deal_app.command("approve")
 def deal_approve(deal_id: int, note: Annotated[str | None, typer.Option()] = None) -> None:
-    """Approve after a live price check (expires the deal if the price moved)."""
+    """Live price check, then an approval event (refused, writing nothing, if the price moved)."""
     ctx, conn = _ctx()
-    _print_check(*pipeline.approve(ctx, conn, deal_id, note))
+    decision = pipeline.approve(ctx, conn, deal_id, note, actor=review_events.local_actor("cli"))
+    console.print(f"  deal {deal_id}: [green]✓ preço confirmado[/] ({decision.check.reason})")
+    _print_decision(ctx, conn, decision)
 
 
 @deal_app.command("reject")
 def deal_reject(deal_id: int, note: Annotated[str | None, typer.Option()] = None) -> None:
-    """Reject a deal (final)."""
-    _, conn = _ctx()
-    deal = pipeline.reject(conn, deal_id, note)
-    console.print(f"  deal {deal.id}: {deal.status}")
+    """Reject a deal (final): writes a reject event."""
+    ctx, conn = _ctx()
+    _print_decision(ctx, conn, pipeline.reject(ctx, conn, deal_id, note,
+                                               actor=review_events.local_actor("cli")))
 
 
 @deal_app.command("published")
 def deal_published(deal_id: int, url: Annotated[str | None, typer.Option(help="Post URL")] = None) -> None:
-    """Mark an approved deal as published."""
-    _, conn = _ctx()
-    deal = pipeline.mark_published(conn, deal_id, url)
-    console.print(f"  deal {deal.id}: {deal.status}")
+    """Mark an approved deal as published: writes a published event."""
+    ctx, conn = _ctx()
+    _print_decision(ctx, conn, pipeline.mark_published(ctx, conn, deal_id, url,
+                                                       actor=review_events.local_actor("cli")))
 
 
 @site_app.command("build")
@@ -319,6 +361,40 @@ def site_build() -> None:
     if not site.on_final_domain:
         console.print(f"  [dim]Served at {site.base_url}; final domain {site.domain} not "
                       f"connected yet (docs/runbooks/brand-switch.md)[/]")
+
+
+@export_app.command("site-data")
+def export_site_data(
+    out: Annotated[Path | None, typer.Option(help="Directory (default: site.data_dir)")] = None,
+    new_links: Annotated[bool, typer.Option(help="Create missing partner links (API)")] = True,
+) -> None:
+    """Write the website's JSON data (origins, routes, promotions, low prices per origin, ...)."""
+    from escapadinha import site_data
+
+    ctx, conn = _ctx()
+    out = out or site_data.default_dir(ctx)
+    counts = site_data.export_site_data(ctx, conn, out, new_links=new_links).counts
+    console.print(f"Site data written to [bold]{out}[/]: {counts['routes']} routes, "
+                  f"{counts['origins']} origins, {counts['destinations']} destinations, "
+                  f"{counts['promotions_live']} live + {counts['promotions_expired']} expired "
+                  f"promotions, {counts['low_prices']} low prices")
+
+
+@export_app.command("fixtures")
+def export_fixtures(
+    db_file: Annotated[Path | None, typer.Option("--db", help="Database to read (read-only)")] = None,
+    out: Annotated[Path | None, typer.Option(help="Default: contract/site/v1/fixtures")] = None,
+) -> None:
+    """Regenerate the committed fixtures: a few routes of the real data, anonymous, no API calls."""
+    from escapadinha import site_data
+
+    ctx = Context()
+    out = out or site_data.fixtures_dir(ctx)
+    counts = site_data.generate_fixtures(ctx, db_file or ctx.db_path, out).counts
+    console.print(f"Fixtures written to [bold]{out}[/]: {counts['routes']} routes, "
+                  f"{counts['origins']} origins, {counts['promotions_live']} live + "
+                  f"{counts['promotions_expired']} expired promotions, "
+                  f"{counts['low_prices']} low prices")
 
 
 @site_app.command("preview")
@@ -346,7 +422,8 @@ def site_deploy(force: Annotated[bool, typer.Option(help="Deploy even if unchang
     """Upload ./site to Cloudflare Pages if it changed since the last deploy."""
     from escapadinha.website.deploy import deploy
 
-    deployed, message = deploy(Context(), force=force)
+    ctx, conn = _ctx()
+    deployed, message = deploy(ctx, conn, force=force)
     console.print(("[green]Deployed:[/] " if deployed else "") + message)
 
 
@@ -374,7 +451,8 @@ def design_directions(
 
 def routes_upkeep() -> None:
     """Monthly discovery when due, else photos for destinations still without one.
-    A failure here is reported and never stops the collection."""
+    A failure here (an API, or the object store a new photo is mirrored to) is reported and
+    never stops the collection."""
     ctx, conn = _ctx()
     try:
         result = pipeline.run_discover_if_due(ctx, conn)
@@ -386,7 +464,8 @@ def routes_upkeep() -> None:
             console.print(f"  foto {key}: {outcome}")
         if done and missing:
             console.print(f"  [dim]{missing} destinos ainda sem foto.[/]")
-    except (TravelpayoutsError, PhotoSourceError, httpx.HTTPError, ValueError) as exc:
+    except (TravelpayoutsError, PhotoSourceError, httpx.HTTPError, ValueError,
+            *STORE_ERRORS) as exc:
         console.print(f"[yellow]Descoberta de rotas falhou, a recolha continua:[/] {exc}")
 
 
@@ -506,39 +585,119 @@ def store_check() -> None:
     console.print(f"Bucket [bold]{ctx.secrets.r2_bucket}[/] OK.")
 
 
-def _run_steps(render: bool) -> None:
+def apply_review_events() -> None:
+    """Pending review decisions (CLI, review page, review Function) applied to the database."""
+    ctx, conn = _ctx()
+    for o in pipeline.apply_review_events(ctx, conn):
+        what = f"{DECISION_PT.get(o.type, '?')} deal {o.deal_id}" if o.type else o.event_id
+        console.print(f"  decisão {what}: " + ("[green]aplicada[/]" if o.applied
+                                               else f"[yellow]recusada[/] ({o.reason})"))
+
+
+def export_review_snapshot() -> None:
+    ctx, conn = _ctx()
+    snap = pipeline.export_review_snapshot(ctx, conn)
+    console.print(f"Review snapshot: {len(snap['queue'])} por rever, {len(snap['approved'])} "
+                  f"aprovados, {len(snap['pending_events'])} decisões pendentes.")
+
+
+def _run_steps(render: bool, full: bool, report: list[str]) -> None:
+    apply_review_events()                       # first: the run sees the reviewer's decisions
+    try:
+        _pipeline_steps(render, full, report)
+    except BaseException:                       # failed collection (Exit 1) or an error
+        try:                                    # the reviewer still sees the applied decisions
+            export_review_snapshot()
+        except Exception as exc:                # never hides the run's own failure
+            console.print(f"[red]Review snapshot failed:[/] {exc}")
+            report.append(f"Review snapshot failed: {type(exc).__name__}")
+        raise
+    export_review_snapshot()                    # last, on the fast and the full path (D26)
+
+
+def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     routes_upkeep()
-    collect()
+    summary = _collect()
+    report.append(f"Collection: {summary.status}, {summary.n_requests} requests, "
+                  f"{summary.n_observations} offers ({summary.n_new} new)"
+                  + (f", {len(summary.errors)} failed" if summary.errors else ""))
+    if summary.status == "failed":           # every request failed: the run fails (exit 1)
+        raise typer.Exit(1)
     recheck_cmd()
     detect()
+    ctx, conn = _ctx()
+    decision = run_path.decide(ctx, conn, force=full)
+    console.print(f"Path: {decision.name} ({decision.reason})")
+    report.append(f"Path: {decision.name} ({decision.reason})")
+    if not decision.full:
+        return
+    uploaded = pipeline.mirror_local_files(ctx, conn)     # what a runner lacks (D25)
+    if uploaded:
+        console.print(f"{len(uploaded)} local files uploaded to the object store.")
     if render:
         render_deals()
+    export_site_data(out=None, new_links=True)
     site_build()
-    if _site_configured(Context()):
+    if _site_configured(ctx):
         site_deploy()
     else:
         console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
+    run_path.record_full_path(ctx, conn)
+
+
+def _duration(seconds: float) -> str:
+    minutes, secs = divmod(round(seconds), 60)
+    return f"{minutes} min {secs} s" if minutes else f"{secs} s"
+
+
+def _step_summary(status: str, took: str, report: list[str]) -> None:
+    """The run's outcome on the GitHub Actions run page (only when Actions sets the file)."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    lines = [f"### Escapadinha run: {status}", "", f"- Duration: {took}",
+             *(f"- {line}" for line in report)]
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 @app.command()
-def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
-    """(monthly route discovery) → collect → recheck open deals → detect → render new deals.
-    What the scheduler runs.
+def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True,
+        full: Annotated[bool, typer.Option(
+            "--full", help="Render, build and deploy even if nothing the site shows changed")] = False,
+        ) -> None:
+    """Review events → (monthly route discovery) → collect → recheck open deals → detect, then
+    the full path (render new deals → build the site → deploy) only when something it shows
+    changed → review snapshot. What the scheduler runs (GitHub Actions, D25).
 
     With R2 keys in .env: lock → pull the database → daily backup → steps → push → unlock.
     Another run holding the lock makes this one exit 0 without touching anything.
     """
-    ctx = Context()
-    if not ctx.remote_store:
-        _run_steps(render)
-        return
+    started, report, status = time.monotonic(), [], "failed"
     try:
-        with sync.run_session(ctx.object_store, ctx.db_path, ctx.sync_state_path,
-                              owner=sync.owner_id("run"), log=console.print):
-            _run_steps(render)
-    except LockHeld as exc:
-        console.print(f"Another run is in progress ({exc}): nothing done.")
-        raise typer.Exit(0) from None
+        ctx = Context()
+        if not ctx.remote_store:
+            _run_steps(render, full, report)
+        else:
+            try:
+                with sync.run_session(ctx.object_store, ctx.db_path, ctx.sync_state_path,
+                                      owner=sync.owner_id("run"), log=console.print):
+                    _run_steps(render, full, report)
+            except LockHeld as exc:
+                console.print(f"Another run is in progress ({exc}): nothing done.")
+                status = "skipped (another run holds the lock)"
+                raise typer.Exit(0) from None
+        status = "ok"
+    except typer.Exit:                    # status already says why (lock held or collection failed)
+        raise
+    except Exception as exc:
+        first_line = next(iter(str(exc).splitlines()), "")
+        report.append(f"Error: {type(exc).__name__}: {first_line[:300]}")
+        raise
+    finally:
+        took = _duration(time.monotonic() - started)
+        console.print(f"Run {status} in {took}.")
+        _step_summary(status, took, report)
 
 
 def main() -> None:

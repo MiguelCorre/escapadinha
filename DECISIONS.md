@@ -487,7 +487,8 @@ so nothing has to be hosted.
   (#7) keeps no files (D21: `data/site_links.json` isn't synced yet). Each build converts at most
   `site.max_new_links_per_build` (300 = 30 requests, ≤ 900 enforced so one build stays under the
   per-minute limit), biggest discounts first; the rest and failures wait for the next build and are
-  shown meanwhile without a button. Rows older than 30 days are pruned (their offers left the
+  shown meanwhile without a button. Since D27 the cap is one budget per collection run, shared by
+  the site data export and the site build (meta `site.link_budget`, see D27). Rows older than 30 days are pruned (their offers left the
   freshness window long before). On a copy of the real database (2026-10-13, baselines still
   warming up after discovery): 7 low prices on 360 route pages, 0 promotion candidates.
 - **Traceability test (D2 enforced, story 22):** price elements carry `data-obs` / `data-deal` /
@@ -505,3 +506,243 @@ so nothing has to be hosted.
   requests at a time under the same thread-safe 550/min limiter; responses are still stored and
   archived in request order on one thread. ~1080 requests then take ~2 min (limit-bound) instead
   of ~6, so 12 runs/day fit the 2000 free Actions minutes of a private repo (#7).
+
+## D25: GitHub Actions pipeline, fast and full path, nothing kept on the runner (2026-10-13, #7)
+- **Workflow** `.github/workflows/pipeline.yml`: cron `17 */2 * * *` (UTC; :17 avoids the
+  top-of-hour queue), `workflow_dispatch` (input `full`) and `repository_dispatch` (types
+  `review-decision`, `full-run`; both force the full path, for the review Function later).
+  `concurrency: pipeline` with `cancel-in-progress: false` (a queued run waits; the R2 lock is
+  the second guard, against the PC). `timeout-minutes: 45` < the lock's 60 (D21). Secrets are
+  Actions secrets exposed as environment variables, which `config.Secrets` reads without a
+  `.env`; nothing echoes them (a test checks the file). uv via setup-uv with its cache; Node 22
+  for `npx wrangler` (D15). Supersedes D9 once the PC task is unregistered.
+- **Fast or full path, decided in Python** (`run_path.py`, testable, not YAML). After detect,
+  `decide` compares a fingerprint with the one stored in `meta` (`run.full_path_fingerprint`) at
+  the end of the last successful full path. Components, each hashed: promotions (every deal's
+  id, status, has-link), the low prices the route pages list (same selection as the site:
+  `pipeline.shown_low_prices`), routes (key, status, pt name), the Lisbon date, and the code
+  (package files, config.yaml, content/; line endings normalised so the PC and the runner
+  agree). Any change, a missing fingerprint or `--full` → full path (render new deals → site
+  build → deploy when the content hash changed); the log prints `Path: fast|full (reason)`. A
+  failed full path stores nothing, so the next run retries it. Review decisions made elsewhere
+  (#8) change deal statuses and so trigger it without #7 knowing about events. Rejected:
+  "new observations this run" (true almost every run), and comparing the built site's content
+  hash (needs the build, i.e. the cost we are avoiding). The date component means one full path
+  a day even when nothing else changed: route pages show typical lows, which move daily, and
+  are otherwise left out of the fingerprint on purpose (they would make every run full).
+- **Run status:** `run` prints `Run <status> in <duration>` and, when `GITHUB_STEP_SUMMARY` is
+  set, writes status, duration, collection counts and the path decision to the run's summary.
+  A failed request is listed and skipped (collector, unchanged, now tested through `run`); only
+  a collection where every request failed exits 1. The database is pushed either way (D21).
+  Route upkeep before the collection (discovery when due, else missing photos) never fails the
+  run: API errors and object-store errors (`s3.STORE_ERRORS`, e.g. an R2 hiccup while mirroring
+  a new photo) are printed and the collection goes on; the photo is fetched again next run.
+- **Chromium only when needed:** the workflow sets `ESCAPADINHA_INSTALL_BROWSER=1`;
+  `renderer.ensure_browser` runs `playwright install --with-deps chromium` the first time a
+  `SlideRenderer` opens, i.e. only when there is a deal or guide to render. The download is
+  cached (`~/.cache/ms-playwright`, keyed on `uv.lock`); the system libraries come from apt
+  each time it runs. The fast path never touches either.
+- **What a fresh runner lacks (D21's list), simplest correct home for each:**
+  - `data/site_paths.json` (redirect history; losing it would drop 301s) → database, `meta`
+    `site.paths`. `data/site_links.json` (website partner links; losing it would create
+    duplicates) → `meta` `site.links`. `data/site_deploy.json` (last deployed content hash,
+    not in D21's list; losing it would redeploy every full path) → `meta` `site.deployed`.
+    They are small JSON, belong with the database's state, and are then backed up and
+    restored with it. The old files are still read and merged in (paths: union; links: entries
+    the database lacks; deploy: only when the database has none), so the PC's history reaches
+    the database on its next build without a manual step; the files are no longer written.
+  - `assets/photos/` (Pixabay cache, ~155 JPEGs) and the rendered folders under `output/` that
+    the site and the review page read → the object store under `photos/` and `output/`, same
+    relative paths, through `storage.mirror.Mirror` (`ctx.object_store`, so R2 or nothing:
+    without R2 keys it only looks at the local folder). Uploaded when made (photo fetched, deal
+    or guide rendered), downloaded on first use (`pipeline.deal_folder` resolves a stored
+    `output_path` written on any OS by its last two parts; `guide_folder` takes the latest
+    stored date; `_photo`). Only the files a step reads are fetched, each at most once per
+    machine (`deal_folder(ctx, deal, files=pipeline.SLIDES)`: the site build gets the slide
+    PNGs, never `caption.txt`/`meta.json`; a local copy is never fetched again), and the site
+    data export only lists slide names (`deal_slide_names`, one LIST per public deal, no
+    download); a test counts the GETs of a runner's export + build. `mirror_local_files` (run
+    on every full path) uploads what the PC
+    made before D25 and the bucket lacks: one LIST per prefix, nothing on a runner. Rejected:
+    re-rendering slides on the runner (they must stay what Miguel reviewed and posted) and
+    photos as database blobs (~50 MB in a file pulled every 2 hours).
+  - A test builds the site on the PC, pushes, pulls into an empty checkout and builds again:
+    the two sites have the same content hash (redirects, cached links, slides, guide images),
+    no partner link is created twice and the deploy is skipped as unchanged.
+- **Not synced, on purpose:** `logs/`, `site/` (rebuilt), the `EXPIRADO.txt` note (written only
+  where a rendered folder exists locally; the review snapshot of #8 covers the runner case).
+- **PC fallback:** the Windows task keeps running until a clean week on Actions; both take the
+  R2 lock, so they never overlap. Retire it with `scripts\register-task.ps1 -Unregister`
+  (= `Unregister-ScheduledTask -TaskName "Escapadinha collect" -Confirm:$false`).
+- **Miguel's steps:** add the nine Actions secrets; run the workflow once by hand
+  (`gh workflow run pipeline.yml -f full=true`) and check its summary and *Usage* (fast path
+  target ≤ 2 min); after a clean week, unregister the PC task.
+
+## D26: Review decisions as events, applied by the pipeline; review snapshot (2026-10-13, #8)
+- **Why:** with the database in R2 (D21) a decision written into a local copy is lost or collides
+  with the next run's push, and the review Function (#9) can't open SQLite at all. Decisions
+  therefore become an append-only log in the object store, and only the pipeline, holding the
+  run lock, turns them into statuses (story 25).
+- **Event** (`contract/review/v1/event.schema.json`): one JSON object per decision at
+  `review/events/pending/<YYYYMMDDTHHMMSSZ>-<id>.json` with `version` 1, `id` (UUID v4), `type`
+  (`approve` | `reject` | `published`), `deal_id`, `created_at` (UTC, `Z`), `actor`
+  (`cli:<user>@<host>`, `review-page:<user>@<host>`, or the Access e-mail from the Function),
+  `note`, `post_url` (published only) and `live_check` (`{valid, price_eur, reason, checked_at}`,
+  required and valid on approve, null otherwise). Every key is always present. `created_at`
+  becomes `reviewed_at` / `published_at`. Events are never edited: a new decision is a new event.
+- **Applier** (`pipeline.apply_review_events` → `review_events.apply_pending`), first step of
+  every `run`: pending events oldest first; each is re-checked with `review.check_decision`
+  against the deal's status *now* (same rules as before writing: transition table, affiliate link
+  for approve, `https?://` post URL) and approve also needs `live_check.valid`. The outcome
+  (`applied` | `refused` with the pt-PT reason) and the status change are written in **one
+  transaction** together with meta `review_event:<id>`. Unparseable objects are `malformed`. Every
+  event ends in `review/events/archive/<YYYY-MM of creation>/<same name>` as
+  `{event, outcome, reason, settled_at, status_before, status_after, ...}`. Nothing in here raises
+  for a bad event or a store error during archiving.
+- **Idempotency:** the database is the only judge of "already applied": an id with a meta
+  outcome is never applied again, whatever the store holds (a re-delivered copy, a pending object
+  whose delete failed after the archive put). Archive put comes before pending delete, and the
+  archive key is a function of the pending name, so retrying writes the same object. **With R2 the
+  database is only durable after the run pushes it**, so an event applied by run N stays pending;
+  run N+1, starting from the pushed database, finds the outcome and only archives it. If run N
+  died before pushing, run N+1 starts from the older database and simply applies it again.
+  Without R2 the database is durable on commit and events are archived at once.
+- **Where the live check happens:** in the writer, right before an approve event is written (CLI
+  and local page: `pipeline.price_now`; Function: its own request with the query the snapshot
+  gives it). It is a gate only: it stores no observations and changes no status, because the
+  Function has no database and both paths must behave the same. A moved price refuses the
+  approval with the reason and writes nothing; the next collection's recheck (every 2 h, same
+  rule) expires the deal. The applier doesn't call the provider: it re-checks the status, so a
+  deal that expired between the check and the run is refused, and approved deals keep being
+  rechecked by every run, so "never publish expired" holds. `deal check` (and the page's
+  *Verificar preço agora*) without R2 keys keeps storing a `live_check` run and expiring on a
+  moved price (a recheck, pipeline-owned, on the only database). With R2 keys it is report-only
+  (`price_now`: no run stored, no status change): its write would land on a local copy that the
+  next pull sets aside, so the run's recheck (same rule, every 2 h) expires the deal instead.
+  This was the last status write outside the applier and the run.
+- **Approvals expire after 24 h (Miguel, 2026-10-13):** the applier refuses an `approve` event
+  whose `live_check.checked_at` (else `created_at`) is older than `review.approve_max_age_hours`
+  (config, default 24) at apply time, reason "Aprovação com mais de 24 h: verifica o preço outra
+  vez."; the reviewer approves again with a fresh check. Normally a run applies an event within
+  2 h (D25); this bounds the stale-approval case (runs failing or paused, an event written from
+  an old snapshot). `reject` and `published` have no age limit. The limit is passed into
+  `review_events.apply_pending` (`approve_max_age`), never read from a global, and the snapshot
+  carries it (`review_rules.approve_max_age_hours`) so the Function can warn before then.
+- **CLI and local page:** `deal approve/reject/published` and the page's buttons pre-check the
+  same rules (and refuse while the deal has a pending decision), write the event and print the
+  pending list. Without R2 keys nothing else owns the database, so they apply pending events at
+  once (same experience as v1). With R2 keys they leave the event for the next run (or the
+  Function's dispatch) and say so; the local database copy is not touched. They pre-check on
+  that local copy, so they refuse (ReviewError) while `sync` shows the bucket's generation newer
+  than the one the copy came from (or the copy was never synced): "corre `escapadinha store pull`
+  primeiro" (`pipeline.ensure_current_copy`, one GET of the metadata). A deal missing from the
+  copy is a `review.UnknownDeal` ("O deal N não existe nesta base de dados.", 404 on the page),
+  never a bare `KeyError`.
+- **Contract:** only `review_events` writes approved/rejected/published (`db.settle_review_event`);
+  `db.record_review` is test setup only, and a test fails if any other module calls either.
+  Render (new → rendered) and rechecks (→ expired) stay with the pipeline.
+- **Snapshot** (`contract/review/v1/snapshot.schema.json`), `review/snapshot.json`, last step of
+  every run (fast or full): `queue` (new/rendered), `approved`, `published` and `closed` (latest 20
+  each), every deal with price (number and pt-PT text), dates, nights, airline, arrival airport,
+  discount, typical low, found/fetched/detected times, affiliate link, caption, `whatsapp_text`
+  (null until generated), `page_url`, `slides` and `live_check` (last recheck, expired reason, the
+  exact provider `query` and the route `rules` + freshness window, so the Function's check is the
+  pipeline's rule); plus `pending_events` (not yet in this database) and `recent_outcomes`.
+- **Slides:** "slide URLs on the public site" only exist for deals the site shows
+  (`<base_url>/img/promos/<id>/slide_NN.webp`, approved/published/expired-after-approval). A queue
+  item is not public, so every deal still open for review also gets WebP copies in the store at
+  `review/slides/<id>/slide_NN.webp` (uploaded once, deleted when the deal leaves review); the
+  Function serves those behind Access (WebP, lighter on a phone than the PNGs under `output/`, D25).
+  On a runner, slide names come from the `output/` listing and a deal folder is only downloaded to
+  make missing copies. Rejected: publishing queue slides on the public site.
+- **Run order (with D25):** `apply_review_events` → collect … → fast or full path →
+  `export_review_snapshot`, the snapshot on both paths and also when a later step fails (a
+  collection where every request failed exits 1 after exporting it, so decisions the applier
+  just settled are visible; a snapshot error then never hides the run's own error). A status the applier changes is part of
+  D25's fingerprint, so an applied approval takes the full path without the applier knowing.
+- **No schema change:** outcomes live in `meta` (one row per decision, a few a day).
+- **Shared with the site (D27):** "public" (`website.is_public`), page slugs (`promo_slug`) and
+  the image folder (`promo_image_dir`) are the site's own helpers, so the snapshot's `page_url` and
+  slide URLs are the paths `site build` and the site data export write.
+
+## D27: Website data contract v1: JSON Schema, export, committed fixtures (2026-10-13, #10)
+- **What:** the Astro site (M3) is built from JSON only (spec #1, "Website"). Schemas (draft
+  2020-12) in `contract/site/v1/`: `meta`, `labels`, `origins`, `routes`, `destinations`,
+  `promotions`, `low-prices` (one file per origin) plus shared `defs` (`eur`, `offer`, `rules`,
+  dates, ...). `site_data.export_site_data` writes them (`escapadinha export site-data`, default
+  `site.data_dir` = `output/site-data/v1`, `web/src/data` once the web package exists); `run`
+  calls it in the full path (D25) right before `site build`, on the local disk (not R2). The
+  full-path fingerprint (`run_path`) covers what the Jinja site shows plus the day, so the
+  export's extra rows (every low price, not only the 5 per route page) refresh at least daily;
+  once the Astro site is the live one (#13) the fingerprint should cover the export itself
+  (e.g. a hash of its files). Tests validate the export with
+  `jsonschema` against the committed schemas. **Versioning:** the directory is the major version;
+  additive changes (new optional data, new files) stay in v1, anything that breaks a consumer is v2.
+- **Same rules as the Jinja site, not a second implementation:** routes from `routes.all_routes`,
+  typical lows from `detector.month_baselines`, low prices from `detector.low_prices` over the
+  latest run, public deals from `website.public_deal_rows` (shared with `SiteBuilder`, as are
+  `is_public`, `route_slug`, `promo_slug`, `promo_image_dir` and `deal_image_paths`; the review
+  snapshot of D26 uses the same ones), so page paths and image URLs are the ones the current site
+  serves (a test builds both and checks the files exist). The Jinja site is unchanged. Slide
+  names come from `pipeline.deal_slide_names` (the local folder, else the `output/` listing of
+  D25, nothing downloaded), so a runner without `output/` exports the same image paths as the
+  PC (tested).
+- **Promotions: live and recently expired** (spec #10): every live promotion, and expired ones
+  for `site.expired_promotions_days` (30) after they expired (their last check, the recheck that
+  expired them; else detection), so the file doesn't grow forever. Route counts and
+  `meta.counts` follow the same window. The Jinja site's expired pages are unchanged (they stay,
+  `noindex`, so shared links never break); the Astro site decides what an old link shows (#13).
+- **Raw values, few display strings:** ISO dates, UTC timestamps (`Z`), euros as numbers, codes.
+  pt-PT number/date formatting moves to the site; what it cannot derive comes from `i18n_pt.py`
+  in `labels.json` (airline and airport names, remote airports, kind and status labels, month and
+  weekday names, both disclosures). `found_date` and `fetched_at` stay separate fields (D10); the
+  arrival airport is always present (D11).
+- **Plain average:** `routes[].months[].average` = mean of the same daily lows as the typical low
+  (`Baseline.mean`), context only (story 19). Typical low and average are `null` while a month has
+  fewer than `min_baseline_days` days, so the site says "ainda sem dados" instead of a number.
+  Route `cheapest` = cheapest offer within the rules in the latest run, found within the freshness
+  window (origin pages' "a partir de"). A route-page price calendar was left out of v1 (see open
+  questions); it can be added as an optional field or file.
+- **Traceability (D2) on the JSON:** every price is an `eur` field next to what it traces to:
+  an offer's `obs`, a month's route key (recomputed by the test from stored observations), a
+  promotion's deal (`typical_low` = `deals.baseline_median`; the expiry's recheck price comes with
+  the id of the stored observation of that trip that has it, or is null). `test_site_data.py`
+  checks every price that way, runs the page checker on expiry reasons, and walks the schemas:
+  a new `eur`/`offer` field fails until the checker knows how to trace it. The web package will
+  render `data-obs` / `data-route` / `data-deal` from these ids.
+- **Links:** only from the partner links API. The export calls `pipeline.low_price_links` (for
+  every exported low price, not just the 5 per route page) and `pipeline.website_links`, which
+  create missing links once and store them; `site build` right after finds them stored.
+  **One link budget per collection run** (D24's `site.max_new_links_per_build`): the export
+  spends first (biggest discounts first), the build gets what is left (`pipeline.link_budget`;
+  meta `site.link_budget` = `{run, used}`, reset when a new collection run completes), so a run
+  sends at most 90 requests even at the 900 maximum, under the API's 100/min. Failed requests
+  count against it and are retried next run. `--no-new-links` (and the fixtures) only read
+  stored links (`create=False`).
+- **Per-origin low-price files (size budget):** rows are arrays in a fixed column order
+  (`obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link`), one row
+  per line, sorted by departure, return, destination, price, id; sorted keys, no other whitespace:
+  deterministic, stable diffs, gzip-friendly. ~135 bytes per row measured; the test enforces ≤ 160
+  on average and the cap `site.max_low_prices_per_origin` (1500, biggest discounts kept,
+  `truncated` says how many were cut), i.e. at most ~240 KB raw per origin, about 4× smaller
+  gzipped. Every origin with routes gets a file (possibly empty), loaded lazily by the explorer.
+  A live promotion's own offer can also be a low-price row (the explorer can dedupe by `obs`).
+- **Fixtures** (`contract/site/v1/fixtures/`, committed, `escapadinha export fixtures --db
+  data/escapadinha.db`): the real database is opened with `mode=ro` and copied into memory
+  (migrated there, never in the file); the windows are those of the latest run (`now` = its
+  finish time), so regenerating the same database gives the same files. ~10 routes: the three
+  busiest origins' best routes (promotions, low prices, prices), plus a long-haul, a domestic, a
+  dormant route and one without a typical low when the data has them. Anonymous: booking links
+  become `https://example.com/parceiro/<sub_id>` (every live promotion and low price gets one, to
+  show the tracked-link state), photographers' names and profile URLs a placeholder; no review
+  notes, post URLs, deep links or secrets are exported at all. **Fixture-only statuses:** the
+  real data had no approved deal yet (3 deals, all expired before review), so on the in-memory
+  copy the newest deal is marked live and an expired one as approved before it expired; prices
+  stay those deals' real observations. `meta.fixture: true` marks the set: never deploy it.
+  Generated 2026-10-13 from run 18: 10 routes (LIS, OPO, FAO), 8 destinations, 1 live + 1 expired
+  promotion, 6 low prices, ~19 KB in all.
+- **Not in v1 (questions for #13–#15):** destination photos and promotion images are paths, not
+  files: the web package must copy `assets/photos/` and the converted slides (today written by
+  `site build` into `site/img/`) or the export must start writing them; a per-route calendar of
+  cheapest prices per departure date (#14); destination "best months" are derivable from
+  `routes.json`; the explorer only sees low prices (none until baselines mature, D24).

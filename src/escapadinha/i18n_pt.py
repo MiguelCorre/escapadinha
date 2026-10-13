@@ -86,8 +86,18 @@ def lisbon_timestamp(dt: datetime) -> str:
     return f"{local:%d/%m/%Y} às {local:%H:%M}"
 
 
+def number(value: float) -> str:
+    """24 -> '24', 1.5 -> '1,5' (pt-PT: comma decimals, no trailing zeros)."""
+    return f"{value:g}".replace(".", ",")
+
+
+def count(n: int, singular: str, plural: str) -> str:
+    """(1, 'decisão pendente', 'decisões pendentes') -> '1 decisão pendente'; 0 and 2+ plural."""
+    return f"{n} {singular if n == 1 else plural}"
+
+
 def nights(n: int) -> str:
-    return "1 noite" if n == 1 else f"{n} noites"
+    return count(n, "noite", "noites")
 
 
 def airline_name(code: str | None) -> str | None:
