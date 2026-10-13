@@ -11,7 +11,7 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 ROUTES_TABLE = """CREATE TABLE IF NOT EXISTS routes (
     origin               TEXT NOT NULL,              -- airport IATA (LIS, OPO, ...)
@@ -61,6 +61,10 @@ MIGRATIONS = {
     # Routes move from config.yaml into the database (seeded by routes.sync on first use).
     6: [ROUTES_TABLE],
     # 7 (dedup + raw archive) is a Python step, defined below `_dedupe_observations`.
+    # Route discovery: English city name (photo queries) and a key/value table for
+    # pipeline bookkeeping such as the last discovery time.
+    8: ["ALTER TABLE routes ADD COLUMN city_en TEXT",
+        "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"],
 }
 
 
@@ -385,16 +389,41 @@ def route_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def insert_route(conn: sqlite3.Connection, *, origin: str, destination: str, city_pt: str,
-                 kind: str, discovered_at: datetime) -> bool:
+                 kind: str, discovered_at: datetime, city_en: str | None = None,
+                 destination_airports: str | None = None) -> bool:
     """Add a route unless it exists. Backfills last_observed_at from stored prices."""
     cur = conn.execute(
-        """INSERT INTO routes (origin, destination, city_pt, kind, discovered_at, last_observed_at)
-           VALUES (?, ?, ?, ?, ?, (SELECT MAX(fetched_at) FROM price_observations
-                                   WHERE origin = ? AND destination = ?))
+        """INSERT INTO routes (origin, destination, city_pt, city_en, kind, destination_airports,
+                               discovered_at, last_observed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT MAX(last_seen_at) FROM price_observations
+                                         WHERE origin = ? AND destination = ?))
            ON CONFLICT (origin, destination) DO NOTHING""",
-        (origin, destination, city_pt, kind, _ts(discovered_at), origin, destination))
+        (origin, destination, city_pt, city_en, kind, destination_airports, _ts(discovered_at),
+         origin, destination))
     conn.commit()
     return cur.rowcount == 1
+
+
+def set_route_catalogue(conn: sqlite3.Connection, origin: str, destination: str, *,
+                        city_en: str | None, destination_airports: str | None) -> None:
+    """Refresh what discovery knows about a stored route (never its name, kind or rules)."""
+    conn.execute(
+        """UPDATE routes SET city_en = COALESCE(?, city_en),
+                             destination_airports = COALESCE(?, destination_airports)
+           WHERE origin = ? AND destination = ?""",
+        (city_en, destination_airports, origin, destination))
+    conn.commit()
+
+
+def set_route_status(conn: sqlite3.Connection, keys: list[tuple[str, str]], status: str) -> None:
+    conn.executemany("UPDATE routes SET status = ? WHERE origin = ? AND destination = ?",
+                     [(status, o, d) for o, d in keys])
+    conn.commit()
+
+
+def set_city_name(conn: sqlite3.Connection, destination: str, city_pt: str) -> None:
+    conn.execute("UPDATE routes SET city_pt = ? WHERE destination = ?", (city_pt, destination))
+    conn.commit()
 
 
 def set_route_overrides(conn: sqlite3.Connection, origin: str, destination: str,
@@ -408,14 +437,31 @@ def set_route_overrides(conn: sqlite3.Connection, origin: str, destination: str,
 
 
 def touch_routes_observed(conn: sqlite3.Connection, run_id: int) -> None:
-    """last_observed_at = newest stored price, for every route that got prices in this run."""
+    """last_observed_at = newest sighting of a price, for every route that got prices in this run.
+
+    A sighting, not a first sighting: the cache returns the same offers for days, and a route
+    whose offers keep coming back is observed (`last_seen_at`, not `fetched_at`; D18).
+    """
     conn.execute(
         """UPDATE routes SET last_observed_at = (
-               SELECT MAX(fetched_at) FROM price_observations p
+               SELECT MAX(last_seen_at) FROM price_observations p
                WHERE p.origin = routes.origin AND p.destination = routes.destination)
-           WHERE EXISTS (SELECT 1 FROM price_observations p WHERE p.run_id = ?
+           WHERE EXISTS (SELECT 1 FROM price_observations p WHERE p.last_run_id = ?
                          AND p.origin = routes.origin AND p.destination = routes.destination)""",
         (run_id,))
+    conn.commit()
+
+
+# --- meta (pipeline bookkeeping) -------------------------------------------------
+
+def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) "
+                 "ON CONFLICT (key) DO UPDATE SET value = excluded.value", (key, value))
     conn.commit()
 
 

@@ -47,6 +47,7 @@ class CollectorConfig(BaseModel):
     limit_per_request: int = Field(100, ge=1, le=1000)
     market: str | None = "pt"                     # Aviasales market whose searches feed the cache
     booking_base: str = "https://www.aviasales.pt"  # booking site linked from posts (EUR, EU formats)
+    requests_per_minute: int = Field(550, ge=1)   # client-side cap; the API allows 600/min
 
 
 class DetectorConfig(BaseModel):
@@ -114,12 +115,20 @@ class RoutesConfig(BaseModel):
     exclusions: list[str] = []                # route keys ("LIS-LON") or destinations ("LON")
     long_haul: list[LongHaulDestination] = []
     seed: list[SeedRoute] = []                # inserted once into an empty routes table
+    # Discovery (#5): airports whose direct routes are discovered, how often, and when a
+    # route without prices goes dormant.
+    origins: list[str] = ["LIS", "OPO", "FAO", "FNC", "PDL", "TER"]
+    discover_every_days: int = Field(30, ge=1)
+    dormant_after_days: int = Field(30, ge=1)
+    city_names: dict[str, str] = {}           # destination -> Portuguese name (beats the catalogue)
 
     @model_validator(mode="after")
     def _all_kinds(self):
         self.kinds = {**DEFAULT_KINDS, **self.kinds}
         self.overrides = {k.upper(): v for k, v in self.overrides.items()}
         self.exclusions = [e.upper() for e in self.exclusions]
+        self.origins = [o.upper() for o in self.origins]
+        self.city_names = {k.upper(): v for k, v in self.city_names.items()}
         return self
 
     def excluded(self, origin: str, destination: str) -> bool:
@@ -218,6 +227,9 @@ class AffiliateConfig(BaseModel):
 
 class PhotosConfig(BaseModel):
     queries: dict[str, str] = {}
+    # Photos fetched automatically per discovery/run for destinations still without one.
+    # Each costs 2 Pixabay requests (search + download); the API allows 100 per minute.
+    max_per_run: int = Field(40, ge=0, le=45)
 
 
 class AppConfig(BaseModel):

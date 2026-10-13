@@ -148,7 +148,7 @@ def test_upgrade_collapses_duplicates_keeps_deals_and_archives_raw_json(ctx):
     conn.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 7
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert [r[0] for r in conn.execute("SELECT id FROM price_observations ORDER BY id")] == [2, 4]
     deal, obs = db.get_deal(conn, 7)                                 # the deal still resolves
     assert obs.id == 2 and obs.price == 80

@@ -1,0 +1,39 @@
+{
+ "success": true,
+ "currency": "eur",
+ "data": {
+  "PAR": {
+   "origin": "OPO",
+   "destination": "PAR",
+   "airline": "FR",
+   "departure_at": "2026-11-01T06:15:00Z",
+   "return_at": "2026-11-02T21:25:00+01:00",
+   "expires_at": "2026-10-13T17:22:34Z",
+   "price": 152,
+   "flight_number": 4584,
+   "transfers": 1
+  },
+  "BER": {
+   "origin": "OPO",
+   "destination": "BER",
+   "airline": "FR",
+   "departure_at": "2026-11-19T08:40:00Z",
+   "return_at": "2026-11-22T21:10:00+01:00",
+   "expires_at": "2026-10-13T17:22:34Z",
+   "price": 112,
+   "flight_number": 2945,
+   "transfers": 0
+  },
+  "NYC": {
+   "origin": "OPO",
+   "destination": "NYC",
+   "airline": "TP",
+   "departure_at": "2027-01-08T18:35:00Z",
+   "return_at": "2027-01-13T23:25:00-05:00",
+   "expires_at": "2026-10-13T17:22:34Z",
+   "price": 469,
+   "flight_number": 211,
+   "transfers": 0
+  }
+ }
+}

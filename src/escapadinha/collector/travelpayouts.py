@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections import deque
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
@@ -117,13 +118,41 @@ def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: 
     return observations
 
 
+class RateLimiter:
+    """At most `per_minute` calls in any 60-second window (sliding window, injectable clock).
+
+    The v3 API allows 600 requests a minute; at ~300 routes × 3 months a run makes ~900, so
+    a fast connection would hit the limit. Waiting here is cheaper than a 429 (which blocks
+    until the minute resets and costs a retry).
+    """
+
+    def __init__(self, per_minute: int, *, clock: Callable[[], float] = time.monotonic,
+                 sleep: Callable[[float], None] = time.sleep):
+        self._per_minute = per_minute
+        self._clock = clock
+        self._sleep = sleep
+        self._calls: deque[float] = deque()
+
+    def wait(self) -> None:
+        now = self._clock()
+        while self._calls and now - self._calls[0] >= 60:
+            self._calls.popleft()
+        if len(self._calls) >= self._per_minute:
+            self._sleep(60 - (now - self._calls[0]))
+            now = self._clock()
+            while self._calls and now - self._calls[0] >= 60:
+                self._calls.popleft()
+        self._calls.append(now)
+
+
 class TravelpayoutsSource:
     name = SOURCE
 
     def __init__(self, token: str, *, currency: str, limit: int, market: str | None = None,
                  booking_base: str = DEFAULT_BOOKING_BASE, client: httpx.Client | None = None,
                  now: Callable[[], datetime] | None = None,
-                 sleep: Callable[[float], None] = time.sleep, max_attempts: int = 3):
+                 sleep: Callable[[float], None] = time.sleep, max_attempts: int = 3,
+                 limiter: RateLimiter | None = None):
         if not token:
             raise TravelpayoutsError("TRAVELPAYOUTS_TOKEN is not set (see .env.example)")
         self._client = client or httpx.Client(timeout=30)
@@ -135,6 +164,7 @@ class TravelpayoutsSource:
         self._now = now or utcnow
         self._sleep = sleep
         self._max_attempts = max_attempts
+        self._limiter = limiter
 
     def fetch_round_trips(self, origin: str, destination: str, month: date, *,
                           min_nights: int, max_nights: int) -> list[Observation]:
@@ -166,6 +196,8 @@ class TravelpayoutsSource:
 
     def _get(self, params: dict) -> dict:
         for attempt in range(1, self._max_attempts + 1):
+            if self._limiter:
+                self._limiter.wait()
             response = self._client.get(API_URL, params=params, headers=self._headers)
             if response.status_code == 429 or response.status_code >= 500:
                 if attempt == self._max_attempts:

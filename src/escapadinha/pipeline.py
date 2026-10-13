@@ -10,15 +10,17 @@ from pathlib import Path
 
 import httpx
 
-from escapadinha import archive, detector, i18n_pt, routes
+from escapadinha import archive, detector, discovery, i18n_pt, routes
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.captions import deal_caption, guide_caption
 from escapadinha.collector.runner import RunSummary, collect
-from escapadinha.collector.travelpayouts import TravelpayoutsSource
+from escapadinha.collector.base import departure_months
+from escapadinha.collector.catalogue import TravelpayoutsCatalogue
+from escapadinha.collector.travelpayouts import RateLimiter, TravelpayoutsError, TravelpayoutsSource
 from escapadinha.config import Context
 from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation, Route
-from escapadinha.photos import PixabayClient, fetch_photo
+from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
 from escapadinha.presentation import PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, recheck
 from escapadinha.review import STATUS_PT, ReviewError, ensure_transition
@@ -49,6 +51,88 @@ def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
     return collect(conn, _source(ctx), routes.active_routes(conn, ctx.config.routes),
                    today=lisbon_today(), months_ahead=ctx.config.collector.months_ahead,
                    store=ctx.object_store)
+
+
+def run_dormancy(ctx: Context, conn: sqlite3.Connection, summary: RunSummary,
+                 now: datetime | None = None) -> list[Route]:
+    """After a collection: routes without prices for `dormant_after_days` go dormant.
+
+    Skipped when the whole run failed (an API outage must not put every route to sleep).
+    """
+    if summary.status == "failed":
+        return []
+    return routes.mark_dormant(conn, ctx.config.routes, now or db.utcnow())
+
+
+# --- discover routes ------------------------------------------------------------
+
+DISCOVERED_AT = "routes.discovered_at"     # meta key: last successful discovery (UTC ISO)
+
+
+@dataclass(frozen=True)
+class Discovery:
+    applied: routes.Applied
+    errors: list[str]                      # supplements that failed (a catalogue failure raises)
+    photos: list[tuple[str, str]]          # (destination, result) for new photos
+    photos_missing: int                    # destinations still without a photo
+
+
+def last_discovery(conn: sqlite3.Connection) -> datetime | None:
+    value = db.get_meta(conn, DISCOVERED_AT)
+    return datetime.fromisoformat(value) if value else None
+
+
+def discovery_due(ctx: Context, conn: sqlite3.Connection, now: datetime) -> bool:
+    last = last_discovery(conn)
+    return last is None or now - last >= timedelta(days=ctx.config.routes.discover_every_days)
+
+
+def run_discover(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None, *,
+                 photos: bool = True, dry_run: bool = False) -> Discovery:
+    """Fetch the catalogues, find every direct route from the configured origins, store it.
+
+    The static catalogue is required (an error aborts before anything changes); the popular
+    directions and the recent direct fares are supplements, so their errors are reported and
+    the discovery goes on without them.
+    """
+    now = now or db.utcnow()
+    cfg = ctx.config
+    origins = cfg.routes.origins
+    client = TravelpayoutsCatalogue(ctx.secrets.travelpayouts_token,
+                                    currency=cfg.collector.currency, market=cfg.collector.market)
+    payloads = client.static()
+    catalogue = discovery.Catalogue.from_payloads(payloads.routes, payloads.airports,
+                                                  payloads.cities_pt, origins)
+    errors: list[str] = []
+    popular: dict[str, dict] = {}
+    recent: dict[str, list[dict]] = {}
+    months = departure_months(now.astimezone(i18n_pt.LISBON).date(), cfg.collector.months_ahead)
+    for origin in origins:
+        try:
+            popular[origin] = client.popular_directions(origin)
+        except (TravelpayoutsError, httpx.HTTPError, ValueError) as exc:
+            errors.append(f"popular directions {origin}: {exc}")
+        for month in months:
+            try:
+                recent.setdefault(origin, []).append(client.recent_direct(origin, month))
+            except (TravelpayoutsError, httpx.HTTPError, ValueError) as exc:
+                errors.append(f"recent direct fares {origin} {month:%Y-%m}: {exc}")
+    found = discovery.discover(catalogue, origins, popular=popular, recent=recent,
+                               long_haul=routes.curated_long_haul(cfg.routes))
+    applied = routes.apply_discovery(conn, cfg.routes, found, now, dry_run=dry_run)
+    if dry_run:
+        return Discovery(applied, errors, [], 0)
+    db.set_meta(conn, DISCOVERED_AT, now.isoformat())
+    done, missing = run_missing_photos(ctx, conn) if photos else ([], len(missing_photos(ctx, conn)))
+    return Discovery(applied, errors, done, missing)
+
+
+def run_discover_if_due(ctx: Context, conn: sqlite3.Connection,
+                        now: datetime | None = None) -> Discovery | None:
+    """The scheduled run's monthly discovery: runs when the last one is older than
+    `routes.discover_every_days` (or never ran)."""
+    now = now or db.utcnow()
+    return run_discover(ctx, conn, now) if discovery_due(ctx, conn, now) else None
 
 
 # --- detect -------------------------------------------------------------------
@@ -173,7 +257,8 @@ def _source(ctx: Context) -> TravelpayoutsSource:
     c = ctx.config.collector
     return TravelpayoutsSource(ctx.secrets.travelpayouts_token, currency=c.currency,
                                limit=c.limit_per_request, market=c.market,
-                               booking_base=c.booking_base)
+                               booking_base=c.booking_base,
+                               limiter=RateLimiter(c.requests_per_minute))
 
 
 def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
@@ -242,14 +327,53 @@ def mark_published(conn: sqlite3.Connection, deal_id: int, post_url: str | None 
 
 # --- photos -------------------------------------------------------------------
 
+def photo_query(ctx: Context, route: Route) -> str:
+    """`photos.queries` override, else the English city name (Pixabay tags are English),
+    else the Portuguese name."""
+    return ctx.config.photos.queries.get(route.destination) or route.city_en or route.city_pt
+
+
 def photo_targets(ctx: Context, conn: sqlite3.Connection) -> dict[str, str]:
     """Destination key -> Pixabay search query, for every route destination plus extra config keys."""
     cfg = ctx.config
-    targets = {r.destination: cfg.photos.queries.get(r.destination, r.city_pt)
-               for r in routes.all_routes(conn, cfg.routes)}
+    targets = {r.destination: photo_query(ctx, r) for r in routes.all_routes(conn, cfg.routes)}
     for key, query in cfg.photos.queries.items():
         targets.setdefault(key, query)
     return targets
+
+
+def missing_photos(ctx: Context, conn: sqlite3.Connection) -> dict[str, str]:
+    """Destinations of active routes without a cached photo -> search query."""
+    return {r.destination: photo_query(ctx, r)
+            for r in routes.active_routes(conn, ctx.config.routes)
+            if db.get_photo(conn, r.destination) is None}
+
+
+def run_missing_photos(ctx: Context, conn: sqlite3.Connection,
+                       limit: int | None = None) -> tuple[list[tuple[str, str]], int]:
+    """Fetch a photo (with its credit) for up to `limit` destinations that have none.
+
+    Returns (destination, result) per attempt and how many are still missing. A failure
+    (no results, no key, HTTP error) is reported per destination and retried next time.
+    """
+    limit = ctx.config.photos.max_per_run if limit is None else limit
+    targets = list(missing_photos(ctx, conn).items())
+    if not targets or limit == 0:
+        return [], len(targets)
+    try:
+        client = PixabayClient(ctx.secrets.pixabay_api_key)
+    except PhotoSourceError as exc:                      # no key: one line, not one per destination
+        return [(f"{len(targets)} destinos", f"skipped: {exc}")], len(targets)
+    done = []
+    for key, query in targets[:limit]:
+        try:
+            photo = fetch_photo(client, key, query, ctx.photos_dir)
+        except (PhotoSourceError, httpx.HTTPError) as exc:
+            done.append((key, f"failed ({query}): {exc}"))
+            continue
+        db.upsert_photo(conn, photo)
+        done.append((key, f"{photo.photographer} ({photo.source_url})"))
+    return done, len(missing_photos(ctx, conn))
 
 
 def run_fetch_photos(ctx: Context, conn: sqlite3.Connection, dest: str | None, force: bool,

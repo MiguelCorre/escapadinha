@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -63,6 +64,11 @@ def collect() -> None:
                   f"archive {summary.archive_key or '[red]missing[/]'}")
     for err in summary.errors:
         console.print(f"  [red]✗[/] {err}")
+    dormant = pipeline.run_dormancy(ctx, conn, summary)
+    if dormant:
+        days = ctx.config.routes.dormant_after_days
+        console.print(f"{len(dormant)} rotas adormecidas (sem preços há {days} dias): "
+                      + ", ".join(r.key for r in dormant))
     if summary.status == "failed":
         raise typer.Exit(1)
 
@@ -142,8 +148,51 @@ def routes_list() -> None:
                       pt.stops_rule(r.rules.direct_only, r.rules.max_transfers),
                       pt.nights_range(r.rules.min_nights, r.rules.max_nights), status, seen)
     console.print(table)
+    counts = routes.per_origin(all_routes, cfg)
+    by_origin = Table(title="Rotas por origem")
+    for col in ("Origem", "Ativas", "Adormecidas", "Excluídas", "Total"):
+        by_origin.add_column(col, no_wrap=True)
+    for origin, c in counts.items():
+        by_origin.add_row(f"{origin} ({ctx.config.origin_name(origin)})", str(c["active"]),
+                          str(c["dormant"]), str(c["excluded"]), str(sum(c.values())))
+    console.print(by_origin)
     active = len(routes.active_routes(conn, cfg))
-    console.print(f"{len(all_routes)} rotas, {active} ativas.")
+    dormant = sum(c["dormant"] for c in counts.values())
+    last = pipeline.last_discovery(conn)
+    console.print(f"{len(all_routes)} rotas, {active} ativas, {dormant} adormecidas. "
+                  f"Última descoberta: {pt.lisbon_timestamp(last) if last else 'nunca'}.")
+
+
+@routes_app.command("discover")
+def routes_discover(
+    photos: Annotated[bool, typer.Option("--photos/--no-photos",
+                                         help="Fetch Pixabay photos for destinations without one")] = True,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would change, store nothing")] = False,
+) -> None:
+    """Discover direct routes from the configured origins (provider catalogues) and store them."""
+    ctx, conn = _ctx()
+    _print_discovery(ctx, pipeline.run_discover(ctx, conn, photos=photos, dry_run=dry_run), dry_run)
+
+
+def _print_discovery(ctx, result: pipeline.Discovery, dry_run: bool = False) -> None:
+    applied = result.applied
+    origins = ctx.config.routes.origins
+    found = {o: sum(1 for f in applied.found if f.origin == o) for o in origins}
+    console.print(("[yellow]Simulação, nada foi guardado.[/] " if dry_run else "")
+                  + "Rotas encontradas: " + " · ".join(f"{o} {n}" for o, n in found.items())
+                  + f" (total {len(applied.found)})")
+    for label, items in (("novas", applied.added), ("reativadas", applied.reactivated),
+                         ("excluídas na config", applied.excluded)):
+        if items:
+            console.print(f"  {len(items)} {label}: "
+                          + ", ".join(f"{f.key} {f.city_pt}" for f in items))
+    for err in result.errors:
+        console.print(f"  [yellow]![/] {err}")
+    for key, outcome in result.photos:
+        console.print(f"  foto {key}: {outcome}")
+    if result.photos_missing:
+        console.print(f"  [dim]{result.photos_missing} destinos ainda sem foto "
+                      f"(cada recolha busca até {ctx.config.photos.max_per_run}).[/]")
 
 
 @photos_app.command("fetch")
@@ -311,13 +360,33 @@ def design_directions(
     console.print(f"Open [bold]{summary['index']}[/]")
 
 
+def routes_upkeep() -> None:
+    """Monthly discovery when due, else photos for destinations still without one.
+    A failure here is reported and never stops the collection."""
+    ctx, conn = _ctx()
+    try:
+        result = pipeline.run_discover_if_due(ctx, conn)
+        if result is not None:
+            _print_discovery(ctx, result)
+            return
+        done, missing = pipeline.run_missing_photos(ctx, conn)
+        for key, outcome in done:
+            console.print(f"  foto {key}: {outcome}")
+        if done and missing:
+            console.print(f"  [dim]{missing} destinos ainda sem foto.[/]")
+    except (TravelpayoutsError, PhotoSourceError, httpx.HTTPError, ValueError) as exc:
+        console.print(f"[yellow]Descoberta de rotas falhou, a recolha continua:[/] {exc}")
+
+
 def _site_configured(ctx: Context) -> bool:
     return bool(ctx.secrets.cloudflare_api_token and ctx.secrets.cloudflare_account_id)
 
 
 @app.command()
 def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
-    """collect → recheck open deals → detect → render new deals. What the scheduler runs."""
+    """(monthly route discovery) → collect → recheck open deals → detect → render new deals.
+    What the scheduler runs."""
+    routes_upkeep()
     collect()
     recheck_cmd()
     detect()

@@ -1,4 +1,4 @@
--- Schema version 7 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 8 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -95,6 +95,13 @@ CREATE TABLE IF NOT EXISTS routes (
     price_cap_eur        NUMERIC,
     status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'dormant')),
     discovered_at        TEXT NOT NULL,
-    last_observed_at     TEXT,
+    last_observed_at     TEXT,                       -- newest sighting of a price on this route
+    city_en              TEXT,                       -- English name (photo search), from discovery
     PRIMARY KEY (origin, destination)
+);
+
+-- Pipeline bookkeeping, e.g. `routes.discovered_at` (last automatic route discovery).
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );

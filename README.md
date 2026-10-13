@@ -1,7 +1,8 @@
 # Escapadinha
 
 Travel-deals automation for the Portuguese market (placeholder brand). It collects round-trip
-flight prices from Lisbon and Porto, keeps a price history, flags prices well below each
+flight prices for every direct route from Lisbon, Porto, Faro, Madeira, Ponta Delgada and
+Terceira (discovered automatically) plus ~20 long-haul destinations, keeps a price history, flags prices well below each
 route's own historical median, and renders Instagram carousel slides (1080×1350 PNG) with
 pt-PT captions into `./output/<date>/` **for manual review. v1 does not publish anything.**
 
@@ -14,6 +15,8 @@ row, its first run and the archive object: price → deal → observation → ru
 ## Pipeline
 
 ```
+Travelpayouts catalogues ──routes discover──▶ routes table (monthly; dormant after 30 days without prices)
+                                                   │ active routes
 Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 2 h)
                        └──────▶ data/objects/archive/runs/<run>.json.gz (raw responses)
                                    │
@@ -29,8 +32,9 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 
 | Module | Role |
 |---|---|
-| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`), `runner.collect` (route × month loop) |
-| `routes.py` | Routes as data: `sync` (config → `routes` table), `active_routes`, effective rules per route |
+| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited), `runner.collect` (route × month loop), `catalogue.py` (discovery downloads) |
+| `discovery.py` | Pure: catalogues + supplements → direct routes with kind and pt-PT name |
+| `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py` |
 | `detector.py` | Pure functions: `baseline`, `evaluate`, `detect_route` |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
@@ -63,8 +67,10 @@ traffic rules that **Instagram/social media** traffic is allowed before posting.
 ## Running each step
 
 ```bash
-uv run escapadinha routes list             # every route: kind, rules, status, last observed (pt-PT)
-uv run escapadinha collect                 # ~30 API calls: 10 active routes × 3 departure months
+uv run escapadinha routes discover         # find direct routes from the 6 airports (+ photos for new destinations)
+uv run escapadinha routes discover --dry-run --no-photos   # show what would change, store nothing
+uv run escapadinha routes list             # every route + active/dormant counts per origin (pt-PT)
+uv run escapadinha collect                 # active routes × 3 departure months (~1080 calls at 360 routes)
 uv run escapadinha recheck                 # re-verifies open deals against the latest run
 uv run escapadinha detect                  # evaluates the latest run; prints a per-route table
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
@@ -73,8 +79,40 @@ uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you
 uv run escapadinha render deals            # renders deals with status 'new' → 'rendered'
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
-uv run escapadinha run                     # collect → recheck → detect → render (the scheduler)
+uv run escapadinha run                     # (monthly discovery) → collect → recheck → detect → render (the scheduler)
 ```
+
+### Routes are discovered (DECISIONS D21)
+`routes discover` (and `run`, when the last discovery is 30+ days old; the time is kept in the
+`meta` table) builds the route list from Travelpayouts' own data, never from scraping:
+- the static catalogue `data/routes.json` (airline routes; rows with `transfers: 0` departing
+  LIS, OPO, FAO, FNC, PDL or TER), arrival airports mapped to city codes with
+  `data/airports.json`, names from `data/pt/cities.json` (Portuguese, else English);
+- two supplements with the token, because the static catalogue is years out of date: the popular
+  directions per origin (`v1/city-directions`, nonstop ones only) and the nonstop fares found
+  recently from each origin (`v3/prices_for_dates` with no destination, `direct=true`, one call
+  per departure month). Only destinations are used; these prices are never stored;
+- the curated `routes.long_haul` list (LIS and OPO).
+
+Kind: Portugal → `domestic` ("Ilhas"), Europe and North Africa → `europe`, anything else only
+when it is on the long-haul list for that origin. Existing routes keep their name, kind and
+rules; discovery only fills in airports and the English name. `routes.city_names` fixes
+catalogue names (e.g. `HAM: Hamburgo`; the catalogue says "Finkenwerder").
+
+**Dormancy:** after each collection that didn't fail completely, an active route with no price
+seen for `dormant_after_days` (30; counted from its newest sighting, or from `discovered_at` if
+it never had one) becomes `adormecida` and is not collected. The next discovery that finds it
+again reactivates it; the following collection is its probe: with prices it stays, without it
+goes back to sleep. Nothing is deleted. Excluded routes are left alone.
+
+**Photos:** every destination of an active route gets a Pixabay photo automatically (query:
+`photos.queries` override, else the English city name), at most `photos.max_per_run` (40) per
+discovery or run, so ~160 destinations take four runs. Failures are retried next time.
+
+**Budget:** a run makes one request per active route and departure month. On 2026-10-13 that
+was 360 routes × 3 = 1080 requests in 5 min 40 s (≈190/min, latency-bound). The source allows
+600/min; `collector.requests_per_minute: 550` caps it client-side and a 429 still waits and retries.
+At 12 runs/day that's ~13k requests/day and ~70 runner-minutes/day (see D21 for GitHub Actions).
 
 Output for review lives in `output/<YYYY-MM-DD>/`:
 - `deal-<ORIG>-<DEST>-<id>/slide_01.png … slide_03.png`: cover, details, CTA + disclosure
@@ -108,12 +146,18 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
     (nights), are never deals and never count towards its typical low.
   - `overrides`: per-route exceptions, e.g. `"LIS-LON": { max_nights: 7 }`, plus an optional
     `price_cap_eur`. Removing an override restores the kind default on the next command.
-  - `exclusions`: route keys (`LIS-LON`) or destinations (`LON`) that are never collected.
-  - `long_haul`: curated long-haul destinations (`destination`, `city_pt`, `origins`), added as
-    `long_haul` routes.
+  - `exclusions`: route keys (`LIS-LON`) or destinations (`LON`) that are never discovered nor
+    collected (now `MOW`, `LED`, `IEV`, `MSQ`: the old catalogue still lists them).
+  - `long_haul`: 20 curated long-haul destinations (`destination`, `city_pt`, `origins`
+    default LIS and OPO), added as `long_haul` routes.
+  - `origins`, `discover_every_days` (30), `dormant_after_days` (30), `city_names`: discovery,
+    see "Routes are discovered".
   - `seed`: the 10 original routes (city codes like `LON`, `PAR` work), inserted once into an
-    empty table. Changing it later has no effect; discovery (#5) will add routes.
-- `collector`: `months_ahead` (3 = this month + 2), currency. Nights come from each route's rules.
+    empty table. Changing it later has no effect; discovery adds the rest.
+- `collector`: `months_ahead` (3 = this month + 2), currency, `requests_per_minute` (550).
+  Nights come from each route's rules.
+- `photos`: `queries` (Pixabay search per destination code) and `max_per_run` (40).
+- `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
 - `detector`:
   - `threshold: 0.30` flags a price when `price ≤ typical_low × (1 − 0.30)`.
   - `lookback_days: 90` is how far back daily lows count.
@@ -290,7 +334,8 @@ egister-task.ps1 -EveryHours 1
 powershell -ExecutionPolicy Bypass -File scripts
 egister-task.ps1 -Unregister
 ```
-Each run takes about 1 minute and uses 30 API calls. Runs missed while the PC sleeps start
+Each run takes about 6 minutes and makes one API call per active route and month (1080 at 360
+routes; plus ~25 once a month for discovery). Runs missed while the PC sleeps start
 when it wakes. Output is appended to `logs/run-<date>.log`, ending with `---- exit N ----`.
 
 ## Guides ("guia rápido")
@@ -315,11 +360,16 @@ uv run pytest -m "not browser"
 ```
 - `tests/fixtures/prices_for_dates_LIS_LON.json` is **synthetic** and covers the edge cases.
 - `recorded_prices_for_dates_LIS_LON_2026-11.json` is a real response recorded on 2026-10-12.
+- `fixtures/discovery/` holds real catalogue and supplement payloads recorded on 2026-10-13,
+  trimmed to the rows the tests need (`RECORDED.txt` lists the URLs and what was kept).
+- `fixtures/schema_v5.sql` and `schema_v7.sql` are older schemas, to test the upgrades.
 
 ## Data sources and terms
 
 - **Travelpayouts / Aviasales Data API**: a cache of prices users found recently (not live).
-  The limit is 600 req/min on v3 endpoints. Each item's link carries `search_date`, the day a
+  The limit is 600 req/min on v3 endpoints. Route discovery also reads the public data files
+  (`data/routes.json`, `data/airports.json`, `data/pt/cities.json`) and `v1/city-directions`.
+  Each item's link carries `search_date`, the day a
   user found the price, which can be several days old. Captions state both that date and when
   we checked it, and that prices change. Times are UTC, so trip dates are taken from the link's
   local dates.

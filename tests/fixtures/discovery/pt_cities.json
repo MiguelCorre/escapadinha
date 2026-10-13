@@ -1,0 +1,495 @@
+[
+ {
+  "name_translations": {
+   "en": "London"
+  },
+  "cases": {
+   "su": "Londres"
+  },
+  "country_code": "GB",
+  "code": "LON",
+  "time_zone": "Europe/London",
+  "name": "Londres",
+  "coordinates": {
+   "lat": 51.5073509,
+   "lon": -0.1277583
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Tokyo"
+  },
+  "cases": {
+   "su": "Tóquio"
+  },
+  "country_code": "JP",
+  "code": "TYO",
+  "time_zone": "Asia/Tokyo",
+  "name": "Tóquio",
+  "coordinates": {
+   "lat": 35.6761919,
+   "lon": 139.6503106
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "New York"
+  },
+  "cases": {
+   "su": "Nova Iorque"
+  },
+  "country_code": "US",
+  "code": "NYC",
+  "time_zone": "America/New_York",
+  "name": "Nova Iorque",
+  "coordinates": {
+   "lat": 40.7143528,
+   "lon": -74.0059731
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Tenerife"
+  },
+  "cases": {
+   "su": "Tenerife"
+  },
+  "country_code": "ES",
+  "code": "TCI",
+  "time_zone": "Atlantic/Canary",
+  "name": "Tenerife",
+  "coordinates": {
+   "lat": 28.2915637,
+   "lon": -16.6291304
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Marrakech"
+  },
+  "cases": {
+   "su": "Marraqueche Menara"
+  },
+  "country_code": "MA",
+  "code": "RAK",
+  "time_zone": "Africa/Casablanca",
+  "name": "Marraqueche Menara",
+  "coordinates": {
+   "lat": 31.6294723,
+   "lon": -7.9810845
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Las Palmas"
+  },
+  "cases": {
+   "su": "Gran Canária"
+  },
+  "country_code": "ES",
+  "code": "LPA",
+  "time_zone": "Atlantic/Canary",
+  "name": "Gran Canária",
+  "coordinates": {
+   "lat": 28.1235459,
+   "lon": -15.4362574
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Moscow"
+  },
+  "cases": {
+   "su": "Moscovo"
+  },
+  "country_code": "RU",
+  "code": "MOW",
+  "time_zone": "Europe/Moscow",
+  "name": "Moscovo",
+  "coordinates": {
+   "lat": 55.755786,
+   "lon": 37.617633
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Memmingen"
+  },
+  "cases": {
+   "su": "Memmingen"
+  },
+  "country_code": "DE",
+  "code": "FMM",
+  "time_zone": "Europe/Berlin",
+  "name": "Memmingen",
+  "coordinates": {
+   "lat": 47.98861,
+   "lon": 10.239444
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Funchal"
+  },
+  "cases": {
+   "su": "Madeira"
+  },
+  "country_code": "PT",
+  "code": "FNC",
+  "time_zone": "Atlantic/Madeira",
+  "name": "Madeira",
+  "coordinates": {
+   "lat": 32.6669328,
+   "lon": -16.9240554
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Porto"
+  },
+  "cases": {
+   "su": "Porto"
+  },
+  "country_code": "PT",
+  "code": "OPO",
+  "time_zone": "Europe/Lisbon",
+  "name": "Porto",
+  "coordinates": {
+   "lat": 41.1579438,
+   "lon": -8.6291053
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Amsterdam"
+  },
+  "cases": {
+   "su": "Amesterdão"
+  },
+  "country_code": "NL",
+  "code": "AMS",
+  "time_zone": "Europe/Amsterdam",
+  "name": "Amesterdão",
+  "coordinates": {
+   "lat": 52.3730556,
+   "lon": 4.8922222
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Dublin"
+  },
+  "cases": {
+   "su": "Dublin"
+  },
+  "country_code": "IE",
+  "code": "DUB",
+  "time_zone": "Europe/Dublin",
+  "name": "Dublin",
+  "coordinates": {
+   "lat": 53.3498053,
+   "lon": -6.2603097
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Terceira"
+  },
+  "cases": {
+   "su": "Terceira - Lajes"
+  },
+  "country_code": "PT",
+  "code": "TER",
+  "time_zone": "Atlantic/Azores",
+  "name": "Terceira - Lajes",
+  "coordinates": {
+   "lat": 38.754074,
+   "lon": -27.08757
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Madrid"
+  },
+  "cases": {
+   "su": "Madrid"
+  },
+  "country_code": "ES",
+  "code": "MAD",
+  "time_zone": "Europe/Madrid",
+  "name": "Madrid",
+  "coordinates": {
+   "lat": 40.4166909,
+   "lon": -3.7003454
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Berlin"
+  },
+  "cases": {
+   "su": "Berlim"
+  },
+  "country_code": "DE",
+  "code": "BER",
+  "time_zone": "Europe/Berlin",
+  "name": "Berlim",
+  "coordinates": {
+   "lat": 52.5234051,
+   "lon": 13.4113999
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Faro"
+  },
+  "cases": {
+   "su": "Faro"
+  },
+  "country_code": "PT",
+  "code": "FAO",
+  "time_zone": "Europe/Lisbon",
+  "name": "Faro",
+  "coordinates": {
+   "lat": 37.0153597,
+   "lon": -7.935113
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Kyiv"
+  },
+  "cases": {
+   "su": "Kiev"
+  },
+  "country_code": "UA",
+  "code": "IEV",
+  "time_zone": "Europe/Kyiv",
+  "name": "Kiev",
+  "coordinates": {
+   "lat": 50.4501,
+   "lon": 30.5234
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Paris"
+  },
+  "cases": {
+   "su": "Paris"
+  },
+  "country_code": "FR",
+  "code": "PAR",
+  "time_zone": "Europe/Paris",
+  "name": "Paris",
+  "coordinates": {
+   "lat": 48.856614,
+   "lon": 2.3522219
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Boston"
+  },
+  "cases": {
+   "su": "Boston"
+  },
+  "country_code": "US",
+  "code": "BOS",
+  "time_zone": "America/New_York",
+  "name": "Boston",
+  "coordinates": {
+   "lat": 42.3584308,
+   "lon": -71.0597732
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Luanda"
+  },
+  "cases": {
+   "su": "Luanda"
+  },
+  "country_code": "AO",
+  "code": "LAD",
+  "time_zone": "Africa/Luanda",
+  "name": "Luanda",
+  "coordinates": {
+   "lat": -8.8146556,
+   "lon": 13.2301756
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Flores Island (Azores)"
+  },
+  "cases": {
+   "su": "Ilha das Flores"
+  },
+  "country_code": "PT",
+  "code": "FLW",
+  "time_zone": "Atlantic/Azores",
+  "name": "Ilha das Flores",
+  "coordinates": {
+   "lat": 39.466667,
+   "lon": -31.15
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Rio de Janeiro"
+  },
+  "cases": {
+   "su": "Rio de Janeiro"
+  },
+  "country_code": "BR",
+  "code": "RIO",
+  "time_zone": "America/Sao_Paulo",
+  "name": "Rio de Janeiro",
+  "coordinates": {
+   "lat": -22.9068467,
+   "lon": -43.1728965
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Hannover"
+  },
+  "cases": {
+   "su": "Hanôver"
+  },
+  "country_code": "DE",
+  "code": "HAJ",
+  "time_zone": "Europe/Berlin",
+  "name": "Hanôver",
+  "coordinates": {
+   "lat": 52.3720683,
+   "lon": 9.7356861
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Zanzibar"
+  },
+  "cases": {
+   "su": "Zanzibar"
+  },
+  "country_code": "TZ",
+  "code": "ZNZ",
+  "time_zone": "Africa/Dar_es_Salaam",
+  "name": "Zanzibar",
+  "coordinates": {
+   "lat": -6.165193,
+   "lon": 39.1989144
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Horta"
+  },
+  "cases": {
+   "su": "Horta"
+  },
+  "country_code": "PT",
+  "code": "HOR",
+  "time_zone": "Atlantic/Azores",
+  "name": "Horta",
+  "coordinates": {
+   "lat": 38.52,
+   "lon": -28.717222
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Zurich"
+  },
+  "cases": {
+   "su": "Zurique"
+  },
+  "country_code": "CH",
+  "code": "ZRH",
+  "time_zone": "Europe/Zurich",
+  "name": "Zurique",
+  "coordinates": {
+   "lat": 47.367347,
+   "lon": 8.5500025
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Porto Santo"
+  },
+  "cases": {
+   "su": "Porto Santo"
+  },
+  "country_code": "PT",
+  "code": "PXO",
+  "time_zone": "Atlantic/Madeira",
+  "name": "Porto Santo",
+  "coordinates": {
+   "lat": 33.070023,
+   "lon": -16.345015
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Lisbon"
+  },
+  "cases": {
+   "su": "Lisboa"
+  },
+  "country_code": "PT",
+  "code": "LIS",
+  "time_zone": "Europe/Lisbon",
+  "name": "Lisboa",
+  "coordinates": {
+   "lat": 38.7222524,
+   "lon": -9.1393366
+  },
+  "has_flightable_airport": true
+ },
+ {
+  "name_translations": {
+   "en": "Ponta Delgada"
+  },
+  "cases": {
+   "su": "Ponta Delgada"
+  },
+  "country_code": "PT",
+  "code": "PDL",
+  "time_zone": "Atlantic/Azores",
+  "name": "Ponta Delgada",
+  "coordinates": {
+   "lat": 37.743847,
+   "lon": -25.696468
+  },
+  "has_flightable_airport": true
+ }
+]

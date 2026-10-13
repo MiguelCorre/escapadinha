@@ -88,6 +88,7 @@ class Route:
     destination_airports: str | None = None
     discovered_at: datetime | None = None
     last_observed_at: datetime | None = None
+    city_en: str | None = None         # English name from the provider catalogue (photo search)
 
     @property
     def key(self) -> str:
