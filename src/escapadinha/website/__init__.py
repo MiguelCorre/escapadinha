@@ -22,7 +22,7 @@ import shutil
 import sqlite3
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -47,6 +47,37 @@ def slugify(text: str) -> str:
     """'Amesterdão' -> 'amesterdao', 'Onde está?' -> 'onde-esta'."""
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-")
+
+
+def route_slug(origin_city: str, city_pt: str) -> str:
+    """A route page's slug: /voos/<slug>/ ('lisboa-londres')."""
+    return f"{slugify(origin_city)}-{slugify(city_pt)}"
+
+
+def promo_slug(deal_id: int, origin_city: str, city_pt: str) -> str:
+    """A promotion page's slug: /promos/<slug>/ ('12-lisboa-londres')."""
+    return f"{deal_id}-{slugify(origin_city)}-{slugify(city_pt)}"
+
+
+def public_deal_rows(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
+    """Approved/published deals, plus expired ones a human had approved before.
+
+    A deal that expired before anyone approved it is never public.
+    """
+    return [(deal, obs)
+            for deal, obs in db.deals_with_status(conn, "approved", "published", "expired")
+            if deal.status != "expired" or deal.reviewed_at is not None]
+
+
+def deal_image_paths(deal: Deal) -> tuple[list[str], str | None, str | None] | None:
+    """(slides, thumb, og) site paths the build writes for a rendered deal, else None."""
+    folder = Path(deal.output_path) if deal.output_path else None
+    if not folder or not folder.exists():
+        return None
+    base = f"/img/promos/{deal.id}"
+    slides = [f"{base}/{png.stem}.webp" for png in sorted(folder.glob("slide_*.png"))]
+    cover = (folder / "slide_01.png").exists()
+    return slides, f"{base}/thumb.webp" if cover else None, f"{base}/og.jpg" if cover else None
 
 
 @dataclass
@@ -110,16 +141,13 @@ class SiteBuilder:
 
     def public_deals(self) -> list[SiteDeal]:
         """Approved/published deals, plus expired ones a human had approved before."""
-        rows = db.deals_with_status(self.conn, "approved", "published", "expired")
         deals = []
-        for deal, obs in rows:
-            if deal.status == "expired" and deal.reviewed_at is None:
-                continue   # expired before anyone approved it: never public
+        for deal, obs in public_deal_rows(self.conn):
             route = routes.get_route(self.conn, self.cfg.routes, obs.route_key)
             view = build_deal_view(deal, obs, origin_city=self.cfg.origin_name(obs.origin),
                                    destination_city=route.city_pt,
                                    photo=PhotoCredit.from_photo(None, None))
-            slug = f"{deal.id}-{slugify(view.origin_city)}-{slugify(view.destination_city)}"
+            slug = promo_slug(deal.id, view.origin_city, view.destination_city)
             checked_at = deal.last_checked_at or obs.fetched_at
             deals.append(SiteDeal(deal, obs, view, deal.status in LIVE, slug,
                                   checked=pt.lisbon_timestamp(checked_at)))
@@ -134,9 +162,7 @@ class SiteBuilder:
         run_offers = db.observations_seen_since(self.conn, run_id) if run_id else []
         pages = []
         for route in routes.all_routes(self.conn, self.cfg.routes):
-            history = db.route_history(self.conn, route.origin, route.destination,
-                                       since=self.now - timedelta(days=self.cfg.detector.lookback_days),
-                                       exclude_run_id=None)
+            history = pipeline.route_history(self.ctx, self.conn, route, self.now)
             baselines = detector.month_baselines(history, self.cfg.detector, self.now, route.rules)
             months = [(f"{pt.MONTHS[m - 1]} {y}", pt.eur(b.median), b.sample_size)
                       for (y, m), b in sorted(baselines.items())
@@ -148,7 +174,7 @@ class SiteBuilder:
                                              run_offers, promoted={d.obs.id for d in live})
             origin_city = self.cfg.origin_name(route.origin)
             pages.append(RoutePage(
-                route, origin_city, f"{slugify(origin_city)}-{slugify(route.city_pt)}",
+                route, origin_city, route_slug(origin_city, route.city_pt),
                 live=live, recent=[d for d in on_route if not d.live][: self.cfg.site.recent_expired],
                 months=months, lows=lows))
         self._link_low_prices(pages)

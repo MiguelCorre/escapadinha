@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/routes.schema.json",
+  "title": "routes.json: every watched route",
+  "description": "One entry per route in the routes table (active and dormant; routes are never deleted, D23), sorted by key. Origin pages and destination hubs are views over this list.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "routes"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "origin", "destination", "city", "city_en", "kind", "status", "airports", "rules", "path", "months", "cheapest", "counts", "discovered_at", "last_observed_at"],
+        "properties": {
+          "key": {"$ref": "defs.schema.json#/$defs/route_key"},
+          "origin": {"$ref": "defs.schema.json#/$defs/airport"},
+          "destination": {"$ref": "defs.schema.json#/$defs/city"},
+          "city": {"type": "string", "minLength": 1, "description": "Destination name in Portuguese."},
+          "city_en": {"type": ["string", "null"]},
+          "kind": {"$ref": "defs.schema.json#/$defs/kind"},
+          "status": {"$ref": "defs.schema.json#/$defs/route_status", "description": "dormant: no prices for 30 days, not collected; the page stays with a notice."},
+          "airports": {"type": "array", "items": {"$ref": "defs.schema.json#/$defs/airport"}, "description": "Arrival airports from the provider catalogue (may be empty)."},
+          "rules": {"$ref": "defs.schema.json#/$defs/rules"},
+          "path": {"$ref": "defs.schema.json#/$defs/path", "description": "The route page's current URL (/voos/<origem>-<destino>/)."},
+          "months": {
+            "type": "array",
+            "description": "Per departure month with history, ascending. Typical low = median of daily lows (D3); average = mean of the same daily lows, context only. Both null while the month has fewer than meta.detector.min_baseline_days days: say so instead of a number.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["month", "typical_low", "average", "days"],
+              "properties": {
+                "month": {"$ref": "defs.schema.json#/$defs/month"},
+                "typical_low": {"anyOf": [{"$ref": "defs.schema.json#/$defs/eur"}, {"type": "null"}]},
+                "average": {"anyOf": [{"$ref": "defs.schema.json#/$defs/eur"}, {"type": "null"}]},
+                "days": {"type": "integer", "minimum": 0, "description": "Days with a low behind the numbers."}
+              }
+            }
+          },
+          "cheapest": {
+            "anyOf": [{"$ref": "defs.schema.json#/$defs/offer"}, {"type": "null"}],
+            "description": "Cheapest offer within the route's rules in the latest run, found within meta.detector.max_offer_age_days (\"a partir de\" on origin pages). null when there is none."
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["observations", "low_prices", "promotions_live", "promotions_expired"],
+            "properties": {
+              "observations": {"type": "integer", "minimum": 0, "description": "Stored offers on the route, all time."},
+              "low_prices": {"type": "integer", "minimum": 0, "description": "Rows of this route in its origin's low-price file."},
+              "promotions_live": {"type": "integer", "minimum": 0},
+              "promotions_expired": {"type": "integer", "minimum": 0}
+            }
+          },
+          "discovered_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]},
+          "last_observed_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]}
+        }
+      }
+    }
+  }
+}

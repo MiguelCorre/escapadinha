@@ -13,7 +13,7 @@ wheels/
 .env
 data/
 output/
-site/
+/site/
 logs/
 assets/photos/
 assets/fonts/*.ttf

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/promotions.schema.json",
+  "title": "promotions.json: promotions a human approved",
+  "description": "Live (approved, published) and expired-after-approval deals, newest first. Never-approved deals are not here. An expired promotion keeps its page (shared links don't break) but is noindex, has no booking button and says why (D15). Every caption-like text and CTA must carry labels.disclosure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "promotions"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "promotions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "route", "status", "live", "path", "offer", "typical_low", "baseline_days", "discount_pct", "rule", "detected_at", "approved_at", "published_at", "checked_at", "booking_link", "expired", "images"],
+        "properties": {
+          "id": {"$ref": "defs.schema.json#/$defs/deal_id"},
+          "route": {"$ref": "defs.schema.json#/$defs/route_key"},
+          "status": {"enum": ["approved", "published", "expired"]},
+          "live": {"type": "boolean", "description": "approved or published."},
+          "path": {"$ref": "defs.schema.json#/$defs/path", "description": "/promos/<id>-<origem>-<destino>/ (existing URLs are kept)."},
+          "offer": {"$ref": "defs.schema.json#/$defs/offer"},
+          "typical_low": {"anyOf": [{"$ref": "defs.schema.json#/$defs/eur"}, {"type": "null"}], "description": "The deal's stored typical low (deals.baseline_median) at detection; null for the price-cap rule."},
+          "baseline_days": {"type": "integer", "minimum": 0},
+          "discount_pct": {"type": ["number", "null"], "description": "0.40 = 40 % below the typical low."},
+          "rule": {"enum": ["median", "price_cap"]},
+          "detected_at": {"$ref": "defs.schema.json#/$defs/timestamp"},
+          "approved_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]},
+          "published_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]},
+          "checked_at": {"$ref": "defs.schema.json#/$defs/timestamp", "description": "Last recheck (or first fetch): \"verificado a\"."},
+          "booking_link": {"$ref": "defs.schema.json#/$defs/link", "description": "Website Project link (sub_id site-deal-<id>); always null when not live."},
+          "expired": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["reason", "latest"],
+            "properties": {
+              "reason": {"type": ["string", "null"], "description": "pt-PT sentence from the recheck; a price in it is `latest.price`."},
+              "latest": {
+                "type": ["object", "null"],
+                "description": "The price the last recheck saw, with the stored observation it comes from (null when there is none).",
+                "additionalProperties": false,
+                "required": ["obs", "price"],
+                "properties": {
+                  "obs": {"$ref": "defs.schema.json#/$defs/obs_id"},
+                  "price": {"$ref": "defs.schema.json#/$defs/eur"}
+                }
+              }
+            }
+          },
+          "images": {
+            "type": ["object", "null"],
+            "description": "Rendered slides at the paths the current site serves them (null before rendering).",
+            "additionalProperties": false,
+            "required": ["slides", "thumb", "og"],
+            "properties": {
+              "slides": {"type": "array", "items": {"$ref": "defs.schema.json#/$defs/asset"}},
+              "thumb": {"anyOf": [{"$ref": "defs.schema.json#/$defs/asset"}, {"type": "null"}]},
+              "og": {"anyOf": [{"$ref": "defs.schema.json#/$defs/asset"}, {"type": "null"}]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

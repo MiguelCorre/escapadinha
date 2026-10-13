@@ -8,7 +8,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`,
-  `site build|preview|setup|deploy`, `design directions`,
+  `site build|preview|setup|deploy`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 
@@ -17,6 +17,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   outside tests (tests use `tmp_path`). Every deal must trace to `price_observations.id`.
   Every element on the site that shows a price carries `data-obs`, `data-deal` or `data-route`;
   `tests/test_traceability.py` fails on any price string on a page or caption it can't trace.
+  In the website JSON (`contract/site/v1`, D27) every price is an `eur` field next to its
+  observation id, route key or deal id; a new price field must be taught to the checker in
+  `tests/test_site_data.py` (a guard fails otherwise).
+- The website data contract is versioned: change `contract/site/v1/*.schema.json` together with
+  `site_data.py`, keep changes additive within v1 (a breaking change is `v2/`), and regenerate the
+  committed fixtures with `escapadinha export fixtures` (read-only DB copy, anonymous links and
+  credits). Fixtures are test data (`meta.fixture: true`), never deployed.
 - Two tiers (D24): **low prices** (`low_threshold`, automatic on route pages, mature baseline
   only) and **promotion candidates** (`threshold` AND `min_saving_eur`, become deals for review).
   Only candidates create deals; the home page shows promotions only.
@@ -86,7 +93,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: static site builder (`build_site`; route pages list low prices),
-  `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler), `templates/`
+  `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler), `templates/`; shared with
+  the export: `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`
+- `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
+  `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
 - `src/escapadinha/design_directions/`: M2 visual directions (`build_directions` → `output/directions/`);
   palettes + fonts in `directions.py` (contrast computed by `contrast.py`), read-only data in `data.py`

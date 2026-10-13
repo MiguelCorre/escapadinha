@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/labels.schema.json",
+  "title": "labels.json: pt-PT names the site cannot derive",
+  "description": "Lookup tables from i18n_pt.py, so the site and the slides name things the same way. Unknown airline or airport codes are shown as the bare code. Number and date formats are the site's job (pt-PT: '49 €', '49,50 €', 'sex, 6 nov', '07/10/2026', Europe/Lisbon time).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "airlines", "airports", "kinds", "route_status", "months", "months_short", "weekdays_short", "disclosure"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "airlines": {"type": "object", "additionalProperties": {"type": "string"}},
+    "airports": {
+      "type": "object",
+      "description": "Arrival airport code -> name; remote = far from the city it is sold under: name it in the headline (D11).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "remote"],
+        "properties": {"name": {"type": "string"}, "remote": {"type": "boolean"}}
+      }
+    },
+    "kinds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["europe", "long_haul", "domestic"],
+      "properties": {"europe": {"type": "string"}, "long_haul": {"type": "string"}, "domestic": {"type": "string"}}
+    },
+    "route_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "dormant"],
+      "properties": {"active": {"type": "string"}, "dormant": {"type": "string"}}
+    },
+    "months": {"type": "array", "minItems": 12, "maxItems": 12, "items": {"type": "string"}},
+    "months_short": {"type": "array", "minItems": 12, "maxItems": 12, "items": {"type": "string"}},
+    "weekdays_short": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"type": "string"}, "description": "Monday first."},
+    "disclosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["site", "post"],
+      "properties": {
+        "site": {"type": "string", "description": "Next to every booking button."},
+        "post": {"type": "string", "description": "Captions and CTA slides (presentation.DISCLOSURE)."}
+      }
+    }
+  }
+}

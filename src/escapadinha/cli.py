@@ -6,6 +6,7 @@ import json
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 
 import httpx
@@ -45,6 +46,9 @@ app.add_typer(design_app, name="design")
 store_app = typer.Typer(help="Database sync with the R2 bucket (pull, push, status, check).",
                         no_args_is_help=True)
 app.add_typer(store_app, name="store")
+export_app = typer.Typer(help="Website data contract v1 (contract/site/v1): JSON for the Astro site.",
+                         no_args_is_help=True)
+app.add_typer(export_app, name="export")
 
 console = Console()
 
@@ -328,6 +332,40 @@ def site_build() -> None:
                       f"connected yet (docs/runbooks/brand-switch.md)[/]")
 
 
+@export_app.command("site-data")
+def export_site_data(
+    out: Annotated[Path | None, typer.Option(help="Directory (default: site.data_dir)")] = None,
+    new_links: Annotated[bool, typer.Option(help="Create missing partner links (API)")] = True,
+) -> None:
+    """Write the website's JSON data (origins, routes, promotions, low prices per origin, ...)."""
+    from escapadinha import site_data
+
+    ctx, conn = _ctx()
+    out = out or site_data.default_dir(ctx)
+    counts = site_data.export_site_data(ctx, conn, out, new_links=new_links).counts
+    console.print(f"Site data written to [bold]{out}[/]: {counts['routes']} routes, "
+                  f"{counts['origins']} origins, {counts['destinations']} destinations, "
+                  f"{counts['promotions_live']} live + {counts['promotions_expired']} expired "
+                  f"promotions, {counts['low_prices']} low prices")
+
+
+@export_app.command("fixtures")
+def export_fixtures(
+    db_file: Annotated[Path | None, typer.Option("--db", help="Database to read (read-only)")] = None,
+    out: Annotated[Path | None, typer.Option(help="Default: contract/site/v1/fixtures")] = None,
+) -> None:
+    """Regenerate the committed fixtures: a few routes of the real data, anonymous, no API calls."""
+    from escapadinha import site_data
+
+    ctx = Context()
+    out = out or site_data.fixtures_dir(ctx)
+    counts = site_data.generate_fixtures(ctx, db_file or ctx.db_path, out).counts
+    console.print(f"Fixtures written to [bold]{out}[/]: {counts['routes']} routes, "
+                  f"{counts['origins']} origins, {counts['promotions_live']} live + "
+                  f"{counts['promotions_expired']} expired promotions, "
+                  f"{counts['low_prices']} low prices")
+
+
 @site_app.command("preview")
 def site_preview(port: Annotated[int, typer.Option()] = 8766) -> None:
     """Serve ./site locally (http://127.0.0.1:PORT)."""
@@ -535,6 +573,7 @@ def _run_steps(render: bool, full: bool, report: list[str]) -> None:
         console.print(f"{len(uploaded)} local files uploaded to the object store.")
     if render:
         render_deals()
+    export_site_data(out=None, new_links=True)
     site_build()
     if _site_configured(ctx):
         site_deploy()

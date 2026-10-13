@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/origins.schema.json",
+  "title": "origins.json: Portuguese departure airports",
+  "description": "In config order (LIS, OPO, FAO, FNC, PDL, TER). Each has a low-price file even when it is empty.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "origins"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "origins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["iata", "name", "slug", "routes", "low_prices", "promotions_live"],
+        "properties": {
+          "iata": {"$ref": "defs.schema.json#/$defs/airport"},
+          "name": {"type": "string", "minLength": 1, "description": "Portuguese name (\"Madeira\" for FNC)."},
+          "slug": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+          "routes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["active", "dormant"],
+            "properties": {
+              "active": {"type": "integer", "minimum": 0},
+              "dormant": {"type": "integer", "minimum": 0}
+            }
+          },
+          "low_prices": {"type": "integer", "minimum": 0},
+          "promotions_live": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}
