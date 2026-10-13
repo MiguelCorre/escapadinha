@@ -1,17 +1,25 @@
 {% extends "base.html.j2" %}
-{% block photo_class %}dim{% endblock %}
+{% import "_ui.html.j2" as ui with context %}
+{# Guide CTA (dark), same structure as the deal CTA. Disclosure when the guide has affiliate links. #}
+{% block slide_class %}dark{% endblock %}
 {% block style %}
-.cta { font-size: 120px; line-height: 1.04; }
-.handle { font-family: var(--display); font-weight: 700; font-size: 52px; margin-top: 44px; color: var(--sun); }
-.disclosure { margin-top: 40px; font-size: 27px; line-height: 1.4; color: var(--ink-soft); padding: 24px 28px;
-  border-radius: 18px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.25); }
+.cta { font-size: var(--fs-display); font-style: italic; line-height: 1.02; max-height: 420px; }
+.handle { font: italic 500 var(--fs-title)/1.25 var(--display); color: var(--pn-accent); margin-top: 34px; }
+.notice { margin-top: 40px; color: var(--pn-ink); }
+.foot .caption { color: var(--pn-muted); }
 {% endblock %}
-{% block kicker %}<div class="kicker">{{ g.kicker }}</div>{% endblock %}
-{% block body %}
+{% block canvas %}
+{{ ui.photo_layer(photo_uri, "top") }}
+<div class="fade-top"></div>
+{% endblock %}
+{% block content %}
+{{ ui.masthead("dark", g.kicker, "stamp") }}
 <div class="spacer"></div>
-<div class="display cta">{{ g.cta }}</div>
+<div class="display cta" data-max-h="420">{{ g.cta }}</div>
 <div class="handle">Segue {{ brand.handle }} para mais promoções</div>
-{% if g.affiliate %}<div class="disclosure">{{ disclosure }}</div>{% endif %}
-<div class="spacer"></div>
+{% if g.affiliate %}<p class="notice">{{ disclosure }}</p>{% endif %}
+<div class="foot">
+  <span class="caption">{{ ui.credit(photo) }}</span>
+  {{ ui.dots(slide_no, total_slides) }}
+</div>
 {% endblock %}
-{% block footnote %}{% if photo.photographer %}Foto: {{ photo.photographer }} / {{ photo.source }}{% endif %}{% endblock %}

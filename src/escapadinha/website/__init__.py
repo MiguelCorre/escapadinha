@@ -212,7 +212,7 @@ class SiteBuilder:
         if self.out.exists():
             shutil.rmtree(self.out)
         self.out.mkdir(parents=True)
-        shutil.copy(self.ctx.assets_dir / "logo.svg", self.out / "logo.svg")
+        shutil.copy(self.ctx.assets_dir / "logo-light.svg", self.out / "logo.svg")
         (self.out / "favicon.svg").write_text(_FAVICON, encoding="utf-8")
 
         deals = self.public_deals()

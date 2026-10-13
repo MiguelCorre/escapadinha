@@ -1,19 +1,23 @@
 {% extends "base.html.j2" %}
+{% import "_ui.html.j2" as ui with context %}
+{# Cover: full-bleed photo, masthead on a top scrim, everything to read on a paper card. #}
 {% block style %}
-.route { font-size: 76px; margin-bottom: 18px; }
-.route .arrow { color: var(--sun); }
-.airport { font-weight: 700; font-size: 34px; margin: -4px 0 18px; color: var(--sun); }
-.lead { font-family: var(--display); font-weight: 700; font-size: 44px; text-transform: uppercase;
-  letter-spacing: 2px; color: var(--ink-soft); }
-.price { font-size: 300px; line-height: .9; margin: 6px 0 30px -8px; letter-spacing: -6px; }
+.route { font-size: var(--fs-headline); font-weight: 600; line-height: 1.08; }
+.route .to { color: var(--pn-accent); }
+.card .pb { margin-top: 28px; }
 {% endblock %}
-{% block kicker %}<div class="kicker">Promo voo</div>{% endblock %}
-{% block body %}
+{% block canvas %}
+{{ ui.photo_layer(photo_uri) }}
+<div class="scrim-top"></div>
+{% endblock %}
+{% block content %}
+{{ ui.masthead("dark", "Promoção", "stamp") }}
 <div class="spacer"></div>
-<div><div class="display route fit">{{ v.origin_city }} <span class="arrow">→</span> {{ v.destination_city }}</div></div>
-{% if v.remote_airport %}<div class="airport">Aeroporto {{ v.arrival_airport }}</div>{% endif %}
-<div class="lead">ida e volta desde</div>
-<div><div class="display price fit">{{ v.price_compact }}</div></div>
-<div><span class="pill">{{ v.departure_short }} – {{ v.return_short }} · {{ v.nights }}</span></div>
+<div class="scrim-bottom">
+  <div class="over on-photo">{{ ui.dots(slide_no, total_slides) }}<span class="caption">{{ ui.credit(v.photo, v.destination_city) }}</span></div>
+  <div class="card">
+    <div><div class="display route fit">{{ v.origin_city }} <span class="to">→</span> {{ v.destination_headline }}</div></div>
+    {{ ui.price_block(v, "xl") }}
+  </div>
+</div>
 {% endblock %}
-{% block footnote %}Preço por pessoa · {% if v.found_on %}encontrado a {{ v.found_on }}{% else %}verificado a {{ v.checked_at }}{% endif %}{% endblock %}

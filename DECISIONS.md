@@ -59,9 +59,11 @@ rendering works offline from `about:blank`. Long text shrinks via a small `fitTe
 helper. All slides are 4:5 (1080×1350) because Instagram crops carousel items to the
 first item's ratio.
 
-## D7: Fonts: system fonts by default, no bundled download
+## D7: Fonts: system fonts by default, no bundled download (replaced by D22, 2026-10-13)
 Headlines use Bahnschrift or Segoe UI Black. `assets/fonts/display.ttf` (OFL) is picked up
 when present. This keeps the repo free of third-party font binaries until a brand font is chosen.
+**Replaced:** the brand fonts are chosen (D20) and self-hosted as WOFF2 in `assets/fonts/` (D22);
+`display.ttf` is no longer read.
 
 ## D10: Found date vs fetched date (2026-10-12)
 The first real response showed that `prices_for_dates` returns prices users found up to about
@@ -320,4 +322,30 @@ so nothing has to be hosted.
 - **Not synced yet** (local files the website build reads): `data/site_paths.json`,
   `data/site_links.json`, `assets/photos/`, `output/`. The Actions ticket must move or rebuild
   them before CI builds the site.
+
+## D22: Design system, self-hosted fonts, provisional logo, restyled slides (2026-10-13, #12)
+- **What:** direction A written down as `docs/design/design-system.md` (type, colour, spacing, radii,
+  shadows, components, photo treatment, tone of voice) with machine-readable `docs/design/tokens.json`
+  for Tailwind (M3). Values live in `renderer/tokens.py` (base palette imported from `CADERNO`); the JSON
+  is generated from it and a test fails if it is stale or any text pair drops below WCAG AA.
+- **States added:** `success` (below the typical low), `warning` (remote airport, warming up) and
+  `expired`, each with a tint, in light and dark. Lowest ratio in the system: 5.43:1. State is never
+  colour alone (always a word: "abaixo do habitual", "longe do centro", "Expirada").
+- **D20's weakness (slow to scan for a price)** is answered by one price block used everywhere: route,
+  price (largest element, ink, lining tabular figures), discount tag, dates and "encontrado a", always
+  together and in that order. On slides it sits on a paper card, never on the photo.
+- **Photos:** text on photos only on a warm-ink scrim (`#16140F`) with eased stops, ≥ 0.70 under any text
+  (6.69:1 over a white pixel). Checked by rendering the cover and CTA over every cached photo.
+- **Fonts (replaces D7):** Fraunces and Source Serif 4 (SIL OFL 1.1, no Reserved Font Name) from the
+  google/fonts repository, subset to Latin and converted to variable WOFF2 (~600 KB for 4 files, roman +
+  italic), committed in `assets/fonts/` with their `OFL-*.txt`. Fraunces is pinned to `SOFT 0`/`WONK 0`
+  (the Google Fonts default cut). The slides inline them as data URIs, so rendering stays offline (D6).
+  `.gitignore` still ignores `assets/fonts/*.ttf` so no large source TTFs get committed.
+- **Logo:** `assets/logo-light.svg` / `logo-dark.svg`, a line mountain with a terracotta sun plus the
+  wordmark in Fraunces Italic outlined to paths (renders without the font). Replaces `assets/logo.svg`
+  (the website copies the light variant as `/logo.svg`). Provisional until the designer's logo (M6).
+- **Slides:** cover = photo + top scrim + paper card with the price block; slide 2 = paper "ficha" with
+  a captioned photo band, rows, found vs checked (Lisbon time); slide 3 = dark CTA, photo fading into
+  ink, disclosure notice. Guides follow the same pattern (photo cover with card, paper tip pages, dark
+  CTA). All existing rules are unchanged (disclosure, found_date vs fetched_at, arrival airport).
 

@@ -1,0 +1,39 @@
+{#- Slide components (docs/design/design-system.md, "Components"). Import with context:
+    {% import "_ui.html.j2" as ui with context %} -#}
+
+{# Masthead: logo (light = ink on paper, dark = paper on photos/dark) + a label or stamp. #}
+{% macro masthead(variant, text="", kind="label") %}
+<div class="masthead">
+  <div class="logo">{{ logos[variant] | safe }}</div>
+  {% if text %}<span class="{{ 'stamp solid' if kind == 'stamp' else 'label accent' }}">{{ text }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{# Price block. Price, dates and "encontrado a" always together, in this order. #}
+{% macro price_block(v, size="xl", dates=true) %}
+{% set parts = v.price.rsplit(" ", 1) %}{# "91 €" -> number + smaller currency sign #}
+<div class="pb pb-{{ size }}">
+  <div class="pb-row">
+    <div style="flex: 1; min-width: 0"><span class="pb-price fit">{{ parts[0] }}<span class="cur">{{ parts[-1] }}</span></span></div>
+    <div class="pb-side">
+      {% if v.discount_pct %}<span class="tag success num">−{{ v.discount_pct }}%</span>{% endif %}
+      <span class="note">{% if v.discount_pct %}abaixo do habitual<br>{% endif %}ida e volta, por pessoa</span>
+    </div>
+  </div>
+  {% if dates %}
+  <div class="pb-dates">{{ v.departure_short }} → {{ v.return_short }} <span class="n">· {{ v.nights }}</span></div>
+  <div class="pb-found">{% if v.found_on %}Encontrado por um viajante a <b>{{ v.found_on }}</b>{% else %}Verificado a <b>{{ v.checked_at }}</b>{% endif %}</div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro dots(slide_no, total) %}
+{% if total > 1 %}<div class="dots" aria-hidden="true">{% for i in range(total) %}<i class="{{ 'on' if i + 1 == slide_no }}"></i>{% endfor %}</div>{% endif %}
+{% endmacro %}
+
+{# Photo credit line: "Paris · Foto: Fulano / Pixabay". #}
+{% macro credit(photo, place="") %}{% if photo.photographer %}{% if place %}{{ place }} · {% endif %}Foto: {{ photo.photographer }} / {{ photo.source }}{% endif %}{% endmacro %}
+
+{% macro photo_layer(photo_uri, cls="") %}
+{% if photo_uri %}<div class="photo {{ cls }}" style="background-image:url('{{ photo_uri }}')"></div>{% else %}<div class="photo none {{ cls }}"></div>{% endif %}
+{% endmacro %}

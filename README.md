@@ -34,7 +34,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups) |
 | `detector.py` | Pure functions: `baseline`, `evaluate`, `detect_route` |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
-| `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG |
+| `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
 | `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) |
 | `pipeline.py` | Wires the DB to each step; `cli.py` exposes them |
 
@@ -366,10 +366,21 @@ query under `photos.queries` and run `photos fetch --dest LIS`).
 
 ## Fonts and branding
 
-All branding is a placeholder: `assets/logo.svg`, the colour tokens at the top of
-`renderer/templates/base.html.j2`, and the `brand` block in `config.yaml`. Headlines use
-Bahnschrift or Segoe UI Black (Windows system fonts). Drop an OFL display font at
-`assets/fonts/display.ttf` and it is used automatically.
+The look is the **design system** in [docs/design/design-system.md](docs/design/design-system.md)
+(direction A "Caderno de Viagem", DECISIONS D20/D22): type, colour tokens (light/dark, contrast table),
+spacing, components (price block, card, tag, notice, …), photo treatment and tone of voice.
+
+- **Tokens:** values live in `src/escapadinha/renderer/tokens.py`; `docs/design/tokens.json` is the
+  Tailwind-ready copy for the website. After changing a token, regenerate it:
+  `uv run python -c "from escapadinha.renderer import tokens; tokens.write_json()"` (a test fails
+  if it is stale or a colour pair drops below WCAG AA).
+- **Fonts:** Fraunces (headlines, prices) and Source Serif 4 (text), SIL OFL 1.1, self-hosted as
+  WOFF2 in `assets/fonts/` with their licences. The slides inline them, so rendering works offline.
+- **Logo (provisional):** `assets/logo-light.svg` (on paper) and `assets/logo-dark.svg` (on photos
+  and dark slides). The designer's logo (M6) replaces both files.
+- **Slides:** deal = cover (photo + paper card with price, dates, "encontrado a"), ficha (details,
+  found vs checked), CTA (dark, disclosure). Guides: photo cover, paper tip pages, dark CTA.
+- The `brand` block in `config.yaml` sets the name, tagline and handle.
 
 ## Tests
 
