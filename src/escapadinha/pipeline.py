@@ -10,20 +10,20 @@ from pathlib import Path, PureWindowsPath
 
 import httpx
 
-from escapadinha import archive, detector, discovery, i18n_pt, routes
+from escapadinha import archive, detector, discovery, i18n_pt, review_events, routes
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.captions import deal_caption, guide_caption
 from escapadinha.collector.runner import RunSummary, collect
-from escapadinha.collector.base import departure_months
+from escapadinha.collector.base import Fetched, departure_months
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
 from escapadinha.collector.travelpayouts import RateLimiter, TravelpayoutsError, TravelpayoutsSource
 from escapadinha.config import Context
 from escapadinha.guides import load_guide
-from escapadinha.models import Deal, Observation, Route
+from escapadinha.models import Deal, Observation, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
 from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, recheck
-from escapadinha.review import STATUS_PT, ReviewError, ensure_transition
+from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, check_decision
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db
 from escapadinha.storage.mirror import Mirror
@@ -49,7 +49,7 @@ def lisbon_today() -> date:
 # --- collect ------------------------------------------------------------------
 
 def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
-    return collect(conn, _source(ctx), routes.active_routes(conn, ctx.config.routes),
+    return collect(conn, price_source(ctx), routes.active_routes(conn, ctx.config.routes),
                    today=lisbon_today(), months_ahead=ctx.config.collector.months_ahead,
                    store=ctx.object_store, workers=ctx.config.collector.workers)
 
@@ -291,7 +291,7 @@ def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime
 
 # --- review (approval queue) ---------------------------------------------------
 
-def _source(ctx: Context) -> TravelpayoutsSource:
+def price_source(ctx: Context) -> TravelpayoutsSource:
     c = ctx.config.collector
     return TravelpayoutsSource(ctx.secrets.travelpayouts_token, currency=c.currency,
                                limit=c.limit_per_request, market=c.market,
@@ -299,22 +299,29 @@ def _source(ctx: Context) -> TravelpayoutsSource:
                                limiter=RateLimiter(c.requests_per_minute))
 
 
+def _fetch_trip_month(ctx: Context, conn: sqlite3.Connection,
+                      obs: Observation) -> tuple[Fetched, RouteRules]:
+    """The deal's route and departure month, priced now (one request)."""
+    rules = route_for(ctx, conn, obs.route_key).rules
+    fetched = price_source(ctx).fetch(obs.origin, obs.destination,
+                                      obs.departure_date.replace(day=1),
+                                      min_nights=rules.min_nights, max_nights=rules.max_nights)
+    return fetched, rules
+
+
 def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
                now: datetime | None = None) -> tuple[Deal, Recheck]:
     """Fetch this deal's route and departure month right now and recheck the price.
 
     The prices are stored as a `live_check` run (traceable like any other data). A deal
-    whose price moved expires immediately.
+    whose price moved expires immediately (a recheck, owned by the pipeline like `run_recheck`).
     """
     deal, obs = db.get_deal(conn, deal_id)
     if deal.status not in db.OPEN_STATUSES:
         raise ReviewError(f"O deal {deal_id} está '{STATUS_PT[deal.status]}' e já não é verificado.")
-    rules = route_for(ctx, conn, obs.route_key).rules
-    source = _source(ctx)
-    run_id = db.start_run(conn, source.name, scope="live_check")
+    run_id = db.start_run(conn, TravelpayoutsSource.name, scope="live_check")
     try:
-        fetched = source.fetch(obs.origin, obs.destination, obs.departure_date.replace(day=1),
-                               min_nights=rules.min_nights, max_nights=rules.max_nights)
+        fetched, rules = _fetch_trip_month(ctx, conn, obs)
     except Exception as exc:
         db.finish_run(conn, run_id, status="failed", n_requests=1, n_observations=0, error=str(exc))
         raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
@@ -332,35 +339,105 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     return db.get_deal(conn, deal_id)[0], result
 
 
-def approve(ctx: Context, conn: sqlite3.Connection, deal_id: int,
-            note: str | None = None) -> tuple[Deal, Recheck]:
-    """Approve only after a live price check passes; a moved price expires the deal instead."""
+def price_now(ctx: Context, conn: sqlite3.Connection, deal_id: int,
+              now: datetime | None = None) -> Recheck:
+    """The approval gate: this deal's trip priced right now, same rule as the recheck.
+
+    Stores nothing and changes no status, like the review Function (which has no database):
+    a moved price refuses the approval, and the run's own recheck expires the deal (D26).
+    """
+    _, obs = db.get_deal(conn, deal_id)
+    try:
+        fetched, rules = _fetch_trip_month(ctx, conn, obs)
+    except Exception as exc:
+        raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
+    return recheck(obs, fetched.observations, ctx.config.detector, now or db.utcnow(), rules=rules)
+
+
+@dataclass(frozen=True)
+class Decision:
+    """A review decision written as an event (D26)."""
+
+    event: review_events.Event
+    deal: Deal                                   # as the database has it now
+    outcome: review_events.Outcome | None        # None: pending, applied by the next run (R2)
+    check: Recheck | None = None                 # the live price check behind an approval
+
+
+def pending_decisions(ctx: Context, conn: sqlite3.Connection) -> list[review_events.Event]:
+    """Decisions written but not applied to this database yet, oldest first."""
+    return review_events.pending(ctx.object_store, conn)
+
+
+def _decidable(ctx: Context, conn: sqlite3.Connection, deal_id: int, kind: str,
+               post_url: str | None = None) -> Deal:
+    """Refuse up front what the applier would refuse now (same rules), so the reviewer hears
+    it at once; the applier still re-checks against the status at application time."""
     deal, _ = db.get_deal(conn, deal_id)
-    ensure_transition(deal.status, "approved")
-    if not deal.affiliate_url:
-        raise ReviewError("Este deal ainda não tem link de afiliado. Volta a renderizar "
-                          f"({deal.affiliate_error or 'sem erro registado'}).")
-    deal, result = live_check(ctx, conn, deal_id)
-    if result.valid:
-        db.record_review(conn, deal_id, status="approved", note=note)
-        deal = db.get_deal(conn, deal_id)[0]
-    return deal, result
+    waiting = [e for e in pending_decisions(ctx, conn) if e.deal_id == deal_id]
+    if waiting:
+        e = waiting[-1]
+        raise ReviewError(f"Já há uma decisão pendente para o deal {deal_id} "
+                          f"({DECISION_PT[e.type]}, {e.actor}): é aplicada na próxima execução.")
+    check_decision(kind, deal.status, affiliate_url=deal.affiliate_url, post_url=post_url)
+    return deal
 
 
-def reject(conn: sqlite3.Connection, deal_id: int, note: str | None = None) -> Deal:
-    deal, _ = db.get_deal(conn, deal_id)
-    ensure_transition(deal.status, "rejected")
-    db.record_review(conn, deal_id, status="rejected", note=note)
-    return db.get_deal(conn, deal_id)[0]
+def _decide(ctx: Context, conn: sqlite3.Connection, event: review_events.Event,
+            check: Recheck | None = None) -> Decision:
+    """Write the event. With a local database (no R2 keys) nothing else owns it, so apply at
+    once; with R2 the next `run` applies it to the bucket's database."""
+    review_events.write(ctx.object_store, event)
+    outcome = None
+    if not ctx.remote_store:
+        outcome = next((o for o in apply_review_events(ctx, conn) if o.event_id == event.id), None)
+    return Decision(event, db.get_deal(conn, event.deal_id)[0], outcome, check)
 
 
-def mark_published(conn: sqlite3.Connection, deal_id: int, post_url: str | None = None) -> Deal:
-    deal, _ = db.get_deal(conn, deal_id)
-    ensure_transition(deal.status, "published")
-    if post_url and not post_url.startswith(("https://", "http://")):
-        raise ReviewError("O link do post tem de começar por https://")
-    db.record_published(conn, deal_id, post_url or None)
-    return db.get_deal(conn, deal_id)[0]
+def approve(ctx: Context, conn: sqlite3.Connection, deal_id: int, note: str | None = None, *,
+            actor: str, now: datetime | None = None) -> Decision:
+    """Live price check, then an `approve` event carrying it. A moved price refuses (ReviewError
+    with the reason) and writes nothing."""
+    _decidable(ctx, conn, deal_id, "approve")
+    now = now or db.utcnow()
+    check = price_now(ctx, conn, deal_id, now)
+    if not check.valid:
+        raise ReviewError(f"O preço mudou ({check.reason}): não aprovado. "
+                          "A próxima recolha expira o deal.")
+    event = review_events.Event.new("approve", deal_id, actor=actor, now=now, note=note,
+                                    live_check=review_events.LiveCheck.from_recheck(check, now))
+    return _decide(ctx, conn, event, check)
+
+
+def reject(ctx: Context, conn: sqlite3.Connection, deal_id: int, note: str | None = None, *,
+           actor: str, now: datetime | None = None) -> Decision:
+    _decidable(ctx, conn, deal_id, "reject")
+    event = review_events.Event.new("reject", deal_id, actor=actor, now=now or db.utcnow(),
+                                    note=note)
+    return _decide(ctx, conn, event)
+
+
+def mark_published(ctx: Context, conn: sqlite3.Connection, deal_id: int,
+                   post_url: str | None = None, *, actor: str,
+                   now: datetime | None = None) -> Decision:
+    _decidable(ctx, conn, deal_id, "published", post_url)
+    event = review_events.Event.new("published", deal_id, actor=actor, now=now or db.utcnow(),
+                                    post_url=post_url)
+    return _decide(ctx, conn, event)
+
+
+def apply_review_events(ctx: Context, conn: sqlite3.Connection,
+                        now: datetime | None = None) -> list[review_events.Outcome]:
+    """First step of every run: apply pending review events (D26). Never raises for a bad event."""
+    return review_events.apply_pending(ctx.object_store, conn, now=now or db.utcnow(),
+                                       durable=not ctx.remote_store)
+
+
+def export_review_snapshot(ctx: Context, conn: sqlite3.Connection,
+                           now: datetime | None = None) -> dict:
+    """Last step of every run (fast or full): `review/snapshot.json` for any review UI (D26)."""
+    from escapadinha import review_snapshot      # imports the site builder, which imports us
+    return review_snapshot.export(ctx, conn, now or db.utcnow())
 
 
 # --- photos -------------------------------------------------------------------
@@ -461,7 +538,7 @@ def output_files(ctx: Context) -> Mirror:
     return Mirror(ctx.object_store if ctx.remote_store else None, ctx.output_dir, "output")
 
 
-def _deal_rel(output_path: str) -> str:
+def deal_rel(output_path: str) -> str:
     """'<date>/deal-<O>-<D>-<id>' from a stored output path (absolute, written on any OS)."""
     return "/".join(PureWindowsPath(output_path).parts[-2:])
 
@@ -473,7 +550,7 @@ def deal_folder(ctx: Context, deal: Deal) -> Path | None:
     local = Path(deal.output_path)
     if local.is_dir():
         return local
-    return output_files(ctx).folder(_deal_rel(deal.output_path))
+    return output_files(ctx).folder(deal_rel(deal.output_path))
 
 
 def guide_folder(ctx: Context, slug: str) -> Path | None:
@@ -492,7 +569,7 @@ def mirror_local_files(ctx: Context, conn: sqlite3.Connection) -> list[str]:
     store lacks (a no-op without R2 keys or on a fresh runner). Returns the keys uploaded."""
     photos = {p.name: p for p in ctx.photos_dir.glob("*") if p.is_file()}
     outputs: dict[str, Path] = {}
-    folders = [(_deal_rel(d.output_path), Path(d.output_path))
+    folders = [(deal_rel(d.output_path), Path(d.output_path))
                for d in db.deals_with_output(conn) if Path(d.output_path).is_dir()]
     folders += [(f.relative_to(ctx.output_dir).as_posix(), f)
                 for f in ctx.output_dir.glob("*/guia-*") if f.is_dir()]

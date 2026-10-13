@@ -324,17 +324,49 @@ def set_deal_output_path(conn: sqlite3.Connection, deal_id: int, path: str) -> N
     conn.commit()
 
 
+def _review_update(conn: sqlite3.Connection, deal_id: int, status: str, *, note: str | None,
+                   post_url: str | None, at: datetime) -> None:
+    if status == "published":
+        conn.execute("UPDATE deals SET status = 'published', published_at = ?, post_url = ? "
+                     "WHERE id = ?", (_ts(at), post_url, deal_id))
+    else:
+        conn.execute("UPDATE deals SET status = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
+                     (status, _ts(at), note, deal_id))
+
+
 def record_review(conn: sqlite3.Connection, deal_id: int, *, status: str,
                   note: str | None) -> None:
-    conn.execute("UPDATE deals SET status = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
-                 (status, _ts(utcnow()), note, deal_id))
+    """Test setup only: the pipeline changes review statuses through `settle_review_event`."""
+    _review_update(conn, deal_id, status, note=note, post_url=None, at=utcnow())
     conn.commit()
 
 
-def record_published(conn: sqlite3.Connection, deal_id: int, post_url: str | None) -> None:
-    conn.execute("UPDATE deals SET status = 'published', published_at = ?, post_url = ? WHERE id = ?",
-                 (_ts(utcnow()), post_url, deal_id))
-    conn.commit()
+REVIEW_EVENT_KEY = "review_event:"   # meta key prefix: outcome of each applied review event (D26)
+
+
+def settle_review_event(conn: sqlite3.Connection, event_id: str, outcome: dict, *,
+                        deal_id: int | None = None, status: str | None = None,
+                        note: str | None = None, post_url: str | None = None,
+                        at: datetime | None = None) -> None:
+    """Record a review event's outcome and, when it was applied, the deal's new status, in one
+    transaction: the database alone tells whether an event was already applied."""
+    with conn:
+        if status is not None:
+            _review_update(conn, deal_id, status, note=note, post_url=post_url, at=at or utcnow())
+        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
+                     (REVIEW_EVENT_KEY + event_id, json.dumps(outcome, ensure_ascii=False)))
+
+
+def review_event_outcome(conn: sqlite3.Connection, event_id: str) -> dict | None:
+    value = get_meta(conn, REVIEW_EVENT_KEY + event_id)
+    return json.loads(value) if value else None
+
+
+def review_event_outcomes(conn: sqlite3.Connection) -> list[dict]:
+    """Every recorded outcome, newest first."""
+    rows = conn.execute("SELECT value FROM meta WHERE key LIKE ?", (REVIEW_EVENT_KEY + "%",))
+    return sorted((json.loads(r["value"]) for r in rows), key=lambda o: o["settled_at"],
+                  reverse=True)
 
 
 def get_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]:

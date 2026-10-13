@@ -59,14 +59,17 @@ def promo_slug(deal_id: int, origin_city: str, city_pt: str) -> str:
     return f"{deal_id}-{slugify(origin_city)}-{slugify(city_pt)}"
 
 
-def public_deal_rows(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
-    """Approved/published deals, plus expired ones a human had approved before.
+def is_public(deal: Deal) -> bool:
+    """Approved/published deals, plus expired ones a human had approved before. A deal that
+    expired before anyone approved it is never public (site, site data, review snapshot)."""
+    return deal.status in LIVE or (deal.status == "expired" and deal.reviewed_at is not None)
 
-    A deal that expired before anyone approved it is never public.
-    """
+
+def public_deal_rows(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
+    """Every public deal (`is_public`) with its observation."""
     return [(deal, obs)
             for deal, obs in db.deals_with_status(conn, "approved", "published", "expired")
-            if deal.status != "expired" or deal.reviewed_at is not None]
+            if is_public(deal)]
 
 
 def promo_images(deal_id: int) -> str:

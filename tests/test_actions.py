@@ -95,7 +95,7 @@ def test_new_deals_and_review_decisions_take_the_full_path(home):
     [(deal, _)] = db.deals_with_status(conn, "rendered")    # rendered on the full path
     assert "Path: fast" in run_cli()
 
-    pipeline.reject(conn, deal.id, "não")                    # Miguel's decision between runs
+    pipeline.reject(home, conn, deal.id, "não", actor="test")   # Miguel's decision between runs
     conn.close()
     assert "Path: full (changed: promotions)" in run_cli()
     assert "Path: fast" in run_cli()

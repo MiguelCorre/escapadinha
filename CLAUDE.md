@@ -50,14 +50,27 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   through a `storage.mirror.Mirror` (`pipeline.photo_files` / `output_files`): upload when made,
   `file`/`folder` to read (downloads when missing). Never read `output/` or `assets/photos/`
   directly; use `pipeline.deal_folder`, `guide_folder`, `deal_view` (its photo).
-- `run` takes the full path (render → site → deploy) only when `run_path.decide` says so. Anything
-  new the site shows must be part of `run_path.fingerprint`, or a routine run won't publish it.
+- `run` order (`cli._run_steps`): `apply_review_events` (D26) → upkeep → collect → recheck →
+  detect → `run_path.decide` → full path only (render → `export site-data` (D27) → site build →
+  deploy → `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
+  full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
+  `run_path.fingerprint`, or a routine run won't publish it.
+- Public deals, page slugs and image paths come from one place (`website.is_public`,
+  `public_deal_rows`, `promo_slug`, `route_slug`, `promo_images`, `deal_image_paths`): the site,
+  the site data export and the review snapshot all use them.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
 - No scraping of booking sites or airlines (ToS and legal risk; see DECISIONS D13).
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
   only shows deals a human approved; expired pages stay `noindex` without a booking link.
+- Review decisions (approve, reject, published) are events (D26): writers (`pipeline.approve` /
+  `reject` / `mark_published`, the review page, the review Function) only write
+  `review/events/pending/`; `review_events.apply_pending` is the only code that changes those
+  statuses (`tests/test_review_events.py` checks it). Approve needs a passing live check in the
+  event (`pipeline.price_now`, stores nothing); the applier re-checks every transition and archives
+  refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
+  them only with a new version. Render (new → rendered) and rechecks stay pipeline-owned.
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with
   `affiliate.project_for("instagram"|"website")`; never read `project_id` directly (D19).
@@ -84,7 +97,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
-- `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page
+- `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,
+  `pending`, `apply_pending`); `review_snapshot.py`: `review/snapshot.json` + `review/slides/`;
+  `web.py` + `templates/review.html.j2`: the local review page
+- `contract/review/v1/`: JSON Schemas of review events and the snapshot (the review Function's contract)
 - `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, fonts, scrims, components, fitText),
   `_ui.html.j2` (masthead, price block, dots, credit) + `deal/`, `guide/`
 - `docs/design/`: `design-system.md` (the visual contract) + `tokens.json`, generated from

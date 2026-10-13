@@ -373,24 +373,29 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
 
     from escapadinha import run_path
     calls = []
-    for name in ("routes_upkeep", "recheck_cmd", "detect", "render_deals",
-                 "export_site_data", "site_build", "site_deploy"):
+    for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "render_deals",
+                 "export_site_data", "site_build", "site_deploy", "export_review_snapshot"):
         monkeypatch.setattr(cli, name, lambda *a, _n=name, **k: calls.append(_n))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
         status="ok", n_requests=1, n_observations=1, n_new=0, errors=[]))
     monkeypatch.setattr(cli, "_ctx", lambda: (None, None))
     monkeypatch.setattr(cli, "_site_configured", lambda ctx: True)
     monkeypatch.setattr(cli.pipeline, "mirror_local_files", lambda ctx, conn: [])
-    monkeypatch.setattr(run_path, "record_full_path", lambda ctx, conn: None)
+    monkeypatch.setattr(run_path, "record_full_path",
+                        lambda ctx, conn: calls.append("record_full_path"))
     monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.Decision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
-    assert calls[-4:] == ["render_deals", "export_site_data", "site_build", "site_deploy"]
+    assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
+                     "render_deals", "export_site_data", "site_build", "site_deploy",
+                     "record_full_path", "export_review_snapshot"]          # D25, D26, D27
     calls.clear()
     cli._run_steps(render=False, full=True, report=[])
-    assert calls[-3:] == ["export_site_data", "site_build", "site_deploy"]
+    assert calls[-5:] == ["export_site_data", "site_build", "site_deploy", "record_full_path",
+                          "export_review_snapshot"]
     calls.clear()
     cli._run_steps(render=True, full=False, report=[])                 # fast path: no export
-    assert "export_site_data" not in calls and "site_build" not in calls
+    assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
+                     "export_review_snapshot"]
 
 
 # --- committed fixtures -----------------------------------------------------------------------
