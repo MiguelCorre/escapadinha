@@ -6,9 +6,9 @@ The steps before the first public post, in order. Tick them as they're done.
 - [x] Brand: "Onde está a Nocas?" (2026-10-13). The logo is still a placeholder.
 - [x] Instagram account: https://www.instagram.com/ondestaanocas/ (handle may still change).
 - [ ] Switch it to a **professional** (Business/Creator) account. v2 publishing via the Graph API needs this.
-- [ ] Put the website up: it's built (`escapadinha site build`). Still to do: create a Cloudflare
-      account, put `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in `.env`, then run
-      `escapadinha site setup` and `site deploy`. Put https://ondestaanocas.pages.dev in the Instagram bio.
+- [x] Website live at https://ondestaanocas.pages.dev (2026-10-13). Every scheduled run rebuilds it
+      and deploys when the content changed.
+- [ ] Put https://ondestaanocas.pages.dev in the Instagram bio.
 - [ ] Review the "Como funciona" and "Privacidade" texts (`src/escapadinha/website/templates/`).
 
 ## 2. Travelpayouts

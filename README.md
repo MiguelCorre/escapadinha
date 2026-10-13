@@ -156,12 +156,12 @@ Status flow: `new → rendered → approved → published`. `rejected` and `expi
 
 The website is static and generated from the database into `site/` (git-ignored). It's the
 Instagram "link na bio". The brand is **Onde está a Nocas?** and the site is hosted on
-Cloudflare Pages (`https://ondestaanocas.pages.dev` until a .pt domain is connected).
+Cloudflare Pages. It's **live at https://ondestaanocas.pages.dev** (since 2026-10-13) until a .pt domain is connected.
 
 ```bash
 uv run escapadinha site build     # generate ./site
 uv run escapadinha site preview   # http://127.0.0.1:8766
-uv run escapadinha site setup     # one-time: create the Cloudflare Pages project
+uv run escapadinha site setup     # one-time: create the Cloudflare Pages project (REST API)
 uv run escapadinha site deploy    # upload if the content changed (--force to always upload)
 ```
 

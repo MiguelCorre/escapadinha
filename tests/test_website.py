@@ -166,3 +166,20 @@ def test_deploy_requires_keys(ctx, monkeypatch):
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     with pytest.raises(site_deploy.DeployError, match="CLOUDFLARE_API_TOKEN"):
         site_deploy.deploy(ctx)
+
+
+@respx.mock
+def test_create_project_uses_rest_api(ctx, monkeypatch):
+    import httpx
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc")
+    base = "https://api.cloudflare.com/client/v4/accounts/acc/pages/projects"
+    respx.get(f"{base}/ondestaanocas").mock(return_value=httpx.Response(404, json={"success": False}))
+    created = respx.post(base).mock(return_value=httpx.Response(200, json={
+        "success": True, "result": {"subdomain": "ondestaanocas.pages.dev"}}))
+    assert site_deploy.create_project(ctx).endswith("https://ondestaanocas.pages.dev")
+    assert created.calls.last.request.headers["Authorization"] == "Bearer tok"
+    assert b'"production_branch":"main"' in created.calls.last.request.content.replace(b" ", b"")
+    respx.get(f"{base}/ondestaanocas").mock(return_value=httpx.Response(200, json={
+        "success": True, "result": {"subdomain": "ondestaanocas.pages.dev"}}))
+    assert "already exists" in site_deploy.create_project(ctx)

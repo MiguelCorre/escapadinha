@@ -139,6 +139,11 @@ PowerShell 5.1 turns uv's stderr progress into errors.
   `noindex` with no CTA. Every page shows when the price was found and checked, and has the
   affiliate disclosure. Route pages publish only typical lows backed by
   ≥ `min_baseline_days` days of data.
+- **Project creation via REST API:** `wrangler pages project create` (4.149) delegated a missing
+  project to the Workers flow, which auto-detected the repo as a Hugo site and failed.
+  `site setup` now calls `POST /accounts/{id}/pages/projects`. wrangler only does `pages deploy`,
+  and it runs inside `site/` so it never scans the repo. The token is user-scoped with
+  "Cloudflare Pages: Edit" only.
 - **No cookies of our own;** analytics are optional via Cloudflare Web Analytics (cookieless).
 - **Brand hashtag** comes from the handle (`#ondestaanocas`), not the display name.
 
@@ -159,6 +164,6 @@ so nothing has to be hosted.
   - Needs: an Instagram professional account, Business Login with
     `instagram_business_content_publish`, and `/content_publishing_limit` checks
     (100 posts/24 h). Confirm the Standard vs Advanced access needs at the start of v2.
-- **v3: website (built, D15; awaiting Cloudflare account) + hotels.**
+- **v3: website (live at ondestaanocas.pages.dev, D15) + hotels.**
   - Static site generated from the DB (Cloudflare Pages) with per-route SEO pages.
   - Hotels: redo the API research then.
