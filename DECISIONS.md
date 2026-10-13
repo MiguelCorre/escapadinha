@@ -254,6 +254,10 @@ so nothing has to be hosted.
   stored tracked link (Instagram Project) and is retried on the next build; never a `marker=` URL.
 - **Order matters:** website Project only after the domain is live; Instagram rename together
   with its new Project and `brand.handle`; keep Project 584711 while live deals use its links.
+- **Progress 2026-10-13 (with Miguel, built-in browser):** zone `pontonomada.pt` added to Cloudflare
+  (Free plan, no DNS records yet, AI crawler defaults left as recommended); `.pt` active at PTisp,
+  DNSSEC off, nameservers set to `laura.ns.cloudflare.com` / `rene.ns.cloudflare.com`. Pages custom
+  domain (runbook step 4) waits until Cloudflare reports the zone active.
 
 ## D20: Visual direction A "Caderno de Viagem" (2026-10-13, #11)
 - **Decided by Miguel (2026-10-13): direction A, as is** (no mix, no further notes). Three
