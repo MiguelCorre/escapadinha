@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
@@ -29,6 +32,23 @@ def data_uri(path: Path | None) -> str | None:
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
 
 
+INSTALL_ENV = "ESCAPADINHA_INSTALL_BROWSER"   # set by the Actions workflow (D25)
+_installed = False
+
+
+def ensure_browser(run=subprocess.run) -> bool:
+    """On a CI runner, install Chromium and its system libraries the first time slides are
+    rendered, so runs that render nothing (the fast path) never pay for it. The workflow
+    caches the browser download; the system libraries come from apt. Returns True when it ran
+    the installer. Elsewhere (Miguel's PC) a no-op: `playwright install chromium` is done once."""
+    global _installed
+    if _installed or not os.environ.get(INSTALL_ENV):
+        return False
+    run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], check=True)
+    _installed = True
+    return True
+
+
 class SlideRenderer:
     """Context manager holding one Chromium page; render many slides with it."""
 
@@ -43,6 +63,7 @@ class SlideRenderer:
                        if (uri := data_uri(assets_dir / "fonts" / name))]
 
     def __enter__(self) -> SlideRenderer:
+        ensure_browser()
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch()
         self._page = self._browser.new_page(viewport={"width": WIDTH, "height": HEIGHT},

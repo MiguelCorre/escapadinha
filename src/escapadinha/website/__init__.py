@@ -124,7 +124,7 @@ class SiteBuilder:
             deals.append(SiteDeal(deal, obs, view, deal.status in LIVE, slug,
                                   checked=pt.lisbon_timestamp(checked_at)))
         live = [d for d in deals if d.live]
-        links = pipeline.website_links(self.ctx, [(d.deal, d.obs) for d in live])
+        links = pipeline.website_links(self.ctx, self.conn, [(d.deal, d.obs) for d in live])
         for d in live:
             d.booking_link = links.get(d.deal.id)
         return deals
@@ -144,10 +144,8 @@ class SiteBuilder:
             on_route = [d for d in deals if d.obs.route_key == route.key]
             live = [d for d in on_route if d.live]
             # Low prices (D24); a live promotion's own offer is already shown above them.
-            promoted = {d.obs.id for d in live}
-            lows = [lp for lp in pipeline.route_low_prices(self.ctx, self.conn, route, history,
-                                                           self.now, run_offers)
-                    if lp.observation.id not in promoted][: self.cfg.site.low_prices_per_route]
+            lows = pipeline.shown_low_prices(self.ctx, self.conn, route, history, self.now,
+                                             run_offers, promoted={d.obs.id for d in live})
             origin_city = self.cfg.origin_name(route.origin)
             pages.append(RoutePage(
                 route, origin_city, f"{slugify(origin_city)}-{slugify(route.city_pt)}",
@@ -174,10 +172,8 @@ class SiteBuilder:
             guide = Guide.model_validate(yaml.safe_load(path.read_text("utf-8")))
             if not guide.reviewed:
                 continue
-            rendered = sorted(self.ctx.output_dir.glob(f"*/guia-{guide.slug}"))
-            images = []
-            if rendered:
-                images = self._images(rendered[-1], f"guias/{guide.slug}")
+            rendered = pipeline.guide_folder(self.ctx, guide.slug)
+            images = self._images(rendered, f"guias/{guide.slug}") if rendered else []
             pages.append(GuidePage(guide, images))
         return pages
 
@@ -195,8 +191,8 @@ class SiteBuilder:
         return paths
 
     def _deal_images(self, d: SiteDeal) -> None:
-        folder = Path(d.deal.output_path) if d.deal.output_path else None
-        if not folder or not folder.exists():
+        folder = pipeline.deal_folder(self.ctx, d.deal)   # from the object store on a runner
+        if folder is None:
             return
         d.images = self._images(folder, f"promos/{d.deal.id}")
         cover = folder / "slide_01.png"
@@ -225,8 +221,7 @@ class SiteBuilder:
         pages |= {f"deal:{d.deal.id}": d.url for d in deals}
         pages |= {f"route:{r.route.key}": r.url for r in routes}
         pages |= {f"guide:{g.guide.slug}": g.url for g in guides}
-        history_file = self.ctx.db_path.parent / "site_paths.json"
-        history = json.loads(history_file.read_text("utf-8")) if history_file.exists() else {}
+        history = pipeline.site_paths(self.ctx, self.conn)   # in the database (D25)
         aliases = {f"/promos/{d.deal.id}": d.url
                    for d in sorted(deals, key=lambda d: d.deal.id, reverse=True)}
         plan = redirects.plan_redirects(pages, history, extra=self.cfg.site.redirects,
@@ -234,9 +229,7 @@ class SiteBuilder:
         (self.out / "_redirects").write_text(plan.text(), encoding="utf-8", newline="\n")
         (self.out / "_headers").write_text(redirects.headers_text(self.cfg.site),
                                            encoding="utf-8", newline="\n")
-        history_file.parent.mkdir(parents=True, exist_ok=True)
-        history_file.write_text(json.dumps(redirects.update_history(history, pages), indent=2,
-                                           sort_keys=True), encoding="utf-8", newline="\n")
+        pipeline.save_site_paths(self.conn, redirects.update_history(history, pages))
         return plan
 
     def build(self) -> dict:

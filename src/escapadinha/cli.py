@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from datetime import datetime
 from typing import Annotated
 
@@ -12,7 +14,7 @@ from rich.console import Console
 from rich.table import Table
 
 from escapadinha import i18n_pt as pt
-from escapadinha import pipeline, routes
+from escapadinha import pipeline, routes, run_path
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
@@ -62,6 +64,12 @@ def init_db() -> None:
 @app.command()
 def collect() -> None:
     """Fetch round-trip prices for every active route and store them."""
+    if _collect().status == "failed":
+        raise typer.Exit(1)
+
+
+def _collect():
+    """Collect and report; a request that fails is listed and the others go on (D25)."""
     ctx, conn = _ctx()
     summary = pipeline.run_collect(ctx, conn)
     console.print(f"Run #{summary.run_id}: [bold]{summary.status}[/] · "
@@ -75,8 +83,7 @@ def collect() -> None:
         days = ctx.config.routes.dormant_after_days
         console.print(f"{len(dormant)} rotas adormecidas (sem preços há {days} dias): "
                       + ", ".join(r.key for r in dormant))
-    if summary.status == "failed":
-        raise typer.Exit(1)
+    return summary
 
 
 @app.command()
@@ -346,7 +353,8 @@ def site_deploy(force: Annotated[bool, typer.Option(help="Deploy even if unchang
     """Upload ./site to Cloudflare Pages if it changed since the last deploy."""
     from escapadinha.website.deploy import deploy
 
-    deployed, message = deploy(Context(), force=force)
+    ctx, conn = _ctx()
+    deployed, message = deploy(ctx, conn, force=force)
     console.print(("[green]Deployed:[/] " if deployed else "") + message)
 
 
@@ -506,39 +514,88 @@ def store_check() -> None:
     console.print(f"Bucket [bold]{ctx.secrets.r2_bucket}[/] OK.")
 
 
-def _run_steps(render: bool) -> None:
+def _run_steps(render: bool, full: bool, report: list[str]) -> None:
     routes_upkeep()
-    collect()
+    summary = _collect()
+    report.append(f"Collection: {summary.status}, {summary.n_requests} requests, "
+                  f"{summary.n_observations} offers ({summary.n_new} new)"
+                  + (f", {len(summary.errors)} failed" if summary.errors else ""))
+    if summary.status == "failed":           # every request failed: the run fails (exit 1)
+        raise typer.Exit(1)
     recheck_cmd()
     detect()
+    ctx, conn = _ctx()
+    decision = run_path.decide(ctx, conn, force=full)
+    console.print(f"Path: {decision.name} ({decision.reason})")
+    report.append(f"Path: {decision.name} ({decision.reason})")
+    if not decision.full:
+        return
+    uploaded = pipeline.mirror_local_files(ctx, conn)     # what a runner lacks (D25)
+    if uploaded:
+        console.print(f"{len(uploaded)} local files uploaded to the object store.")
     if render:
         render_deals()
     site_build()
-    if _site_configured(Context()):
+    if _site_configured(ctx):
         site_deploy()
     else:
         console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
+    run_path.record_full_path(ctx, conn)
+
+
+def _duration(seconds: float) -> str:
+    minutes, secs = divmod(round(seconds), 60)
+    return f"{minutes} min {secs} s" if minutes else f"{secs} s"
+
+
+def _step_summary(status: str, took: str, report: list[str]) -> None:
+    """The run's outcome on the GitHub Actions run page (only when Actions sets the file)."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    lines = [f"### Escapadinha run: {status}", "", f"- Duration: {took}",
+             *(f"- {line}" for line in report)]
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 @app.command()
-def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
-    """(monthly route discovery) → collect → recheck open deals → detect → render new deals.
-    What the scheduler runs.
+def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True,
+        full: Annotated[bool, typer.Option(
+            "--full", help="Render, build and deploy even if nothing the site shows changed")] = False,
+        ) -> None:
+    """(monthly route discovery) → collect → recheck open deals → detect, then the full path
+    (render new deals → build the site → deploy) only when something it shows changed.
+    What the scheduler runs (GitHub Actions, D25).
 
     With R2 keys in .env: lock → pull the database → daily backup → steps → push → unlock.
     Another run holding the lock makes this one exit 0 without touching anything.
     """
-    ctx = Context()
-    if not ctx.remote_store:
-        _run_steps(render)
-        return
+    started, report, status = time.monotonic(), [], "failed"
     try:
-        with sync.run_session(ctx.object_store, ctx.db_path, ctx.sync_state_path,
-                              owner=sync.owner_id("run"), log=console.print):
-            _run_steps(render)
-    except LockHeld as exc:
-        console.print(f"Another run is in progress ({exc}): nothing done.")
-        raise typer.Exit(0) from None
+        ctx = Context()
+        if not ctx.remote_store:
+            _run_steps(render, full, report)
+        else:
+            try:
+                with sync.run_session(ctx.object_store, ctx.db_path, ctx.sync_state_path,
+                                      owner=sync.owner_id("run"), log=console.print):
+                    _run_steps(render, full, report)
+            except LockHeld as exc:
+                console.print(f"Another run is in progress ({exc}): nothing done.")
+                status = "skipped (another run holds the lock)"
+                raise typer.Exit(0) from None
+        status = "ok"
+    except typer.Exit:                    # status already says why (lock held or collection failed)
+        raise
+    except Exception as exc:
+        first_line = next(iter(str(exc).splitlines()), "")
+        report.append(f"Error: {type(exc).__name__}: {first_line[:300]}")
+        raise
+    finally:
+        took = _duration(time.monotonic() - started)
+        console.print(f"Run {status} in {took}.")
+        _step_summary(status, took, report)
 
 
 def main() -> None:
