@@ -31,7 +31,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 |---|---|
 | `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`), `runner.collect` (route × month loop) |
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `active_routes`, effective rules per route |
-| `storage/` | `schema.sql` + plain-SQL repository functions in `db.py` |
+| `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups) |
 | `detector.py` | Pure functions: `baseline`, `evaluate`, `detect_route` |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG |
@@ -56,6 +56,7 @@ Keys (`.env`, never committed):
 | `TRAVELPAYOUTS_TOKEN` | travelpayouts.com → sign up → *Profile → API token* |
 | `TRAVELPAYOUTS_MARKER` | Your partner marker (numeric). Appended to Aviasales links as `marker=` |
 | `PIXABAY_API_KEY` | pixabay.com/api/docs: free key, shown on that page once you're logged in |
+| `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Optional. Cloudflare → R2 → *Manage R2 API Tokens* (Object Read & Write on the bucket only). All four set = database and archives in R2 (see [Database in R2](#database-in-cloudflare-r2-decisions-d21)); any missing = everything stays under `data/` |
 
 In the Travelpayouts dashboard, join the **Aviasales** program and check under its
 traffic rules that **Instagram/social media** traffic is allowed before posting.
@@ -74,6 +75,9 @@ uv run escapadinha render deals            # renders deals with status 'new' →
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
 uv run escapadinha run                     # collect → recheck → detect → render (the scheduler)
+uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
+uv run escapadinha store pull              # R2 only: bucket database → data/escapadinha.db
+uv run escapadinha store push              # R2 only: data/escapadinha.db → bucket (takes the lock)
 ```
 
 Output for review lives in `output/<YYYY-MM-DD>/`:
@@ -93,7 +97,7 @@ repeated offers, `stats` the seen counts. "The prices of the latest run" are the
 
 Raw responses leave the database: each run (including live checks) writes
 `archive/runs/<run id>.json.gz` through the `ObjectStore` interface (`storage/objects.py`:
-get/put/list/delete/lock). Locally the store is `data/objects/`; Cloudflare R2 comes with #4.
+get/put/list/delete/lock). Without R2 keys the store is `data/objects/`; with them, the R2 bucket.
 Upgrading from schema v6 collapses duplicates (rows with a deal keep their id), parks the old
 `raw_json` values and archives them per run on the next command (`reconstructed: true`), then
 VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
@@ -280,6 +284,66 @@ If conversion fails, the deal keeps **no** link. `affiliate_error` explains why,
 and the next render retries. There is deliberately no fallback to a hand-built `marker=` URL,
 because Aviasales program term 1.4 only allows network tools.
 
+## Database in Cloudflare R2 (DECISIONS D21)
+
+With the four `R2_*` keys in `.env`, the bucket holds everything a run needs between runs, so
+any machine (later GitHub Actions) can run the pipeline. Without them nothing changes: the
+database is `data/escapadinha.db` and objects live under `data/objects/`.
+
+| Object | What |
+|---|---|
+| `db/escapadinha.db` | The database: a consistent copy made with the SQLite backup API, integrity-checked |
+| `db/escapadinha.json` | Its metadata: `generation` (+1 per push), sha256, `pushed_at`, `pushed_by`, last run id |
+| `archive/runs/<run>.json.gz` | Raw API responses per run (D18), written straight to the bucket |
+| `backups/<YYYY-MM-DD>/escapadinha.db` | The database before the first run of that Lisbon day |
+| `locks/run` | The run lock: `{owner, expires_at}` |
+
+`escapadinha run` then does: **lock → pull → daily backup → collect … deploy → push → unlock.**
+- The lock is created with a conditional write (`If-None-Match: *`), so only one run gets it. A
+  run that finds it held prints `Another run is in progress (…): nothing done.` and exits 0
+  without touching anything. A lock older than 60 minutes (a crashed run) is taken over with
+  `If-Match`, and a run only deletes the lock while it still names it.
+- The database is pushed even when a step fails halfway: what was collected is in it and its
+  archives are already in the bucket. A copy that fails `PRAGMA quick_check` is never pushed
+  or installed.
+- `data/escapadinha.db.sync.json` remembers which generation the local file came from. If the
+  local file changed on top of the bucket's current generation, the run uses it (and pushes it);
+  if it changed on top of an older one, the run keeps it as `data/escapadinha.db.local-<time>`
+  and uses the bucket's.
+
+**On your PC** (review, `deal approve`, stats): `store pull` before, `store push` after.
+- `store push` takes the run lock, so it refuses while a run is in progress. It also refuses
+  when the bucket moved on since your pull (`The bucket has a newer database: generation N …`);
+  pull first, or `--force` to overwrite.
+- `store pull` refuses to drop local changes you did not push; `--force` discards them and
+  keeps a `.local-<time>` copy.
+- `store status` shows the bucket's generation, the lock, the backups and your local copy.
+
+**First time** (after filling `.env`):
+```bash
+uv run escapadinha store check             # round trip with throwaway keys: put/get/list/delete + lock
+uv run escapadinha store push              # uploads this PC's database as generation 1
+uv run escapadinha store upload-archives   # raw archives from data/objects/ the bucket lacks
+uv run escapadinha store status
+uv run escapadinha run                     # pulls, backs up, collects, pushes
+```
+
+**Lifecycle rule (set once in the dashboard):** R2 → bucket → *Settings* → *Object lifecycle
+rules* → add rule, prefix `backups/`, *Delete objects* after **30 days**. Nothing else in the
+bucket expires.
+
+**Restore from a backup:**
+1. Stop the scheduled runs (`powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1
+   -Unregister`) and check that `uv run escapadinha store status` shows `lock: free`.
+2. `uv run escapadinha store restore 2026-10-13` (dates are listed by `store status`). The current
+   local file is kept as `data/escapadinha.db.local-<time>`.
+3. Check it (`uv run escapadinha stats LIS-LON`, `uv run escapadinha review`), then
+   `uv run escapadinha store push`. It becomes the next generation; runs pull it from then on.
+4. Register the schedule again (`scripts\register-task.ps1`, see below).
+
+Without the CLI: download `backups/<date>/escapadinha.db` from the R2 dashboard to
+`data/escapadinha.db`, then `uv run escapadinha store push --force`.
+
 ## Scheduling (Windows Task Scheduler)
 
 ```powershell
@@ -315,6 +379,8 @@ uv run pytest -m "not browser"
 ```
 - `tests/fixtures/prices_for_dates_LIS_LON.json` is **synthetic** and covers the edge cases.
 - `recorded_prices_for_dates_LIS_LON_2026-11.json` is a real response recorded on 2026-10-12.
+- The object store contract (`test_objects.py`) and the database sync (`test_sync.py`) run against
+  both the local store and `S3ObjectStore` on moto's in-process S3 mock: no network, no bucket.
 
 ## Data sources and terms
 

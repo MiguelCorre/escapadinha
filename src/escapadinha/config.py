@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from functools import cached_property
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
 import yaml
@@ -13,6 +13,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from escapadinha.storage.objects import ObjectStore
 
 
 def project_root() -> Path:
@@ -28,6 +31,16 @@ class Secrets(BaseSettings):
     pixabay_api_key: str = ""
     cloudflare_api_token: str = ""
     cloudflare_account_id: str = ""
+    r2_endpoint: str = ""             # https://<account-id>.r2.cloudflarestorage.com
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket: str = ""
+
+    @property
+    def r2_configured(self) -> bool:
+        """All four R2 keys set: the database, archives, backups and lock live in R2."""
+        return all((self.r2_endpoint, self.r2_access_key_id, self.r2_secret_access_key,
+                    self.r2_bucket))
 
 
 class Brand(BaseModel):
@@ -254,10 +267,32 @@ class Context:
         return self.root / "data" / "escapadinha.db"
 
     @property
-    def object_store(self) -> "LocalObjectStore":
-        """Raw archives (and later the DB sync, backups and lock). R2 comes with #4."""
+    def remote_store(self) -> bool:
+        """True when the R2 keys are set: `run` then syncs the database through `object_store`."""
+        return self.secrets.r2_configured
+
+    @cached_property
+    def object_store(self) -> "ObjectStore":
+        """Raw archives, the database copy, daily backups and the run lock (D21).
+
+        R2 (`S3ObjectStore`) when all four R2 keys are in .env, else `data/objects/` on disk.
+        """
+        if self.remote_store:
+            from escapadinha.storage.s3 import S3ObjectStore, r2_client
+            s = self.secrets
+            return S3ObjectStore(r2_client(s.r2_endpoint, s.r2_access_key_id,
+                                           s.r2_secret_access_key), s.r2_bucket)
         from escapadinha.storage.objects import LocalObjectStore
-        return LocalObjectStore(self.root / "data" / "objects")
+        return LocalObjectStore(self.local_objects_dir)
+
+    @property
+    def local_objects_dir(self) -> Path:
+        return self.root / "data" / "objects"
+
+    @property
+    def sync_state_path(self) -> Path:
+        """Which remote database generation the local copy came from (storage/sync.py)."""
+        return self.root / "data" / "escapadinha.db.sync.json"
 
     @property
     def output_dir(self) -> Path:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from typing import Annotated
 
 import typer
@@ -16,9 +18,10 @@ from escapadinha.photos import PhotoSourceError
 from escapadinha.review import ReviewError
 from escapadinha.website.deploy import DeployError
 from escapadinha.config import Context
-from escapadinha.storage import db
+from escapadinha.storage import db, sync
+from escapadinha.storage.objects import LockHeld
 
-app = typer.Typer(help="Travel deals from Portugal: collect → detect → render (no publishing).",
+app =typer.Typer(help="Travel deals from Portugal: collect → detect → render (no publishing).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
@@ -36,6 +39,9 @@ app.add_typer(site_app, name="site")
 design_app = typer.Typer(help="Design exploration pages built from real data (M2).",
                          no_args_is_help=True)
 app.add_typer(design_app, name="design")
+store_app = typer.Typer(help="Database sync with the R2 bucket (pull, push, status, check).",
+                        no_args_is_help=True)
+app.add_typer(store_app, name="store")
 
 console = Console()
 
@@ -315,9 +321,119 @@ def _site_configured(ctx: Context) -> bool:
     return bool(ctx.secrets.cloudflare_api_token and ctx.secrets.cloudflare_account_id)
 
 
-@app.command()
-def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
-    """collect → recheck open deals → detect → render new deals. What the scheduler runs."""
+def _remote(ctx: Context) -> None:
+    if not ctx.remote_store:
+        console.print("R2 keys not set in .env: the database stays at "
+                      f"[bold]{ctx.db_path}[/] and objects under data/objects/ (nothing to sync).")
+        raise typer.Exit(1)
+
+
+@store_app.command("status")
+def store_status() -> None:
+    """Bucket database generation, lock, backups and whether the local copy changed."""
+    ctx = Context()
+    if not ctx.remote_store:
+        console.print(f"Local store only (no R2 keys in .env): database at [bold]{ctx.db_path}[/].")
+        return
+    s = sync.status(ctx.object_store, ctx.db_path, ctx.sync_state_path)
+    console.print(f"Bucket [bold]{ctx.secrets.r2_bucket}[/]")
+    remote, lock, backups, state = s["remote"], s["lock"], s["backups"], s["state"]
+    database = f"{remote.describe()}, {remote.size / 1e6:.2f} MB" if remote else "none yet"
+    console.print(f"  database: {database}")
+    if lock:
+        until = pt.lisbon_timestamp(datetime.fromisoformat(lock["expires_at"]))
+        console.print(f"  lock: held by {lock.get('owner')} until {until}")
+    else:
+        console.print("  lock: free")
+    span = f", {backups[0]} … {backups[-1]}" if backups else ""
+    console.print(f"  daily backups: {len(backups)}{span}")
+    if not s["local_exists"]:
+        local = "none (run `escapadinha store pull`)"
+    elif state is None:
+        local = "never synced"
+    else:
+        changed = "changed since" if s["local_changed"] else "unchanged"
+        local = f"from generation {state.generation}, {changed}"
+    console.print(f"Local [bold]{ctx.db_path}[/]: {local}")
+    if remote and state and remote.generation > state.generation:
+        console.print("  [yellow]![/] the bucket is newer: `escapadinha store pull`")
+
+
+@store_app.command("pull")
+def store_pull(force: Annotated[bool, typer.Option(help="Discard local changes (a copy is kept)")] = False) -> None:
+    """Download the bucket's database over the local one."""
+    ctx = Context()
+    _remote(ctx)
+    try:
+        lock = json.loads(ctx.object_store.get(f"locks/{sync.LOCK}"))
+        console.print(f"[yellow]![/] A run is in progress ({lock.get('owner')}): this copy will be "
+                      "outdated when it finishes.")
+    except KeyError:
+        pass
+    try:
+        sync.pull(ctx.object_store, ctx.db_path, ctx.sync_state_path, force=force, log=console.print)
+    except sync.SyncError as exc:
+        console.print(f"[red]Not pulled:[/] {exc}")
+        raise typer.Exit(1) from None
+
+
+@store_app.command("push")
+def store_push(force: Annotated[bool, typer.Option(help="Overwrite a newer bucket database")] = False) -> None:
+    """Upload the local database (takes the run lock; refuses while a run holds it)."""
+    ctx = Context()
+    _remote(ctx)
+    owner = sync.owner_id("store-push")
+    try:
+        with ctx.object_store.lock(sync.LOCK, owner=owner, ttl=sync.LOCK_TTL):
+            sync.push(ctx.object_store, ctx.db_path, ctx.sync_state_path, owner=owner,
+                      force=force, log=console.print)
+    except LockHeld as exc:
+        console.print(f"[red]Not pushed:[/] a run is in progress ({exc}). Try again when it ends.")
+        raise typer.Exit(1) from None
+    except sync.SyncError as exc:
+        console.print(f"[red]Not pushed:[/] {exc}")
+        raise typer.Exit(1) from None
+
+
+@store_app.command("restore")
+def store_restore(day: Annotated[str, typer.Argument(help="Backup date, YYYY-MM-DD (see `store status`)")]) -> None:
+    """Replace the local database with a daily backup (then `store push` to put it live)."""
+    ctx = Context()
+    _remote(ctx)
+    try:
+        sync.restore(ctx.object_store, ctx.db_path, ctx.sync_state_path, day, log=console.print)
+    except KeyError:
+        console.print(f"[red]No backup for {day}.[/] Available: "
+                      f"{', '.join(sync.status(ctx.object_store, ctx.db_path, ctx.sync_state_path)['backups']) or 'none'}")
+        raise typer.Exit(1) from None
+
+
+@store_app.command("upload-archives")
+def store_upload_archives() -> None:
+    """One-off: copy raw archives from data/objects/ that the bucket does not have yet."""
+    from escapadinha.storage.objects import LocalObjectStore
+
+    ctx = Context()
+    _remote(ctx)
+    copied = sync.upload_missing(LocalObjectStore(ctx.local_objects_dir), ctx.object_store)
+    console.print(f"{len(copied)} archive objects uploaded"
+                  + (f" ({copied[0]} … {copied[-1]})" if copied else "") + ".")
+
+
+@store_app.command("check")
+def store_check() -> None:
+    """Round trip on the real bucket (throwaway keys): read/write/list/delete and the lock."""
+    ctx = Context()
+    _remote(ctx)
+    results = sync.check(ctx.object_store)
+    for name, ok in results:
+        console.print(f"  {'[green]✓[/]' if ok else '[red]✗[/]'} {name}")
+    if not all(ok for _, ok in results):
+        raise typer.Exit(1)
+    console.print(f"Bucket [bold]{ctx.secrets.r2_bucket}[/] OK.")
+
+
+def _run_steps(render: bool) -> None:
     collect()
     recheck_cmd()
     detect()
@@ -330,11 +446,31 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
         console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
 
 
+@app.command()
+def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
+    """collect → recheck open deals → detect → render new deals. What the scheduler runs.
+
+    With R2 keys in .env: lock → pull the database → daily backup → steps → push → unlock.
+    Another run holding the lock makes this one exit 0 without touching anything.
+    """
+    ctx = Context()
+    if not ctx.remote_store:
+        _run_steps(render)
+        return
+    try:
+        with sync.run_session(ctx.object_store, ctx.db_path, ctx.sync_state_path,
+                              owner=sync.owner_id("run"), log=console.print):
+            _run_steps(render)
+    except LockHeld as exc:
+        console.print(f"Another run is in progress ({exc}): nothing done.")
+        raise typer.Exit(0) from None
+
+
 def main() -> None:
     try:
         app()
     except (TravelpayoutsError, PhotoSourceError, AffiliateError, ReviewError, DeployError,
-            FileNotFoundError, KeyError) as exc:
+            sync.SyncError, FileNotFoundError, KeyError) as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise SystemExit(2) from None
 

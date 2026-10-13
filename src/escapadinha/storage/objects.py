@@ -1,7 +1,7 @@
 """Object storage behind one small interface: get/put/list/delete/lock.
 
-`LocalObjectStore` keeps objects as files under a directory (tests, Miguel's PC). An
-S3-compatible implementation for Cloudflare R2 comes with #4 and must pass the same
+`LocalObjectStore` keeps objects as files under a directory (tests, no R2 keys in .env).
+`storage.s3.S3ObjectStore` is the S3-compatible one for Cloudflare R2. Both pass the same
 contract tests (tests/test_objects.py).
 """
 
