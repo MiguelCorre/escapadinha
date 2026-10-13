@@ -188,7 +188,7 @@ Status flow: `new → rendered → approved → published`. `rejected` and `expi
 The website is static and generated from the database into `site/` (git-ignored). It's the
 Instagram "link na bio". The brand is **Ponto Nómada** (Instagram still `@ondestaanocas` until renamed) and the site is hosted on
 Cloudflare Pages. It's **live at https://ondestaanocas.pages.dev** (since 2026-10-13) until the
-final domain **pontonomada.pt** (D19, pending registration) is connected. The switch is guided in
+final domain **pontonomada.pt** (D19, registered 2026-10-13 at PTisp) is connected. The switch is guided in
 [docs/runbooks/brand-switch.md](docs/runbooks/brand-switch.md) (pt-PT).
 
 ```bash

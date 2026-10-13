@@ -218,8 +218,9 @@ so nothing has to be hosted.
   whole responses were never stored). Result on the real DB: 9.4 MB → 0.65 MB + 0.8 MB archives.
 
 ## D19: Domain `pontonomada.pt`, host redirect, one Travelpayouts Project per channel (2026-10-13)
-- **Domain:** `pontonomada.pt` is the canonical domain (pending registration by Miguel at a .pt
-  registrar; Cloudflare doesn't sell .pt). `pontonomada.com` is optional and only redirects.
+- **Domain:** `pontonomada.pt` is the canonical domain (registered by Miguel on 2026-10-13 at **PTisp**,
+  4,91 € the first year, 22,76 €/year renewal incl. VAT; cheapest of PTisp, OVHcloud 20,90/16,47 €,
+  Amen 48,59/48,59 €; Hostinger doesn't sell .pt; Cloudflare doesn't sell .pt; WHOIS kept private). `pontonomada.com` is optional and only redirects.
   Config: `site.domain` names it; the switch itself is one line, `site.base_url`. The Pages
   project keeps the name `ondestaanocas` (Pages projects can't be renamed).
 - **Host redirect = an account-level Cloudflare Bulk Redirect**, set up by hand (runbook step 6):
