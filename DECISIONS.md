@@ -322,6 +322,13 @@ so nothing has to be hosted.
 - **Not synced yet** (local files the website build reads): `data/site_paths.json`,
   `data/site_links.json`, `assets/photos/`, `output/`. The Actions ticket must move or rebuild
   them before CI builds the site.
+- **Set up 2026-10-13 with Miguel:** R2 subscription on the Free allowance (card on file, budget
+  alert at 1 USD by email), bucket **`pontonomada`** (private, automatic location = Western Europe,
+  Standard class), lifecycle rule `backups-30-dias` (prefix `backups/`, delete after 30 days),
+  Account API token `pontonomada-pipeline` (Object Read & Write on that bucket only, no expiry).
+  `store check` passed every line on the real bucket (both conditional-write lock checks), then
+  `store push` (generation 1), `store upload-archives` (runs 1–16) and a real `run` (run #17:
+  30 requests, 422 offers, 8 new; daily backup written; generation 2 pushed; lock free).
 
 ## D22: Design system, self-hosted fonts, provisional logo, restyled slides (2026-10-13, #12)
 - **What:** direction A written down as `docs/design/design-system.md` (type, colour, spacing, radii,
