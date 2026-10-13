@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 Travel-deals pipeline for the Portuguese market: collect → detect → render. No publishing in v1.
-See README.md for usage and DECISIONS.md for rationale and the roadmap.
+See README.md for usage and DECISIONS.md for rationale and the roadmap. Vocabulary: GLOSSARY.md.
+v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in docs/agents/.
 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
