@@ -131,6 +131,10 @@ site:
   analytics_token: null                       # Cloudflare Web Analytics token (cookieless), optional
   low_prices_per_route: 5                     # low prices listed per route page (biggest discounts)
   max_new_links_per_build: 300                # partner links created per build (<= 900: API 100 req/min)
+  # Website data contract v1 (DECISIONS D27, contract/site/v1): `export site-data` output and
+  # the row cap per origin's low-price file (biggest discounts kept; ~160 bytes per row).
+  data_dir: output/site-data/v1               # web/src/data once the Astro package exists (#13)
+  max_low_prices_per_origin: 1500
 
 origins_pt:
   LIS: Lisboa

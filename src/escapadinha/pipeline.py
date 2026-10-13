@@ -226,13 +226,20 @@ def route_low_prices(ctx: Context, conn: sqlite3.Connection, route: Route,
     return detector.low_prices(offers, history, ctx.config.detector, now, route.rules)
 
 
+def route_history(ctx: Context, conn: sqlite3.Connection, route: Route,
+                  now: datetime) -> list[Observation]:
+    """The route's stored offers inside the typical low's lookback window."""
+    return db.route_history(conn, route.origin, route.destination,
+                            since=now - timedelta(days=ctx.config.detector.lookback_days),
+                            exclude_run_id=None)
+
+
 def current_baselines(ctx: Context, conn: sqlite3.Connection,
                       route: Route) -> dict[tuple[int, int], detector.Baseline]:
     """Typical low per departure month from all stored history (for `stats`)."""
-    cfg, now = ctx.config.detector, db.utcnow()
-    history = db.route_history(conn, route.origin, route.destination,
-                               since=now - timedelta(days=cfg.lookback_days), exclude_run_id=None)
-    return detector.month_baselines(history, cfg, now, route.rules)
+    now = db.utcnow()
+    return detector.month_baselines(route_history(ctx, conn, route, now), ctx.config.detector,
+                                    now, route.rules)
 
 
 # --- recheck ------------------------------------------------------------------
@@ -486,14 +493,16 @@ def _site_links_file(ctx: Context) -> Path:
     return ctx.db_path.parent / "site_links.json"
 
 
-def website_links(ctx: Context, pairs: list[tuple[Deal, Observation]]) -> dict[int, str | None]:
+def website_links(ctx: Context, pairs: list[tuple[Deal, Observation]],
+                  create: bool = True) -> dict[int, str | None]:
     """Booking link per deal for the website, from the website's Travelpayouts Project.
 
     Without a separate website Project (`affiliate.projects.website: null`) the site uses
     the deal's stored link, exactly as before. With one, a link per (Project, deal) is created
     once (sub_id `site-deal-<id>`) and cached in data/site_links.json; failures are retried on
     the next build and meanwhile fall back to the deal's own tracked link (also from the
-    partner links API, only attributed to the Instagram Project).
+    partner links API, only attributed to the Instagram Project). `create=False` only reads
+    what is already cached (no API request, no file written).
     """
     aff = ctx.config.affiliate
     project = aff.project_for("website")
@@ -503,7 +512,7 @@ def website_links(ctx: Context, pairs: list[tuple[Deal, Observation]]) -> dict[i
     cache = json.loads(path.read_text("utf-8")) if path.exists() else {}
     known = cache.setdefault(str(project), {})
     missing = [(d, o) for d, o in pairs if o.deep_link and not known.get(str(d.id), {}).get("url")]
-    if missing:
+    if missing and create:
         made = _partner_links(ctx, "website", [(d.id, o) for d, o in missing], "site-deal")
         for deal_id, (url, error) in made.items():
             known[str(deal_id)] = {"url": url, "error": error}
@@ -523,7 +532,7 @@ class LowLinks:
 
 
 def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.LowPrice],
-                    now: datetime | None = None) -> LowLinks:
+                    now: datetime | None = None, create: bool = True) -> LowLinks:
     """A tracked booking link per low price, from the website's Travelpayouts Project (D24).
 
     Each link is created once per (observation, Project) through `PartnerLinksClient`
@@ -531,7 +540,8 @@ def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.
     the API for new low prices: at most `site.max_new_links_per_build`, biggest discounts
     first (10 links per request, API limit 100 requests/min). Failed ones are retried on
     later builds. Low prices without a link are shown without a booking button; never a
-    hand-built `marker=` URL.
+    hand-built `marker=` URL. `create=False` only reads the stored links (no API request,
+    nothing written).
     """
     now = now or db.utcnow()
     project = ctx.config.affiliate.project_for("website")
@@ -539,10 +549,12 @@ def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.
               if lp.observation.deep_link and lp.observation.id is not None]
     if project is None or not usable:
         return LowLinks({}, 0, len(lows))
-    db.prune_partner_links(conn, now - LINK_RETENTION)
+    if create:
+        db.prune_partner_links(conn, now - LINK_RETENTION)
     stored = db.partner_links(conn, project, [o.id for o in usable])
     todo = [o for o in usable
             if not stored.get(o.id, (None, None))[0]][: ctx.config.site.max_new_links_per_build]
+    todo = todo if create else []
     if todo:
         made = _partner_links(ctx, "website", [(o.id, o) for o in todo], "site-low")
         db.save_partner_links(conn, project, made)

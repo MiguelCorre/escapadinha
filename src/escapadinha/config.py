@@ -182,6 +182,10 @@ class SiteConfig(BaseModel):
     # New partner links per build, biggest discounts first; the rest wait for the next build.
     # <= 900 keeps one build under the API's 100 requests/min (10 links per request).
     max_new_links_per_build: int = Field(300, ge=0, le=900)
+    # Website data contract v1 (D27): where `export site-data` writes (relative to the
+    # project root) and the row cap of each per-origin low-price file (size budget).
+    data_dir: str = "output/site-data/v1"
+    max_low_prices_per_origin: int = Field(1500, ge=1)
 
     @field_validator("base_url")
     @classmethod

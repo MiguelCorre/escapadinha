@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/destinations.schema.json",
+  "title": "destinations.json: destination hubs",
+  "description": "One entry per destination city code, sorted by code. Prices and best months come from routes.json (filter by destination).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "destinations"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "destinations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "city", "city_en", "slug", "kinds", "airports", "routes", "photo"],
+        "properties": {
+          "code": {"$ref": "defs.schema.json#/$defs/city"},
+          "city": {"type": "string", "minLength": 1},
+          "city_en": {"type": ["string", "null"]},
+          "slug": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+          "kinds": {"type": "array", "minItems": 1, "items": {"$ref": "defs.schema.json#/$defs/kind"}},
+          "airports": {"type": "array", "items": {"$ref": "defs.schema.json#/$defs/airport"}},
+          "routes": {"type": "array", "minItems": 1, "items": {"$ref": "defs.schema.json#/$defs/route_key"}, "description": "Routes from Portuguese origins, by key."},
+          "photo": {"$ref": "defs.schema.json#/$defs/photo"}
+        }
+      }
+    }
+  }
+}

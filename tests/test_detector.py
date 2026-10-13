@@ -49,6 +49,15 @@ def test_baseline_respects_window():
     assert b.sample_size == 2 and b.median == 65            # only days 5 and 6
 
 
+def test_baseline_plain_average_of_the_same_daily_lows():
+    history = lows([50, 60, 100], first_ago=4) + lows([40], first_ago=6)   # day 6: 40 beats 100
+    b = baseline(history, since=TODAY - timedelta(days=30), before=TODAY)
+    assert b.median == 50 and b.mean == 50                # daily lows 50, 60, 40
+    skewed = baseline(lows([50, 60, 160], first_ago=4), since=TODAY - timedelta(days=30),
+                      before=TODAY)
+    assert skewed.median == 60 and skewed.mean == 90
+
+
 def test_baseline_empty():
     assert baseline([], since=TODAY, before=TODAY) == Baseline(None, 0, 0)
 

@@ -492,3 +492,69 @@ so nothing has to be hosted.
   requests at a time under the same thread-safe 550/min limiter; responses are still stored and
   archived in request order on one thread. ~1080 requests then take ~2 min (limit-bound) instead
   of ~6, so 12 runs/day fit the 2000 free Actions minutes of a private repo (#7).
+
+## D27: Website data contract v1: JSON Schema, export, committed fixtures (2026-10-13, #10)
+- **What:** the Astro site (M3) is built from JSON only (spec #1, "Website"). Schemas (draft
+  2020-12) in `contract/site/v1/`: `meta`, `labels`, `origins`, `routes`, `destinations`,
+  `promotions`, `low-prices` (one file per origin) plus shared `defs` (`eur`, `offer`, `rules`,
+  dates, ...). `site_data.export_site_data` writes them (`escapadinha export site-data`, default
+  `site.data_dir` = `output/site-data/v1`, `web/src/data` once the web package exists); `run`
+  calls it right before `site build`, on the local disk (not R2). Tests validate the export with
+  `jsonschema` against the committed schemas. **Versioning:** the directory is the major version;
+  additive changes (new optional data, new files) stay in v1, anything that breaks a consumer is v2.
+- **Same rules as the Jinja site, not a second implementation:** routes from `routes.all_routes`,
+  typical lows from `detector.month_baselines`, low prices from `detector.low_prices` over the
+  latest run, public deals from `website.public_deal_rows` (shared with `SiteBuilder`, as are
+  `route_slug`, `promo_slug` and `deal_image_paths`), so page paths and image URLs are the ones the
+  current site serves (a test builds both and checks the files exist). The Jinja site is unchanged.
+- **Raw values, few display strings:** ISO dates, UTC timestamps (`Z`), euros as numbers, codes.
+  pt-PT number/date formatting moves to the site; what it cannot derive comes from `i18n_pt.py`
+  in `labels.json` (airline and airport names, remote airports, kind and status labels, month and
+  weekday names, both disclosures). `found_date` and `fetched_at` stay separate fields (D10); the
+  arrival airport is always present (D11).
+- **Plain average:** `routes[].months[].average` = mean of the same daily lows as the typical low
+  (`Baseline.mean`), context only (story 19). Typical low and average are `null` while a month has
+  fewer than `min_baseline_days` days, so the site says "ainda sem dados" instead of a number.
+  Route `cheapest` = cheapest offer within the rules in the latest run, found within the freshness
+  window (origin pages' "a partir de"). A route-page price calendar was left out of v1 (see open
+  questions); it can be added as an optional field or file.
+- **Traceability (D2) on the JSON:** every price is an `eur` field next to what it traces to:
+  an offer's `obs`, a month's route key (recomputed by the test from stored observations), a
+  promotion's deal (`typical_low` = `deals.baseline_median`; the expiry's recheck price comes with
+  the id of the stored observation of that trip that has it, or is null). `test_site_data.py`
+  checks every price that way, runs the page checker on expiry reasons, and walks the schemas:
+  a new `eur`/`offer` field fails until the checker knows how to trace it. The web package will
+  render `data-obs` / `data-route` / `data-deal` from these ids.
+- **Links:** only from the partner links API. The export calls `pipeline.low_price_links` (for
+  every exported low price, not just the 5 per route page) and `pipeline.website_links`, which
+  create missing links once (capped by `site.max_new_links_per_build`, biggest discounts first) and
+  store them; `site build` right after finds them stored and sends nothing. `--no-new-links` (and
+  the fixtures) only read stored links (`create=False`). With both steps at the 900 maximum one run
+  could send 180 requests in a few minutes, above the API's 100/min: keep the default 300.
+- **Per-origin low-price files (size budget):** rows are arrays in a fixed column order
+  (`obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link`), one row
+  per line, sorted by departure, return, destination, price, id; sorted keys, no other whitespace:
+  deterministic, stable diffs, gzip-friendly. ~135 bytes per row measured; the test enforces ≤ 160
+  on average and the cap `site.max_low_prices_per_origin` (1500, biggest discounts kept,
+  `truncated` says how many were cut), i.e. at most ~240 KB raw per origin, about 4× smaller
+  gzipped. Every origin with routes gets a file (possibly empty), loaded lazily by the explorer.
+  A live promotion's own offer can also be a low-price row (the explorer can dedupe by `obs`).
+- **Fixtures** (`contract/site/v1/fixtures/`, committed, `escapadinha export fixtures --db
+  data/escapadinha.db`): the real database is opened with `mode=ro` and copied into memory
+  (migrated there, never in the file); the windows are those of the latest run (`now` = its
+  finish time), so regenerating the same database gives the same files. ~10 routes: the three
+  busiest origins' best routes (promotions, low prices, prices), plus a long-haul, a domestic, a
+  dormant route and one without a typical low when the data has them. Anonymous: booking links
+  become `https://example.com/parceiro/<sub_id>` (every live promotion and low price gets one, to
+  show the tracked-link state), photographers' names and profile URLs a placeholder; no review
+  notes, post URLs, deep links or secrets are exported at all. **Fixture-only statuses:** the
+  real data had no approved deal yet (3 deals, all expired before review), so on the in-memory
+  copy the newest deal is marked live and an expired one as approved before it expired; prices
+  stay those deals' real observations. `meta.fixture: true` marks the set: never deploy it.
+  Generated 2026-10-13 from run 18: 10 routes (LIS, OPO, FAO), 8 destinations, 1 live + 1 expired
+  promotion, 6 low prices, ~19 KB in all.
+- **Not in v1 (questions for #13–#15):** destination photos and promotion images are paths, not
+  files: the web package must copy `assets/photos/` and the converted slides (today written by
+  `site build` into `site/img/`) or the export must start writing them; a per-route calendar of
+  cheapest prices per departure date (#14); destination "best months" are derivable from
+  `routes.json`; the explorer only sees low prices (none until baselines mature, D24).

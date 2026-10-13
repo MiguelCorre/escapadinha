@@ -43,6 +43,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
 | `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) |
 | `pipeline.py` | Wires the DB to each step; `cli.py` exposes them |
+| `site_data.py` | Website data contract v1: JSON export for the Astro site + fixtures (`contract/site/v1/`) |
 
 ## Setup
 
@@ -82,7 +83,8 @@ uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you
 uv run escapadinha render deals            # renders deals with status 'new' → 'rendered'
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
-uv run escapadinha run                     # (monthly discovery) → collect → recheck → detect → render (the scheduler)
+uv run escapadinha export site-data        # website data contract v1 (JSON) → output/site-data/v1
+uv run escapadinha run                     # (monthly discovery) → collect → recheck → detect → render → export → site (the scheduler)
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
 uv run escapadinha store pull              # R2 only: bucket database → data/escapadinha.db
 uv run escapadinha store push              # R2 only: data/escapadinha.db → bucket (takes the lock)
@@ -176,6 +178,8 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
   - `max_deals_per_route: 1` caps deals per route per run (biggest discount first).
 - `site.low_prices_per_route: 5` (biggest discounts listed per route page) and
   `site.max_new_links_per_build: 300` (partner links created per build, ≤ 900).
+- `site.data_dir: output/site-data/v1` (where `export site-data` writes; `web/src/data` once the
+  Astro package exists) and `site.max_low_prices_per_origin: 1500` (row cap per low-price file).
 - `collector.market: pt` and `collector.booking_base: https://www.aviasales.pt` use prices from
   the Portuguese market, and links open in euros with a 24h clock. Aviasales' UI is English/Russian only.
 
@@ -303,6 +307,44 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
   slug changed (history in `data/site_paths.json`), and short `/promos/<id>` links. A rule never
   uses a path that is a page now (Pages applies redirects before files); skipped config rules are
   printed by `site build`.
+
+### Website data contract v1 (DECISIONS D27)
+
+The Astro site (M3, #13) will be built from JSON files only. Their shape is a JSON Schema
+(draft 2020-12) in [`contract/site/v1/`](contract/site/v1/); the Python export writes them and
+the tests validate every export against the schemas.
+
+```bash
+uv run escapadinha export site-data                 # → site.data_dir (output/site-data/v1)
+uv run escapadinha export site-data --out DIR --no-new-links   # no partner-links API request
+uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the committed fixtures
+```
+
+| File | Content |
+|---|---|
+| `meta.json` | Contract version, `generated_at`, latest run id, detector settings, list of files, counts, `fixture` flag |
+| `labels.json` | pt-PT names from `i18n_pt.py` (airlines, airports + remote flag, route kinds, months, disclosures) |
+| `origins.json` | The Portuguese origins (name, slug, active/dormant routes, low prices, live promotions) |
+| `routes.json` | Every route: kind, status, rules, page path, typical low and plain average per departure month (null while the month has too few days), cheapest fresh offer, counts |
+| `destinations.json` | Destination hubs: city, airports, routes from Portugal, photo credit |
+| `promotions.json` | Approved deals, live and expired after approval: offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
+| `low-prices/<ORIGIN>.json` | One origin's low prices for the explorer: compact rows `[obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link]` |
+
+- **Raw values:** ISO dates, UTC timestamps, euros as numbers. pt-PT formatting is the site's job,
+  with the names from `labels.json`. `found` (traveller) and `fetched` (us) are separate fields.
+- **Traceable:** every price sits next to its observation id; typical lows and averages next to
+  their route (recomputable); a promotion's typical low is its deal's stored baseline.
+- **Links:** only from the partner links API (`pipeline.low_price_links` / `website_links`); the
+  export creates missing ones (capped per build, D24) so `site build` right after reuses them.
+- **Size budget:** a low-price file holds at most `site.max_low_prices_per_origin` (1500) rows,
+  biggest discounts kept, ~135 bytes per row (tested ≤ 160), one row per line, sorted and
+  deterministic (stable diffs, gzip ~4× smaller).
+- **Run integration:** `run` exports right before `site build` (written to the local disk, not to R2).
+- **Fixtures** (`contract/site/v1/fixtures/`, committed): ~10 routes from 3 origins of the real
+  database, opened read-only and copied into memory. Booking links become
+  `https://example.com/parceiro/<sub_id>`, photographers' names a placeholder. When no deal was
+  approved yet, the copy marks the newest deal live and an expired one as approved before it
+  expired, so both promotion states exist (`meta.fixture: true`: never deploy them).
 
 ## Visual directions (M2, issue #11)
 
@@ -476,6 +518,9 @@ uv run pytest -m "not browser"
   expired, new), low prices and typical lows, renders the whole site and every caption, and fails
   on any price string that isn't a referenced observation's price, a referenced deal's stored
   baseline or recheck price, or a typical low computed from the referenced route's observations.
+- `test_site_data.py` validates the JSON export and the committed fixtures against
+  `contract/site/v1/*.schema.json`, traces every price in the export the same way (a guard fails
+  when a schema gains a price field the checker doesn't know), and tests the size budget.
 
 ## Data sources and terms
 
