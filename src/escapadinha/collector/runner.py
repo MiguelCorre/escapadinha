@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 
@@ -26,21 +27,30 @@ class RunSummary:
 
 
 def collect(conn: sqlite3.Connection, source: PriceSource, routes: list[Route], *,
-            today: date, months_ahead: int, store: ObjectStore) -> RunSummary:
-    """One request per (route, month), each with the route's nights range.
-    A failing request is recorded and skipped. All responses go to one archive object."""
+            today: date, months_ahead: int, store: ObjectStore, workers: int = 1) -> RunSummary:
+    """One request per (route, month), each with the route's nights range, `workers` at a
+    time (the source's rate limiter caps requests per minute). Results are stored in request
+    order on this thread (SQLite connections are per-thread). A failing request is recorded
+    and skipped. All responses go to one archive object."""
     run_id = db.start_run(conn, source.name)
-    n_requests = n_observations = n_new = 0
+    n_observations = n_new = 0
     errors: list[str] = []
     responses: list[dict] = []
-    for route in routes:
-        for month in departure_months(today, months_ahead):
-            n_requests += 1
-            try:
-                fetched = source.fetch(
-                    route.origin, route.destination, month,
-                    min_nights=route.rules.min_nights, max_nights=route.rules.max_nights)
-            except Exception as exc:  # one bad route/month must not lose the rest of the run
+    tasks = [(route, month) for route in routes for month in departure_months(today, months_ahead)]
+    n_requests = len(tasks)
+
+    def fetch(task):
+        route, month = task
+        try:
+            return source.fetch(route.origin, route.destination, month,
+                                min_nights=route.rules.min_nights,
+                                max_nights=route.rules.max_nights), None
+        except Exception as exc:  # one bad route/month must not lose the rest of the run
+            return None, exc
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for (route, month), (fetched, exc) in zip(tasks, pool.map(fetch, tasks)):
+            if exc is not None:
                 errors.append(f"{route.key} {month:%Y-%m}: {exc}")
                 continue
             responses.append(fetched.response)

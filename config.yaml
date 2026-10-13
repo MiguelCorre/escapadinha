@@ -14,6 +14,7 @@ collector:
   market: pt                  # prices found on the Portuguese Aviasales market
   booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
   requests_per_minute: 550    # client-side cap (API limit 600/min); a run is ~routes x months_ahead calls
+  workers: 8                  # concurrent requests, under the same per-minute cap (~2 min per run)
 
 # Two tiers (DECISIONS D24), both against the route's typical LOW for that departure month:
 # the median of daily lowest prices (day = when travellers found the price).

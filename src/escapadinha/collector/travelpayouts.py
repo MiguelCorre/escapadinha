@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -123,7 +124,7 @@ class RateLimiter:
 
     The v3 API allows 600 requests a minute; at ~300 routes × 3 months a run makes ~900, so
     a fast connection would hit the limit. Waiting here is cheaper than a 429 (which blocks
-    until the minute resets and costs a retry).
+    until the minute resets and costs a retry). Thread-safe: concurrent requests share it.
     """
 
     def __init__(self, per_minute: int, *, clock: Callable[[], float] = time.monotonic,
@@ -132,8 +133,13 @@ class RateLimiter:
         self._clock = clock
         self._sleep = sleep
         self._calls: deque[float] = deque()
+        self._lock = threading.Lock()
 
     def wait(self) -> None:
+        with self._lock:                 # a waiting thread holds the others back: that's the point
+            self._wait()
+
+    def _wait(self) -> None:
         now = self._clock()
         while self._calls and now - self._calls[0] >= 60:
             self._calls.popleft()

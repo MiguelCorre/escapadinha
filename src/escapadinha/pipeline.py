@@ -50,7 +50,7 @@ def lisbon_today() -> date:
 def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
     return collect(conn, _source(ctx), routes.active_routes(conn, ctx.config.routes),
                    today=lisbon_today(), months_ahead=ctx.config.collector.months_ahead,
-                   store=ctx.object_store)
+                   store=ctx.object_store, workers=ctx.config.collector.workers)
 
 
 def run_dormancy(ctx: Context, conn: sqlite3.Connection, summary: RunSummary,

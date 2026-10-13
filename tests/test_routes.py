@@ -193,3 +193,64 @@ def test_unknown_route_kind_is_rejected_by_the_database(ctx):
     except sqlite3.IntegrityError:
         return
     raise AssertionError("CHECK constraint on kind did not fire")
+
+
+def test_collect_runs_requests_concurrently_and_stores_in_request_order(ctx):
+    """Option a) for the Actions budget: 8 requests in flight, same results as one at a time."""
+    import threading
+    import time
+
+    from escapadinha.collector.base import Fetched
+    from escapadinha.collector.runner import collect
+
+    class SlowSource:
+        name = "test"
+
+        def __init__(self):
+            self.active = self.peak = 0
+            self.lock = threading.Lock()
+
+        def fetch(self, origin, destination, month, *, min_nights, max_nights):
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            time.sleep(0.02)
+            with self.lock:
+                self.active -= 1
+            if destination == "PAR":
+                raise RuntimeError("boom")
+            return Fetched([], {"origin": origin, "destination": destination,
+                                "month": f"{month:%Y-%m}", "payload": {"data": []}})
+
+    conn = pipeline.open_db(ctx)
+    active = routes.active_routes(conn, ctx.config.routes)
+    source = SlowSource()
+    summary = collect(conn, source, active, today=date(2026, 10, 13), months_ahead=3,
+                      store=ctx.object_store, workers=8)
+    assert source.peak > 1 and summary.n_requests == 30 and summary.status == "partial"
+    assert len(summary.errors) == 6 and all("PAR" in e for e in summary.errors)
+    from escapadinha import archive
+    stored = archive.read(ctx.object_store, summary.archive_key)["responses"]
+    expected = [(r.origin, r.destination) for r in active if r.destination != "PAR" for _ in range(3)]
+    assert [(r["origin"], r["destination"]) for r in stored] == expected     # request order kept
+
+
+def test_rate_limiter_is_shared_safely_between_threads():
+    import threading
+
+    from escapadinha.collector.travelpayouts import RateLimiter
+
+    clock = {"t": 0.0}
+    slept = []
+
+    def sleep(s):
+        slept.append(s)
+        clock["t"] += s
+
+    limiter = RateLimiter(10, clock=lambda: clock["t"], sleep=sleep)
+    threads = [threading.Thread(target=limiter.wait) for _ in range(25)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(limiter._calls) <= 10 and len(slept) == 2      # 25 calls: two full-minute waits

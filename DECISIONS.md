@@ -356,6 +356,8 @@ so nothing has to be hosted.
   a captioned photo band, rows, found vs checked (Lisbon time); slide 3 = dark CTA, photo fading into
   ink, disclosure notice. Guides follow the same pattern (photo cover with card, paper tip pages, dark
   CTA). All existing rules are unchanged (disclosure, found_date vs fetched_at, arrival airport).
+- **Reviewed by Miguel (2026-10-13):** "Gosto do design por enquanto": slides and provisional
+  logo approved for now; the designer's logo is still M6.
 
 ## D23: Route discovery from the provider's data, curated long-haul list, dormancy (2026-10-13, #5)
 - **Sources (all Travelpayouts, no scraping, D13):**
@@ -482,3 +484,7 @@ so nothing has to be hosted.
   render the same `DealView` as the caption.
 - **Schema v9:** table `partner_links (observation_id, project_id, partner_url, error, created_at)`.
   Upgrades tested from v5 and v7.
+- **Actions budget, Miguel's choice a) (2026-10-13):** collection runs `collector.workers` (8)
+  requests at a time under the same thread-safe 550/min limiter; responses are still stored and
+  archived in request order on one thread. ~1080 requests then take ~2 min (limit-bound) instead
+  of ~6, so 12 runs/day fit the 2000 free Actions minutes of a private repo (#7).

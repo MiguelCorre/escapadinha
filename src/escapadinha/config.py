@@ -61,6 +61,7 @@ class CollectorConfig(BaseModel):
     market: str | None = "pt"                     # Aviasales market whose searches feed the cache
     booking_base: str = "https://www.aviasales.pt"  # booking site linked from posts (EUR, EU formats)
     requests_per_minute: int = Field(550, ge=1)   # client-side cap; the API allows 600/min
+    workers: int = Field(8, ge=1, le=32)          # concurrent requests (same per-minute cap)
 
 
 class DetectorConfig(BaseModel):
