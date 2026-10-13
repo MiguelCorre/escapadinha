@@ -1,20 +1,29 @@
 {% extends "base.html.j2" %}
-{% block photo_class %}dim{% endblock %}
+{% import "_ui.html.j2" as ui with context %}
+{# Call to action (dark): photo fades into ink, text only on the solid part. Carries DISCLOSURE. #}
+{% block slide_class %}dark{% endblock %}
 {% block style %}
-.cta { font-size: 150px; margin-top: 40px; }
-.cta .hl { color: var(--sun); }
-.sub { font-size: 44px; line-height: 1.3; margin-top: 36px; max-width: 840px; }
-.handle { font-family: var(--display); font-weight: 700; font-size: 48px; margin-top: 46px; }
-.disclosure { font-size: 27px; line-height: 1.4; color: var(--ink-soft); padding: 24px 28px;
-  border-radius: 18px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.25); }
+.cta { font-size: var(--fs-display-xl); font-style: italic; line-height: .98; }
+.cta .hl { color: var(--pn-accent); }
+.sub { font-size: var(--fs-lead); line-height: 1.3; margin-top: 30px; }
+.sub .num { font-family: var(--display); font-weight: 600; }
+.handle { font: italic 500 var(--fs-title)/1.2 var(--display); color: var(--pn-accent); margin-top: 26px; }
+.notice { margin-top: 40px; color: var(--pn-ink); }
+.foot .caption { color: var(--pn-muted); }
 {% endblock %}
-{% block kicker %}<div class="kicker">Reserva já</div>{% endblock %}
-{% block body %}
+{% block canvas %}
+{{ ui.photo_layer(photo_uri, "top") }}
+<div class="fade-top"></div>
+{% endblock %}
+{% block content %}
+{{ ui.masthead("dark", "Reserva já", "stamp") }}
 <div class="spacer"></div>
-<div class="display cta">Link<br>na <span class="hl">bio</span></div>
-<div class="sub">{{ v.origin_city }} → {{ v.destination_headline }} desde {{ v.price }}. Estes preços desaparecem depressa.</div>
+<div class="display cta">Link na <span class="hl">bio</span></div>
+<p class="sub">{{ v.origin_city }} → {{ v.destination_headline }} desde <span class="num">{{ v.price }}</span>. Estes preços desaparecem depressa.</p>
 <div class="handle">{{ brand.handle }}</div>
-<div class="spacer"></div>
-<div class="disclosure">{{ v.disclosure }}</div>
+<p class="notice">{{ v.disclosure }}</p>
+<div class="foot">
+  <span class="caption">{{ ui.credit(v.photo, v.destination_city) }}</span>
+  {{ ui.dots(slide_no, total_slides) }}
+</div>
 {% endblock %}
-{% block footnote %}{% if v.photo.photographer %}Foto: {{ v.photo.photographer }} / {{ v.photo.source }}{% endif %}{% endblock %}

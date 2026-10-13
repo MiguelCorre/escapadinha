@@ -26,8 +26,8 @@ EMPTY = {"success": True, "currency": "eur", "data": []}
 @pytest.fixture
 def ctx(tmp_path, monkeypatch):
     shutil.copy(REPO / "config.yaml", tmp_path / "config.yaml")
-    (tmp_path / "assets").mkdir()
-    shutil.copy(REPO / "assets" / "logo.svg", tmp_path / "assets" / "logo.svg")
+    shutil.copytree(REPO / "assets", tmp_path / "assets",
+                    ignore=shutil.ignore_patterns("photos"))   # logos + self-hosted fonts
     shutil.copytree(REPO / "content", tmp_path / "content")
     monkeypatch.setenv("TRAVELPAYOUTS_TOKEN", "test-token")
     monkeypatch.setenv("TRAVELPAYOUTS_MARKER", "424242")

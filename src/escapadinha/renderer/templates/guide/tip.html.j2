@@ -1,15 +1,27 @@
 {% extends "base.html.j2" %}
-{% block photo_class %}dim{% endblock %}
+{% import "_ui.html.j2" as ui with context %}
+{# Tip: a paper page of the notebook. Numeral, title and body, centred in the page. #}
 {% block style %}
-.num { font-family: var(--display); font-weight: 800; font-size: 220px; line-height: .9; color: var(--sun);
-  margin-top: 60px; }
-.tip-title { font-size: 84px; margin-top: 28px; }
-.tip-body { font-size: 44px; line-height: 1.4; margin-top: 36px; max-width: 900px; }
+.num-big { font: italic 400 240px/.9 var(--display); color: var(--pn-accent); font-variant-numeric: lining-nums; }
+.num-big small { font: 600 var(--fs-label)/1 var(--text); font-style: normal; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--pn-muted); margin-left: 18px; vertical-align: .4em; }
+.tip-title { font-size: var(--fs-display); line-height: 1.04; margin-top: 34px; max-height: 300px; }
+.tip-rule { border: 0; border-top: 2px solid var(--pn-accent); width: 120px; margin-top: 40px; }
+.tip-body { font-size: var(--fs-lead); line-height: 1.45; margin-top: 34px; max-width: 900px; max-height: 450px; }
+.foot { border-top: 2px solid var(--pn-rule); padding-top: 22px; }
+.foot .caption { color: var(--pn-muted); }
 {% endblock %}
-{% block kicker %}<div class="kicker">{{ g.kicker }}</div>{% endblock %}
-{% block body %}
-<div class="num">{{ "%02d" | format(index) }}</div>
-<div class="display tip-title">{{ tip.title }}</div>
-<div class="tip-body">{{ tip.body }}</div>
+{% block content %}
+{{ ui.masthead("light", g.kicker, "label") }}
+<hr class="double-rule">
 <div class="spacer"></div>
+<div class="num-big">{{ "%02d" | format(index) }}<small>de {{ "%02d" | format(g.tips | length) }}</small></div>
+<div class="display tip-title" data-max-h="300">{{ tip.title }}</div>
+<hr class="tip-rule">
+<p class="tip-body" data-max-h="450">{{ tip.body }}</p>
+<div class="spacer" style="flex: 1.4"></div>
+<div class="foot">
+  <span class="caption">{{ g.title }}</span>
+  {{ ui.dots(slide_no, total_slides) }}
+</div>
 {% endblock %}

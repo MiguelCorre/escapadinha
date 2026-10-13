@@ -32,8 +32,8 @@ The steps before the first public post, in order. Tick them as they're done.
 
 ## 3. Content
 - [ ] Review `content/guides/voos-baratos-dicas.yaml`, then set `reviewed: true`.
-- [ ] Replace placeholder branding: `assets/logo.svg`, colours in `renderer/templates/base.html.j2`,
-      `brand` in `config.yaml`.
+- [ ] Replace the provisional logo (`assets/logo-light.svg`, `assets/logo-dark.svg`) with the
+      designer's (M6); colours and type are the design system (`docs/design/design-system.md`).
 
 ## Rules to remember
 - Never use paid search or media buying for Aviasales. Bookings from it aren't paid, and PPC with

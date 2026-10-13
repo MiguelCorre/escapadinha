@@ -1,28 +1,35 @@
 {% extends "base.html.j2" %}
-{% block photo_class %}dim{% endblock %}
+{% import "_ui.html.j2" as ui with context %}
+{# Details ("ficha"): paper page, captioned photo band, price block, rows, found vs checked. #}
 {% block style %}
-.title { font-size: 92px; margin: 70px 0 54px; }
-.rows { display: flex; flex-direction: column; gap: 26px; }
-.row { display: flex; justify-content: space-between; align-items: baseline; gap: 30px;
-  padding-bottom: 22px; border-bottom: 2px solid rgba(255,255,255,.22); }
-.row .k { font-size: 34px; color: var(--ink-soft); }
-.row .val { font-family: var(--display); font-weight: 700; font-size: 50px; text-align: right; }
-.badge { margin-top: 44px; display: inline-block; font-family: var(--display); font-weight: 800;
-  font-size: 46px; background: var(--sun); color: #1a1a1a; padding: 14px 26px; border-radius: 18px; }
+.band { height: 250px; margin-top: 30px; background-size: cover; background-position: center 40%; }
+.band.none { background: linear-gradient(160deg, #3D372C, #16140F); }
+.band-cap { margin-top: 10px; color: var(--pn-muted); }
+.title { font-size: var(--fs-headline); font-weight: 600; margin-top: 26px; }
+.title .to { color: var(--pn-accent); }
+.pb { margin-top: 18px; padding-bottom: 6px; }
+.rows { margin-top: 14px; border-top: 2px solid var(--pn-ink); }
+.row .val .tag { margin-left: 14px; vertical-align: 4px; font-size: 26px; }
+.foot .small { color: var(--pn-muted); max-width: 840px; }
+.foot .small b { color: var(--pn-ink); font-weight: 600; }
 {% endblock %}
-{% block kicker %}<div class="kicker">Detalhes</div>{% endblock %}
-{% block body %}
-<div><div class="display title fit">{{ v.destination_city }}</div></div>
+{% block content %}
+{{ ui.masthead("light", "Ficha da viagem", "label") }}
+<hr class="double-rule">
+{% if photo_uri %}<div class="band" style="background-image:url('{{ photo_uri }}')"></div>{% else %}<div class="band none"></div>{% endif %}
+<div class="caption band-cap">{{ ui.credit(v.photo, v.destination_city) }}</div>
+<div><div class="display title fit">{{ v.origin_city }} <span class="to">→</span> {{ v.destination_headline }}</div></div>
+{{ ui.price_block(v, "md", dates=false) }}
 <div class="rows">
   <div class="row"><span class="k">Ida</span><span class="val">{{ v.departure_short }}</span></div>
-  <div class="row"><span class="k">Volta</span><span class="val">{{ v.return_short }}</span></div>
-  <div class="row"><span class="k">Duração</span><span class="val">{{ v.nights }}</span></div>
-  {% if v.arrival_airport %}<div class="row"><span class="k">Chegada</span><span class="val">{{ v.arrival_airport }}</span></div>{% endif %}
+  <div class="row"><span class="k">Volta</span><span class="val">{{ v.return_short }} <span class="muted" style="font-weight: 400">· {{ v.nights }}</span></span></div>
+  {% if v.arrival_airport %}<div class="row"><span class="k">Chegada</span><span class="val">{{ v.arrival_airport }}{% if v.remote_airport %}<span class="tag warning">longe do centro</span>{% endif %}</span></div>{% endif %}
   {% if v.airline %}<div class="row"><span class="k">Companhia</span><span class="val">{{ v.airline }}</span></div>{% endif %}
-  {% if v.direct is not none %}<div class="row"><span class="k">Voos</span><span class="val">{{ "Diretos" if v.direct else "Com escala" }}</span></div>{% endif %}
-  <div class="row"><span class="k">Preço</span><span class="val">{{ v.price }}</span></div>
+  {% if v.direct is not none %}<div class="row"><span class="k">Voos</span><span class="val">{{ "Diretos, ida e volta" if v.direct else "Com escala" }}</span></div>{% endif %}
 </div>
-{% if v.discount_pct %}<div><span class="badge">−{{ v.discount_pct }}% vs. mínimo habitual</span></div>{% endif %}
 <div class="spacer"></div>
+<div class="foot">
+  <p class="small">{% if v.found_on %}Encontrado por um viajante a <b>{{ v.found_on }}</b> via {{ v.source_label }}. Verificado por nós a <b>{{ v.checked_at }}</b> (hora de Lisboa).{% else %}Verificado por nós a <b>{{ v.checked_at }}</b> (hora de Lisboa) via {{ v.source_label }}.{% endif %} Preços sujeitos a alterações e disponibilidade.</p>
+  {{ ui.dots(slide_no, total_slides) }}
+</div>
 {% endblock %}
-{% block footnote %}{% if v.found_on %}Encontrado a {{ v.found_on }} via {{ v.source_label }} · verificado a {{ v.checked_at }}.{% else %}Verificado a {{ v.checked_at }} via {{ v.source_label }}.{% endif %}<br>Preços sujeitos a alterações e disponibilidade.{% endblock %}

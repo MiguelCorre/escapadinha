@@ -47,7 +47,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate`, `detect_route`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step, plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page
-- `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, scrim, logo, fitText) + `deal/`, `guide/`
+- `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, fonts, scrims, components, fitText),
+  `_ui.html.j2` (masthead, price block, dots, credit) + `deal/`, `guide/`
+- `docs/design/`: `design-system.md` (the visual contract) + `tokens.json`, generated from
+  `renderer/tokens.py` (`tokens.write_json()`; a test fails if stale or below WCAG AA). Fonts in
+  `assets/fonts/` (OFL WOFF2), logos `assets/logo-light.svg` / `logo-dark.svg`.
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: static site builder (`build_site`), `redirects.py` (`_redirects`,

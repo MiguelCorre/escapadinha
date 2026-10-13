@@ -1,6 +1,7 @@
 """HTML/CSS slide templates rendered to 1080×1350 PNG with Playwright (Chromium).
 
-Assets (photo, font) are inlined as data URIs so pages render offline from about:blank.
+Assets (photo, fonts, logo) are inlined so pages render offline from about:blank. Colours, type
+and spacing come from the design system tokens (`renderer.tokens`, docs/design/design-system.md).
 """
 
 from __future__ import annotations
@@ -15,8 +16,10 @@ from playwright.sync_api import sync_playwright
 from escapadinha.config import Brand
 from escapadinha.guides import Guide
 from escapadinha.presentation import DISCLOSURE, DealView, PhotoCredit
+from escapadinha.renderer import tokens
 
 WIDTH, HEIGHT = 1080, 1350
+mimetypes.add_type("font/woff2", ".woff2")
 
 
 def data_uri(path: Path | None) -> str | None:
@@ -33,8 +36,11 @@ class SlideRenderer:
         self._env = Environment(loader=PackageLoader("escapadinha.renderer", "templates"),
                                 autoescape=True, undefined=StrictUndefined)
         self._brand = brand
-        self._logo_svg = (assets_dir / "logo.svg").read_text("utf-8")
-        self._font_uri = data_uri(assets_dir / "fonts" / "display.ttf")
+        # Light logo (ink) for paper slides, dark logo (paper-coloured) for photos and dark slides.
+        self._logos = {v: (assets_dir / f"logo-{v}.svg").read_text("utf-8") for v in ("light", "dark")}
+        # Self-hosted OFL fonts; a missing file falls back to the next family in the stack.
+        self._fonts = [(family, style, uri) for family, style, name in tokens.FONT_FILES
+                       if (uri := data_uri(assets_dir / "fonts" / name))]
 
     def __enter__(self) -> SlideRenderer:
         self._pw = sync_playwright().start()
@@ -49,7 +55,7 @@ class SlideRenderer:
 
     def _render(self, template: str, out: Path, **ctx) -> Path:
         html = self._env.get_template(template).render(
-            brand=self._brand, logo_svg=self._logo_svg, display_font_uri=self._font_uri, **ctx)
+            brand=self._brand, logos=self._logos, fonts=self._fonts, t=tokens, **ctx)
         self._page.set_content(html, wait_until="load")
         self._page.evaluate("document.fonts.ready.then(() => window.fitText())")
         out.parent.mkdir(parents=True, exist_ok=True)

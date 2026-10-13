@@ -1,85 +1,144 @@
+{#- Slide shell: design-system tokens (renderer/tokens.py), self-hosted fonts, components.
+    Components are documented in docs/design/design-system.md; keep the two in step. -#}
+{% import "_ui.html.j2" as ui with context %}
 <!doctype html>
 <html lang="pt-PT">
 <head>
 <meta charset="utf-8">
 <style>
-{% if display_font_uri %}
-@font-face { font-family: "Escapadinha Display"; src: url("{{ display_font_uri }}"); font-weight: 100 900; }
-{% endif %}
+{% for family, style, uri in fonts %}
+@font-face { font-family: "{{ family }}"; font-style: {{ style }}; font-weight: 100 900; src: url("{{ uri }}") format("woff2"); }
+{% endfor %}
 :root {
+  {{ t.css_vars("light") }}
+  --pn-photo-ink: {{ t.PHOTO_INK }};
+  --pn-scrim: {{ t.SCRIM_RGB }};
+  --pn-scrim-text: {{ t.SCRIM_TEXT_ALPHA }};
+  --display: {% for f in t.FONT_FAMILY.display %}"{{ f }}"{{ ", " if not loop.last }}{% endfor %};
+  --text: {% for f in t.FONT_FAMILY.text %}"{{ f }}"{{ ", " if not loop.last }}{% endfor %};
+  {% for k, v in t.SLIDE_FONT_SIZE.items() %}--fs-{{ k }}: {{ v }}; {% endfor %}
+  {% for k, v in t.SLIDE_SPACING.items() %}--sp-{{ k }}: {{ v }}; {% endfor %}
+  --shadow-lifted: {{ t.BOX_SHADOW.lifted }};
   --w: 1080px; --h: 1350px;
-  --pad: 84px;
-  --white: #ffffff;
-  --accent: #FF6B4A;          /* placeholder brand coral */
-  --accent-ink: #ffffff;
-  --sun: #FFD23F;
-  --ink-soft: rgba(255,255,255,.86);
-  --fallback-a: #0E3B43;      /* used when no photo is cached */
-  --fallback-b: #1F7A8C;
-  --display: "Escapadinha Display", "Bahnschrift", "Segoe UI Black", "Arial Black", sans-serif;
-  --text: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
+.dark { {{ t.css_vars("dark") }} }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: var(--w); height: var(--h); overflow: hidden; background: #000; }
-body { font-family: var(--text); color: var(--white); -webkit-font-smoothing: antialiased; }
+body { font-family: var(--text); font-optical-sizing: auto; font-kerning: normal;
+  -webkit-font-smoothing: antialiased; }
 .slide { position: relative; width: var(--w); height: var(--h); overflow: hidden;
-  background: linear-gradient(160deg, var(--fallback-a), var(--fallback-b)); }
-.photo { position: absolute; inset: 0; background-size: cover; background-position: center; }
-.photo.dim { filter: brightness(.5) saturate(1.05) blur(4px); transform: scale(1.06); }
-.scrim { position: absolute; inset: 0;
-  background:
-    linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%),
-    linear-gradient(0deg, rgba(0,0,0,.82) 0%, rgba(0,0,0,.45) 38%, rgba(0,0,0,0) 62%); }
-.scrim.tall { background:
-    linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%),
-    linear-gradient(0deg, rgba(0,0,0,.85) 0%, rgba(0,0,0,.6) 50%, rgba(0,0,0,.25) 75%, rgba(0,0,0,0) 90%); }
-.content { position: absolute; inset: 0; padding: var(--pad); display: flex; flex-direction: column; }
-.top { display: flex; justify-content: space-between; align-items: center; }
-.logo { height: 52px; opacity: .95; }
-.logo svg { height: 52px; width: auto; display: block; }
-.kicker { font-family: var(--display); font-weight: 700; font-size: 30px; letter-spacing: 3px;
-  text-transform: uppercase; background: var(--accent); color: var(--accent-ink);
-  padding: 12px 22px; border-radius: 999px; }
+  background: var(--pn-bg); color: var(--pn-ink); }
+.content { position: absolute; inset: 0; padding: var(--sp-gutter); display: flex; flex-direction: column; }
 .spacer { flex: 1; }
-.display { font-family: var(--display); font-weight: 800; line-height: 1.02; text-transform: uppercase;
-  letter-spacing: -1px; text-shadow: 0 2px 6px rgba(0,0,0,.35), 0 4px 24px rgba(0,0,0,.35); }
+
+/* Type */
+.display { font-family: var(--display); font-weight: 500; line-height: 1.04; letter-spacing: -0.005em; }
+.italic { font-style: italic; }
+.label { font: 600 var(--fs-label)/1.3 var(--text); text-transform: uppercase; letter-spacing: .14em; }
+.accent { color: var(--pn-accent); }
+.muted { color: var(--pn-muted); }
+.small { font-size: var(--fs-small); line-height: 1.4; }
+.caption { font: italic 400 var(--fs-caption)/1.35 var(--text); }
+.num { font-variant-numeric: lining-nums tabular-nums; }
 .fit { display: inline-block; white-space: nowrap; }
-.pill { display: inline-block; font-weight: 700; font-size: 34px; padding: 14px 26px;
-  border-radius: 999px; background: rgba(255,255,255,.16); border: 2px solid rgba(255,255,255,.5);
-  backdrop-filter: blur(6px); }
-.small { font-size: 24px; color: var(--ink-soft); line-height: 1.35; }
-.footer { margin-top: 28px; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
-.dots { display: flex; gap: 10px; }
-.dots i { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,.4); }
-.dots i.on { background: var(--white); }
+
+/* Photo treatment: full-bleed, text only on a warm-ink scrim (>= --pn-scrim-text where text sits) */
+.photo { position: absolute; inset: 0; background-size: cover; background-position: center; }
+.photo.none { background: linear-gradient(160deg, #3D372C, #16140F); }
+/* Eased stops (no visible band). Text sits only where the scrim is >= --pn-scrim-text (0.70). */
+.scrim-top { position: absolute; left: 0; right: 0; top: 0; height: 330px;
+  background: linear-gradient(180deg, rgb(var(--pn-scrim) / .82) 0, rgb(var(--pn-scrim) / .72) 160px,
+    rgb(var(--pn-scrim) / .58) 196px, rgb(var(--pn-scrim) / .42) 228px, rgb(var(--pn-scrim) / .27) 258px,
+    rgb(var(--pn-scrim) / .14) 288px, rgb(var(--pn-scrim) / .05) 312px, rgb(var(--pn-scrim) / 0) 330px); }
+/* Bottom of a cover: the caption row sits 150px in, where the scrim has reached 0.76. */
+.scrim-bottom { margin: 0 calc(-1 * var(--sp-gutter)) calc(-1 * var(--sp-gutter));
+  padding: 150px var(--sp-gutter) var(--sp-gutter);
+  background: linear-gradient(180deg, rgb(var(--pn-scrim) / 0) 0, rgb(var(--pn-scrim) / .06) 28px,
+    rgb(var(--pn-scrim) / .2) 56px, rgb(var(--pn-scrim) / .42) 86px, rgb(var(--pn-scrim) / .62) 114px,
+    rgb(var(--pn-scrim) / .76) 140px, rgb(var(--pn-scrim) / .82) 100%); }
+.scrim-bottom .over { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 20px; }
+/* Photo on the top half that fades into the page (CTA slides): text only on the solid part. */
+.photo.top { bottom: auto; height: 700px; }
+.fade-top { position: absolute; left: 0; right: 0; top: 0; height: 700px;
+  background: linear-gradient(180deg, rgb(var(--pn-scrim) / .82) 0, rgb(var(--pn-scrim) / .72) 160px,
+      rgb(var(--pn-scrim) / .5) 210px, rgb(var(--pn-scrim) / .24) 260px, rgb(var(--pn-scrim) / 0) 320px),
+    linear-gradient(180deg, transparent 320px, color-mix(in srgb, var(--pn-bg) 22%, transparent) 430px,
+      color-mix(in srgb, var(--pn-bg) 55%, transparent) 530px, color-mix(in srgb, var(--pn-bg) 85%, transparent) 625px,
+      var(--pn-bg) 700px); }
+.on-photo { color: var(--pn-photo-ink); }
+
+/* Masthead: logo + label, a double rule under it on paper */
+.masthead { display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.masthead .logo svg { height: 58px; width: auto; display: block; }
+.double-rule { border: 0; border-top: 7px double var(--pn-ink); margin-top: 26px; }
+.rule { border: 0; border-top: 2px solid var(--pn-rule); }
+
+/* Stamp (status label) and tags */
+.stamp { display: inline-block; font: 600 var(--fs-label)/1 var(--text); text-transform: uppercase;
+  letter-spacing: .14em; padding: 14px 18px 13px; border: 3px solid var(--pn-accent); color: var(--pn-accent); }
+.stamp.solid { background: var(--pn-accent); color: var(--pn-on-accent); }
+.tag { display: inline-block; font: 600 var(--fs-small)/1.1 var(--text); padding: 10px 16px 11px; border-radius: 2px; }
+.tag.success { background: var(--pn-success-bg); color: var(--pn-success); }
+.tag.warning { background: var(--pn-warning-bg); color: var(--pn-warning); }
+.tag.expired { background: var(--pn-expired-bg); color: var(--pn-expired); }
+
+/* Card: paper panel; on photos it is lifted with a shadow */
+.card { background: var(--pn-surface); color: var(--pn-ink); padding: var(--sp-card-pad);
+  border-top: 7px double var(--pn-ink); box-shadow: var(--shadow-lifted); }
+
+/* Price block: the one component that must scan in a second (price, dates, found on) */
+.pb-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; }
+.pb-price { font-family: var(--display); font-weight: 600; line-height: .82; letter-spacing: -0.035em;
+  white-space: nowrap; font-variant-numeric: lining-nums tabular-nums; color: var(--pn-ink); }
+.pb-price .cur { font-size: .4em; letter-spacing: 0; margin-left: .16em; vertical-align: .98em; font-weight: 500; }
+.pb-xl .pb-price { font-size: var(--fs-price-xl); }
+.pb-md .pb-price { font-size: var(--fs-price); }
+.pb-side { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; padding-bottom: 6px; text-align: right; }
+.pb-side .note { font-size: var(--fs-small); color: var(--pn-muted); line-height: 1.25; }
+.pb-dates { font: 600 var(--fs-body)/1.25 var(--text); margin-top: 26px; }
+.pb-dates .n { font-weight: 400; color: var(--pn-muted); }
+.pb-found { font-size: var(--fs-small); line-height: 1.35; color: var(--pn-muted); margin-top: 10px; }
+.pb-found b { color: var(--pn-ink); font-weight: 600; }
+
+/* Rows (the "ficha" table) */
+.rows { display: flex; flex-direction: column; }
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: 28px;
+  padding: 20px 0 18px; border-bottom: 2px solid var(--pn-rule); }
+.row .k { font: 600 var(--fs-label)/1.3 var(--text); text-transform: uppercase; letter-spacing: .14em; color: var(--pn-muted); }
+.row .val { font: 600 var(--fs-body)/1.2 var(--text); text-align: right; }
+
+/* Notice: tinted panel with a rule on the left (disclosure, expired, warnings) */
+.notice { border-left: 6px solid var(--pn-rule); padding: 18px 0 18px 26px; font-size: var(--fs-small); line-height: 1.4; }
+.notice.expired { border-color: var(--pn-expired); background: var(--pn-expired-bg); padding-right: 26px; }
+
+/* Footer: caption on the left, progress dots on the right */
+.foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 26px; }
+.dots { display: flex; gap: 12px; flex: none; padding-bottom: 8px; }
+.dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; opacity: .55; }
+.dots i.on { background: currentColor; opacity: 1; }
 {% block style %}{% endblock %}
 </style>
 </head>
 <body>
-<div class="slide">
-  {% if photo_uri %}<div class="photo {% block photo_class %}{% endblock %}" style="background-image:url('{{ photo_uri }}')"></div>{% endif %}
-  <div class="scrim {% block scrim_class %}{% endblock %}"></div>
+<div class="slide {% block slide_class %}{% endblock %}">
+{% block canvas %}{% endblock %}
   <div class="content">
-    <div class="top">
-      <div class="logo">{{ logo_svg | safe }}</div>
-      {% block kicker %}{% endblock %}
-    </div>
-    {% block body %}{% endblock %}
-    <div class="footer">
-      <div class="small">{% block footnote %}{% endblock %}</div>
-      {% if total_slides > 1 %}
-      <div class="dots">{% for i in range(total_slides) %}<i class="{{ 'on' if i + 1 == slide_no }}"></i>{% endfor %}</div>
-      {% endif %}
-    </div>
+{% block content %}{% endblock %}
   </div>
 </div>
 <script>
-// Shrink any .fit element until it fits its container width (long city names, prices).
+// Shrink .fit (single line) until it fits its parent's width, and [data-max-h] blocks until
+// they fit that height in px (long city names, prices, guide titles).
 window.fitText = () => {
   document.querySelectorAll('.fit').forEach(el => {
     let size = parseFloat(getComputedStyle(el).fontSize);
     const max = el.parentElement.clientWidth;
     while (el.scrollWidth > max && size > 20) { size -= 2; el.style.fontSize = size + 'px'; }
+  });
+  document.querySelectorAll('[data-max-h]').forEach(el => {
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    const max = parseFloat(el.dataset.maxH);
+    while (el.scrollHeight > max && size > 20) { size -= 2; el.style.fontSize = size + 'px'; }
   });
 };
 </script>

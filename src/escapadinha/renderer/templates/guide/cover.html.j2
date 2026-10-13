@@ -1,15 +1,24 @@
 {% extends "base.html.j2" %}
-{% block scrim_class %}tall{% endblock %}
+{% import "_ui.html.j2" as ui with context %}
+{# Guide cover: same structure as the deal cover (photo, top scrim, paper card). #}
 {% block style %}
-.title { font-size: 150px; line-height: 1.02; }
-.subtitle { font-size: 46px; line-height: 1.25; margin-top: 30px; max-width: 880px; font-weight: 600; }
-.swipe { margin-top: 44px; font-family: var(--display); font-weight: 700; font-size: 36px;
-  letter-spacing: 2px; text-transform: uppercase; color: var(--sun); }
+.title { font-size: var(--fs-display); line-height: 1.02; max-height: 300px; }
+.subtitle { font-size: var(--fs-lead); line-height: 1.32; margin-top: 22px; color: var(--pn-muted); }
+.swipe { margin-top: 30px; padding-top: 22px; border-top: 2px solid var(--pn-rule); }
 {% endblock %}
-{% block kicker %}<div class="kicker">{{ g.kicker }}</div>{% endblock %}
-{% block body %}
+{% block canvas %}
+{{ ui.photo_layer(photo_uri) }}
+<div class="scrim-top"></div>
+{% endblock %}
+{% block content %}
+{{ ui.masthead("dark", g.kicker, "stamp") }}
 <div class="spacer"></div>
-<div class="display title">{{ g.title }}</div>
-{% if g.subtitle %}<div class="subtitle">{{ g.subtitle }}</div>{% endif %}
-<div class="swipe">Desliza →</div>
+<div class="scrim-bottom">
+  <div class="over on-photo">{{ ui.dots(slide_no, total_slides) }}<span class="caption">{{ ui.credit(photo) }}</span></div>
+  <div class="card">
+    <div class="display title" data-max-h="300">{{ g.title }}</div>
+    {% if g.subtitle %}<p class="subtitle">{{ g.subtitle }}</p>{% endif %}
+    <div class="swipe label accent">Desliza →</div>
+  </div>
+</div>
 {% endblock %}
