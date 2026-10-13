@@ -173,7 +173,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
 
     deals = [(d, o) for d, o in public_deal_rows(conn) if o.route_key in keys]
     live = [(d, o) for d, o in deals if d.status in LIVE]
-    deal_links = pipeline.website_links(ctx, live, create=new_links) if live else {}
+    deal_links = pipeline.website_links(ctx, conn, live, create=new_links) if live else {}
 
     route_by_key = {r.key: r for r in all_routes}
     low_count = defaultdict(int)

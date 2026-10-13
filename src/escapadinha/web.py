@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
@@ -38,7 +37,7 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
     route = pipeline.route_for(ctx, conn, obs.route_key)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=PhotoCredit.from_photo(None, None))
-    folder = Path(deal.output_path) if deal.output_path else None
+    folder = pipeline.deal_folder(ctx, deal)     # downloaded when a runner rendered it (D25)
     caption_file = folder / "caption.txt" if folder else None
     slides = sorted(p.name for p in folder.glob("slide_*.png")) if folder and folder.exists() else []
     return {
@@ -109,8 +108,9 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
         if not SLIDE_NAME.match(name):
             raise HTTPException(status_code=404)
         deal, _ = with_conn(lambda conn: db.get_deal(conn, deal_id))
-        path = Path(deal.output_path or "") / name
-        if not deal.output_path or not path.is_file():
+        folder = pipeline.deal_folder(ctx, deal)
+        path = folder / name if folder else None
+        if path is None or not path.is_file():
             raise HTTPException(status_code=404)
         return FileResponse(path, media_type="image/png")
 

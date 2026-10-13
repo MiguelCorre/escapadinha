@@ -7,7 +7,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
-  `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`,
+  `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`,
   `site build|preview|setup|deploy`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
@@ -45,6 +45,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   never write the bucket or `data/objects/` directly. Every `ObjectStore` implementation passes
   `tests/test_objects.py` (S3 runs on moto, no network). The database file is only uploaded via
   `storage/sync.py` (backup-API snapshot under the run lock), never the live file (D21).
+- CI keeps no files between runs (D21, D25). Anything a run needs from an earlier run lives in the
+  database (`meta`: `site.paths`, `site.links`, `site.deployed`, the run-path fingerprint) or goes
+  through a `storage.mirror.Mirror` (`pipeline.photo_files` / `output_files`): upload when made,
+  `file`/`folder` to read (downloads when missing). Never read `output/` or `assets/photos/`
+  directly; use `pipeline.deal_folder`, `guide_folder`, `deal_view` (its photo).
+- `run` takes the full path (render → site → deploy) only when `run_path.decide` says so. Anything
+  new the site shows must be part of `run_path.fingerprint`, or a routine run won't publish it.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
@@ -69,7 +76,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `all_routes`/`active_routes`/`get_route`
 - `src/escapadinha/storage/objects.py`: `ObjectStore` + `LocalObjectStore` (`data/objects/`); `archive.py`: per-run raw archive
 - `src/escapadinha/storage/s3.py`: `S3ObjectStore` (R2, conditional-write lock); `sync.py`: database
-  pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`
+  pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`;
+  `mirror.py`: `Mirror` (a local folder also kept under a store prefix: `photos/`, `output/`)
+- `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint`, `record_full_path`)
+- `.github/workflows/pipeline.yml`: 2-hourly `escapadinha run` on Actions; dispatch → `--full` (D25)
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate` (candidates),
   `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,

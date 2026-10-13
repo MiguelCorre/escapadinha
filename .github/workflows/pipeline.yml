@@ -1,0 +1,84 @@
+# The scheduled pipeline (DECISIONS D25): every 2 hours pull the database from R2, collect,
+# recheck, detect, push. Rendering, the site build and the deploy (the full path) run only when
+# something the site shows changed; `escapadinha run` decides and logs why. Manual runs and
+# repository_dispatch events (the review Function, later) force the full path.
+name: Pipeline
+
+on:
+  schedule:
+    - cron: "17 */2 * * *"            # every 2 h, at :17 to avoid the top-of-hour queue
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Full path: render, build and deploy the site even if nothing changed"
+        type: boolean
+        default: false
+  repository_dispatch:
+    types: [review-decision, full-run]
+
+# One run at a time; a queued run waits instead of cancelling the one in progress
+# (the R2 lock is the second guard, against Miguel's PC).
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # Below the 60-minute R2 run lock (D21): a job killed at the timeout leaves a lock that
+    # expires before the run after next, never one that blocks runs for longer.
+    timeout-minutes: 45
+    env:
+      PYTHONIOENCODING: utf-8
+      COLUMNS: "120"
+      ESCAPADINHA_INSTALL_BROWSER: "1"   # Chromium + system libraries only when slides are rendered
+      # Actions secrets, read as environment variables by config.Secrets (no .env in CI).
+      # GitHub masks their values in logs; nothing here prints them.
+      TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+      TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+      PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v5      # npx wrangler for the deploy
+        with:
+          node-version: 22
+
+      - name: Cache the Chromium download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Install
+        run: uv sync --frozen --no-dev
+
+      - name: Run
+        env:
+          FULL: ${{ github.event_name == 'repository_dispatch' || inputs.full == true }}
+        run: |
+          if [ "$FULL" = "true" ]; then
+            uv run --no-sync escapadinha run --full
+          else
+            uv run --no-sync escapadinha run
+          fi
+
+      - name: Mark the summary of a failed or cancelled job
+        if: failure() || cancelled()
+        env:
+          STATUS: ${{ job.status }}
+        run: |
+          echo "### Job $STATUS: see the log of the Run step" >> "$GITHUB_STEP_SUMMARY"

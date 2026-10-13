@@ -37,7 +37,8 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited), `runner.collect` (route × month loop), `catalogue.py` (discovery downloads) |
 | `discovery.py` | Pure: catalogues + supplements → direct routes with kind and pt-PT name |
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
-| `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups) |
+| `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups); `mirror.py` (photos and rendered slides in the store) |
+| `run_path.py` | Fast or full path for a run: fingerprint of what the site shows, stored after each full path (D25) |
 | `detector.py` | Pure functions: `baseline`, `evaluate`, `low_prices`, `detect_route`, `detect` (both tiers) |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
@@ -84,7 +85,8 @@ uv run escapadinha render deals            # renders deals with status 'new' →
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
 uv run escapadinha export site-data        # website data contract v1 (JSON) → output/site-data/v1
-uv run escapadinha run                     # (monthly discovery) → collect → recheck → detect → render → export → site (the scheduler)
+uv run escapadinha run                     # (monthly discovery) → collect → recheck → detect, then render → export → site → deploy only if something changed
+uv run escapadinha run --full              # the same, always with render → export → site build → deploy
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
 uv run escapadinha store pull              # R2 only: bucket database → data/escapadinha.db
 uv run escapadinha store push              # R2 only: data/escapadinha.db → bucket (takes the lock)
@@ -288,10 +290,11 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
 - **Traceable prices:** every element showing a price carries `data-obs`, `data-deal` or
   `data-route`; `tests/test_traceability.py` checks each price string against them (D2).
 - **Images:** slides become WebP (1080 px), plus a 540 px thumbnail and a JPEG for Open Graph.
-- **Run integration:** `escapadinha run` rebuilds the site every time. It deploys only when
-  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set and the content changed (the
-  footer's "Atualizado a" timestamp is ignored). Deploys use `npx wrangler@<site.wrangler_version>`,
-  so Node.js is required.
+- **Run integration:** `escapadinha run` rebuilds the site on its full path only (something the
+  site shows changed, see [GitHub Actions](#github-actions-decisions-d25)). It deploys only when
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set and the content changed since the
+  last deploy (the footer's "Atualizado a" timestamp is ignored; the last content hash is kept in
+  the database). Deploys use `npx wrangler@<site.wrangler_version>`, so Node.js is required.
 - **To review before going live:** the "Como funciona" and "Privacidade" texts.
 
 ### Domain and redirects
@@ -304,7 +307,8 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
 - **`_headers`** (generated): `X-Robots-Tag: noindex` on `site.legacy_hosts` other than the
   `base_url` host, and on per-deployment `<hash>.<project>.pages.dev` URLs.
 - **`_redirects`** (generated, 301): `site.redirects` from config, every older path of a page whose
-  slug changed (history in `data/site_paths.json`), and short `/promos/<id>` links. A rule never
+  slug changed (history in the database, `meta` key `site.paths`; an old `data/site_paths.json`
+  is merged in), and short `/promos/<id>` links. A rule never
   uses a path that is a page now (Pages applies redirects before files); skipped config rules are
   printed by `site build`.
 
@@ -339,7 +343,8 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 - **Size budget:** a low-price file holds at most `site.max_low_prices_per_origin` (1500) rows,
   biggest discounts kept, ~135 bytes per row (tested ≤ 160), one row per line, sorted and
   deterministic (stable diffs, gzip ~4× smaller).
-- **Run integration:** `run` exports right before `site build` (written to the local disk, not to R2).
+- **Run integration:** the full path of `run` (D25) exports right before `site build` (written to
+  the local disk, not to R2).
 - **Fixtures** (`contract/site/v1/fixtures/`, committed): ~10 routes from 3 origins of the real
   database, opened read-only and copied into memory. Booking links become
   `https://example.com/parceiro/<sub_id>`, photographers' names a placeholder. When no deal was
@@ -386,7 +391,8 @@ stats per deal. It's stored on the deal and reused on later renders.
 
 The **website** uses its own Project once `affiliate.projects.website` is set (until then it shows
 the deal's link). Its links are created at `site build` with `sub_id=site-deal-<id>` and cached
-per Project in `data/site_links.json`. A website link that fails falls back to the deal's own
+per Project in the database (`meta` key `site.links`, so a CI runner reuses them; an old
+`data/site_links.json` is merged in). A website link that fails falls back to the deal's own
 tracked link and is retried on the next build. A Project's URL can't change once it joined a
 program, so a new domain or handle means a new Project (runbook steps 8–9).
 
@@ -404,9 +410,9 @@ because Aviasales program term 1.4 only allows network tools.
 
 ## Database in Cloudflare R2 (DECISIONS D21)
 
-With the four `R2_*` keys in `.env`, the bucket holds everything a run needs between runs, so
-any machine (later GitHub Actions) can run the pipeline. Without them nothing changes: the
-database is `data/escapadinha.db` and objects live under `data/objects/`.
+With the four `R2_*` keys in `.env` (or Actions secrets), the bucket holds everything a run
+needs between runs, so any machine (GitHub Actions, the PC) can run the pipeline. Without them
+nothing changes: the database is `data/escapadinha.db` and objects live under `data/objects/`.
 
 | Object | What |
 |---|---|
@@ -415,6 +421,13 @@ database is `data/escapadinha.db` and objects live under `data/objects/`.
 | `archive/runs/<run>.json.gz` | Raw API responses per run (D18), written straight to the bucket |
 | `backups/<YYYY-MM-DD>/escapadinha.db` | The database before the first run of that Lisbon day |
 | `locks/run` | The run lock: `{owner, expires_at}` |
+| `photos/<destination>.jpg` | The Pixabay photo cache (`assets/photos/`), uploaded when fetched (D25) |
+| `output/<date>/<deal or guide folder>/…` | Rendered slides, caption, meta (`output/`), uploaded when rendered (D25) |
+
+A runner downloads a photo or a rendered folder the first time it needs it (rendering a slide,
+building the site, the review page). The redirect history, the website's partner links and the
+last deploy's content hash live in the database (`meta`). The full path of a run on the PC
+uploads the photos and rendered folders it made before D25 that the bucket lacks.
 
 `escapadinha run` then does: **lock → pull → daily backup → collect … deploy → push → unlock.**
 - The lock is created with a conditional write (`If-None-Match: *`), so only one run gets it. A
@@ -451,30 +464,93 @@ rules* → add rule, prefix `backups/`, *Delete objects* after **30 days**. Noth
 bucket expires.
 
 **Restore from a backup:**
-1. Stop the scheduled runs (`powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1
-   -Unregister`) and check that `uv run escapadinha store status` shows `lock: free`.
+1. Stop the scheduled runs (`gh workflow disable pipeline.yml`, and on the PC
+   `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister`) and check
+   that `uv run escapadinha store status` shows `lock: free`.
 2. `uv run escapadinha store restore 2026-10-13` (dates are listed by `store status`). The current
    local file is kept as `data/escapadinha.db.local-<time>`.
 3. Check it (`uv run escapadinha stats LIS-LON`, `uv run escapadinha review`), then
    `uv run escapadinha store push`. It becomes the next generation; runs pull it from then on.
-4. Register the schedule again (`scripts\register-task.ps1`, see below).
+4. Turn the schedule back on (`gh workflow enable pipeline.yml`; on the PC
+   `scripts\register-task.ps1`, see below).
 
 Without the CLI: download `backups/<date>/escapadinha.db` from the R2 dashboard to
 `data/escapadinha.db`, then `uv run escapadinha store push --force`.
 
-## Scheduling (Windows Task Scheduler)
+## GitHub Actions (DECISIONS D25)
+
+`.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours (cron `17 */2 * * *`, UTC)
+on `ubuntu-latest`: lock → pull the database from R2 → daily backup → (monthly discovery) →
+collect → recheck → detect → **full path only when needed** → push → unlock.
+
+- **Fast path, full path.** After detection the run compares a fingerprint of what the public
+  outputs show with the one stored at the last full path: promotions (id, status, link), the low
+  prices the route pages list, routes (key, status, name), the Lisbon date, and the code, config
+  and content. If anything changed it takes the full path (render new deals → site build →
+  deploy when the content changed); otherwise it ends there. The log says which and why:
+  `Path: fast (nothing the site shows changed)`, `Path: full (changed: promotions, low prices)`,
+  `Path: full (forced with --full)`. A full path that fails records nothing, so the next run
+  tries again. The first run after Lisbon midnight is always full, so typical lows and
+  "Atualizado a" are at most a day old.
+- **Duration and status.** Every run ends with `Run ok in 1 min 52 s.` and writes the same to the
+  run's summary page (status, duration, collection counts, path and reason). A failing route or
+  month is listed and the run goes on (`partial`); only a collection where every request failed
+  fails the job (exit 1). The database is pushed in every case.
+- **No overlap.** `concurrency: pipeline` queues a run behind the one in progress (never cancels
+  it); the R2 lock also keeps the PC out. Job timeout 45 min, below the lock's 60 min.
+- **Caches.** uv's cache (setup-uv) and the Chromium download (`~/.cache/ms-playwright`, keyed on
+  `uv.lock`). Chromium and its system libraries are installed only when slides are rendered
+  (`ESCAPADINHA_INSTALL_BROWSER=1`: `playwright install --with-deps chromium` the first time a
+  renderer opens), so the fast path never pays for it. Node 22 runs `npx wrangler`.
+- **Secrets:** repo → *Settings* → *Secrets and variables* → *Actions* → *New repository
+  secret*, one per `.env` key: `TRAVELPAYOUTS_TOKEN`, `TRAVELPAYOUTS_MARKER`, `PIXABAY_API_KEY`,
+  `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`,
+  `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`. They reach the run as environment variables (there is no
+  `.env` on the runner); GitHub masks them in logs and the workflow never prints them.
+
+**Run it by hand:**
+- Web: *Actions* → *Pipeline* → *Run workflow* (tick *Full path* to render, build and deploy
+  even when nothing changed).
+- Terminal:
+  ```bash
+  gh workflow run pipeline.yml                # like the schedule: the run decides fast or full
+  gh workflow run pipeline.yml -f full=true   # full path
+  gh run watch                                # follow the run that just started
+  gh api repos/MiguelCorre/escapadinha/dispatches -f event_type=full-run   # what the review Function will send
+  ```
+  `repository_dispatch` events of type `review-decision` or `full-run` always take the full path.
+
+**Minutes used.** A private repo on GitHub Free gets 2000 Linux minutes a month (public repos are
+not metered). Budget: 12 runs a day × ~2 min ≈ 720 min/month, plus a minute or two for each full
+path that renders (Chromium's system libraries).
+- One run: *Actions* → the run → *Usage* (under *Run details*) shows its billable time; the
+  summary shows our own `Duration`.
+- The month: your account → *Settings* → *Billing and licensing* → *Usage*, filtered on Actions.
+- `gh run list --workflow pipeline.yml --limit 12` lists the last day's runs with their elapsed time.
+
+**PC fallback.** The Windows scheduled task (below) keeps running until the Actions pipeline has
+had a clean week (spec #1). Both take the same R2 lock, so they never overlap; meanwhile prices
+are simply collected more often. After that week, on the PC:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister
+# the same, directly:
+Unregister-ScheduledTask -TaskName "Escapadinha collect" -Confirm:$false
+# or from cmd.exe:
+schtasks /Delete /TN "Escapadinha collect" /F
+```
+`Get-ScheduledTask -TaskName "Escapadinha collect"` then reports that no such task exists.
+
+## Scheduling on the PC (Windows Task Scheduler, fallback)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts
-egister-task.ps1                # every 2 h, all day
-powershell -ExecutionPolicy Bypass -File scripts
-egister-task.ps1 -EveryHours 1
-powershell -ExecutionPolicy Bypass -File scripts
-egister-task.ps1 -Unregister
+powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1                # every 2 h, all day
+powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -EveryHours 1
+powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister
 ```
-Each run takes about 6 minutes and makes one API call per active route and month (1080 at 360
-routes; plus ~25 once a month for discovery). Runs missed while the PC sleeps start
-when it wakes. Output is appended to `logs/run-<date>.log`, ending with `---- exit N ----`.
+Each run takes about 2 minutes (8 requests at a time, D24) and makes one API call per active
+route and month (1080 at 360 routes; plus ~25 once a month for discovery). Runs missed while the
+PC sleeps start when it wakes. Output is appended to `logs/run-<date>.log`, ending with
+`---- exit N ----`.
 
 ## Guides ("guia rápido")
 
@@ -511,6 +587,10 @@ uv run pytest -m "not browser"
 - `recorded_prices_for_dates_LIS_LON_2026-11.json` is a real response recorded on 2026-10-12.
 - The object store contract (`test_objects.py`) and the database sync (`test_sync.py`) run against
   both the local store and `S3ObjectStore` on moto's in-process S3 mock: no network, no bucket.
+- `test_actions.py` drives `escapadinha run` as Actions does (fast/full path, a failing route,
+  the step summary) and builds the site on a "fresh runner" that only has the bucket, checking
+  it is byte-for-byte the PC's site; `test_workflow.py` checks the workflow file (triggers,
+  concurrency, timeout below the lock TTL, secrets never printed).
 - `fixtures/discovery/` holds real catalogue and supplement payloads recorded on 2026-10-13,
   trimmed to the rows the tests need (`RECORDED.txt` lists the URLs and what was kept).
 - `fixtures/schema_v5.sql` and `schema_v7.sql` are older schemas, to test the upgrades.

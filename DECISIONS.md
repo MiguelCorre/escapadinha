@@ -493,13 +493,80 @@ so nothing has to be hosted.
   archived in request order on one thread. ~1080 requests then take ~2 min (limit-bound) instead
   of ~6, so 12 runs/day fit the 2000 free Actions minutes of a private repo (#7).
 
+## D25: GitHub Actions pipeline, fast and full path, nothing kept on the runner (2026-10-13, #7)
+- **Workflow** `.github/workflows/pipeline.yml`: cron `17 */2 * * *` (UTC; :17 avoids the
+  top-of-hour queue), `workflow_dispatch` (input `full`) and `repository_dispatch` (types
+  `review-decision`, `full-run`; both force the full path, for the review Function later).
+  `concurrency: pipeline` with `cancel-in-progress: false` (a queued run waits; the R2 lock is
+  the second guard, against the PC). `timeout-minutes: 45` < the lock's 60 (D21). Secrets are
+  Actions secrets exposed as environment variables, which `config.Secrets` reads without a
+  `.env`; nothing echoes them (a test checks the file). uv via setup-uv with its cache; Node 22
+  for `npx wrangler` (D15). Supersedes D9 once the PC task is unregistered.
+- **Fast or full path, decided in Python** (`run_path.py`, testable, not YAML). After detect,
+  `decide` compares a fingerprint with the one stored in `meta` (`run.full_path_fingerprint`) at
+  the end of the last successful full path. Components, each hashed: promotions (every deal's
+  id, status, has-link), the low prices the route pages list (same selection as the site:
+  `pipeline.shown_low_prices`), routes (key, status, pt name), the Lisbon date, and the code
+  (package files, config.yaml, content/; line endings normalised so the PC and the runner
+  agree). Any change, a missing fingerprint or `--full` → full path (render new deals → site
+  build → deploy when the content hash changed); the log prints `Path: fast|full (reason)`. A
+  failed full path stores nothing, so the next run retries it. Review decisions made elsewhere
+  (#8) change deal statuses and so trigger it without #7 knowing about events. Rejected:
+  "new observations this run" (true almost every run), and comparing the built site's content
+  hash (needs the build, i.e. the cost we are avoiding). The date component means one full path
+  a day even when nothing else changed: route pages show typical lows, which move daily, and
+  are otherwise left out of the fingerprint on purpose (they would make every run full).
+- **Run status:** `run` prints `Run <status> in <duration>` and, when `GITHUB_STEP_SUMMARY` is
+  set, writes status, duration, collection counts and the path decision to the run's summary.
+  A failed request is listed and skipped (collector, unchanged, now tested through `run`); only
+  a collection where every request failed exits 1. The database is pushed either way (D21).
+- **Chromium only when needed:** the workflow sets `ESCAPADINHA_INSTALL_BROWSER=1`;
+  `renderer.ensure_browser` runs `playwright install --with-deps chromium` the first time a
+  `SlideRenderer` opens, i.e. only when there is a deal or guide to render. The download is
+  cached (`~/.cache/ms-playwright`, keyed on `uv.lock`); the system libraries come from apt
+  each time it runs. The fast path never touches either.
+- **What a fresh runner lacks (D21's list), simplest correct home for each:**
+  - `data/site_paths.json` (redirect history; losing it would drop 301s) → database, `meta`
+    `site.paths`. `data/site_links.json` (website partner links; losing it would create
+    duplicates) → `meta` `site.links`. `data/site_deploy.json` (last deployed content hash,
+    not in D21's list; losing it would redeploy every full path) → `meta` `site.deployed`.
+    They are small JSON, belong with the database's state, and are then backed up and
+    restored with it. The old files are still read and merged in (paths: union; links: entries
+    the database lacks; deploy: only when the database has none), so the PC's history reaches
+    the database on its next build without a manual step; the files are no longer written.
+  - `assets/photos/` (Pixabay cache, ~155 JPEGs) and the rendered folders under `output/` that
+    the site and the review page read → the object store under `photos/` and `output/`, same
+    relative paths, through `storage.mirror.Mirror` (`ctx.object_store`, so R2 or nothing:
+    without R2 keys it only looks at the local folder). Uploaded when made (photo fetched, deal
+    or guide rendered), downloaded on first use (`pipeline.deal_folder` resolves a stored
+    `output_path` written on any OS by its last two parts; `guide_folder` takes the latest
+    stored date; `_photo`). `mirror_local_files` (run on every full path) uploads what the PC
+    made before D25 and the bucket lacks: one LIST per prefix, nothing on a runner. Rejected:
+    re-rendering slides on the runner (they must stay what Miguel reviewed and posted) and
+    photos as database blobs (~50 MB in a file pulled every 2 hours).
+  - A test builds the site on the PC, pushes, pulls into an empty checkout and builds again:
+    the two sites have the same content hash (redirects, cached links, slides, guide images),
+    no partner link is created twice and the deploy is skipped as unchanged.
+- **Not synced, on purpose:** `logs/`, `site/` (rebuilt), the `EXPIRADO.txt` note (written only
+  where a rendered folder exists locally; the review snapshot of #8 covers the runner case).
+- **PC fallback:** the Windows task keeps running until a clean week on Actions; both take the
+  R2 lock, so they never overlap. Retire it with `scripts\register-task.ps1 -Unregister`
+  (= `Unregister-ScheduledTask -TaskName "Escapadinha collect" -Confirm:$false`).
+- **Miguel's steps:** add the nine Actions secrets; run the workflow once by hand
+  (`gh workflow run pipeline.yml -f full=true`) and check its summary and *Usage* (fast path
+  target ≤ 2 min); after a clean week, unregister the PC task.
+
 ## D27: Website data contract v1: JSON Schema, export, committed fixtures (2026-10-13, #10)
 - **What:** the Astro site (M3) is built from JSON only (spec #1, "Website"). Schemas (draft
   2020-12) in `contract/site/v1/`: `meta`, `labels`, `origins`, `routes`, `destinations`,
   `promotions`, `low-prices` (one file per origin) plus shared `defs` (`eur`, `offer`, `rules`,
   dates, ...). `site_data.export_site_data` writes them (`escapadinha export site-data`, default
   `site.data_dir` = `output/site-data/v1`, `web/src/data` once the web package exists); `run`
-  calls it right before `site build`, on the local disk (not R2). Tests validate the export with
+  calls it in the full path (D25) right before `site build`, on the local disk (not R2). The
+  full-path fingerprint (`run_path`) covers what the Jinja site shows plus the day, so the
+  export's extra rows (every low price, not only the 5 per route page) refresh at least daily;
+  once the Astro site is the live one (#13) the fingerprint should cover the export itself
+  (e.g. a hash of its files). Tests validate the export with
   `jsonschema` against the committed schemas. **Versioning:** the directory is the major version;
   additive changes (new optional data, new files) stay in v1, anything that breaks a consumer is v2.
 - **Same rules as the Jinja site, not a second implementation:** routes from `routes.all_routes`,

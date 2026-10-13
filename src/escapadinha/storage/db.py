@@ -307,6 +307,18 @@ def deals_with_status(conn: sqlite3.Connection, *statuses: str) -> list[tuple[De
     return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
 
 
+def deal_states(conn: sqlite3.Connection) -> list[tuple[int, str, bool]]:
+    """(id, status, has a tracked link) for every deal: what the fast/full decision watches."""
+    rows = conn.execute("SELECT id, status, affiliate_url IS NOT NULL AS linked FROM deals "
+                        "ORDER BY id").fetchall()
+    return [(r["id"], r["status"], bool(r["linked"])) for r in rows]
+
+
+def deals_with_output(conn: sqlite3.Connection) -> list[Deal]:
+    rows = conn.execute("SELECT * FROM deals WHERE output_path IS NOT NULL ORDER BY id").fetchall()
+    return [_row_to_deal(r) for r in rows]
+
+
 def set_deal_output_path(conn: sqlite3.Connection, deal_id: int, path: str) -> None:
     conn.execute("UPDATE deals SET output_path = ? WHERE id = ?", (path, deal_id))
     conn.commit()
