@@ -27,9 +27,11 @@ EMPTY = {"success": True, "currency": "eur", "data": []}
 @pytest.fixture
 def ctx(tmp_path, monkeypatch):
     # The real config, minus the curated long-haul list: tests that need long-haul routes
-    # add their own, so route counts here stay the 10 seeded routes.
+    # add their own, so route counts here stay the 10 seeded routes. No website Project either:
+    # tests that need one set it, so link assertions don't follow the repo's real Project id.
     config = yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))
     config["routes"]["long_haul"] = []
+    config["affiliate"]["projects"]["website"] = None
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True), "utf-8")
     shutil.copytree(REPO / "assets", tmp_path / "assets",
                     ignore=shutil.ignore_patterns("photos"))   # logos + self-hosted fonts

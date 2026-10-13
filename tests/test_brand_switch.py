@@ -3,6 +3,7 @@
 import json
 
 import pytest
+import yaml
 import respx
 from pydantic import ValidationError
 
@@ -13,7 +14,7 @@ from escapadinha.storage import db
 from escapadinha.website import build_site
 from escapadinha.website.redirects import (MAX_STATIC_REDIRECTS, headers_text, plan_redirects,
                                            update_history)
-from test_pipeline import ctx  # noqa: F401
+from test_pipeline import REPO, ctx  # noqa: F401
 from test_website import approved_deal, html
 
 
@@ -28,6 +29,7 @@ def test_repo_config_has_final_domain_and_channel_projects(ctx):
     assert cfg.brand.name == "Ponto Nómada"
     assert cfg.brand.instagram_url == f"https://www.instagram.com/{cfg.brand.handle.lstrip('@')}/"
     assert cfg.affiliate.project_for("instagram") == 584711
+    assert yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))["affiliate"]["projects"]["website"] == 585209
     assert cfg.site.domain == "pontonomada.pt"
     assert "ondestaanocas.pages.dev" in cfg.site.legacy_hosts
     assert cfg.site.on_final_domain and cfg.site.base_url == "https://pontonomada.pt"

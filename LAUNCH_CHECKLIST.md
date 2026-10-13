@@ -23,8 +23,9 @@ The steps before the first public post, in order. Tick them as they're done.
 - [x] Project for the Instagram profile: **ID 584711** "Instagram", Content creation, Portuguese (2026-10-12).
       Once a project is connected to programs its link **can't be edited**. If the handle changes,
       create a new project with the new URL and archive the old one.
-- [ ] Create a separate Project for the website, **after** the domain is live (its URL is final
-      once connected), and set `affiliate.projects.website` (runbook step 8).
+- [x] Create a separate Project for the website, **after** the domain is live (its URL is final
+      once connected), and set `affiliate.projects.website` (runbook step 8). Done 2026-10-13:
+      Project "Pontonomada" **585209** for https://pontonomada.pt (Aviasales available at once).
 - [x] Tracked Aviasales links come from the partner links API for Project 584711 (`affiliate_url` in
       `meta.json`, for example https://aviasales.tpo.lu/UQWMX2Ed). Program term 1.4 only allows network tools.
 - [ ] **Set the payout method (Finance → Payout methods), only once BOTH the website and the
