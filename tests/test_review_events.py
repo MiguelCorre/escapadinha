@@ -238,6 +238,32 @@ def test_with_r2_decisions_are_refused_while_the_bucket_has_a_newer_database(rem
 
 
 @respx.mock
+def test_with_r2_deal_check_only_reports_and_the_run_expires_the_deal(remote, monkeypatch):
+    """The local copy is not authoritative with R2 (D26): `deal check` stores nothing and
+    changes no status; the next run's recheck expires the deal. (Local mode: test_review.)"""
+    from typer.testing import CliRunner
+    from escapadinha import cli
+    ctx, store = remote
+    monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    runs = conn.execute("SELECT COUNT(*) FROM fetch_runs").fetchone()[0]
+    archives = store.list("archive/")
+    price_api(80)
+    deal, check = pipeline.live_check(ctx, conn, deal_id)
+    assert not check.valid and check.reason == "o preço subiu para 80 €"
+    assert deal.status == "rendered" and deal.last_checked_at is None
+    assert conn.execute("SELECT COUNT(*) FROM fetch_runs").fetchone()[0] == runs
+    assert not list(ctx.output_dir.rglob("EXPIRADO.txt")) and store.list("archive/") == archives
+
+    result = CliRunner().invoke(cli.app, ["deal", "check", str(deal_id)])
+    assert result.exit_code == 0, result.output
+    out = " ".join(result.output.split())
+    assert "o preço subiu para 80 €" in out and "a próxima recolha expira o deal" in out
+    assert db.get_deal(conn, deal_id)[0].status == "rendered"
+
+
+@respx.mock
 def test_cli_without_r2_applies_the_decision_at_once(ctx, monkeypatch):
     from typer.testing import CliRunner
     from escapadinha import cli

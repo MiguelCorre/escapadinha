@@ -313,12 +313,20 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
                now: datetime | None = None) -> tuple[Deal, Recheck]:
     """Fetch this deal's route and departure month right now and recheck the price.
 
-    The prices are stored as a `live_check` run (traceable like any other data). A deal
-    whose price moved expires immediately (a recheck, owned by the pipeline like `run_recheck`).
+    Without R2 keys this database is the real one: the prices are stored as a `live_check` run
+    (traceable like any other data) and a deal whose price moved expires immediately (a
+    recheck, owned by the pipeline like `run_recheck`). With R2 keys it is a local copy a later
+    pull sets aside, so the check only reports (`price_now`: nothing stored, no status change)
+    and the next run's recheck expires the deal (D26).
     """
-    deal, obs = db.get_deal(conn, deal_id)
+    try:
+        deal, obs = db.get_deal(conn, deal_id)
+    except KeyError:
+        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
     if deal.status not in db.OPEN_STATUSES:
         raise ReviewError(f"O deal {deal_id} está '{STATUS_PT[deal.status]}' e já não é verificado.")
+    if ctx.remote_store:
+        return deal, price_now(ctx, conn, deal_id, now)
     run_id = db.start_run(conn, TravelpayoutsSource.name, scope="live_check")
     try:
         fetched, rules = _fetch_trip_month(ctx, conn, obs)

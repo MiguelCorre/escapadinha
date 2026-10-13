@@ -236,7 +236,8 @@ affiliate link, and the facts behind it: price, typical low, discount, arrival a
 found/checked dates and the last recheck.
 
 - **Verificar preço agora** fetches that route and month from the API now and rechecks the deal
-  (stored as a `live_check` run; a moved price expires the deal).
+  (without R2 keys: stored as a `live_check` run, a moved price expires the deal; with R2 keys
+  it only reports, and the next run's recheck expires it).
 - **Aprovar** checks the price live first. If it moved, the approval is refused with the reason
   and nothing is written: the next collection's recheck expires the deal. A deal without an
   affiliate link can't be approved.
@@ -479,7 +480,8 @@ uploads the photos and rendered folders it made before D25 that the bucket lacks
   if it changed on top of an older one, the run keeps it as `data/escapadinha.db.local-<time>`
   and uses the bucket's.
 
-**On your PC** (stats, `deal check`): `store pull` before, `store push` after. Review decisions
+**On your PC** (stats): `store pull` before, `store push` after. `deal check` only reports with
+R2 keys (nothing to push). Review decisions
 (`review`, `deal approve/reject/published`) go to the bucket as events and need no push; pull first
 so the deal you decide on is in your copy (they refuse while the bucket's database is newer).
 - `store push` takes the run lock, so it refuses while a run is in progress. It also refuses

@@ -278,13 +278,21 @@ def review(
 
 
 def _print_check(deal, check) -> None:
-    mark = "[green]✓ preço confirmado[/]" if check.valid else "[red]✗ expirado[/]"
+    if check.valid:
+        mark = "[green]✓ preço confirmado[/]"
+    elif deal.status == "expired":
+        mark = "[red]✗ expirado[/]"
+    else:                                   # R2: report only, the run's recheck expires it (D26)
+        mark = "[red]✗ o preço mudou[/]"
     console.print(f"  deal {deal.id}: {mark} ({check.reason}) → status {deal.status}")
+    if not check.valid and deal.status != "expired":
+        console.print("  Não guardado: a próxima recolha expira o deal (`escapadinha run`).")
 
 
 @deal_app.command("check")
 def deal_check(deal_id: int) -> None:
-    """Fetch this deal's prices now and recheck it."""
+    """Fetch this deal's prices now and recheck it (with R2 keys: report only, the next run's
+    recheck expires a deal whose price moved)."""
     ctx, conn = _ctx()
     _print_check(*pipeline.live_check(ctx, conn, deal_id))
 

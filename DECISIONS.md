@@ -611,8 +611,12 @@ so nothing has to be hosted.
   approval with the reason and writes nothing; the next collection's recheck (every 2 h, same
   rule) expires the deal. The applier doesn't call the provider: it re-checks the status, so a
   deal that expired between the check and the run is refused, and approved deals keep being
-  rechecked by every run, so "never publish expired" holds. `deal check` keeps storing a
-  `live_check` run and expiring on a moved price (a recheck, pipeline-owned).
+  rechecked by every run, so "never publish expired" holds. `deal check` (and the page's
+  *Verificar preço agora*) without R2 keys keeps storing a `live_check` run and expiring on a
+  moved price (a recheck, pipeline-owned, on the only database). With R2 keys it is report-only
+  (`price_now`: no run stored, no status change): its write would land on a local copy that the
+  next pull sets aside, so the run's recheck (same rule, every 2 h) expires the deal instead.
+  This was the last status write outside the applier and the run.
 - **Approvals expire after 24 h (Miguel, 2026-10-13):** the applier refuses an `approve` event
   whose `live_check.checked_at` (else `created_at`) is older than `review.approve_max_age_hours`
   (config, default 24) at apply time, reason "Aprovação com mais de 24 h: verifica o preço outra
