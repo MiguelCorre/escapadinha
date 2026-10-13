@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Direções visuais</title>
+<style>
+:root { color-scheme: light dark; --bg: #FAFAF7; --surface: #FFFFFF; --ink: #1A1A1A; --muted: #575757; --line: #E2E0DA; --accent: #9C3D1F; }
+@media (prefers-color-scheme: dark) { :root { --bg: #121212; --surface: #1C1C1C; --ink: #EDEDED; --muted: #ADADAD; --line: #333333; --accent: #F0936B; } }
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 17px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif; }
+a { color: var(--accent); text-underline-offset: 3px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header { padding: 44px 0 18px; }
+header p.k { margin: 0; color: var(--muted); font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.05; margin: 8px 0 14px; letter-spacing: -0.02em; }
+.lead { max-width: 70ch; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 18px; padding: 18px 0 30px; }
+.dir { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+.dir .strip { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; height: 44px; }
+.dir .strip.dark { height: 22px; }
+.dir .b { padding: 18px 20px 22px; display: grid; gap: 10px; }
+.dir h2 { margin: 0; font-size: 26px; line-height: 1.15; }
+.dir h2 span { color: var(--muted); font-weight: 400; }
+.dir p { margin: 0; }
+.dir .small { font-size: 14px; color: var(--muted); }
+.links { display: flex; flex-wrap: wrap; gap: 8px; }
+.links a { display: inline-block; border: 1px solid var(--ink); color: var(--ink); text-decoration: none; border-radius: 999px; padding: 6px 14px; font-weight: 600; font-size: 15px; }
+.links a:hover { background: var(--ink); color: var(--bg); }
+details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+details p { margin-top: 8px; font-size: 15px; }
+.facts { border-top: 1px solid var(--line); padding: 22px 0 44px; font-size: 15px; color: var(--muted); }
+.facts li { margin-bottom: 6px; max-width: 90ch; }
+</style>
+</head>
+<body>
+<header class="wrap">
+  <p class="k">{{ brand.name }} · issue #11 · para o Miguel escolher</p>
+  <h1>Três direções visuais</h1>
+  <p class="lead">Cada direção tem uma página inicial e uma página de promoção, feitas com dados reais da base de dados (recolha de {{ d.latest_run_at or "—" }}, {{ d.n_observations }} preços observados) e as fotos guardadas dos destinos. Abre as seis, experimenta no telemóvel e no modo escuro (botão “Tema” no topo de cada página), e diz qual preferes ou o que misturar.</p>
+</header>
+<main class="wrap">
+  <div class="grid">
+    {% for dir in directions %}
+    <article class="dir">
+      <div class="strip" aria-hidden="true">{% for t in dir.swatches %}<span style="background: {{ dir.light[t] }}"></span>{% endfor %}</div>
+      <div class="strip dark" aria-hidden="true">{% for t in dir.swatches %}<span style="background: {{ dir.dark[t] }}"></span>{% endfor %}</div>
+      <div class="b">
+        <h2>{{ dir.key }} · {{ dir.name }}</h2>
+        <p>{{ dir.summary[0] }}</p>
+        <p class="small">{{ dir.summary[1] }}</p>
+        <div class="links"><a href="{{ dir.slug }}/index.html">Página inicial</a><a href="{{ dir.slug }}/promocao.html">Página de promoção</a></div>
+        <p class="small">Letra: {% for f in dir.fonts %}{{ f.family }} ({{ f.role|lower }}){{ " + " if not loop.last }}{% endfor %}, ambas {{ dir.fonts[0].licence }}.</p>
+        {% set rows = dir.contrast() %}
+        {% set body = rows|selectattr("role", "equalto", "body")|list %}
+        <p class="small">Contraste do texto: mínimo {{ "%.2f"|format(body|map(attribute="ratio")|min)|replace(".", ",") }}:1 em {{ body|length }} pares (claro e escuro), {{ "todos passam AA (4,5:1)" if body|selectattr("ok")|list|length == body|length else "ALGUM PAR FALHA AA" }}.</p>
+        <details><summary>Fundamentação</summary><p>{{ dir.rationale }}</p></details>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  <ul class="facts">
+    <li>Todos os preços vêm de linhas reais de <code>price_observations</code>. “Preço baixo” = observação recente abaixo do preço habitual (mediana dos mínimos diários) da rota para o mês da partida.</li>
+    <li>{% if d.promos %}As {{ d.promos|length }} promoções existentes estão {{ "todas expiradas" if not (d.promos|selectattr("live")|list) else "em vários estados" }}: aparecem marcadas e sem ligação de reserva. A página de promoção mostra a #{{ d.featured.deal_id }}.{% else %}Ainda não há promoções revistas: as páginas de promoção mostram o estado vazio.{% endif %}</li>
+    <li>Os tipos de letra carregam do Google Fonts só para esta pré-visualização; a direção escolhida passa a ter os ficheiros alojados no site (licença OFL permite).</li>
+    <li>{{ disclosure }}</li>
+    <li>Gerado a {{ d.built_at }} (hora de Lisboa) com <code>uv run escapadinha design directions</code>.</li>
+  </ul>
+</main>
+</body>
+</html>

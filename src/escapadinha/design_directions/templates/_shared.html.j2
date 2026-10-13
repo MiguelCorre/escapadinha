@@ -1,0 +1,167 @@
+{# Pieces every direction uses: head, tokens, review bar, marks, spec panel. Styled by each
+   direction's own CSS through the tokens and the .dir-* / .spec-* classes. #}
+
+{% macro head(direction, title, root) %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{ title }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="{{ direction.google_css }}">
+<style>
+:root { color-scheme: light; {{ direction.css_vars("light") }} }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { color-scheme: dark; {{ direction.css_vars("dark") }} }
+}
+:root[data-theme="dark"] { color-scheme: dark; {{ direction.css_vars("dark") }} }
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); }
+img { max-width: 100%; display: block; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dir-bar { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; padding: 8px 16px;
+  font-size: 13px; line-height: 1.4; border-bottom: 1px solid var(--line, var(--rule)); }
+.dir-bar a, .dir-bar button { color: inherit; }
+.dir-bar button { font: inherit; background: none; border: 1px solid currentColor; border-radius: 999px;
+  padding: 2px 10px; cursor: pointer; }
+.dir-bar .here { font-weight: 700; text-decoration: none; }
+.dir-bar .grow { flex: 1 1 auto; }
+.mark { display: inline-block; vertical-align: middle; }
+.spec { padding: 40px 16px 56px; }
+.spec-inner { max-width: 1080px; margin: 0 auto; }
+.spec table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.spec th, .spec td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line, var(--rule)); vertical-align: top; }
+.spec td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.spec .chip { display: inline-block; width: 18px; height: 18px; border-radius: 4px; vertical-align: -4px;
+  border: 1px solid rgba(128,128,128,.5); margin-right: 6px; }
+.spec .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 0; list-style: none; }
+.spec .swatches li { font-size: 13px; }
+.spec .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 24px; }
+.spec .table-wrap { overflow-x: auto; }
+@media (max-width: 560px) {
+  .spec table.contrast, .spec table.contrast tbody { display: block; }
+  .spec table.contrast thead { display: none; }
+  .spec table.contrast tr { display: grid; grid-template-columns: 1fr auto auto auto; gap: 2px 12px;
+    padding: 8px 0; border-bottom: 1px solid var(--line, var(--rule)); }
+  .spec table.contrast td { border: 0; padding: 0; }
+  .spec table.contrast td.pair { grid-column: 1 / -1; order: -1; }
+  .spec table.contrast td.min::before { content: "mín. "; }
+}
+</style>
+<script>
+(function () {
+  var r = document.documentElement, k = "pn-theme";
+  try { var t = localStorage.getItem(k); if (t === "light" || t === "dark") r.setAttribute("data-theme", t); } catch (e) {}
+  var names = { auto: "automático", light: "claro", dark: "escuro" };
+  function label() {
+    var cur = r.getAttribute("data-theme") || "auto";
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (b) { b.textContent = "Tema: " + names[cur]; });
+  }
+  window.pnCycleTheme = function () {
+    var cur = r.getAttribute("data-theme") || "auto";
+    var next = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
+    if (next === "auto") r.removeAttribute("data-theme"); else r.setAttribute("data-theme", next);
+    try { if (next === "auto") localStorage.removeItem(k); else localStorage.setItem(k, next); } catch (e) {}
+    label();
+  };
+  document.addEventListener("DOMContentLoaded", label);
+})();
+</script>
+{% endmacro %}
+
+{% macro dir_bar(direction, page, root) %}
+<nav class="dir-bar" aria-label="Navegação entre direções">
+  <strong>Direção {{ direction.key }} de 3 · {{ direction.name }}</strong>
+  <a href="index.html" {% if page == "home" %}class="here" aria-current="page"{% endif %}>Início</a>
+  <a href="promocao.html" {% if page == "promo" %}class="here" aria-current="page"{% endif %}>Promoção</a>
+  <a href="#direcao">Sobre esta direção</a>
+  <span class="grow"></span>
+  {% for other in directions if other.key != direction.key %}
+  <a href="{{ root }}{{ other.slug }}/{{ 'index.html' if page == 'home' else 'promocao.html' }}">{{ other.key }} · {{ other.name }}</a>
+  {% endfor %}
+  <a href="{{ root }}index.html">Todas</a>
+  <button type="button" data-theme-toggle onclick="pnCycleTheme()">Tema: automático</button>
+</nav>
+{% endmacro %}
+
+{# Mountain marks, one per direction (provisional; the designer's logo comes in M6). #}
+{% macro mark(style, size=40) %}
+{% if style == "line" %}
+<svg class="mark" width="{{ size * 1.6 }}" height="{{ size }}" viewBox="0 0 64 40" aria-hidden="true">
+  <circle cx="43" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+  <path d="M2 37 L21 9 L31 23 L38 15 L62 37" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M15 37 L21 28 L26 37" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+</svg>
+{% elif style == "sunset" %}
+<svg class="mark" width="{{ size }}" height="{{ size }}" viewBox="0 0 48 48" aria-hidden="true">
+  <circle cx="24" cy="26" r="13" style="fill: var(--sun)"/>
+  <path d="M3 34 L17 16 L24 25 L30 18 L45 34 Z" style="fill: var(--coral)"/>
+  <path d="M3 34 L17 16 L21 21 L14 34 Z" style="fill: var(--dusk); opacity: .55"/>
+  <path d="M4 39 Q10 36 16 39 T28 39 T40 39 T46 38" fill="none" style="stroke: var(--sea)" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M10 44 Q16 41 22 44 T34 44 T40 43" fill="none" style="stroke: var(--sea)" stroke-width="2.4" stroke-linecap="round" opacity=".6"/>
+</svg>
+{% else %}
+<svg class="mark" width="{{ size }}" height="{{ size }}" viewBox="0 0 40 40" aria-hidden="true">
+  <rect width="40" height="40" style="fill: var(--signal)"/>
+  <path d="M5 33 L16 13 L23 25 L28 18 L36 33 Z" style="fill: var(--on-signal)"/>
+  <rect x="27" y="6" width="6" height="6" style="fill: var(--on-signal)"/>
+</svg>
+{% endif %}
+{% endmacro %}
+
+{% macro credit(photo) %}{% if photo %}Foto: <a href="{{ photo.source_url }}" rel="noopener">{{ photo.photographer }}</a> / {{ photo.source }}{% endif %}{% endmacro %}
+
+{% macro img(trip, root, has_photo, alt_extra="", cls="", eager=false) %}
+{% if has_photo(trip) %}<img class="{{ cls }}" src="{{ root }}assets/photos/{{ trip.photo.file_name }}" alt="{{ trip.destination_city }}{{ alt_extra }}"{% if not eager %} loading="lazy"{% endif %}>{% endif %}
+{% endmacro %}
+
+{# Rationale, fonts, palette and computed contrast; the evidence Miguel picks from. #}
+{% macro spec(direction) %}
+<section class="spec" id="direcao" aria-labelledby="direcao-title">
+  <div class="spec-inner">
+    <p class="spec-kicker">Direção {{ direction.key }} de 3 · para escolher</p>
+    <h2 id="direcao-title">Sobre esta direção: {{ direction.name }}</h2>
+    <p class="spec-rationale">{{ direction.rationale }}</p>
+    <div class="cols">
+      <div>
+        <h3>Tipos de letra</h3>
+        <ul class="spec-fonts">
+          {% for f in direction.fonts %}
+          <li><strong>{{ f.family }}</strong>: {{ f.role }}. Licença: <a href="{{ f.url }}" rel="noopener">{{ f.licence }}</a> (Google Fonts).</li>
+          {% endfor %}
+        </ul>
+        <h3>Paleta</h3>
+        {% for mode, label in (("light", "Modo claro"), ("dark", "Modo escuro")) %}
+        <p><strong>{{ label }}</strong></p>
+        <ul class="swatches">
+          {% for token in direction.swatches %}
+          <li><span class="chip" style="background: {{ direction.palette(mode)[token] }}"></span>{{ token }} <code>{{ direction.palette(mode)[token] }}</code></li>
+          {% endfor %}
+        </ul>
+        {% endfor %}
+      </div>
+      <div>
+        <h3>Contraste (WCAG 2.2)</h3>
+        <p class="spec-note">Calculado a partir da paleta acima. Texto corrido precisa de 4,5:1 (AA). O texto sobre fotografia assenta num véu de {{ (direction.scrim_alpha * 100)|round|int }}% de opacidade; a razão indicada é o pior caso, uma fotografia totalmente branca por trás.</p>
+        <div class="table-wrap">
+        <table class="contrast">
+          <thead><tr><th>Modo</th><th>Par</th><th>Razão</th><th>Mínimo</th><th>AA</th></tr></thead>
+          <tbody>
+          {% for r in direction.contrast() %}
+          <tr><td>{{ "claro" if r.mode == "light" else "escuro" }}</td>
+            <td class="pair"><span class="chip" style="background: {{ r.bg }}; box-shadow: inset 0 0 0 5px {{ r.bg }}, inset 0 0 0 9px {{ r.fg }}"></span>{{ r.label }} <code>{{ r.fg }}</code> / <code>{{ r.bg }}</code></td>
+            <td class="num">{{ "%.2f"|format(r.ratio)|replace(".", ",") }}:1</td>
+            <td class="num min">{{ "%.1f"|format(r.minimum)|replace(".", ",") }}:1</td>
+            <td>{{ "passa" if r.ok else "FALHA" }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endmacro %}
+
+{% macro expired_note(p) %}Esta promoção já expirou{% if p.expired_reason %}: {{ p.expired_reason }}{% endif %}. Fica aqui como registo, sem ligação de reserva.{% endmacro %}

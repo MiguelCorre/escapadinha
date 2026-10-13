@@ -1,0 +1,59 @@
+{% import "_shared.html.j2" as ui %}
+<!doctype html>
+<html lang="pt-PT">
+<head>
+{{ ui.head(direction, title, root) }}
+<style>
+:root { --display: "Fraunces", "Iowan Old Style", Georgia, serif; --text: "Source Serif 4", Georgia, "Times New Roman", serif; }
+body { font: 400 18px/1.6 var(--text); font-optical-sizing: auto; }
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+h1, h2, h3 { font-family: var(--display); font-optical-sizing: auto; font-weight: 600; line-height: 1.08; letter-spacing: -0.01em; margin: 0; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+.dir-bar { font-family: var(--text); color: var(--muted); background: var(--bg); }
+.dir-bar .here { color: var(--ink); }
+.kicker { font: 600 13px/1.3 var(--text); text-transform: uppercase; letter-spacing: .14em; color: var(--accent); margin: 0 0 12px; }
+.meta { color: var(--muted); font-size: 15px; }
+.rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+.double { border: 0; border-top: 3px double var(--ink); margin: 0; }
+.num { font-family: var(--display); font-variant-numeric: oldstyle-nums proportional-nums; }
+
+/* Masthead */
+.masthead { text-align: center; padding-block: 28px 18px; }
+.masthead .top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px;
+  text-transform: uppercase; letter-spacing: .12em; color: var(--muted); padding-bottom: 14px; }
+.masthead .brand { display: inline-flex; align-items: center; gap: 14px; color: var(--ink); text-decoration: none; }
+.masthead .name { font: italic 500 clamp(44px, 9vw, 92px)/1 var(--display); letter-spacing: -0.02em; }
+.masthead .tagline { font: italic 400 clamp(17px, 2.4vw, 21px)/1.4 var(--display); margin: 10px 0 0; color: var(--muted); }
+.masthead.small { padding-block: 18px 12px; }
+.masthead.small .name { font-size: clamp(30px, 6vw, 44px); }
+@media (max-width: 520px) { .masthead:not(.small) .brand { flex-direction: column; gap: 6px; } }
+
+figure { margin: 0; }
+figcaption { font-size: 13px; color: var(--muted); font-style: italic; padding-top: 8px; }
+figcaption a { color: inherit; }
+
+/* Spec panel */
+.spec { background: var(--surface); border-top: 3px double var(--ink); }
+.spec h2 { font-size: clamp(28px, 4vw, 40px); margin-bottom: 14px; }
+.spec h3 { font-size: 20px; margin: 22px 0 8px; }
+.spec-kicker { font: 600 13px/1.3 var(--text); text-transform: uppercase; letter-spacing: .14em; color: var(--accent); margin: 0 0 10px; }
+.spec-rationale { max-width: 68ch; font-size: 19px; }
+.spec-rationale::first-letter { font: 600 3.4em/0.8 var(--display); float: left; padding: 6px 8px 0 0; color: var(--accent); }
+.spec-note, .spec li { font-size: 15px; }
+.spec code { font-size: 13px; }
+footer.colophon { padding-block: 28px; font-size: 15px; color: var(--muted); }
+footer.colophon p { max-width: 70ch; }
+{% block style %}{% endblock %}
+</style>
+</head>
+<body>
+{{ ui.dir_bar(direction, page, root) }}
+{% block body %}{% endblock %}
+<div class="wrap"><hr class="double"></div>
+<footer class="colophon wrap">
+  <p>Os números deste caderno: {{ d.n_observations }} preços observados {% if d.first_seen %}desde {{ d.first_seen }} {% endif %}em {{ d.n_routes }} rotas, todos encontrados por viajantes no Aviasales e guardados por nós. Não são preços ao vivo; podem já ter mudado. Horas de Lisboa. Página gerada a {{ d.built_at }}.</p>
+  <p class="disclosure"><em>{{ disclosure }}</em></p>
+</footer>
+{{ ui.spec(direction) }}
+</body>
+</html>
