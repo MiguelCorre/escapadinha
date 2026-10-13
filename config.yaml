@@ -136,6 +136,7 @@ site:
   # the row cap per origin's low-price file (biggest discounts kept; ~160 bytes per row).
   data_dir: output/site-data/v1               # web/src/data once the Astro package exists (#13)
   max_low_prices_per_origin: 1500
+  expired_promotions_days: 30                 # expired promotions kept in the export (Jinja pages stay)
 
 # Review decisions (DECISIONS D26): an approve event whose live price check is older than this
 # is refused when a run applies it (check the price again); reject/published never expire.

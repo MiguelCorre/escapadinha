@@ -187,6 +187,9 @@ class SiteConfig(BaseModel):
     # project root) and the row cap of each per-origin low-price file (size budget).
     data_dir: str = "output/site-data/v1"
     max_low_prices_per_origin: int = Field(1500, ge=1)
+    # Expired promotions stay in the export this many days after they expired (the Jinja
+    # site's own expired pages are unchanged: they stay, noindex, D27).
+    expired_promotions_days: int = Field(30, ge=0)
 
     @field_validator("base_url")
     @classmethod

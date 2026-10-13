@@ -684,6 +684,11 @@ so nothing has to be hosted.
   names come from `pipeline.deal_slide_names` (the local folder, else the `output/` listing of
   D25, nothing downloaded), so a runner without `output/` exports the same image paths as the
   PC (tested).
+- **Promotions: live and recently expired** (spec #10): every live promotion, and expired ones
+  for `site.expired_promotions_days` (30) after they expired (their last check, the recheck that
+  expired them; else detection), so the file doesn't grow forever. Route counts and
+  `meta.counts` follow the same window. The Jinja site's expired pages are unchanged (they stay,
+  `noindex`, so shared links never break); the Astro site decides what an old link shows (#13).
 - **Raw values, few display strings:** ISO dates, UTC timestamps (`Z`), euros as numbers, codes.
   pt-PT number/date formatting moves to the site; what it cannot derive comes from `i18n_pt.py`
   in `labels.json` (airline and airport names, remote airports, kind and status labels, month and

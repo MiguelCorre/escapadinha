@@ -265,6 +265,27 @@ def test_promotions_live_and_expired_after_approval(exported):
                                                                            s.expired_deal]
 
 
+def test_expired_promotions_leave_the_export_after_the_configured_window(exported):
+    """`site.expired_promotions_days` (default 30) after it expired; live ones always stay."""
+    ctx, conn, s, _, _ = exported
+    assert ctx.config.site.expired_promotions_days == 30
+    expired_at = db.get_deal(conn, s.expired_deal)[0].last_checked_at
+
+    def exported_ids(days_later: float) -> list[int]:
+        export = site_data.build_export(ctx, conn, expired_at + timedelta(days=days_later),
+                                        new_links=False)
+        route = next(r for r in export.files["routes.json"]["routes"] if r["key"] == "OPO-PAR")
+        promos = export.files["promotions.json"]["promotions"]
+        assert route["counts"]["promotions_expired"] == sum(not p["live"] for p in promos)
+        assert export.counts["promotions_expired"] == sum(not p["live"] for p in promos)
+        return [p["id"] for p in promos]
+
+    assert exported_ids(29.9) == [s.live_deal, s.expired_deal]
+    assert exported_ids(30.1) == [s.live_deal]
+    ctx.config.site.expired_promotions_days = 60
+    assert exported_ids(30.1) == [s.live_deal, s.expired_deal]
+
+
 def test_low_prices_per_origin_with_found_date_and_tracked_links(exported):
     ctx, conn, s, out, _ = exported
     doc = read(out, "low-prices/LIS.json")

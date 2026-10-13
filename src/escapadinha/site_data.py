@@ -8,7 +8,7 @@ matches them, from the same database queries and detector rules as the Jinja sit
     origins.json         Portuguese departure airports
     routes.json          every route: rules, status, monthly typical lows and averages, cheapest
     destinations.json    destination hubs (city, airports, routes from Portugal, photo credit)
-    promotions.json      approved deals, live and expired (paths, images, tracked links)
+    promotions.json      approved deals, live and recently expired (paths, images, links)
     low-prices/XXX.json  one origin's low prices at date level, compact rows (explorer)
 
 Values are raw (ISO dates, UTC timestamps, euros as numbers); pt-PT formatting stays on
@@ -28,7 +28,7 @@ import json
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from escapadinha import detector, i18n_pt, pipeline, routes
@@ -171,7 +171,8 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     low_links = pipeline.low_price_links(ctx, conn, [lp for v in kept.values() for lp in v],
                                          now, create=new_links).urls
 
-    deals = [(d, o) for d, o in public_deal_rows(conn) if o.route_key in keys]
+    deals = [(d, o) for d, o in public_deal_rows(conn)
+             if o.route_key in keys and _in_window(d, now, cfg.site.expired_promotions_days)]
     live = [(d, o) for d, o in deals if d.status in LIVE]
     deal_links = pipeline.website_links(ctx, conn, live, create=new_links) if live else {}
 
@@ -378,6 +379,15 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route]) -> list[dic
                 "source_url": photo.source_url, "license": photo.license},
         })
     return out
+
+
+def _in_window(deal: Deal, now: datetime, days: int) -> bool:
+    """Live promotions always; expired ones until `days` after they expired (the recheck that
+    expired them is their last check)."""
+    if deal.status in LIVE:
+        return True
+    expired_at = deal.last_checked_at or deal.detected_at
+    return now - expired_at <= timedelta(days=days)
 
 
 def _latest_seen(conn: sqlite3.Connection, deal: Deal, o: Observation) -> dict | None:

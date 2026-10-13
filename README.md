@@ -182,7 +182,8 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
   `site.max_new_links_per_build: 300` (new low-price partner links per collection run, shared
   by the site data export and the site build, ≤ 900).
 - `site.data_dir: output/site-data/v1` (where `export site-data` writes; `web/src/data` once the
-  Astro package exists) and `site.max_low_prices_per_origin: 1500` (row cap per low-price file).
+  Astro package exists), `site.max_low_prices_per_origin: 1500` (row cap per low-price file) and
+  `site.expired_promotions_days: 30` (expired promotions stay in the export this long).
 - `collector.market: pt` and `collector.booking_base: https://www.aviasales.pt` use prices from
   the Portuguese market, and links open in euros with a 24h clock. Aviasales' UI is English/Russian only.
 
@@ -365,7 +366,7 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 | `origins.json` | The Portuguese origins (name, slug, active/dormant routes, low prices, live promotions) |
 | `routes.json` | Every route: kind, status, rules, page path, typical low and plain average per departure month (null while the month has too few days), cheapest fresh offer, counts |
 | `destinations.json` | Destination hubs: city, airports, routes from Portugal, photo credit |
-| `promotions.json` | Approved deals, live and expired after approval: offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
+| `promotions.json` | Approved deals, live and expired after approval (for `site.expired_promotions_days`, 30, after expiring): offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
 | `low-prices/<ORIGIN>.json` | One origin's low prices for the explorer: compact rows `[obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link]` |
 
 - **Raw values:** ISO dates, UTC timestamps, euros as numbers. pt-PT formatting is the site's job,

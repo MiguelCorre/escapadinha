@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pontonomada.pt/contract/site/v1/promotions.schema.json",
   "title": "promotions.json: promotions a human approved",
-  "description": "Live (approved, published) and expired-after-approval deals, newest first. Never-approved deals are not here. An expired promotion keeps its page (shared links don't break) but is noindex, has no booking button and says why (D15). Every caption-like text and CTA must carry labels.disclosure.",
+  "description": "Live (approved, published) deals, and expired-after-approval ones for site.expired_promotions_days (default 30) after they expired, newest first. Never-approved deals are not here. An expired promotion keeps its page (shared links don't break) but is noindex, has no booking button and says why (D15). Every caption-like text and CTA must carry labels.disclosure.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "promotions"],
