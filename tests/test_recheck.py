@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 from escapadinha.config import DetectorConfig
-from escapadinha.models import Observation
+from escapadinha.models import Observation, RouteRules
 from escapadinha.recheck import recheck
 
 NOW = datetime(2026, 10, 12, 20, 0, tzinfo=timezone.utc)
@@ -48,6 +48,21 @@ def test_tolerance():
 def test_direct_only_expires_deals_with_connections():
     from dataclasses import replace
     connection = replace(DEAL, return_transfers=1)
-    r = recheck(connection, [connection], DetectorConfig(direct_only=True), NOW)
+    r = recheck(connection, [connection], CFG, NOW, rules=RouteRules())
     assert not r.valid and "voos diretos" in r.reason
-    assert recheck(connection, [connection], DetectorConfig(direct_only=False, max_offer_age_days=3), NOW).valid
+    one_stop = RouteRules(direct_only=False, max_transfers=1)
+    assert recheck(connection, [connection], CFG, NOW, rules=one_stop).valid
+
+
+def test_long_haul_deal_expires_when_it_gains_a_second_stop():
+    from dataclasses import replace
+    rules = RouteRules(direct_only=False, min_nights=2, max_nights=21, max_transfers=1)
+    deal = replace(DEAL, transfers=1, return_transfers=1)
+    assert recheck(deal, [deal], CFG, NOW, rules=rules).valid
+    r = recheck(replace(deal, transfers=2), [deal], CFG, NOW, rules=rules)
+    assert not r.valid and "1 escala" in r.reason
+
+
+def test_deal_outside_the_routes_nights_range_expires():
+    r = recheck(DEAL, [DEAL], CFG, NOW, rules=RouteRules(min_nights=7, max_nights=14))
+    assert not r.valid and "7–14 noites" in r.reason

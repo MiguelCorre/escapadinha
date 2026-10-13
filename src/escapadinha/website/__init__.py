@@ -21,11 +21,11 @@ import yaml
 from jinja2 import Environment, PackageLoader
 from PIL import Image
 
-from escapadinha import detector
+from escapadinha import detector, routes
 from escapadinha import i18n_pt as pt
-from escapadinha.config import Context, Route
+from escapadinha.config import Context
 from escapadinha.guides import Guide
-from escapadinha.models import Deal, Observation
+from escapadinha.models import Deal, Observation, Route
 from escapadinha.presentation import PhotoCredit, build_deal_view
 from escapadinha.storage import db
 
@@ -99,7 +99,7 @@ class SiteBuilder:
         for deal, obs in rows:
             if deal.status == "expired" and deal.reviewed_at is None:
                 continue   # expired before anyone approved it: never public
-            route = self.cfg.route(obs.route_key)
+            route = routes.get_route(self.conn, self.cfg.routes, obs.route_key)
             view = build_deal_view(deal, obs, origin_city=self.cfg.origin_name(obs.origin),
                                    destination_city=route.city_pt,
                                    photo=PhotoCredit.from_photo(None, None))
@@ -111,11 +111,11 @@ class SiteBuilder:
 
     def route_pages(self, deals: list[SiteDeal]) -> list[RoutePage]:
         pages = []
-        for route in self.cfg.routes:
+        for route in routes.all_routes(self.conn, self.cfg.routes):
             history = db.route_history(self.conn, route.origin, route.destination,
                                        since=self.now - timedelta(days=self.cfg.detector.lookback_days),
                                        exclude_run_id=None)
-            baselines = detector.month_baselines(history, self.cfg.detector, self.now)
+            baselines = detector.month_baselines(history, self.cfg.detector, self.now, route.rules)
             months = [(f"{pt.MONTHS[m - 1]} {y}", pt.eur(b.median), b.sample_size)
                       for (y, m), b in sorted(baselines.items())
                       if b.median is not None and b.sample_size >= self.cfg.detector.min_baseline_days]

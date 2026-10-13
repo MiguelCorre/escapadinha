@@ -6,7 +6,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
-- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `photos fetch`,
+- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list`, `photos fetch`,
   `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`,
   `site build|preview|setup|deploy`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
@@ -15,7 +15,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - **Never fabricate prices.** Observations come only from API payloads. No seed/demo data
   outside tests (tests use `tmp_path`). Every deal must trace to `price_observations.id`.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
-- `detector.py` stays pure (no I/O, no clock). Pass `now` in.
+- `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
+  passed in too; never read a global `direct_only` or nights range.
+- Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
+  config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list and seed.
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
   installs) and add the ALTER steps to `MIGRATIONS` (existing DBs). Test the upgrade.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
@@ -31,6 +34,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 
 ## Layout
 - `src/escapadinha/collector/`: `TravelpayoutsSource`, `runner.collect`
+- `src/escapadinha/routes.py`: `sync` (config → `routes` table), `all_routes`/`active_routes`/`get_route`
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate`, `detect_route`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step, plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page

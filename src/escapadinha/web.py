@@ -34,8 +34,8 @@ class Published(BaseModel):
     post_url: str | None = None
 
 
-def deal_json(ctx: Context, deal: Deal, obs: Observation) -> dict:
-    route = ctx.config.route(obs.route_key)
+def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observation) -> dict:
+    route = pipeline.route_for(ctx, conn, obs.route_key)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=PhotoCredit.from_photo(None, None))
     folder = Path(deal.output_path) if deal.output_path else None
@@ -100,7 +100,7 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
 
         def run(conn):
             counts = {t: len(db.deals_with_status(conn, *s)) for t, s in TABS.items()}
-            deals = [deal_json(ctx, d, o) for d, o in db.deals_with_status(conn, *TABS[tab])]
+            deals = [deal_json(ctx, conn, d, o) for d, o in db.deals_with_status(conn, *TABS[tab])]
             return {"tab": tab, "counts": counts, "deals": deals}
         return with_conn(run)
 
@@ -116,7 +116,7 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
 
     def action_result(conn, deal: Deal, check=None) -> dict:
         _, obs = db.get_deal(conn, deal.id)
-        out = {"deal": deal_json(ctx, deal, obs)}
+        out = {"deal": deal_json(ctx, conn, deal, obs)}
         if check is not None:
             out["check"] = {"valid": check.valid, "reason": check.reason,
                             "latest_price": None if check.latest_price is None

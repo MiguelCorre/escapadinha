@@ -8,7 +8,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from escapadinha import pipeline
+from escapadinha import i18n_pt as pt
+from escapadinha import pipeline, routes
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
@@ -26,7 +27,9 @@ site_app = typer.Typer(help="Public website: build, preview, deploy (Cloudflare 
                        no_args_is_help=True)
 deal_app = typer.Typer(help="Approval queue actions (same rules as the review page).",
                        no_args_is_help=True)
+routes_app = typer.Typer(help="Watched routes (stored in the database).", no_args_is_help=True)
 app.add_typer(photos_app, name="photos")
+app.add_typer(routes_app, name="routes")
 app.add_typer(render_app, name="render")
 app.add_typer(deal_app, name="deal")
 app.add_typer(site_app, name="site")
@@ -48,7 +51,7 @@ def init_db() -> None:
 
 @app.command()
 def collect() -> None:
-    """Fetch round-trip prices for every configured route and store them."""
+    """Fetch round-trip prices for every active route and store them."""
     ctx, conn = _ctx()
     summary = pipeline.run_collect(ctx, conn)
     console.print(f"Run #{summary.run_id}: [bold]{summary.status}[/] · "
@@ -101,7 +104,7 @@ def recheck_cmd() -> None:
 def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
     """Price history summary for one route."""
     ctx, conn = _ctx()
-    r = ctx.config.route(route)
+    r = pipeline.route_for(ctx, conn, route)
     row = db.route_stats(conn, r.origin, r.destination)
     if not row["n"]:
         console.print(f"No observations for {r.key} yet.")
@@ -111,6 +114,28 @@ def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
     for (year, month), base in sorted(pipeline.current_baselines(ctx, conn, r).items()):
         low = "–" if base.median is None else f"{base.median:g} €"
         console.print(f"  {year}-{month:02d}: {low} from {base.sample_size} days")
+
+
+@routes_app.command("list")
+def routes_list() -> None:
+    """Every route with its kind, effective rules, status and last observation (pt-PT)."""
+    ctx, conn = _ctx()
+    cfg = ctx.config.routes
+    table = Table(title="Rotas")
+    for col in ("Rota", "Destino", "Tipo", "Escalas", "Noites", "Estado", "Última observação"):
+        table.add_column(col, no_wrap=True)
+    all_routes = routes.all_routes(conn, cfg)
+    for r in all_routes:
+        status = pt.ROUTE_STATUS[r.status]
+        if cfg.excluded(r.origin, r.destination):
+            status += " (excluída)"
+        seen = pt.lisbon_timestamp(r.last_observed_at) if r.last_observed_at else "nunca"
+        table.add_row(f"{r.origin} → {r.destination}", r.city_pt, pt.ROUTE_KIND[r.kind],
+                      pt.stops_rule(r.rules.direct_only, r.rules.max_transfers),
+                      pt.nights_range(r.rules.min_nights, r.rules.max_nights), status, seen)
+    console.print(table)
+    active = len(routes.active_routes(conn, cfg))
+    console.print(f"{len(all_routes)} rotas, {active} ativas.")
 
 
 @photos_app.command("fetch")

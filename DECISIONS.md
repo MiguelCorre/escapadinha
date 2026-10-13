@@ -180,3 +180,21 @@ so nothing has to be hosted.
 - **Consequences:** `brand.name`/`brand.tagline` in config drive the site and slides; `site.base_url`
   and the Cloudflare project stay on `ondestaanocas.pages.dev` until the domain is connected (#22 → #23).
 
+
+## D17: Routes as data (2026-10-13, #2)
+- **Why:** "all flights from Portugal" is ~300 direct routes plus long-haul, and the list must
+  maintain itself (discovery, dormancy). A static config list cannot do that.
+- **What:** schema v6 adds a `routes` table (origin, provider city code, `city_pt`, `kind`
+  `europe`/`long_haul`/`domestic`, nullable rule overrides, `status` `active`/`dormant`,
+  `discovered_at`, `last_observed_at`). It is the source of truth; the collector, detector,
+  recheck, live check, website and photos all read it.
+- **Config only shapes it:** per-kind defaults, per-route overrides, exclusions, the long-haul
+  list, and a `seed` inserted once into an empty table (the 10 original routes, kind `europe`,
+  so behaviour is unchanged). `routes.sync` runs on every command: it seeds, adds long-haul
+  routes and mirrors the overrides into the table (no override = NULL = kind default).
+- **Rules:** `europe` and `domestic` are nonstop both ways, 2–10 nights (as before, D13).
+  `long_haul` allows 1 stop each way and 7–21 nights (spec #1). The nights range is applied by
+  the collector and again by the detector, so offers stored under an older range never enter
+  a typical low. Unknown transfer counts never pass a stop limit.
+- **Excluded routes** are not seeded and not collected; a route excluded later stays in the
+  table (its page and history are kept).

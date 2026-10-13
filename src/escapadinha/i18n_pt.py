@@ -100,3 +100,21 @@ def hashtag(text: str) -> str:
     """'Amesterdão' -> '#amesterdao'."""
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     return "#" + "".join(ch for ch in ascii_text.lower() if ch.isalnum())
+
+
+ROUTE_KIND = {"europe": "Europa", "long_haul": "Longo curso", "domestic": "Ilhas"}
+ROUTE_STATUS = {"active": "ativa", "dormant": "adormecida"}
+
+
+def nights_range(lo: int, hi: int) -> str:
+    """(2, 10) -> '2–10 noites'."""
+    return nights(lo) if lo == hi else f"{lo}–{hi} noites"
+
+
+def stops_rule(direct_only: bool, max_transfers: int | None) -> str:
+    """The route's stop limit per direction, in words."""
+    if direct_only or max_transfers == 0:
+        return "só diretos"
+    if max_transfers is None:
+        return "qualquer"
+    return "até 1 escala" if max_transfers == 1 else f"até {max_transfers} escalas"

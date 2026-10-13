@@ -6,7 +6,7 @@ from escapadinha.config import DetectorConfig
 from escapadinha.detector import (
     Baseline, Decision, baseline, day_key, detect_route, evaluate, is_fresh, month_baselines,
 )
-from escapadinha.models import Observation
+from escapadinha.models import Observation, RouteRules
 
 NOW = datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc)
 TODAY = NOW.date()
@@ -180,23 +180,62 @@ def test_decision_is_value_object():
     assert Decision("no_deal", None, None, "x") == Decision("no_deal", None, None, "x")
 
 
-# --- direct only --------------------------------------------------------------------------
+# --- per-route rules ------------------------------------------------------------------------
 
-def _with_stops(o, back=1):
+def _with_stops(o, back=1, out=0):
     from dataclasses import replace
-    return replace(o, return_transfers=back)
+    return replace(o, transfers=out, return_transfers=back)
+
+
+DIRECT = RouteRules()
+LONG_HAUL = RouteRules(direct_only=False, min_nights=7, max_nights=21, max_transfers=1)
 
 
 def test_direct_only_ignores_connections_for_deals_and_baseline():
-    direct_cfg = CFG.model_copy(update={"direct_only": True})
     cheap_connection = _with_stops(obs(40, oid=1))
     history = lows([100] * 5) + [_with_stops(o) for o in lows([30] * 5)]   # cheap lows w/ stops
-    flags = detect_route([cheap_connection, obs(65, oid=2)], history, [], direct_cfg, None, NOW, 5)
+    flags = detect_route([cheap_connection, obs(65, oid=2)], history, [], CFG, None, NOW, 5,
+                         rules=DIRECT)
     assert [f.observation.id for f in flags] == [2]           # 65 vs direct typical low 100
     assert flags[0].baseline.median == 100
 
 
 def test_direct_only_off_keeps_everything():
-    any_cfg = CFG.model_copy(update={"direct_only": False})
-    flags = detect_route([_with_stops(obs(40, oid=1))], lows([100] * 5), [], any_cfg, None, NOW, 5)
+    anything = RouteRules(direct_only=False, max_transfers=None)
+    flags = detect_route([_with_stops(obs(40, oid=1), back=3)], lows([100] * 5), [], CFG, None,
+                         NOW, 5, rules=anything)
     assert [f.observation.id for f in flags] == [1]
+
+
+def test_max_transfers_is_per_direction_and_unknown_counts_never_pass():
+    rules = RouteRules(direct_only=False, max_transfers=1)
+    assert rules.allows(_with_stops(obs(40), back=1, out=1))
+    assert not rules.allows(_with_stops(obs(40), back=2, out=0))
+    assert not rules.allows(_with_stops(obs(40), back=None))
+
+
+def test_long_haul_rules_take_one_stop_and_their_own_nights_range():
+    """A long-haul route: one stop each way is fine, a 4-night trip is not."""
+    week = [_with_stops(o, back=1, out=1) for o in lows([800] * 5)]
+    week = [replace_nights(o, 10) for o in week]
+    one_stop = replace_nights(_with_stops(obs(500, oid=1), back=1, out=1), 10)
+    two_stops = replace_nights(_with_stops(obs(400, oid=2), back=2, out=1), 10)
+    too_short = _with_stops(obs(300, oid=3), back=1, out=1)                 # 4 nights
+    flags = detect_route([one_stop, two_stops, too_short], week, [], CFG, None, NOW, 5,
+                         rules=LONG_HAUL)
+    assert [f.observation.id for f in flags] == [1]
+    assert flags[0].baseline.median == 800
+    # The same offers on a Europe route: none qualifies (connections), no baseline either.
+    assert detect_route([one_stop], week, [], CFG, None, NOW, 5, rules=DIRECT) == []
+
+
+def test_nights_range_filters_the_baseline_too():
+    short = lows([50] * 5)                                    # 4-night trips, cheap
+    long_ = [replace_nights(o, 8) for o in lows([100] * 5)]
+    rules = RouteRules(min_nights=7, max_nights=14)
+    assert month_baselines(short + long_, CFG, NOW, rules)[(2026, 11)].median == 100
+
+
+def replace_nights(o, nights):
+    from dataclasses import replace
+    return replace(o, return_date=o.departure_date + timedelta(days=nights))

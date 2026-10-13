@@ -9,8 +9,6 @@ collector:
   source: travelpayouts
   currency: eur
   months_ahead: 3            # number of departure months fetched, starting with the current month
-  min_nights: 2
-  max_nights: 10
   limit_per_request: 100      # max offers returned per route/month call
   market: pt                  # prices found on the Portuguese Aviasales market
   booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
@@ -24,22 +22,35 @@ detector:
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
   max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
   max_offer_age_days: 3      # candidates: prices found in the last N days; older days = baseline
-  direct_only: true          # deals and typical lows use nonstop round trips only (avoids
-                             # e.g. Paris-Beauvais -> Milan-MXP, change airport -> BGY -> Lisbon)
 
-# City or airport IATA codes. Travelpayouts accepts city codes (LON, PAR, ROM, MIL).
-# price_cap_eur (optional): absolute ceiling used ONLY while history is insufficient.
+# Routes live in the database (`escapadinha routes list`). Config only shapes them.
 routes:
-  - { origin: LIS, destination: LON, city_pt: Londres }
-  - { origin: LIS, destination: PAR, city_pt: Paris }
-  - { origin: LIS, destination: ROM, city_pt: Roma }
-  - { origin: LIS, destination: BCN, city_pt: Barcelona }
-  - { origin: LIS, destination: AMS, city_pt: Amesterdão }
-  - { origin: OPO, destination: LON, city_pt: Londres }
-  - { origin: OPO, destination: PAR, city_pt: Paris }
-  - { origin: OPO, destination: BCN, city_pt: Barcelona }
-  - { origin: OPO, destination: MIL, city_pt: Milão }
-  - { origin: OPO, destination: BER, city_pt: Berlim }
+  # Default rules per kind. Offers outside a route's rules are neither collected (nights)
+  # nor deals nor part of its typical low. direct_only = nonstop both ways (avoids e.g.
+  # Paris-Beauvais -> Milan-MXP, change airport -> BGY -> Lisbon); max_transfers = per direction.
+  kinds:
+    europe:    { direct_only: true,  min_nights: 2, max_nights: 10, max_transfers: 0 }
+    domestic:  { direct_only: true,  min_nights: 2, max_nights: 10, max_transfers: 0 }   # "Ilhas"
+    long_haul: { direct_only: false, min_nights: 7, max_nights: 21, max_transfers: 1 }
+  # Per-route exceptions, e.g. "LIS-LON": { max_nights: 7 }. price_cap_eur (optional) is an
+  # absolute ceiling used ONLY while the route's history is insufficient.
+  overrides: {}
+  exclusions: []             # route keys ("LIS-LON") or destinations ("LON") never collected
+  # Curated long-haul destinations (added for each origin with the long_haul rules); see #5.
+  long_haul: []
+  # Inserted once into an empty routes table (fresh database). Destination = provider city
+  # code (Travelpayouts accepts LON, PAR, ROM, MIL). Automatic discovery replaces this (#5).
+  seed:
+    - { origin: LIS, destination: LON, city_pt: Londres }
+    - { origin: LIS, destination: PAR, city_pt: Paris }
+    - { origin: LIS, destination: ROM, city_pt: Roma }
+    - { origin: LIS, destination: BCN, city_pt: Barcelona }
+    - { origin: LIS, destination: AMS, city_pt: Amesterdão }
+    - { origin: OPO, destination: LON, city_pt: Londres }
+    - { origin: OPO, destination: PAR, city_pt: Paris }
+    - { origin: OPO, destination: BCN, city_pt: Barcelona }
+    - { origin: OPO, destination: MIL, city_pt: Milão }
+    - { origin: OPO, destination: BER, city_pt: Berlim }
 
 # Tracked links come from the Travelpayouts partner links API for this Project
 # (Instagram https://www.instagram.com/ondestaanocas/). A renamed handle needs a new Project.

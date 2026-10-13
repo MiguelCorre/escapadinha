@@ -11,6 +11,9 @@ the source cache), so a fresh install has about a week of baseline from its firs
 
 Days inside the freshness window (the last `max_offer_age_days`) are candidates, older
 days form the baseline, so a candidate never pulls its own baseline down.
+
+Each route has its own rules (direct only or a stop limit, nights range): offers outside
+them count neither as candidates nor towards the baseline.
 """
 
 from __future__ import annotations
@@ -21,9 +24,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from escapadinha.config import DetectorConfig
-from escapadinha.models import Observation
+from escapadinha.models import Observation, RouteRules
 
 Month = tuple[int, int]
+
+DIRECT = RouteRules()   # Europe default: nonstop both ways, 2-10 nights
 
 
 @dataclass(frozen=True)
@@ -58,9 +63,9 @@ def is_direct(o: Observation) -> bool:
     return o.transfers == 0 and o.return_transfers == 0
 
 
-def eligible(observations: list[Observation], cfg: DetectorConfig) -> list[Observation]:
-    """Offers that may be deals or baseline: all, or nonstop only when `direct_only`."""
-    return [o for o in observations if is_direct(o)] if cfg.direct_only else list(observations)
+def eligible(observations: list[Observation], rules: RouteRules) -> list[Observation]:
+    """Offers that may be deals or baseline: within the route's stop limit and nights range."""
+    return [o for o in observations if rules.allows(o)]
 
 
 def month_key(o: Observation) -> Month:
@@ -89,10 +94,10 @@ def baseline(history: list[Observation], *, since: date, before: date) -> Baseli
                     span_days=(max(lows) - min(lows)).days)
 
 
-def month_baselines(history: list[Observation], cfg: DetectorConfig,
-                    now: datetime) -> dict[Month, Baseline]:
+def month_baselines(history: list[Observation], cfg: DetectorConfig, now: datetime,
+                    rules: RouteRules = DIRECT) -> dict[Month, Baseline]:
     by_month: dict[Month, list[Observation]] = defaultdict(list)
-    for o in eligible(history, cfg):
+    for o in eligible(history, rules):
         by_month[month_key(o)].append(o)
     since = now.date() - timedelta(days=cfg.lookback_days)
     before = fresh_since(cfg, now)
@@ -128,19 +133,20 @@ def _already_flagged(candidate: Observation, recent: list[Observation]) -> bool:
 
 def detect_route(candidates: list[Observation], history: list[Observation],
                  recently_flagged: list[Observation], cfg: DetectorConfig,
-                 price_cap: float | None, now: datetime, max_deals: int) -> list[Flag]:
+                 price_cap: float | None, now: datetime, max_deals: int,
+                 rules: RouteRules = DIRECT) -> list[Flag]:
     """Deals among one route's candidates, biggest discount first, at most `max_deals`.
 
     `history` may include the candidates' own run: only days before the freshness
     window count towards the baseline.
     """
-    baselines = month_baselines(history, cfg, now)
+    baselines = month_baselines(history, cfg, now, rules)
     dedupe_start = now - timedelta(days=cfg.dedupe_days)
     recent = [r for r in recently_flagged if r.fetched_at >= dedupe_start]
     empty = Baseline(None, 0, 0)
 
     flags = []
-    for candidate in eligible(candidates, cfg):
+    for candidate in eligible(candidates, rules):
         if not is_fresh(candidate, cfg, now) or _already_flagged(candidate, recent):
             continue
         base = baselines.get(month_key(candidate), empty)

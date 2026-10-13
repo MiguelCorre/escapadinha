@@ -9,7 +9,24 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
+
+ROUTES_TABLE = """CREATE TABLE IF NOT EXISTS routes (
+    origin               TEXT NOT NULL,              -- airport IATA (LIS, OPO, ...)
+    destination          TEXT NOT NULL,              -- provider city code (LON, PAR, ...)
+    destination_airports TEXT,                       -- comma-separated airport codes, if known
+    city_pt              TEXT NOT NULL,
+    kind                 TEXT NOT NULL CHECK (kind IN ('europe', 'long_haul', 'domestic')),
+    direct_only          INTEGER,                    -- rule overrides: NULL = the kind's default
+    min_nights           INTEGER,
+    max_nights           INTEGER,
+    max_transfers        INTEGER,
+    price_cap_eur        NUMERIC,
+    status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'dormant')),
+    discovered_at        TEXT NOT NULL,
+    last_observed_at     TEXT,
+    PRIMARY KEY (origin, destination)
+)"""
 
 # Steps that bring an existing database from version N-1 to N.
 MIGRATIONS = {
@@ -39,6 +56,8 @@ MIGRATIONS = {
         "ALTER TABLE deals ADD COLUMN review_note TEXT",
         "ALTER TABLE deals ADD COLUMN published_at TEXT",
         "ALTER TABLE deals ADD COLUMN post_url TEXT"],
+    # Routes move from config.yaml into the database (seeded by routes.sync on first use).
+    6: [ROUTES_TABLE],
 }
 
 
@@ -303,6 +322,51 @@ def upsert_photo(conn: sqlite3.Connection, photo: Photo) -> None:
         (photo.destination, photo.file_path, photo.source, photo.source_url, photo.photographer,
          photo.photographer_url, photo.license, _ts(photo.fetched_at)),
     )
+    conn.commit()
+
+
+# --- routes -------------------------------------------------------------------
+
+ROUTE_OVERRIDES = ("direct_only", "min_nights", "max_nights", "max_transfers", "price_cap_eur")
+
+
+def route_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """All routes in the order they were added."""
+    return conn.execute("SELECT * FROM routes ORDER BY rowid").fetchall()
+
+
+def insert_route(conn: sqlite3.Connection, *, origin: str, destination: str, city_pt: str,
+                 kind: str, discovered_at: datetime) -> bool:
+    """Add a route unless it exists. Backfills last_observed_at from stored prices."""
+    cur = conn.execute(
+        """INSERT INTO routes (origin, destination, city_pt, kind, discovered_at, last_observed_at)
+           VALUES (?, ?, ?, ?, ?, (SELECT MAX(fetched_at) FROM price_observations
+                                   WHERE origin = ? AND destination = ?))
+           ON CONFLICT (origin, destination) DO NOTHING""",
+        (origin, destination, city_pt, kind, _ts(discovered_at), origin, destination))
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def set_route_overrides(conn: sqlite3.Connection, origin: str, destination: str,
+                        overrides: dict) -> None:
+    """Replace the override columns (missing keys become NULL = kind default)."""
+    conn.execute(
+        f"UPDATE routes SET {', '.join(f'{c} = ?' for c in ROUTE_OVERRIDES)} "
+        "WHERE origin = ? AND destination = ?",
+        (*(overrides.get(c) for c in ROUTE_OVERRIDES), origin, destination))
+    conn.commit()
+
+
+def touch_routes_observed(conn: sqlite3.Connection, run_id: int) -> None:
+    """last_observed_at = newest stored price, for every route that got prices in this run."""
+    conn.execute(
+        """UPDATE routes SET last_observed_at = (
+               SELECT MAX(fetched_at) FROM price_observations p
+               WHERE p.origin = routes.origin AND p.destination = routes.destination)
+           WHERE EXISTS (SELECT 1 FROM price_observations p WHERE p.run_id = ?
+                         AND p.origin = routes.origin AND p.destination = routes.destination)""",
+        (run_id,))
     conn.commit()
 
 

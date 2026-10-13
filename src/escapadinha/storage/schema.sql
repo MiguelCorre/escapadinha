@@ -1,4 +1,4 @@
--- Schema version 5 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 6 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -70,4 +70,21 @@ CREATE TABLE IF NOT EXISTS photos (
     photographer_url TEXT NOT NULL,
     license          TEXT NOT NULL,
     fetched_at       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS routes (
+    origin               TEXT NOT NULL,              -- airport IATA (LIS, OPO, ...)
+    destination          TEXT NOT NULL,              -- provider city code (LON, PAR, ...)
+    destination_airports TEXT,                       -- comma-separated airport codes, if known
+    city_pt              TEXT NOT NULL,
+    kind                 TEXT NOT NULL CHECK (kind IN ('europe', 'long_haul', 'domestic')),
+    direct_only          INTEGER,                    -- rule overrides: NULL = the kind's default
+    min_nights           INTEGER,
+    max_nights           INTEGER,
+    max_transfers        INTEGER,
+    price_cap_eur        NUMERIC,
+    status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'dormant')),
+    discovered_at        TEXT NOT NULL,
+    last_observed_at     TEXT,
+    PRIMARY KEY (origin, destination)
 );

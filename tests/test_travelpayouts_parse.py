@@ -42,6 +42,9 @@ def test_parse_nights_range_is_configurable():
     assert {o.nights for o in parse(min_nights=1, max_nights=14)} == {3, 14, 1, 7}
 
 
+NIGHTS = {"min_nights": 2, "max_nights": 10}
+
+
 def test_parse_raises_on_api_error():
     with pytest.raises(TravelpayoutsError, match="bad token"):
         parse({"success": False, "data": [], "error": "bad token"})
@@ -50,9 +53,9 @@ def test_parse_raises_on_api_error():
 @respx.mock
 def test_source_sends_token_and_month_params():
     route = respx.get(API_URL).mock(return_value=httpx.Response(200, json=FIXTURE))
-    source = TravelpayoutsSource("tok", currency="eur", min_nights=2, max_nights=10, limit=50,
+    source = TravelpayoutsSource("tok", currency="eur", limit=50,
                                  now=lambda: FETCHED)
-    result = source.fetch_round_trips("LIS", "LON", date(2026, 11, 1))
+    result = source.fetch_round_trips("LIS", "LON", date(2026, 11, 1), **NIGHTS)
     request = route.calls.last.request
     assert request.headers["X-Access-Token"] == "tok"
     assert request.url.params["departure_at"] == "2026-11"
@@ -63,10 +66,10 @@ def test_source_sends_token_and_month_params():
 @respx.mock
 def test_source_sends_market_and_uses_booking_base():
     route = respx.get(API_URL).mock(return_value=httpx.Response(200, json=FIXTURE))
-    source = TravelpayoutsSource("tok", currency="eur", min_nights=2, max_nights=10, limit=50,
+    source = TravelpayoutsSource("tok", currency="eur", limit=50,
                                  market="pt", booking_base="https://www.aviasales.pt/",
                                  now=lambda: FETCHED)
-    result = source.fetch_round_trips("LIS", "LON", date(2026, 11, 1))
+    result = source.fetch_round_trips("LIS", "LON", date(2026, 11, 1), **NIGHTS)
     assert route.calls.last.request.url.params["market"] == "pt"
     assert result[0].deep_link.startswith("https://www.aviasales.pt/search/")
     assert len(result) == 2
@@ -76,24 +79,34 @@ def test_source_sends_market_and_uses_booking_base():
 def test_source_retries_after_rate_limit():
     respx.get(API_URL).mock(side_effect=[httpx.Response(429), httpx.Response(200, json=FIXTURE)])
     sleeps = []
-    source = TravelpayoutsSource("tok", currency="eur", min_nights=2, max_nights=10, limit=50,
+    source = TravelpayoutsSource("tok", currency="eur", limit=50,
                                  now=lambda: FETCHED, sleep=sleeps.append)
-    assert len(source.fetch_round_trips("LIS", "LON", date(2026, 11, 1))) == 2
+    assert len(source.fetch_round_trips("LIS", "LON", date(2026, 11, 1), **NIGHTS)) == 2
     assert sleeps == [60.0]
 
 
 @respx.mock
 def test_source_gives_up_after_max_attempts():
     respx.get(API_URL).mock(return_value=httpx.Response(429))
-    source = TravelpayoutsSource("tok", currency="eur", min_nights=2, max_nights=10, limit=50,
+    source = TravelpayoutsSource("tok", currency="eur", limit=50,
                                  sleep=lambda s: None, max_attempts=2)
     with pytest.raises(TravelpayoutsError, match="429"):
-        source.fetch_round_trips("LIS", "LON", date(2026, 11, 1))
+        source.fetch_round_trips("LIS", "LON", date(2026, 11, 1), **NIGHTS)
 
 
 def test_missing_token_fails_fast():
     with pytest.raises(TravelpayoutsError, match="TRAVELPAYOUTS_TOKEN"):
-        TravelpayoutsSource("", currency="eur", min_nights=2, max_nights=10, limit=50)
+        TravelpayoutsSource("", currency="eur", limit=50)
+
+
+@respx.mock
+def test_source_applies_the_nights_range_of_each_call():
+    respx.get(API_URL).mock(return_value=httpx.Response(200, json=FIXTURE))
+    source = TravelpayoutsSource("tok", currency="eur", limit=50, now=lambda: FETCHED)
+    trips = source.fetch_round_trips("LIS", "LON", date(2026, 11, 1), **NIGHTS)
+    assert trips and all(2 <= o.nights <= 10 for o in trips)
+    assert source.fetch_round_trips("LIS", "LON", date(2026, 11, 1),
+                                    min_nights=30, max_nights=40) == []
 
 
 # --- found date and local dates -------------------------------------------------

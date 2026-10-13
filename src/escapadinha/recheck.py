@@ -12,8 +12,8 @@ from datetime import datetime
 
 from escapadinha import i18n_pt as pt
 from escapadinha.config import DetectorConfig
-from escapadinha.detector import eligible, is_direct, is_fresh
-from escapadinha.models import Observation
+from escapadinha.detector import DIRECT, eligible, is_fresh
+from escapadinha.models import Observation, RouteRules
 
 
 @dataclass(frozen=True)
@@ -24,11 +24,11 @@ class Recheck:
 
 
 def recheck(deal_obs: Observation, latest: list[Observation], cfg: DetectorConfig,
-            now: datetime, tolerance_eur: float = 0.0) -> Recheck:
-    """`latest`: the newest run's observations for the deal's route."""
-    if cfg.direct_only and not is_direct(deal_obs):
-        return Recheck(False, None, "não é ida e volta com voos diretos (regra direct_only)")
-    same_trip = [o for o in eligible(latest, cfg)
+            now: datetime, tolerance_eur: float = 0.0, rules: RouteRules = DIRECT) -> Recheck:
+    """`latest`: the newest run's observations for the deal's route; `rules`: that route's."""
+    if not rules.allows(deal_obs):
+        return Recheck(False, None, _rule_broken(deal_obs, rules))
+    same_trip = [o for o in eligible(latest, rules)
                  if o.departure_date == deal_obs.departure_date
                  and o.return_date == deal_obs.return_date]
     if not same_trip:
@@ -41,3 +41,11 @@ def recheck(deal_obs: Observation, latest: list[Observation], cfg: DetectorConfi
                        f"o preço foi visto pela última vez a {best.found_date:%d/%m}, há mais "
                        f"de {cfg.max_offer_age_days} dias")
     return Recheck(True, best.price, f"continua a {pt.eur(best.price)}")
+
+
+def _rule_broken(deal_obs: Observation, rules: RouteRules) -> str:
+    if not rules.min_nights <= deal_obs.nights <= rules.max_nights:
+        return f"fora do intervalo de {rules.min_nights}–{rules.max_nights} noites da rota"
+    if rules.direct_only:
+        return "não é ida e volta com voos diretos (regra direct_only)"
+    return f"tem mais de {rules.max_transfers} escala(s) num dos sentidos (regra max_transfers)"

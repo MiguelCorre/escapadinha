@@ -10,14 +10,14 @@ from pathlib import Path
 
 import httpx
 
-from escapadinha import detector, i18n_pt
+from escapadinha import detector, i18n_pt, routes
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.captions import deal_caption, guide_caption
 from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.travelpayouts import TravelpayoutsSource
-from escapadinha.config import Context, Route
+from escapadinha.config import Context
 from escapadinha.guides import load_guide
-from escapadinha.models import Deal, Observation
+from escapadinha.models import Deal, Observation, Route
 from escapadinha.photos import PixabayClient, fetch_photo
 from escapadinha.presentation import PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, recheck
@@ -27,9 +27,15 @@ from escapadinha.storage import db
 
 
 def open_db(ctx: Context) -> sqlite3.Connection:
+    """Connect, migrate and apply config.yaml's route settings to the routes table."""
     conn = db.connect(ctx.db_path)
     db.init(conn)
+    routes.sync(conn, ctx.config.routes, db.utcnow())
     return conn
+
+
+def route_for(ctx: Context, conn: sqlite3.Connection, key: str) -> Route:
+    return routes.get_route(conn, ctx.config.routes, key)
 
 
 def lisbon_today() -> date:
@@ -39,7 +45,8 @@ def lisbon_today() -> date:
 # --- collect ------------------------------------------------------------------
 
 def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
-    return collect(conn, _source(ctx), ctx.config.routes, today=lisbon_today(),
+    return collect(conn, _source(ctx), routes.active_routes(conn, ctx.config.routes),
+                   today=lisbon_today(),
                    months_ahead=ctx.config.collector.months_ahead)
 
 
@@ -67,7 +74,7 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
     run_obs = db.observations_for_run(conn, run_id)
 
     results = []
-    for route in ctx.config.routes:
+    for route in routes.active_routes(conn, ctx.config.routes):
         offers = [o for o in run_obs if o.route_key == route.key]
         if not offers:
             results.append(RouteDetection(route.key, 0, None, None, "no_data", [], "no prices this run"))
@@ -77,7 +84,7 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
         recent = db.recently_flagged_offers(conn, route.origin, route.destination,
                                             since=now - timedelta(days=cfg.dedupe_days))
         flags = detector.detect_route(offers, history, recent, cfg, route.price_cap_eur,
-                                      now, cfg.max_deals_per_route)
+                                      now, cfg.max_deals_per_route, route.rules)
         deal_ids = [
             db.insert_deal(conn, observation_id=f.observation.id, rule=f.decision.rule,
                            baseline_median=f.baseline.median, sample_size=f.baseline.sample_size,
@@ -90,12 +97,12 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
 
 def _summarise(route: Route, offers: list[Observation], history: list[Observation],
                flags: list[detector.Flag], deal_ids: list[int], cfg, now: datetime) -> RouteDetection:
-    fresh = [o for o in detector.eligible(offers, cfg) if detector.is_fresh(o, cfg, now)]
+    fresh = [o for o in detector.eligible(offers, route.rules) if detector.is_fresh(o, cfg, now)]
     if not fresh:
-        kind = "direct " if cfg.direct_only else ""
+        kind = "direct " if route.rules.direct_only else ""
         return RouteDetection(route.key, 0, None, None, "no_fresh", [],
                               f"no {kind}price found in the last {cfg.max_offer_age_days} days")
-    baselines = detector.month_baselines(history, cfg, now)
+    baselines = detector.month_baselines(history, cfg, now, route.rules)
     empty = detector.Baseline(None, 0, 0)
 
     def discount(o: Observation) -> float:
@@ -115,7 +122,7 @@ def current_baselines(ctx: Context, conn: sqlite3.Connection,
     cfg, now = ctx.config.detector, db.utcnow()
     history = db.route_history(conn, route.origin, route.destination,
                                since=now - timedelta(days=cfg.lookback_days), exclude_run_id=None)
-    return detector.month_baselines(history, cfg, now)
+    return detector.month_baselines(history, cfg, now, route.rules)
 
 
 # --- recheck ------------------------------------------------------------------
@@ -137,7 +144,8 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
         route_latest = [o for o in latest if o.route_key == obs.route_key]
         if obs.run_id >= run_id or not route_latest:
             continue
-        result = recheck(obs, route_latest, ctx.config.detector, now)
+        rules = route_for(ctx, conn, obs.route_key).rules
+        result = recheck(obs, route_latest, ctx.config.detector, now, rules=rules)
         db.record_recheck(conn, deal.id, valid=result.valid, latest_price=result.latest_price,
                           reason=result.reason)
         if not result.valid:
@@ -159,7 +167,6 @@ def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime
 def _source(ctx: Context) -> TravelpayoutsSource:
     c = ctx.config.collector
     return TravelpayoutsSource(ctx.secrets.travelpayouts_token, currency=c.currency,
-                               min_nights=c.min_nights, max_nights=c.max_nights,
                                limit=c.limit_per_request, market=c.market,
                                booking_base=c.booking_base)
 
@@ -174,18 +181,20 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     deal, obs = db.get_deal(conn, deal_id)
     if deal.status not in db.OPEN_STATUSES:
         raise ReviewError(f"O deal {deal_id} está '{STATUS_PT[deal.status]}' e já não é verificado.")
+    rules = route_for(ctx, conn, obs.route_key).rules
     source = _source(ctx)
     run_id = db.start_run(conn, source.name, scope="live_check")
     try:
         fresh = source.fetch_round_trips(obs.origin, obs.destination,
-                                         obs.departure_date.replace(day=1))
+                                         obs.departure_date.replace(day=1),
+                                         min_nights=rules.min_nights, max_nights=rules.max_nights)
     except Exception as exc:
         db.finish_run(conn, run_id, status="failed", n_requests=1, n_observations=0, error=str(exc))
         raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
     db.insert_observations(conn, run_id, fresh)
     db.finish_run(conn, run_id, status="ok", n_requests=1, n_observations=len(fresh), error=None)
     now = now or db.utcnow()
-    result = recheck(obs, fresh, ctx.config.detector, now)
+    result = recheck(obs, fresh, ctx.config.detector, now, rules=rules)
     db.record_recheck(conn, deal_id, valid=result.valid, latest_price=result.latest_price,
                       reason=result.reason)
     if not result.valid:
@@ -226,10 +235,11 @@ def mark_published(conn: sqlite3.Connection, deal_id: int, post_url: str | None 
 
 # --- photos -------------------------------------------------------------------
 
-def photo_targets(ctx: Context) -> dict[str, str]:
+def photo_targets(ctx: Context, conn: sqlite3.Connection) -> dict[str, str]:
     """Destination key -> Pixabay search query, for every route destination plus extra config keys."""
     cfg = ctx.config
-    targets = {r.destination: cfg.photos.queries.get(r.destination, r.city_pt) for r in cfg.routes}
+    targets = {r.destination: cfg.photos.queries.get(r.destination, r.city_pt)
+               for r in routes.all_routes(conn, cfg.routes)}
     for key, query in cfg.photos.queries.items():
         targets.setdefault(key, query)
     return targets
@@ -237,7 +247,7 @@ def photo_targets(ctx: Context) -> dict[str, str]:
 
 def run_fetch_photos(ctx: Context, conn: sqlite3.Connection, dest: str | None, force: bool,
                      pick: int) -> list[tuple[str, str]]:
-    targets = photo_targets(ctx)
+    targets = photo_targets(ctx, conn)
     if dest:
         dest = dest.upper()
         targets = {dest: targets.get(dest) or ctx.config.origin_name(dest)}
@@ -310,7 +320,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
     written = []
     with SlideRenderer(ctx.assets_dir, ctx.config.brand) as renderer:
         for deal, obs in pairs:
-            route = ctx.config.route(obs.route_key)
+            route = route_for(ctx, conn, obs.route_key)
             credit, photo_path = _photo(ctx, conn, obs.destination)
             view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                                    destination_city=route.city_pt, photo=credit)

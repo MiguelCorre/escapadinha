@@ -28,6 +28,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations)       (mark
 | Module | Role |
 |---|---|
 | `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`), `runner.collect` (route × month loop) |
+| `routes.py` | Routes as data: `sync` (config → `routes` table), `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py` |
 | `detector.py` | Pure functions: `baseline`, `evaluate`, `detect_route` |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
@@ -60,7 +61,8 @@ traffic rules that **Instagram/social media** traffic is allowed before posting.
 ## Running each step
 
 ```bash
-uv run escapadinha collect                 # ~30 API calls: 10 routes × 3 departure months
+uv run escapadinha routes list             # every route: kind, rules, status, last observed (pt-PT)
+uv run escapadinha collect                 # ~30 API calls: 10 active routes × 3 departure months
 uv run escapadinha recheck                 # re-verifies open deals against the latest run
 uv run escapadinha detect                  # evaluates the latest run; prints a per-route table
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
@@ -80,9 +82,20 @@ Output for review lives in `output/<YYYY-MM-DD>/`:
 
 ## Configuration (`config.yaml`)
 
-- `routes`: origin/destination IATA (city codes like `LON`, `PAR` work), `city_pt` for display,
-  and an optional `price_cap_eur`.
-- `collector`: `months_ahead` (3 = this month + 2), `min_nights`/`max_nights` (2–10), currency.
+- `routes`: routes live in the database (`routes` table, `escapadinha routes list`); config
+  only shapes them (DECISIONS D17):
+  - `kinds`: default rules per kind. `europe` and `domestic` (the "Ilhas"): nonstop both ways,
+    2–10 nights. `long_haul`: up to 1 stop each way, 7–21 nights. `direct_only` wins over
+    `max_transfers` (stops per direction). Offers outside a route's rules are not collected
+    (nights), are never deals and never count towards its typical low.
+  - `overrides`: per-route exceptions, e.g. `"LIS-LON": { max_nights: 7 }`, plus an optional
+    `price_cap_eur`. Removing an override restores the kind default on the next command.
+  - `exclusions`: route keys (`LIS-LON`) or destinations (`LON`) that are never collected.
+  - `long_haul`: curated long-haul destinations (`destination`, `city_pt`, `origins`), added as
+    `long_haul` routes.
+  - `seed`: the 10 original routes (city codes like `LON`, `PAR` work), inserted once into an
+    empty table. Changing it later has no effect; discovery (#5) will add routes.
+- `collector`: `months_ahead` (3 = this month + 2), currency. Nights come from each route's rules.
 - `detector`:
   - `threshold: 0.30` flags a price when `price ≤ typical_low × (1 − 0.30)`.
   - `lookback_days: 90` is how far back daily lows count.
@@ -91,7 +104,6 @@ Output for review lives in `output/<YYYY-MM-DD>/`:
     3 days are candidates, and older days form the baseline.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
   - `max_deals_per_route: 1` caps deals per route per run (biggest discount first).
-  - `direct_only: true` makes deals and typical lows use nonstop round trips only.
 - `collector.market: pt` and `collector.booking_base: https://www.aviasales.pt` use prices from
   the Portuguese market, and links open in euros with a 24h clock. Aviasales' UI is English/Russian only.
 
@@ -99,7 +111,8 @@ Output for review lives in `output/<YYYY-MM-DD>/`:
 The source is a cache and prices move. On the first real day a 60 € deal was 70 € two hours
 later. Every run rechecks open deals (`new`, `rendered`, `approved`) against the newest prices.
 A deal stays valid only while the same trip is still offered at or below the deal price,
-found within `max_offer_age_days`, and (with `direct_only`) nonstop. Otherwise it becomes
+found within `max_offer_age_days`, and within the route's rules (nonstop where `direct_only`,
+at most `max_transfers` stops per direction, nights range). Otherwise it becomes
 `expired`, gets an `expired_reason`, and its output folder gets `EXPIRADO.txt` ("NÃO PUBLICAR").
 A route with no data in a run is skipped, so an API hiccup expires nothing.
 

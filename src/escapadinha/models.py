@@ -46,6 +46,46 @@ class Observation:
 
 
 @dataclass(frozen=True)
+class RouteRules:
+    """What counts as a usable offer on a route. Defaults come from the route's kind."""
+
+    direct_only: bool = True           # nonstop both ways (overrides max_transfers)
+    min_nights: int = 2
+    max_nights: int = 10
+    max_transfers: int | None = 0      # per direction; None = no limit
+
+    def allows(self, o: Observation) -> bool:
+        """Within the nights range and the stop limit. Unknown transfer counts never pass a limit."""
+        if not self.min_nights <= o.nights <= self.max_nights:
+            return False
+        limit = 0 if self.direct_only else self.max_transfers
+        if limit is None:
+            return True
+        return (o.transfers is not None and o.return_transfers is not None
+                and o.transfers <= limit and o.return_transfers <= limit)
+
+
+@dataclass(frozen=True)
+class Route:
+    """A watched origin → destination pair, independent of dates (stored in `routes`)."""
+
+    origin: str
+    destination: str                   # provider city code (e.g. LON)
+    city_pt: str
+    kind: str                          # europe | long_haul | domestic
+    rules: RouteRules
+    status: str = "active"             # active | dormant
+    price_cap_eur: float | None = None
+    destination_airports: str | None = None
+    discovered_at: datetime | None = None
+    last_observed_at: datetime | None = None
+
+    @property
+    def key(self) -> str:
+        return f"{self.origin}-{self.destination}"
+
+
+@dataclass(frozen=True)
 class Deal:
     id: int
     observation_id: int

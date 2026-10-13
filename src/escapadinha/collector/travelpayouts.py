@@ -116,8 +116,7 @@ def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: 
 class TravelpayoutsSource:
     name = SOURCE
 
-    def __init__(self, token: str, *, currency: str, min_nights: int, max_nights: int,
-                 limit: int, market: str | None = None,
+    def __init__(self, token: str, *, currency: str, limit: int, market: str | None = None,
                  booking_base: str = DEFAULT_BOOKING_BASE, client: httpx.Client | None = None,
                  now: Callable[[], datetime] | None = None,
                  sleep: Callable[[float], None] = time.sleep, max_attempts: int = 3):
@@ -126,7 +125,6 @@ class TravelpayoutsSource:
         self._client = client or httpx.Client(timeout=30)
         self._headers = {"X-Access-Token": token, "Accept-Encoding": "gzip, deflate"}
         self._currency = currency.lower()
-        self._min_nights, self._max_nights = min_nights, max_nights
         self._limit = limit
         self._market = market
         self._booking_base = booking_base.rstrip("/")
@@ -134,7 +132,8 @@ class TravelpayoutsSource:
         self._sleep = sleep
         self._max_attempts = max_attempts
 
-    def fetch_round_trips(self, origin: str, destination: str, month: date) -> list[Observation]:
+    def fetch_round_trips(self, origin: str, destination: str, month: date, *,
+                          min_nights: int, max_nights: int) -> list[Observation]:
         params = {
             "origin": origin,
             "destination": destination,
@@ -149,8 +148,8 @@ class TravelpayoutsSource:
             params["market"] = self._market
         payload = self._get(params)
         return parse_response(payload, origin=origin, destination=destination,
-                              fetched_at=self._now(), min_nights=self._min_nights,
-                              max_nights=self._max_nights, booking_base=self._booking_base)
+                              fetched_at=self._now(), min_nights=min_nights,
+                              max_nights=max_nights, booking_base=self._booking_base)
 
     def _get(self, params: dict) -> dict:
         for attempt in range(1, self._max_attempts + 1):
