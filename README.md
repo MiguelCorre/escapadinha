@@ -268,7 +268,10 @@ the pipeline applies them:
   output as before) and the event goes to `review/events/archive/<YYYY-MM>/` under `data/objects/`.
 - **With R2 keys** the event goes to the bucket and the next `escapadinha run` applies it (first
   step of every run). The CLI and the page say *pendente* and list the pending decisions; a deal
-  with a pending decision accepts no other one until it's applied.
+  with a pending decision accepts no other one until it's applied. They decide on your local
+  copy, so they refuse while the bucket has a newer database ("corre `escapadinha store pull`
+  primeiro") and say so when the deal isn't in your copy ("O deal N não existe nesta base de
+  dados.").
 - When applied, each event is checked again against the deal's status at that moment. One that no
   longer fits (the deal expired meanwhile, was already decided, doesn't exist, the file is broken)
   is archived as *recusada* with the reason and the run carries on. Applying the same event twice
@@ -478,7 +481,7 @@ uploads the photos and rendered folders it made before D25 that the bucket lacks
 
 **On your PC** (stats, `deal check`): `store pull` before, `store push` after. Review decisions
 (`review`, `deal approve/reject/published`) go to the bucket as events and need no push; pull first
-so the deal you decide on is in your copy.
+so the deal you decide on is in your copy (they refuse while the bucket's database is newer).
 - `store push` takes the run lock, so it refuses while a run is in progress. It also refuses
   when the bucket moved on since your pull (`The bucket has a newer database: generation N …`);
   pull first, or `--force` to overwrite.

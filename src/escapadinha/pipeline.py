@@ -23,9 +23,9 @@ from escapadinha.models import Deal, Observation, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
 from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, recheck
-from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, check_decision
+from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, UnknownDeal, check_decision
 from escapadinha.renderer import SlideRenderer
-from escapadinha.storage import db
+from escapadinha.storage import db, sync
 from escapadinha.storage.mirror import Mirror
 
 
@@ -369,11 +369,32 @@ def pending_decisions(ctx: Context, conn: sqlite3.Connection) -> list[review_eve
     return review_events.pending(ctx.object_store, conn)
 
 
+def ensure_current_copy(ctx: Context) -> None:
+    """With R2 keys the bucket's database is the real one and this machine decides on a local
+    copy: refuse (ReviewError) when the bucket has a newer generation than the copy came from,
+    so a decision is never made on statuses a run has since changed (D26)."""
+    if not ctx.remote_store:
+        return
+    remote = sync.remote_meta(ctx.object_store)
+    if remote is None:
+        return
+    state = sync.read_state(ctx.sync_state_path)
+    if state is None or remote.generation > state.generation:
+        have = f"da geração {state.generation}" if state else "nunca sincronizada"
+        raise ReviewError(f"A base de dados no bucket é mais recente (geração "
+                          f"{remote.generation}; esta cópia é {have}): corre "
+                          "`escapadinha store pull` primeiro.")
+
+
 def _decidable(ctx: Context, conn: sqlite3.Connection, deal_id: int, kind: str,
                post_url: str | None = None) -> Deal:
     """Refuse up front what the applier would refuse now (same rules), so the reviewer hears
     it at once; the applier still re-checks against the status at application time."""
-    deal, _ = db.get_deal(conn, deal_id)
+    ensure_current_copy(ctx)
+    try:
+        deal, _ = db.get_deal(conn, deal_id)
+    except KeyError:
+        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
     waiting = [e for e in pending_decisions(ctx, conn) if e.deal_id == deal_id]
     if waiting:
         e = waiting[-1]

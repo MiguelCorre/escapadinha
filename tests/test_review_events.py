@@ -194,6 +194,49 @@ def test_cli_with_r2_writes_events_and_prints_the_pending_state(remote, monkeypa
     validate("event", json.loads(store.get(key)))
 
 
+def test_with_r2_a_deal_missing_from_the_local_copy_is_a_review_error(remote):
+    from fastapi.testclient import TestClient
+    from escapadinha.web import create_app
+    ctx, store = remote
+    conn = pipeline.open_db(ctx)
+    for decide in (pipeline.reject, pipeline.mark_published):
+        with pytest.raises(ReviewError, match="O deal 999 não existe"):
+            decide(ctx, conn, 999, actor="cli:test")
+    with pytest.raises(ReviewError, match="O deal 999 não existe"):
+        pipeline.approve(ctx, conn, 999, actor="cli:test")
+    r = TestClient(create_app(ctx)).post("/api/deals/999/reject", json={})
+    assert r.status_code == 404 and "O deal 999 não existe" in r.json()["detail"]
+    assert store.list(PENDING) == []
+
+
+@respx.mock
+def test_with_r2_decisions_are_refused_while_the_bucket_has_a_newer_database(remote, tmp_path):
+    from escapadinha.storage import sync
+    ctx, store = remote
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    quiet = dict(log=lambda _: None)
+    sync.push(store, ctx.db_path, ctx.sync_state_path, owner="pc", **quiet)     # generation 1
+    pipeline.reject(ctx, conn, deal_id, actor="cli:test")       # this copy is current: written
+    [first] = store.list(PENDING)
+    store.delete(first)
+
+    other = tmp_path / "runner" / "escapadinha.db"              # a run pushes generation 2
+    copy_db(conn, other).close()
+    sync.push(store, other, other.with_suffix(".sync.json"), owner="run", force=True, **quiet)
+    price_api(58)
+    for decide in (pipeline.approve, pipeline.reject, pipeline.mark_published):
+        with pytest.raises(ReviewError, match="escapadinha store pull"):
+            decide(ctx, conn, deal_id, actor="cli:test")
+    assert store.list(PENDING) == []
+
+    conn.close()
+    sync.pull(store, ctx.db_path, ctx.sync_state_path, **quiet)
+    conn = db.connect(ctx.db_path)
+    assert pipeline.reject(ctx, conn, deal_id, actor="cli:test").outcome is None   # pending
+    assert len(store.list(PENDING)) == 1
+
+
 @respx.mock
 def test_cli_without_r2_applies_the_decision_at_once(ctx, monkeypatch):
     from typer.testing import CliRunner

@@ -33,6 +33,10 @@ class ReviewError(RuntimeError):
     """A review action that is not allowed; the message is shown to the reviewer (pt-PT)."""
 
 
+class UnknownDeal(ReviewError):
+    """The deal is not in this database (the review page answers 404)."""
+
+
 STATUS_PT = {"new": "novo", "rendered": "por rever", "approved": "aprovado",
              "published": "publicado", "rejected": "rejeitado", "expired": "expirado"}
 

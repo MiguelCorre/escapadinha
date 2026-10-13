@@ -625,7 +625,12 @@ so nothing has to be hosted.
   same rules (and refuse while the deal has a pending decision), write the event and print the
   pending list. Without R2 keys nothing else owns the database, so they apply pending events at
   once (same experience as v1). With R2 keys they leave the event for the next run (or the
-  Function's dispatch) and say so; the local database copy is not touched.
+  Function's dispatch) and say so; the local database copy is not touched. They pre-check on
+  that local copy, so they refuse (ReviewError) while `sync` shows the bucket's generation newer
+  than the one the copy came from (or the copy was never synced): "corre `escapadinha store pull`
+  primeiro" (`pipeline.ensure_current_copy`, one GET of the metadata). A deal missing from the
+  copy is a `review.UnknownDeal` ("O deal N não existe nesta base de dados.", 404 on the page),
+  never a bare `KeyError`.
 - **Contract:** only `review_events` writes approved/rejected/published (`db.settle_review_event`);
   `db.record_review` is test setup only, and a test fails if any other module calls either.
   Render (new → rendered) and rechecks (→ expired) stay with the pipeline.

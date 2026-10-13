@@ -21,7 +21,7 @@ from escapadinha import pipeline, review_events
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation
 from escapadinha.presentation import PhotoCredit, build_deal_view
-from escapadinha.review import DECISION_PT, STATUS_PT, TABS, ReviewError
+from escapadinha.review import DECISION_PT, STATUS_PT, TABS, ReviewError, UnknownDeal
 from escapadinha.storage import db
 
 SLIDE_NAME = re.compile(r"^slide_\d{2}\.png$")
@@ -91,6 +91,8 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
         conn: sqlite3.Connection = connect()
         try:
             return fn(conn)
+        except UnknownDeal as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ReviewError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except KeyError as exc:
