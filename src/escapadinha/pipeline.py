@@ -584,7 +584,7 @@ def deal_folder(ctx: Context, deal: Deal, files: str | None = "*") -> Path | Non
     if not deal.output_path:
         return None
     local = Path(deal.output_path)
-    if local.is_dir():
+    if local.is_dir() and (files is None or any(local.glob(files))):
         return local
     rel = deal_rel(deal.output_path)
     if files is None:

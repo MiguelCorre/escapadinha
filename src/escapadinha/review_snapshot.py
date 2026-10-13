@@ -49,12 +49,14 @@ class _Rendered:
         self._stored: dict[str, set[str]] | None = None
 
     def stems(self, deal: Deal) -> set[str]:
-        """'slide_01', ... of this deal, without downloading anything."""
+        """'slide_01', ... of this deal, without downloading anything (one listing of
+        `output/` for every deal this machine lacks)."""
         if not deal.output_path:
             return set()
-        local = Path(deal.output_path)
-        if local.is_dir():
-            return {p.stem for p in local.glob("slide_*.png")}
+        local = pipeline.deal_folder(self.ctx, deal, files=None)
+        stems = {p.stem for p in local.glob(pipeline.SLIDES)} if local else set()
+        if stems:
+            return stems
         if self._stored is None:
             self._stored = {}
             for rel in self.files.keys():
@@ -64,12 +66,9 @@ class _Rendered:
         return self._stored.get(pipeline.deal_rel(deal.output_path), set())
 
     def caption(self, deal: Deal) -> str | None:
-        if not deal.output_path:
-            return None
-        local = Path(deal.output_path) / "caption.txt"
-        path = local if local.is_file() else self.files.file(
-            f"{pipeline.deal_rel(deal.output_path)}/caption.txt")
-        return path.read_text("utf-8") if path else None
+        folder = pipeline.deal_folder(self.ctx, deal, "caption.txt")   # stored on a runner
+        path = folder / "caption.txt" if folder else None
+        return path.read_text("utf-8") if path and path.is_file() else None
 
 
 def _sync_slides(ctx: Context, rendered: _Rendered, deals: list[Deal]) -> dict[int, list[str]]:
