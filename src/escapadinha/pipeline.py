@@ -333,6 +333,12 @@ def photo_query(ctx: Context, route: Route) -> str:
     return ctx.config.photos.queries.get(route.destination) or route.city_en or route.city_pt
 
 
+def photo_must(ctx: Context, route: Route) -> str | None:
+    """City name the photo should be tagged with (also for `photos.queries` overrides: on
+    2026-10-13 "Ankara Turkey" returned an Istanbul mosque)."""
+    return route.city_en or route.city_pt
+
+
 def photo_targets(ctx: Context, conn: sqlite3.Connection) -> dict[str, str]:
     """Destination key -> Pixabay search query, for every route destination plus extra config keys."""
     cfg = ctx.config
@@ -342,9 +348,9 @@ def photo_targets(ctx: Context, conn: sqlite3.Connection) -> dict[str, str]:
     return targets
 
 
-def missing_photos(ctx: Context, conn: sqlite3.Connection) -> dict[str, str]:
-    """Destinations of active routes without a cached photo -> search query."""
-    return {r.destination: photo_query(ctx, r)
+def missing_photos(ctx: Context, conn: sqlite3.Connection) -> dict[str, tuple[str, str | None]]:
+    """Destinations of active routes without a cached photo -> (search query, must-tag)."""
+    return {r.destination: (photo_query(ctx, r), photo_must(ctx, r))
             for r in routes.active_routes(conn, ctx.config.routes)
             if db.get_photo(conn, r.destination) is None}
 
@@ -365,9 +371,9 @@ def run_missing_photos(ctx: Context, conn: sqlite3.Connection,
     except PhotoSourceError as exc:                      # no key: one line, not one per destination
         return [(f"{len(targets)} destinos", f"skipped: {exc}")], len(targets)
     done = []
-    for key, query in targets[:limit]:
+    for key, (query, must) in targets[:limit]:
         try:
-            photo = fetch_photo(client, key, query, ctx.photos_dir)
+            photo = fetch_photo(client, key, query, ctx.photos_dir, must=must)
         except (PhotoSourceError, httpx.HTTPError) as exc:
             done.append((key, f"failed ({query}): {exc}"))
             continue
@@ -382,13 +388,14 @@ def run_fetch_photos(ctx: Context, conn: sqlite3.Connection, dest: str | None, f
     if dest:
         dest = dest.upper()
         targets = {dest: targets.get(dest) or ctx.config.origin_name(dest)}
+    musts = {r.destination: photo_must(ctx, r) for r in routes.all_routes(conn, ctx.config.routes)}
     client = PixabayClient(ctx.secrets.pixabay_api_key)
     done = []
     for key, query in targets.items():
         if not force and db.get_photo(conn, key) is not None:
             done.append((key, "cached"))
             continue
-        photo = fetch_photo(client, key, query, ctx.photos_dir, pick=pick)
+        photo = fetch_photo(client, key, query, ctx.photos_dir, pick=pick, must=musts.get(key))
         db.upsert_photo(conn, photo)
         done.append((key, f"{photo.photographer} ({photo.source_url})"))
     return done

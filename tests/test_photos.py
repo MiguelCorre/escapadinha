@@ -3,7 +3,7 @@ import pytest
 import respx
 
 from escapadinha.photos import (
-    SEARCH_URL, PhotoSourceError, PixabayClient, best_url, fetch_photo,
+    SEARCH_URL, PhotoSourceError, PixabayClient, best_url, fetch_photo, search,
 )
 
 HIT = {
@@ -43,8 +43,8 @@ def test_errors_do_not_leak_the_api_key(tmp_path):
 
 @respx.mock
 def test_no_results_and_bad_pick(tmp_path):
-    respx.get(SEARCH_URL).mock(side_effect=[httpx.Response(200, json={"hits": []}),
-                                            httpx.Response(200, json={"hits": [HIT]})])
+    empty = [httpx.Response(200, json={"hits": []})] * 4          # every category
+    respx.get(SEARCH_URL).mock(side_effect=[*empty, httpx.Response(200, json={"hits": [HIT]})])
     with pytest.raises(PhotoSourceError, match="No Pixabay results"):
         fetch_photo(PixabayClient("k"), "LON", "x", tmp_path)
     with pytest.raises(PhotoSourceError, match="cannot pick #3"):
@@ -54,3 +54,29 @@ def test_no_results_and_bad_pick(tmp_path):
 def test_missing_key_fails_fast():
     with pytest.raises(PhotoSourceError, match="PIXABAY_API_KEY"):
         PixabayClient("")
+
+
+@respx.mock
+def test_search_prefers_travel_photos_tagged_with_the_city(tmp_path):
+    """Real failure 2026-10-13: 'Brussels' returned sprouts, 'Bristol' a town in Maine."""
+    def respond(request):
+        category = request.url.params.get("category")
+        hits = {
+            "travel": [{"tags": "bristol, maine, harbour", "id": 1},
+                       {"tags": "bristol, england, bridge", "id": 2}],
+            None: [{"tags": "cabbage, brussels sprouts", "id": 3}],
+        }.get(category, [])
+        return httpx.Response(200, json={"hits": hits})
+    respx.get(SEARCH_URL).mock(side_effect=respond)
+    client = PixabayClient("k")
+    assert [h["id"] for h in search(client, "Bristol", must="Bristol")] == [1, 2]
+    assert respx.calls[0].request.url.params.get("category") == "travel"
+    # No travel photo tagged with the city: fall back to the travel results, never to "sprouts".
+    assert [h["id"] for h in search(client, "Bruges", must="Bruges")] == [1, 2]
+
+
+@respx.mock
+def test_search_without_must_takes_the_first_category_with_hits():
+    respx.get(SEARCH_URL).mock(side_effect=lambda r: httpx.Response(200, json={
+        "hits": [{"tags": "x", "id": 9}] if r.url.params.get("category") == "places" else []}))
+    assert [h["id"] for h in search(PixabayClient("k"), "London skyline")] == [9]

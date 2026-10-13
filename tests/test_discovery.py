@@ -205,6 +205,10 @@ def test_dry_run_and_failed_supplement(dctx):
 
 @respx.mock
 def test_new_destinations_get_a_photo_with_english_query_and_overrides(dctx):
+    data = yaml.safe_load((dctx.root / "config.yaml").read_text("utf-8"))
+    data["photos"]["max_per_run"] = 45                      # all fixture destinations at once
+    (dctx.root / "config.yaml").write_text(yaml.safe_dump(data, allow_unicode=True), "utf-8")
+    dctx = Context(root=dctx.root)
     conn = pipeline.open_db(dctx)
     mock_catalogue()
     search = mock_pixabay()

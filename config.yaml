@@ -135,9 +135,10 @@ origins_pt:
 
 photos:
   # Every destination of an active route gets a photo automatically (after a discovery and
-  # on each run while some are missing, max_per_run at a time: 2 Pixabay calls each, limit
-  # 100/min). Query = the override below, else the English city name, else city_pt.
-  max_per_run: 40
+  # on each run while some are missing, max_per_run at a time: up to 4 searches (travel,
+  # places, buildings, any) + 1 download each, Pixabay limit 100/min). Query = the override
+  # below, else the English city name (photo must be tagged with it), else city_pt.
+  max_per_run: 20
   queries:
     LON: London skyline
     PAR: Paris Eiffel tower
@@ -167,3 +168,8 @@ photos:
     SMA: Santa Maria Azores
     FNC: Madeira Funchal
     PXO: Porto Santo beach
+    # Automatic picks that were wrong on 2026-10-13 (bird, market stall, wrong city)
+    CPT: Cape Town Table Mountain
+    CUN: Cancun beach Mexico
+    ALC: Alicante coast harbor
+    ANK: Anitkabir Ankara

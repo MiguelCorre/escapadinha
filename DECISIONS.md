@@ -421,3 +421,10 @@ so nothing has to be hosted.
 - **Label (Miguel, 2026-10-13):** the `domestic` kind is shown as **"Portugal"** (islands, inter-island
   and mainland routes such as Lisboa → Porto), replacing "Ilhas". Merged into the live pipeline the
   same day: the scheduled run discovers ~360 routes and collects ~1080 requests per run.
+- **Photo search fix (2026-10-13, after the first real discovery):** the first automatic picks
+  were often wrong (Brussels → sprouts, Bristol → Maine, Montreal → a brick wall, Cape Town → a
+  bird). The search now tries Pixabay categories travel → places → buildings → any and keeps
+  photos tagged with the city's English name, falling back to the travel results; overrides in
+  `photos.queries` for the remaining bad ones; `max_per_run` 20 (up to 5 calls per destination).
+  Pixabay's tags are keyword-stuffed and some cities have few photos (Algiers), so a deal's photo
+  is still checked by Miguel on the slides before posting (`photos fetch --dest X --force --pick N`).
