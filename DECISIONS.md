@@ -251,10 +251,20 @@ so nothing has to be hosted.
 - **Order matters:** website Project only after the domain is live; Instagram rename together
   with its new Project and `brand.handle`; keep Project 584711 while live deals use its links.
 
-## D20: Visual directions (pending Miguel's choice) (2026-10-13)
-- **Status: open.** Three directions are built as real pages (`uv run escapadinha design directions`,
-  then open `output/directions/index.html`). Miguel picks one or a mix; the choice, his notes and
-  the resulting tokens get recorded here and in the M2 design-system document (#12).
+## D20: Visual direction A "Caderno de Viagem" (2026-10-13, #11)
+- **Decided by Miguel (2026-10-13): direction A, as is** (no mix, no further notes). Three
+  directions were built as real pages (`uv run escapadinha design directions`, then open
+  `output/directions/index.html`); B and C below are kept for the record.
+- **Starting tokens for the design system (#12)**, from `design_directions/directions.py`:
+  - Type: **Fraunces** (headlines and prices) + **Source Serif 4** (body and data), both SIL OFL 1.1,
+    to be self-hosted (replaces D7's font choice).
+  - Light: bg `#F5F0E6`, surface `#FFFDF8`, ink `#1E1B16`, muted `#5F574B`, accent (terracotta)
+    `#A23E1C` with white text, rules `#D3C8B4`.
+  - Dark: bg `#16140F`, surface `#201D17`, ink `#EEE7D8`, muted `#B3A994`, accent `#F0936B` with
+    `#16140F` text, rules `#3D372C`. Every body-text pair passes WCAG AA (min 5.70:1).
+  - Photo treatment: large captioned photos with credit; layout: masthead, column rules, drop caps.
+- **Known weakness to solve in #12:** A is the slowest of the three to scan for a price, so price,
+  dates and the "found on" line need a consistent, prominent component on cards, slides and pages.
 - **A · Caderno de Viagem** (editorial magazine): Fraunces + Source Serif 4; paper, ink and a
   terracotta rust; large captioned photos, column rules, drop caps; literary tone where each price
   is a verified fact. Most aspirational and best for long itineraries, slowest to scan for a price.

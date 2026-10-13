@@ -235,7 +235,7 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
 ## Visual directions (M2, issue #11)
 
 Three candidate looks for Ponto Nómada, each as a home page and a promotion page built from
-the real database and the cached photos. Miguel picks one (or a mix); see DECISIONS D20.
+the real database and the cached photos. Miguel chose **A · Caderno de Viagem** (DECISIONS D20); the pages stay as the reference for #12.
 
 ```bash
 uv run escapadinha design directions               # writes output/directions/ (7 pages + photos)
