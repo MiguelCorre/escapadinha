@@ -139,6 +139,38 @@ def test_a_collection_where_every_request_failed_fails_the_job(home, monkeypatch
     assert json.loads(home.object_store.get("review/snapshot.json"))["version"] == 1
 
 
+class PhotoUploadFails(LocalObjectStore):
+    """A bucket whose first photo upload fails (an R2 hiccup); everything else works."""
+
+    failed = False
+
+    def put(self, key, data):
+        if key.startswith("photos/") and not self.failed:
+            from botocore.exceptions import EndpointConnectionError
+            self.failed = True
+            raise EndpointConnectionError(endpoint_url="https://r2.example/photos")
+        super().put(key, data)
+
+
+@respx.mock
+def test_an_object_store_error_in_route_upkeep_never_stops_the_collection(home, monkeypatch,
+                                                                          tmp_path):
+    from escapadinha.photos import SEARCH_URL
+    store = PhotoUploadFails(tmp_path / "bucket")
+    monkeypatch.setattr(Context, "remote_store", property(lambda self: True))
+    monkeypatch.setattr(Context, "object_store", property(lambda self: store))
+    monkeypatch.setenv("PIXABAY_API_KEY", "pixabay-test")
+    hit = {"id": 1, "pageURL": "https://pixabay.com/photos/x-1/", "user": "ana", "user_id": 42,
+           "largeImageURL": "https://pixabay.com/get/x_1280.jpg"}
+    respx.get(SEARCH_URL).mock(return_value=httpx.Response(200, json={"hits": [hit]}))
+    respx.get(hit["largeImageURL"]).mock(return_value=httpx.Response(200, content=b"jpeg"))
+    mock_api()
+    out = run_cli()                                           # exit 0
+    assert "a recolha continua" in out and "r2.example" in out
+    assert "Run #" in out and "Path: full" in out             # collected, detected, built
+    assert store.list("db/")                                  # and the database was pushed
+
+
 def test_the_review_snapshot_never_hides_the_runs_own_failure(monkeypatch):
     def broken(*a, **k):
         raise RuntimeError("detect broke")

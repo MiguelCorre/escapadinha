@@ -17,8 +17,14 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any
 
+from botocore.exceptions import BotoCoreError, ClientError
+
 from escapadinha.storage.db import utcnow
 from escapadinha.storage.objects import LockHeld, check_key
+
+# What a store call raises when the bucket (or the disk under `LocalObjectStore`) fails: for
+# steps that report the failure and go on instead of failing the run.
+STORE_ERRORS: tuple[type[Exception], ...] = (BotoCoreError, ClientError, OSError)
 
 _CONFLICT = {"PreconditionFailed", "ConditionalRequestConflict", "412", "409"}
 _MISSING = {"NoSuchKey", "404", "NotFound"}

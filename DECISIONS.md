@@ -530,6 +530,9 @@ so nothing has to be hosted.
   set, writes status, duration, collection counts and the path decision to the run's summary.
   A failed request is listed and skipped (collector, unchanged, now tested through `run`); only
   a collection where every request failed exits 1. The database is pushed either way (D21).
+  Route upkeep before the collection (discovery when due, else missing photos) never fails the
+  run: API errors and object-store errors (`s3.STORE_ERRORS`, e.g. an R2 hiccup while mirroring
+  a new photo) are printed and the collection goes on; the photo is fetched again next run.
 - **Chromium only when needed:** the workflow sets `ESCAPADINHA_INSTALL_BROWSER=1`;
   `renderer.ensure_browser` runs `playwright install --with-deps chromium` the first time a
   `SlideRenderer` opens, i.e. only when there is a deal or guide to render. The download is

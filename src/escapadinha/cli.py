@@ -24,6 +24,7 @@ from escapadinha.website.deploy import DeployError
 from escapadinha.config import Context
 from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LockHeld
+from escapadinha.storage.s3 import STORE_ERRORS
 
 app =typer.Typer(help="Travel deals from Portugal: collect → detect → render (no publishing).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
@@ -442,7 +443,8 @@ def design_directions(
 
 def routes_upkeep() -> None:
     """Monthly discovery when due, else photos for destinations still without one.
-    A failure here is reported and never stops the collection."""
+    A failure here (an API, or the object store a new photo is mirrored to) is reported and
+    never stops the collection."""
     ctx, conn = _ctx()
     try:
         result = pipeline.run_discover_if_due(ctx, conn)
@@ -454,7 +456,8 @@ def routes_upkeep() -> None:
             console.print(f"  foto {key}: {outcome}")
         if done and missing:
             console.print(f"  [dim]{missing} destinos ainda sem foto.[/]")
-    except (TravelpayoutsError, PhotoSourceError, httpx.HTTPError, ValueError) as exc:
+    except (TravelpayoutsError, PhotoSourceError, httpx.HTTPError, ValueError,
+            *STORE_ERRORS) as exc:
         console.print(f"[yellow]Descoberta de rotas falhou, a recolha continua:[/] {exc}")
 
 
