@@ -115,7 +115,7 @@ routes:
 affiliate:
   projects:
     instagram: 584711         # https://www.instagram.com/ondestaanocas/
-    website: null             # set after "Add project" for https://pontonomada.pt (runbook)
+    website: 585209           # https://pontonomada.pt (project "Pontonomada", 2026-10-13)
   shorten: true
 
 # Public website (static, rebuilt every run, deployed to Cloudflare Pages when it changed).
