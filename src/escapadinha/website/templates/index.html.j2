@@ -11,7 +11,7 @@
 {% for d in deals %}{{ deal_card(d) }}{% endfor %}
 </div>
 {% else %}
-<p class="empty">Neste momento não há promoções ativas. Os preços são verificados várias vezes por dia e as novas promoções aparecem aqui e no Instagram <a href="https://www.instagram.com/{{ brand.handle.lstrip('@') }}/">{{ brand.handle }}</a>.</p>
+<p class="empty">Neste momento não há promoções ativas. Os preços são verificados várias vezes por dia e as novas promoções aparecem aqui e no Instagram <a href="{{ brand.instagram_url }}">{{ brand.handle }}</a>.</p>
 {% endif %}
 
 <h2 id="rotas">Rotas que acompanhamos</h2>

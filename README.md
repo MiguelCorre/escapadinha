@@ -156,7 +156,9 @@ Status flow: `new → rendered → approved → published`. `rejected` and `expi
 
 The website is static and generated from the database into `site/` (git-ignored). It's the
 Instagram "link na bio". The brand is **Ponto Nómada** (Instagram still `@ondestaanocas` until renamed) and the site is hosted on
-Cloudflare Pages. It's **live at https://ondestaanocas.pages.dev** (since 2026-10-13) until a .pt domain is connected.
+Cloudflare Pages. It's **live at https://ondestaanocas.pages.dev** (since 2026-10-13) until the
+final domain **pontonomada.pt** (D17, pending registration) is connected. The switch is guided in
+[docs/runbooks/brand-switch.md](docs/runbooks/brand-switch.md) (pt-PT).
 
 ```bash
 uv run escapadinha site build     # generate ./site
@@ -172,6 +174,7 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
 | `/voos/<origem>-<destino>/` | Live deals, typical low per departure month (real data), recent expired deals |
 | `/guias/<slug>/` | Only guides with `reviewed: true` |
 | `/sobre/`, `/privacidade/`, `404.html`, `sitemap.xml`, `robots.txt` | |
+| `_redirects`, `_headers` | Cloudflare Pages rules (not pages), see "Domain and redirects" |
 
 - **Only approved deals go public.** A deal that expires after approval keeps its page, so
   shared links don't break. That page says the deal expired, drops the booking button, is
@@ -184,13 +187,33 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
   so Node.js is required.
 - **To review before going live:** the "Como funciona" and "Privacidade" texts.
 
+### Domain and redirects
+
+- `site.base_url` is the one switch: canonical URLs, Open Graph, sitemap and robots.txt use it.
+  `site.domain` names the final domain; `site build` reminds you while `base_url` isn't on it.
+- **Old host → new domain** is a Cloudflare **Bulk Redirect** (account level, free, set up once
+  by hand), because Pages `_redirects` can't match on the host (D17). It keeps path and query,
+  so every old link opens the same page on the new domain.
+- **`_headers`** (generated): `X-Robots-Tag: noindex` on `site.legacy_hosts` other than the
+  `base_url` host, and on per-deployment `<hash>.<project>.pages.dev` URLs.
+- **`_redirects`** (generated, 301): `site.redirects` from config, every older path of a page whose
+  slug changed (history in `data/site_paths.json`), and short `/promos/<id>` links. A rule never
+  uses a path that is a page now (Pages applies redirects before files); skipped config rules are
+  printed by `site build`.
+
 ## Affiliate links
 
 Each deal gets **one tracked link** from the Travelpayouts partner links API, created at render
-time for the Project in `config.yaml` (`affiliate.project_id`, currently 584711 =
-instagram.com/ondestaanocas). The link is short, like `https://aviasales.tpo.lu/UQWMX2Ed`, and
-carries `sub_id=deal-<id>` so the dashboard shows stats per deal. It's stored on the deal and
-reused on later renders.
+time for the **Instagram** Project (`affiliate.projects.instagram`, currently 584711 =
+instagram.com/ondestaanocas; the older `affiliate.project_id` key still works). The link is short,
+like `https://aviasales.tpo.lu/UQWMX2Ed`, and carries `sub_id=deal-<id>` so the dashboard shows
+stats per deal. It's stored on the deal and reused on later renders.
+
+The **website** uses its own Project once `affiliate.projects.website` is set (until then it shows
+the deal's link). Its links are created at `site build` with `sub_id=site-deal-<id>` and cached
+per Project in `data/site_links.json`. A website link that fails falls back to the deal's own
+tracked link and is retried on the next build. A Project's URL can't change once it joined a
+program, so a new domain or handle means a new Project (runbook steps 8–9).
 
 If conversion fails, the deal keeps **no** link. `affiliate_error` explains why, the CLI warns,
 and the next render retries. There is deliberately no fallback to a hand-built `marker=` URL,

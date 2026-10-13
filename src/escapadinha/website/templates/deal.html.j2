@@ -41,8 +41,8 @@ dt { color: var(--muted); } dd { margin: 0; font-weight: 600; }
       {% if d.view.discount_pct %}<dt>Desconto</dt><dd>{{ d.view.discount_pct }}% abaixo do preço mínimo habitual em {{ d.view.departure_month }}</dd>{% endif %}
       <dt>Preço visto</dt><dd>{% if d.view.found_on %}encontrado a {{ d.view.found_on }} · {% endif %}verificado a {{ d.checked }}</dd>
     </dl>
-    {% if d.live and d.deal.affiliate_url %}
-    <p><a class="btn" href="{{ d.deal.affiliate_url }}" rel="sponsored nofollow noopener" target="_blank">Ver voo e reservar →</a></p>
+    {% if d.live and d.booking_link %}
+    <p><a class="btn" href="{{ d.booking_link }}" rel="sponsored nofollow noopener" target="_blank">Ver voo e reservar →</a></p>
     <p class="small">Abre o site parceiro (Aviasales) em euros. O preço pode já ter mudado: confirma o valor final, a bagagem incluída e o aeroporto antes de pagar.</p>
     {% endif %}
     <p class="small"><strong>Publicidade:</strong> link de afiliado. Se reservares, podemos receber uma comissão, sem custo extra para ti.</p>

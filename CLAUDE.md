@@ -25,7 +25,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
   only shows deals a human approved; expired pages stay `noindex` without a booking link.
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
-  `marker=` URLs by hand, because Aviasales term 1.4 forbids it.
+  `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with
+  `affiliate.project_for("instagram"|"website")`; never read `project_id` directly (D17).
+- Domain moves go through `site.base_url` + `site.legacy_hosts` and the Bulk Redirect in
+  `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
+  key in `SiteBuilder._write_routing` so renamed slugs get a 301 (`website/redirects.py`).
 - Secrets only via `.env` (`Secrets` in `config.py`). Never commit `.env`, `data/`, `output/`.
 - Update README.md, CLAUDE.md and DECISIONS.md in the same commit as a feature.
 
@@ -37,4 +41,6 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, scrim, logo, fitText) + `deal/`, `guide/`
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
-- `src/escapadinha/website/`: static site builder (`build_site`), `deploy.py` (wrangler), `templates/`
+- `src/escapadinha/website/`: static site builder (`build_site`), `redirects.py` (`_redirects`,
+  `_headers`), `deploy.py` (wrangler), `templates/`
+- `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
