@@ -182,7 +182,7 @@ def test_routes_list_prints_kind_rules_status_and_last_observed(ctx, monkeypatch
     assert "Longo curso" in lines["LIS → TYO"] and "até 1 escala" in lines["LIS → TYO"]
     assert "7–21 noites" in lines["LIS → TYO"]
     assert "excluída" in lines["OPO → BER"]
-    assert "11 rotas, 10 ativas." in out
+    assert "11 rotas, 10 ativas, 0 adormecidas." in out
 
 
 def test_unknown_route_kind_is_rejected_by_the_database(ctx):

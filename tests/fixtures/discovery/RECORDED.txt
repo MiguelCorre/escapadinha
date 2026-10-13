@@ -1,0 +1,16 @@
+Real Travelpayouts payloads, recorded 2026-10-13 for the route discovery tests (#5).
+Rows are verbatim; only rows the tests need were kept (the full files are 0.3-14 MB).
+
+routes.json        https://api.travelpayouts.com/data/routes.json
+                   every row from LIS, OPO, FAO, FNC, PDL, TER to the cities LON PAR FNC RAK NYC LAD
+                   MAD MOW IEV (LIS), LON TCI NYC (OPO), ZRH DUB (FAO), PXO LPA (FNC), BOS HOR LIS
+                   (PDL), LIS FLW (TER); plus the file's first row (AER-DME) and DAR-ZNZ (transfers 1, 2)
+airports.json      https://api.travelpayouts.com/data/airports.json   (airports used by those rows)
+pt_cities.json     https://api.travelpayouts.com/data/pt/cities.json  (cities used anywhere here)
+city_directions_LIS.json   https://api.travelpayouts.com/v1/city-directions?origin=LIS&currency=eur
+                           (AMS HAJ LAD MAD RIO kept of 30)
+city_directions_OPO.json   same, origin=OPO (NYC BER PAR kept of 29)
+prices_for_dates_FAO_direct_2026-11.json
+                   https://api.travelpayouts.com/aviasales/v3/prices_for_dates?origin=FAO
+                   &departure_at=2026-11&one_way=true&direct=true&unique=true&limit=1000&market=pt
+                   (LON OPO ZRH FMM kept of 16)

@@ -102,7 +102,7 @@ def hashtag(text: str) -> str:
     return "#" + "".join(ch for ch in ascii_text.lower() if ch.isalnum())
 
 
-ROUTE_KIND = {"europe": "Europa", "long_haul": "Longo curso", "domestic": "Ilhas"}
+ROUTE_KIND = {"europe": "Europa", "long_haul": "Longo curso", "domestic": "Portugal"}
 ROUTE_STATUS = {"active": "ativa", "dormant": "adormecida"}
 
 

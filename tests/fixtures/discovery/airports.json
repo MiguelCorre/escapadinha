@@ -1,0 +1,434 @@
+[
+ {
+  "name_translations": {
+   "en": "Moscow Domodedovo Airport"
+  },
+  "city_code": "MOW",
+  "country_code": "RU",
+  "time_zone": "Europe/Moscow",
+  "code": "DME",
+  "iata_type": "airport",
+  "name": "Moscow Domodedovo Airport",
+  "coordinates": {
+   "lat": 55.414566,
+   "lon": 37.899494
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Tenerife South Airport"
+  },
+  "city_code": "TCI",
+  "country_code": "ES",
+  "time_zone": "Atlantic/Canary",
+  "code": "TFS",
+  "iata_type": "airport",
+  "name": "Tenerife South Airport",
+  "coordinates": {
+   "lat": 28.044443,
+   "lon": -16.5725
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Santa Cruz Airport"
+  },
+  "city_code": "FLW",
+  "country_code": "PT",
+  "time_zone": "Atlantic/Azores",
+  "code": "FLW",
+  "iata_type": "airport",
+  "name": "Santa Cruz Airport",
+  "coordinates": {
+   "lat": 39.466667,
+   "lon": -31.15
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Porto Airport"
+  },
+  "city_code": "OPO",
+  "country_code": "PT",
+  "time_zone": "Europe/Lisbon",
+  "code": "OPO",
+  "iata_type": "airport",
+  "name": "Porto Airport",
+  "coordinates": {
+   "lat": 41.237774,
+   "lon": -8.670272
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Lajes Field"
+  },
+  "city_code": "TER",
+  "country_code": "PT",
+  "time_zone": "Atlantic/Azores",
+  "code": "TER",
+  "iata_type": "airport",
+  "name": "Lajes Field",
+  "coordinates": {
+   "lat": 38.754074,
+   "lon": -27.08757
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Porto Santo Airport"
+  },
+  "city_code": "PXO",
+  "country_code": "PT",
+  "time_zone": "Atlantic/Madeira",
+  "code": "PXO",
+  "iata_type": "airport",
+  "name": "Porto Santo Airport",
+  "coordinates": {
+   "lat": 33.070023,
+   "lon": -16.345015
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Paris Orly Airport"
+  },
+  "city_code": "PAR",
+  "country_code": "FR",
+  "time_zone": "Europe/Paris",
+  "code": "ORY",
+  "iata_type": "airport",
+  "name": "Paris Orly Airport",
+  "coordinates": {
+   "lat": 48.728283,
+   "lon": 2.3597
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Horta Airport"
+  },
+  "city_code": "HOR",
+  "country_code": "PT",
+  "time_zone": "Atlantic/Azores",
+  "code": "HOR",
+  "iata_type": "airport",
+  "name": "Horta Airport",
+  "coordinates": {
+   "lat": 38.52,
+   "lon": -28.717222
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Menara Airport"
+  },
+  "city_code": "RAK",
+  "country_code": "MA",
+  "time_zone": "Africa/Casablanca",
+  "code": "RAK",
+  "iata_type": "airport",
+  "name": "Menara Airport",
+  "coordinates": {
+   "lat": 31.601875,
+   "lon": -8.026902
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Zurich Airport"
+  },
+  "city_code": "ZRH",
+  "country_code": "CH",
+  "time_zone": "Europe/Zurich",
+  "code": "ZRH",
+  "iata_type": "airport",
+  "name": "Zurich Airport",
+  "coordinates": {
+   "lat": 47.450603,
+   "lon": 8.561746
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Dublin Airport"
+  },
+  "city_code": "DUB",
+  "country_code": "IE",
+  "time_zone": "Europe/Dublin",
+  "code": "DUB",
+  "iata_type": "airport",
+  "name": "Dublin Airport",
+  "coordinates": {
+   "lat": 53.42728,
+   "lon": -6.24357
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Gran Canaria Airport"
+  },
+  "city_code": "LPA",
+  "country_code": "ES",
+  "time_zone": "Atlantic/Canary",
+  "code": "LPA",
+  "iata_type": "airport",
+  "name": "Gran Canaria Airport",
+  "coordinates": {
+   "lat": 27.938944,
+   "lon": -15.389351
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "London Gatwick Airport"
+  },
+  "city_code": "LON",
+  "country_code": "GB",
+  "time_zone": "Europe/London",
+  "code": "LGW",
+  "iata_type": "airport",
+  "name": "London Gatwick Airport",
+  "coordinates": {
+   "lat": 51.156807,
+   "lon": -0.161863
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "London Heathrow Airport"
+  },
+  "city_code": "LON",
+  "country_code": "GB",
+  "time_zone": "Europe/London",
+  "code": "LHR",
+  "iata_type": "airport",
+  "name": "London Heathrow Airport",
+  "coordinates": {
+   "lat": 51.469604,
+   "lon": -0.453566
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Newark Liberty International Airport"
+  },
+  "city_code": "NYC",
+  "country_code": "US",
+  "time_zone": "America/New_York",
+  "code": "EWR",
+  "iata_type": "airport",
+  "name": "Newark Liberty International Airport",
+  "coordinates": {
+   "lat": 40.68907,
+   "lon": -74.17876
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Logan International Airport"
+  },
+  "city_code": "BOS",
+  "country_code": "US",
+  "time_zone": "America/New_York",
+  "code": "BOS",
+  "iata_type": "airport",
+  "name": "Logan International Airport",
+  "coordinates": {
+   "lat": 42.36646,
+   "lon": -71.02018
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Zanzibar International Airport"
+  },
+  "city_code": "ZNZ",
+  "country_code": "TZ",
+  "time_zone": "Africa/Dar_es_Salaam",
+  "code": "ZNZ",
+  "iata_type": "airport",
+  "name": "Zanzibar International Airport",
+  "coordinates": {
+   "lat": -6.218466,
+   "lon": 39.221184
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Lisbon Portela Airport"
+  },
+  "city_code": "LIS",
+  "country_code": "PT",
+  "time_zone": "Europe/Lisbon",
+  "code": "LIS",
+  "iata_type": "airport",
+  "name": "Lisbon Portela Airport",
+  "coordinates": {
+   "lat": 38.770042,
+   "lon": -9.128165
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Boryspil International Airport"
+  },
+  "city_code": "IEV",
+  "country_code": "UA",
+  "time_zone": "Europe/Kyiv",
+  "code": "KBP",
+  "iata_type": "airport",
+  "name": "Boryspil International Airport",
+  "coordinates": {
+   "lat": 50.341244,
+   "lon": 30.895206
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Faro Airport"
+  },
+  "city_code": "FAO",
+  "country_code": "PT",
+  "time_zone": "Europe/Lisbon",
+  "code": "FAO",
+  "iata_type": "airport",
+  "name": "Faro Airport",
+  "coordinates": {
+   "lat": 37.020645,
+   "lon": -7.968545
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Joao Paulo II Airport"
+  },
+  "city_code": "PDL",
+  "country_code": "PT",
+  "time_zone": "Atlantic/Azores",
+  "code": "PDL",
+  "iata_type": "airport",
+  "name": "Joao Paulo II Airport",
+  "coordinates": {
+   "lat": 37.743847,
+   "lon": -25.696468
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Adolfo Suarez Madrid-Barajas Airport"
+  },
+  "city_code": "MAD",
+  "country_code": "ES",
+  "time_zone": "Europe/Madrid",
+  "code": "MAD",
+  "iata_type": "airport",
+  "name": "Adolfo Suarez Madrid-Barajas Airport",
+  "coordinates": {
+   "lat": 40.46515,
+   "lon": -3.570209
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Quatro de Fevereiro Airport"
+  },
+  "city_code": "LAD",
+  "country_code": "AO",
+  "time_zone": "Africa/Luanda",
+  "code": "LAD",
+  "iata_type": "airport",
+  "name": "Quatro de Fevereiro Airport",
+  "coordinates": {
+   "lat": -8.847951,
+   "lon": 13.234862
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "London Luton Airport"
+  },
+  "city_code": "LON",
+  "country_code": "GB",
+  "time_zone": "Europe/London",
+  "code": "LTN",
+  "iata_type": "airport",
+  "name": "London Luton Airport",
+  "coordinates": {
+   "lat": 51.87977,
+   "lon": -0.376232
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Stansted Airport"
+  },
+  "city_code": "LON",
+  "country_code": "GB",
+  "time_zone": "Europe/London",
+  "code": "STN",
+  "iata_type": "airport",
+  "name": "Stansted Airport",
+  "coordinates": {
+   "lat": 51.889267,
+   "lon": 0.262703
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Charles de Gaulle Airport"
+  },
+  "city_code": "PAR",
+  "country_code": "FR",
+  "time_zone": "Europe/Paris",
+  "code": "CDG",
+  "iata_type": "airport",
+  "name": "Charles de Gaulle Airport",
+  "coordinates": {
+   "lat": 49.003197,
+   "lon": 2.567023
+  },
+  "flightable": true
+ },
+ {
+  "name_translations": {
+   "en": "Madeira Airport"
+  },
+  "city_code": "FNC",
+  "country_code": "PT",
+  "time_zone": "Atlantic/Madeira",
+  "code": "FNC",
+  "iata_type": "airport",
+  "name": "Madeira Airport",
+  "coordinates": {
+   "lat": 32.693123,
+   "lon": -16.775635
+  },
+  "flightable": true
+ }
+]

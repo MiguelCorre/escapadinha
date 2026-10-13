@@ -3,14 +3,21 @@
 Config holds per-kind default rules, per-route overrides, exclusions, the long-haul list
 and a one-off seed for an empty table. `sync` applies config to the table at the start of
 every command; the rest of the code reads `Route` records with their effective rules.
+
+Lifecycle (#5): discovery adds the routes it finds and reactivates dormant ones it finds
+again (`apply_discovery`); a route without prices for `dormant_after_days` becomes dormant
+(`mark_dormant`). Nothing is ever deleted.
 """
 
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from collections import Counter
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 
 from escapadinha.config import RoutesConfig
+from escapadinha.discovery import Found, LongHaul
 from escapadinha.models import Route, RouteRules
 from escapadinha.storage import db
 
@@ -18,7 +25,7 @@ RULE_FIELDS = ("direct_only", "min_nights", "max_nights", "max_transfers")
 
 
 def sync(conn: sqlite3.Connection, cfg: RoutesConfig, now: datetime) -> None:
-    """Seed an empty table, add long-haul routes, mirror the config overrides."""
+    """Seed an empty table, add long-haul routes, mirror the config overrides and names."""
     if not db.route_rows(conn):
         for r in cfg.seed:
             if not cfg.excluded(r.origin, r.destination):
@@ -33,6 +40,8 @@ def sync(conn: sqlite3.Connection, cfg: RoutesConfig, now: datetime) -> None:
         override = cfg.overrides.get(f"{row['origin']}-{row['destination']}")
         db.set_route_overrides(conn, row["origin"], row["destination"],
                                override.model_dump(exclude_none=True) if override else {})
+    for destination, name in cfg.city_names.items():
+        db.set_city_name(conn, destination, name)
 
 
 def _route(row: sqlite3.Row, cfg: RoutesConfig) -> Route:
@@ -47,6 +56,7 @@ def _route(row: sqlite3.Row, cfg: RoutesConfig) -> Route:
         discovered_at=datetime.fromisoformat(row["discovered_at"]),
         last_observed_at=(datetime.fromisoformat(row["last_observed_at"])
                           if row["last_observed_at"] else None),
+        city_en=row["city_en"],
     )
 
 
@@ -66,3 +76,78 @@ def get_route(conn: sqlite3.Connection, cfg: RoutesConfig, key: str) -> Route:
         if r.key == key.upper():
             return r
     raise KeyError(f"Route {key} is not in the routes table (see `escapadinha routes list`)")
+
+
+def per_origin(routes: list[Route], cfg: RoutesConfig) -> dict[str, Counter]:
+    """origin -> Counter of 'active' / 'dormant' / 'excluded' (an excluded route counts only there)."""
+    out: dict[str, Counter] = {}
+    for r in routes:
+        state = "excluded" if cfg.excluded(r.origin, r.destination) else r.status
+        out.setdefault(r.origin, Counter())[state] += 1
+    return out
+
+
+# --- discovery and dormancy ---------------------------------------------------------
+
+def curated_long_haul(cfg: RoutesConfig) -> list[LongHaul]:
+    return [LongHaul(d.destination.upper(), d.city_pt, tuple(o.upper() for o in d.origins))
+            for d in cfg.long_haul]
+
+
+@dataclass
+class Applied:
+    """What a discovery changed in the table."""
+
+    found: list[Found] = field(default_factory=list)          # routes the sources returned
+    added: list[Found] = field(default_factory=list)          # new rows (status active)
+    reactivated: list[Found] = field(default_factory=list)    # dormant -> active
+    excluded: list[Found] = field(default_factory=list)       # found but excluded in config
+
+
+def apply_discovery(conn: sqlite3.Connection, cfg: RoutesConfig, found: list[Found],
+                    now: datetime, *, dry_run: bool = False) -> Applied:
+    """Add new routes, reactivate dormant ones found again, refresh airports and English
+    names. Existing names, kinds and rules are kept; nothing is removed."""
+    stored = {(r["origin"], r["destination"]): r for r in db.route_rows(conn)}
+    result = Applied(found=list(found))
+    for f in found:
+        f = replace(f, city_pt=cfg.city_names.get(f.destination, f.city_pt))
+        if cfg.excluded(f.origin, f.destination):
+            result.excluded.append(f)
+            continue
+        airports = ",".join(sorted(f.airports)) or None
+        row = stored.get((f.origin, f.destination))
+        if row is None:
+            result.added.append(f)
+            if not dry_run:
+                db.insert_route(conn, origin=f.origin, destination=f.destination,
+                                city_pt=f.city_pt, city_en=f.city_en, kind=f.kind, discovered_at=now,
+                                destination_airports=airports)
+            continue
+        if row["status"] == "dormant":
+            result.reactivated.append(f)
+        if not dry_run:
+            db.set_route_catalogue(conn, f.origin, f.destination, city_en=f.city_en,
+                                   destination_airports=airports)
+    if not dry_run:
+        db.set_route_status(conn, [(f.origin, f.destination) for f in result.reactivated], "active")
+    return result
+
+
+def due_dormant(routes: list[Route], now: datetime, days: int) -> list[Route]:
+    """Active routes with no price seen for `days`, counted from the newest sighting or, for
+    a route never observed, from `discovered_at` (a new route gets its full period).
+
+    A reactivated route keeps its old `last_observed_at`: the next collection is its probe,
+    and without prices it goes back to sleep until a discovery finds it again.
+    """
+    cutoff = now - timedelta(days=days)
+    return [r for r in routes if r.status == "active"
+            and max(t for t in (r.last_observed_at, r.discovered_at) if t is not None) < cutoff]
+
+
+def mark_dormant(conn: sqlite3.Connection, cfg: RoutesConfig, now: datetime) -> list[Route]:
+    """Put routes without prices for `dormant_after_days` to sleep (excluded ones are left alone)."""
+    stale = due_dormant(active_routes(conn, cfg), now, cfg.dormant_after_days)
+    db.set_route_status(conn, [(r.origin, r.destination) for r in stale], "dormant")
+    return stale

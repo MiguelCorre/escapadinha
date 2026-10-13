@@ -13,6 +13,7 @@ collector:
   limit_per_request: 100      # max offers returned per route/month call
   market: pt                  # prices found on the Portuguese Aviasales market
   booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
+  requests_per_minute: 550    # client-side cap (API limit 600/min); a run is ~routes x months_ahead calls
 
 # A deal = a fresh price well below the route's typical LOW for that departure month:
 # the median of daily lowest prices (day = when travellers found the price).
@@ -31,16 +32,65 @@ routes:
   # Paris-Beauvais -> Milan-MXP, change airport -> BGY -> Lisbon); max_transfers = per direction.
   kinds:
     europe:    { direct_only: true,  min_nights: 2, max_nights: 10, max_transfers: 0 }
-    domestic:  { direct_only: true,  min_nights: 2, max_nights: 10, max_transfers: 0 }   # "Ilhas"
+    domestic:  { direct_only: true,  min_nights: 2, max_nights: 10, max_transfers: 0 }   # "Portugal": islands, inter-island and mainland
     long_haul: { direct_only: false, min_nights: 7, max_nights: 21, max_transfers: 1 }
   # Per-route exceptions, e.g. "LIS-LON": { max_nights: 7 }. price_cap_eur (optional) is an
   # absolute ceiling used ONLY while the route's history is insufficient.
   overrides: {}
-  exclusions: []             # route keys ("LIS-LON") or destinations ("LON") never collected
-  # Curated long-haul destinations (added for each origin with the long_haul rules); see #5.
-  long_haul: []
+  # Route keys ("LIS-LON") or destinations ("LON") never discovered nor collected. The static
+  # route catalogue is old: it still lists Lisbon-Moscow and Lisbon-Kyiv, closed since 2022.
+  exclusions: [MOW, LED, IEV, MSQ]
+  # Discovery (`escapadinha routes discover`, and monthly inside `run`): every direct route
+  # from these airports, kind from the destination country (Portugal = domestic, Europe and
+  # North Africa = europe; anything else only through the long_haul list below).
+  origins: [LIS, OPO, FAO, FNC, PDL, TER]
+  discover_every_days: 30
+  dormant_after_days: 30     # no price seen for this long -> dormant (not collected)
+  # Portuguese names that beat the catalogue's (key = destination city code). The catalogue
+  # mixes in airport names (Luqa, Lajes), Brazilian spellings (Colônia) and errors (Hamburg =
+  # "Finkenwerder", Algiers = "Argélia"). Applied to stored routes on every command.
+  city_names:
+    ACE: Lanzarote
+    ALG: Argel
+    BVE: Brive
+    CGN: Colónia
+    DLE: Dole
+    EAP: Basileia-Mulhouse
+    EBU: Saint-Étienne
+    FKB: Karlsruhe/Baden-Baden
+    FRA: Frankfurt
+    HAM: Hamburgo
+    MLA: Malta
+    RAK: Marraquexe
+    RMO: Chisinau
+    RTM: Roterdão
+    TER: Terceira
+    TUN: Tunes
+  # Curated long-haul destinations (DECISIONS D23): added for each listed origin (default
+  # LIS and OPO) with the long_haul rules, and kept even though most need a stop.
+  long_haul:
+    - { destination: NYC, city_pt: Nova Iorque }
+    - { destination: BOS, city_pt: Boston }
+    - { destination: MIA, city_pt: Miami }
+    - { destination: WAS, city_pt: Washington }
+    - { destination: YTO, city_pt: Toronto }
+    - { destination: YMQ, city_pt: Montreal }
+    - { destination: RIO, city_pt: Rio de Janeiro }
+    - { destination: SAO, city_pt: São Paulo }
+    - { destination: SSA, city_pt: Salvador }
+    - { destination: REC, city_pt: Recife }
+    - { destination: FOR, city_pt: Fortaleza }
+    - { destination: SID, city_pt: Ilha do Sal }
+    - { destination: BVC, city_pt: Boa Vista }
+    - { destination: CUN, city_pt: Cancún }
+    - { destination: PUJ, city_pt: Punta Cana }
+    - { destination: DXB, city_pt: Dubai }
+    - { destination: MLE, city_pt: Maldivas }
+    - { destination: BKK, city_pt: Banguecoque }
+    - { destination: TYO, city_pt: Tóquio }
+    - { destination: CPT, city_pt: Cidade do Cabo }
   # Inserted once into an empty routes table (fresh database). Destination = provider city
-  # code (Travelpayouts accepts LON, PAR, ROM, MIL). Automatic discovery replaces this (#5).
+  # code (Travelpayouts accepts LON, PAR, ROM, MIL). Discovery adds the rest.
   seed:
     - { origin: LIS, destination: LON, city_pt: Londres }
     - { origin: LIS, destination: PAR, city_pt: Paris }
@@ -79,9 +129,15 @@ origins_pt:
   LIS: Lisboa
   OPO: Porto
   FAO: Faro
+  FNC: Madeira
+  PDL: Ponta Delgada
+  TER: Terceira
 
 photos:
-  # Search query per destination for the Pixabay API. Falls back to city_pt.
+  # Every destination of an active route gets a photo automatically (after a discovery and
+  # on each run while some are missing, max_per_run at a time: 2 Pixabay calls each, limit
+  # 100/min). Query = the override below, else the English city name, else city_pt.
+  max_per_run: 40
   queries:
     LON: London skyline
     PAR: Paris Eiffel tower
@@ -91,3 +147,23 @@ photos:
     MIL: Milan Duomo
     BER: Berlin Brandenburg gate
     LIS: Lisbon viewpoint rooftops   # used by the sample guide
+    # English names that are ambiguous or too generic on Pixabay
+    NCE: Nice France
+    TUF: Tours France
+    NOC: Knock Ireland
+    PMI: Palma de Mallorca
+    SSA: Salvador Bahia
+    MLE: Maldives beach
+    SID: Sal Cape Verde beach
+    BVC: Boa Vista Cape Verde beach
+    TER: Terceira Azores
+    PDL: Sao Miguel Azores
+    HOR: Horta Faial Azores
+    PIX: Pico Azores
+    SJZ: Sao Jorge Azores
+    GRW: Graciosa Azores
+    FLW: Flores Azores
+    CVU: Corvo Azores
+    SMA: Santa Maria Azores
+    FNC: Madeira Funchal
+    PXO: Porto Santo beach

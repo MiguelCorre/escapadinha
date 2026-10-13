@@ -356,3 +356,68 @@ so nothing has to be hosted.
   ink, disclosure notice. Guides follow the same pattern (photo cover with card, paper tip pages, dark
   CTA). All existing rules are unchanged (disclosure, found_date vs fetched_at, arrival airport).
 
+## D23: Route discovery from the provider's data, curated long-haul list, dormancy (2026-10-13, #5)
+- **Sources (all Travelpayouts, no scraping, D13):**
+  - Static catalogue `data/routes.json` (public): airline routes with `transfers`. Rows with
+    `transfers: 0` from LIS, OPO, FAO, FNC, PDL, TER; arrival airports → city codes via
+    `data/airports.json`; names from `data/pt/cities.json` (`name`, Portuguese; `name_translations.en`
+    when it's missing). `countries.json` has no region, so Europe/North Africa is a country-code set
+    in `discovery.py`.
+  - **The static catalogue is years out of date**: it still has Transaero (ceased 2015), Lisbon-Moscow
+    and Lisbon-Kyiv, and only 52 routes from Porto. So two supplements with the token, as the spec
+    asked for the first: `v1/city-directions` (popular directions, ~30 per origin; only those whose
+    cheapest fare was nonstop count) and `v3/prices_for_dates` with an origin and no destination,
+    `direct=true`, one call per departure month (nonstop fares found recently: 91 destinations from
+    Porto). Only destinations are taken from them; their prices are never stored (the collector stores
+    prices, per route). A failing supplement is reported and skipped; a failing catalogue aborts
+    before anything changes.
+  - Kind: Portugal → `domestic` (this includes the few mainland routes such as LIS-OPO), Europe and
+    North Africa (MA DZ TN LY EG) → `europe`; anything else only if it's on the long-haul list for
+    that origin. Same-city pairs are dropped. Existing routes keep their name, kind and rules;
+    discovery only fills `destination_airports` and `city_en`.
+  - `routes.city_names` fixes catalogue names (it mixes airport names, Brazilian spellings and errors:
+    Hamburg is "Finkenwerder", Algiers "Argélia", Malta "Luqa"). Exclusions `MOW LED IEV MSQ`: airspace
+    closed since 2022, still in the old catalogue.
+- **Long-haul list (20, from LIS and OPO, rules from the kind: ≤ 1 stop each way, 7–21 nights):**
+  Nova Iorque, Boston, Miami, Washington, Toronto, Montreal (TAP/Air Transat/Azores Airlines nonstops
+  from Lisbon; NYC and Toronto from Porto too), Rio de Janeiro, São Paulo, Salvador, Recife, Fortaleza
+  (TAP's Brazil network), Ilha do Sal and Boa Vista (Cabo Verde; nonstop, holiday islands), Cancún,
+  Punta Cana (one stop via Madrid/Paris), Dubai (Emirates nonstop), Maldivas, Banguecoque (one stop via
+  the Gulf), Tóquio (one stop; the spec's "Japão desde 564 €" example), Cidade do Cabo (one stop).
+  Checked on 2026-10-13 against cached fares: every one has fares from Lisbon with ≤ 1 stop except
+  Banguecoque and Maldivas (cache only had 2-stop fares that day; one-stop service exists via DXB/DOH).
+  From Porto most need a stop in Lisbon and the cache is thin (no fares yet for 10 of the 20): those
+  routes will go dormant and be re-probed monthly. Left out: Natal, Belo Horizonte, Porto Alegre,
+  Brasília (thin demand), Luanda/Maputo/Bissau/São Tomé (diaspora and business travel more than deals),
+  Chicago/San Francisco (no fares in the cache). Ponta Delgada's nonstops to Boston and Toronto are
+  not listed: add `PDL` to those entries' `origins` if wanted.
+- **Dormancy:** after every collection that didn't fail outright, an active route with no price seen
+  for 30 days (newest `last_seen_at`, or `discovered_at` if never observed) becomes `dormant` and is
+  not collected. A discovery that finds it again reactivates it, and the next collection is its probe:
+  with prices it stays, without it sleeps again (one probe per month = 3 requests, instead of 30 days
+  of requests). Curated long-haul routes count as found every time. `last_observed_at` now follows
+  `last_seen_at`, not the first sighting: with dedup (D18) an offer that keeps coming back would
+  otherwise look unobserved. Nothing is deleted; excluded routes are left alone.
+- **Schedule:** `routes discover` on demand; `run` discovers when the last discovery (kept in a new
+  `meta` key/value table) is 30+ days old. A discovery failure never stops the collection.
+- **Photos:** every destination of an active route gets a Pixabay photo (query: `photos.queries`,
+  else the English catalogue name, stored in `routes.city_en`), at most 40 per discovery/run (2 calls
+  each against Pixabay's 100/min).
+- **Schema v8:** `routes.city_en`, table `meta`. Upgrades tested from v5 and v7.
+- **Real run, 2026-10-13 (copy of the real DB):** found LIS 113, OPO 107, FAO 67, FNC 50, PDL 17,
+  TER 8 = 362 (2 excluded) → **360 active routes**: LIS 111 (91 + 20 long-haul), OPO 107 (87 + 20),
+  FAO 67, FNC 50, PDL 17, TER 8; by kind 277 europe, 43 domestic, 40 long-haul; 155 destinations.
+  Sources: 284 routes had a recent nonstop fare, 57 only the static catalogue, 19 only the curated list. One collection right
+  after: 1080 requests in 5 min 40 s, no 429, prices for **230 of 360** routes (most of the rest are
+  summer-only UK/German routes from Faro and Madeira, Azores inter-island routes and Porto's long-haul).
+  So the spec's ~250–300 is where the active count should settle once the first 30-day window has
+  put the routes without prices to sleep; the count before that is 360.
+- **Budget:** one request per active route and month: 1080 per run now, ~800 once dormancy settles,
+  latency-bound at ~190/min (client cap 550/min, API limit 600/min). **For GitHub Actions (#4 and
+  later):** ~6 min × 12 runs/day ≈ 2200 min/month, above the 2000 free minutes of a private repo
+  (public repos are unmetered). Options when moving: concurrent requests under the same cap,
+  fewer months for dormant-prone routes, or a public repo.
+
+- **Label (Miguel, 2026-10-13):** the `domestic` kind is shown as **"Portugal"** (islands, inter-island
+  and mainland routes such as Lisboa → Porto), replacing "Ilhas". Merged into the live pipeline the
+  same day: the scheduled run discovers ~360 routes and collects ~1080 requests per run.

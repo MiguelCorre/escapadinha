@@ -6,7 +6,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
-- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list`, `photos fetch`,
+- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`,
   `site build|preview|setup|deploy`, `design directions`,
   `store status|pull|push|restore|upload-archives|check`).
@@ -19,10 +19,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
   passed in too; never read a global `direct_only` or nights range.
 - Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
-  config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list and seed.
+  config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list, seed,
+  discovery origins and `city_names`. Discovery (`discovery.py`) is pure; its downloads live in
+  `collector/catalogue.py`. Routes are never deleted: they go `dormant` (D23).
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
   installs) and add the ALTER steps to `MIGRATIONS` (existing DBs; a step may be a Python
-  callable). Test the upgrade from a real old schema (`tests/fixtures/schema_v5.sql`).
+  callable). Test the upgrade from real old schemas (`tests/fixtures/schema_v5.sql`, `schema_v7.sql`).
+  Pipeline bookkeeping (e.g. last discovery time) goes in the `meta` key/value table.
 - Observations are deduplicated (`dedup_key`); never assume one row per run. Use
   `observations_seen_since(run_id)` for a run's prices. Raw payloads live only in the run archive
   (`archive.py` via `ObjectStore`), never in the hot table.
@@ -46,13 +49,16 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Update README.md, CLAUDE.md and DECISIONS.md in the same commit as a feature.
 
 ## Layout
-- `src/escapadinha/collector/`: `TravelpayoutsSource`, `runner.collect`
-- `src/escapadinha/routes.py`: `sync` (config → `routes` table), `all_routes`/`active_routes`/`get_route`
+- `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `runner.collect`, `catalogue.py`
+- `src/escapadinha/discovery.py`: pure `Catalogue.from_payloads` + `discover` → `Found` routes with kind
+- `src/escapadinha/routes.py`: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`,
+  `all_routes`/`active_routes`/`get_route`
 - `src/escapadinha/storage/objects.py`: `ObjectStore` + `LocalObjectStore` (`data/objects/`); `archive.py`: per-run raw archive
 - `src/escapadinha/storage/s3.py`: `S3ObjectStore` (R2, conditional-write lock); `sync.py`: database
   pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate`, `detect_route`
-- `src/escapadinha/pipeline.py`: DB wiring per CLI step, plus review actions (`live_check`, `approve`, ...)
+- `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
+  `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page
 - `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, fonts, scrims, components, fitText),
   `_ui.html.j2` (masthead, price block, dots, credit) + `deal/`, `guide/`

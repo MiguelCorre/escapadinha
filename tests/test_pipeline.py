@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+import yaml
 
 from escapadinha import pipeline
 from escapadinha.affiliate import API_URL as LINKS_URL
@@ -25,7 +26,11 @@ EMPTY = {"success": True, "currency": "eur", "data": []}
 
 @pytest.fixture
 def ctx(tmp_path, monkeypatch):
-    shutil.copy(REPO / "config.yaml", tmp_path / "config.yaml")
+    # The real config, minus the curated long-haul list: tests that need long-haul routes
+    # add their own, so route counts here stay the 10 seeded routes.
+    config = yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))
+    config["routes"]["long_haul"] = []
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True), "utf-8")
     shutil.copytree(REPO / "assets", tmp_path / "assets",
                     ignore=shutil.ignore_patterns("photos"))   # logos + self-hosted fonts
     shutil.copytree(REPO / "content", tmp_path / "content")
