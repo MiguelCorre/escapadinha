@@ -32,8 +32,8 @@ def approved_deal(ctx, conn):
     deal_id = rendered_deal(ctx, conn)
     real_slides(conn, deal_id)
     price_api(58)
-    deal, check = pipeline.approve(ctx, conn, deal_id)
-    assert check.valid and deal.status == "approved"
+    decision = pipeline.approve(ctx, conn, deal_id, actor="test")
+    assert decision.check.valid and decision.deal.status == "approved"
     return deal_id
 
 
@@ -108,7 +108,7 @@ def test_expired_after_approval_keeps_page_without_booking(ctx):
 def test_never_approved_deals_stay_private(ctx):
     conn = pipeline.open_db(ctx)
     rejected = rendered_deal(ctx, conn)
-    pipeline.reject(conn, rejected, "datas fracas")
+    pipeline.reject(ctx, conn, rejected, "datas fracas", actor="test")
     build_site(ctx, conn)
     assert not (ctx.site_dir / "promos").exists()
 

@@ -1,7 +1,9 @@
 """Local approval queue: `escapadinha review` serves this on 127.0.0.1 only.
 
 Thin HTTP layer over pipeline.live_check / approve / reject / mark_published; every rule
-lives in review.py and pipeline.py so the CLI and the page behave the same.
+lives in review.py and pipeline.py so the CLI and the page behave the same. Decisions are
+written as review events (D26): applied at once with a local database, else listed as pending
+until the next run applies them.
 """
 
 from __future__ import annotations
@@ -16,11 +18,11 @@ from jinja2 import Environment, PackageLoader
 from pydantic import BaseModel
 
 from escapadinha import i18n_pt as pt
-from escapadinha import pipeline
+from escapadinha import pipeline, review_events
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation
 from escapadinha.presentation import PhotoCredit, build_deal_view
-from escapadinha.review import STATUS_PT, TABS, ReviewError
+from escapadinha.review import DECISION_PT, STATUS_PT, TABS, ReviewError
 from escapadinha.storage import db
 
 SLIDE_NAME = re.compile(r"^slide_\d{2}\.png$")
@@ -34,7 +36,14 @@ class Published(BaseModel):
     post_url: str | None = None
 
 
-def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observation) -> dict:
+def pending_json(event: review_events.Event) -> dict:
+    return {"id": event.id, "type": event.type, "type_pt": DECISION_PT[event.type],
+            "actor": event.actor, "note": event.note, "post_url": event.post_url,
+            "created_at": pt.lisbon_timestamp(event.created_at)}
+
+
+def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observation,
+              pending: list[review_events.Event] = ()) -> dict:
     route = pipeline.route_for(ctx, conn, obs.route_key)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=PhotoCredit.from_photo(None, None))
@@ -69,6 +78,7 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "output_path": deal.output_path,
         "post_url": deal.post_url,
         "published_at": pt.lisbon_timestamp(deal.published_at) if deal.published_at else None,
+        "pending": [pending_json(e) for e in pending if e.deal_id == deal.id],
     }
 
 
@@ -100,7 +110,9 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
 
         def run(conn):
             counts = {t: len(db.deals_with_status(conn, *s)) for t, s in TABS.items()}
-            deals = [deal_json(ctx, conn, d, o) for d, o in db.deals_with_status(conn, *TABS[tab])]
+            pending = pipeline.pending_decisions(ctx, conn)
+            deals = [deal_json(ctx, conn, d, o, pending)
+                     for d, o in db.deals_with_status(conn, *TABS[tab])]
             return {"tab": tab, "counts": counts, "deals": deals}
         return with_conn(run)
 
@@ -114,14 +126,24 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
             raise HTTPException(status_code=404)
         return FileResponse(path, media_type="image/png")
 
-    def action_result(conn, deal: Deal, check=None) -> dict:
+    actor = review_events.local_actor("review-page")
+
+    def action_result(conn, deal: Deal, check=None, decision: pipeline.Decision | None = None) -> dict:
         _, obs = db.get_deal(conn, deal.id)
-        out = {"deal": deal_json(ctx, conn, deal, obs)}
+        out = {"deal": deal_json(ctx, conn, deal, obs, pipeline.pending_decisions(ctx, conn))}
         if check is not None:
             out["check"] = {"valid": check.valid, "reason": check.reason,
                             "latest_price": None if check.latest_price is None
                             else pt.eur(check.latest_price)}
+        if decision is not None:
+            o = decision.outcome
+            out["decision"] = {"event_id": decision.event.id,
+                               "outcome": "pending" if o is None else o.outcome,
+                               "reason": None if o is None else o.reason}
         return out
+
+    def decided(conn, decision: pipeline.Decision) -> dict:
+        return action_result(conn, decision.deal, decision.check, decision)
 
     @app.post("/api/deals/{deal_id}/check")
     def check(deal_id: int) -> dict:
@@ -129,16 +151,17 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
 
     @app.post("/api/deals/{deal_id}/approve")
     def approve(deal_id: int, body: Note) -> dict:
-        return with_conn(lambda conn: action_result(
-            conn, *pipeline.approve(ctx, conn, deal_id, body.note)))
+        return with_conn(lambda conn: decided(
+            conn, pipeline.approve(ctx, conn, deal_id, body.note, actor=actor)))
 
     @app.post("/api/deals/{deal_id}/reject")
     def reject(deal_id: int, body: Note) -> dict:
-        return with_conn(lambda conn: action_result(conn, pipeline.reject(conn, deal_id, body.note)))
+        return with_conn(lambda conn: decided(
+            conn, pipeline.reject(ctx, conn, deal_id, body.note, actor=actor)))
 
     @app.post("/api/deals/{deal_id}/published")
     def published(deal_id: int, body: Published) -> dict:
-        return with_conn(lambda conn: action_result(
-            conn, pipeline.mark_published(conn, deal_id, body.post_url)))
+        return with_conn(lambda conn: decided(
+            conn, pipeline.mark_published(ctx, conn, deal_id, body.post_url, actor=actor)))
 
     return app

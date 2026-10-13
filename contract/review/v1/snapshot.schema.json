@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MiguelCorre/escapadinha/contract/review/v1/snapshot.schema.json",
+  "title": "Review snapshot (D26)",
+  "description": "Written by the pipeline to review/snapshot.json at the end of every run (fast or full). What a review UI (the review Function, #9) shows. Read-only: decisions go back as review events (event.schema.json). Timestamps are UTC with a Z suffix; fields ending in _pt or holding pt-PT text (price, dates, found_on, checked_at) are display strings already formatted in Europe/Lisbon.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "generated_at", "site_base_url", "queue", "approved", "published", "closed",
+               "pending_events", "recent_outcomes"],
+  "properties": {
+    "version": {"const": 1},
+    "generated_at": {"$ref": "#/$defs/timestamp"},
+    "site_base_url": {"type": "string", "pattern": "^https://[^/]+$"},
+    "queue": {"type": "array", "items": {"$ref": "#/$defs/deal"},
+              "description": "Waiting for review: status rendered or new, newest first."},
+    "approved": {"type": "array", "items": {"$ref": "#/$defs/deal"},
+                 "description": "Approved, waiting to be published, newest first."},
+    "published": {"type": "array", "items": {"$ref": "#/$defs/deal"}, "maxItems": 20,
+                  "description": "Most recent published deals."},
+    "closed": {"type": "array", "items": {"$ref": "#/$defs/deal"}, "maxItems": 20,
+               "description": "Most recent expired or rejected deals."},
+    "pending_events": {
+      "type": "array", "items": {"$ref": "event.schema.json"},
+      "description": "Decisions written but not yet applied to the database this snapshot came from, oldest first. A UI shows them as pending and should not offer another decision for the same deal."
+    },
+    "recent_outcomes": {
+      "type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/outcome"},
+      "description": "What happened to the latest applied events, newest first (refusals carry the pt-PT reason)."
+    }
+  },
+  "$defs": {
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"},
+    "nullable_timestamp": {"type": ["string", "null"], "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"},
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "type", "deal_id", "actor", "outcome", "reason", "settled_at",
+                   "status_before", "status_after"],
+      "properties": {
+        "event_id": {"type": "string"},
+        "type": {"enum": ["approve", "reject", "published", null]},
+        "deal_id": {"type": ["integer", "null"]},
+        "actor": {"type": ["string", "null"]},
+        "outcome": {"enum": ["applied", "refused", "malformed"]},
+        "reason": {"type": ["string", "null"]},
+        "settled_at": {"$ref": "#/$defs/timestamp"},
+        "status_before": {"type": ["string", "null"]},
+        "status_after": {"type": ["string", "null"]}
+      }
+    },
+    "slide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "key"],
+      "properties": {
+        "url": {"type": ["string", "null"], "pattern": "^https://",
+                "description": "WebP on the public site: only for deals the site shows (approved, published, expired after approval)."},
+        "key": {"type": ["string", "null"], "pattern": "^review/slides/[0-9]+/slide_[0-9]{2}\\.webp$",
+                "description": "WebP copy in the object store for deals still open for review (new, rendered, approved); the review Function serves it behind Access."}
+      }
+    },
+    "deal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "status_pt", "observation_id", "route", "origin", "destination",
+                   "origin_city", "destination_city", "headline", "arrival_airport", "price_eur",
+                   "price", "departure_date", "return_date", "dates", "nights", "airline", "direct",
+                   "rule", "discount_pct", "typical_low_eur", "baseline_days", "found_date",
+                   "found_on", "fetched_at", "checked_at", "detected_at", "affiliate_url",
+                   "affiliate_error", "caption", "whatsapp_text", "page_url", "slides",
+                   "live_check", "review_note", "reviewed_at", "published_at", "post_url"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["new", "rendered", "approved", "published", "rejected", "expired"]},
+        "status_pt": {"type": "string"},
+        "observation_id": {"type": "integer", "description": "price_observations.id the price comes from (traceability, D2)."},
+        "route": {"type": "string", "pattern": "^[A-Z]{3}-[A-Z]{3}$"},
+        "origin": {"type": "string"},
+        "destination": {"type": "string"},
+        "origin_city": {"type": "string"},
+        "destination_city": {"type": "string"},
+        "headline": {"type": "string", "description": "'Lisboa → Paris (Beauvais)': names a remote arrival airport."},
+        "arrival_airport": {"type": ["string", "null"]},
+        "price_eur": {"type": "number"},
+        "price": {"type": "string", "description": "pt-PT, e.g. '58 €'."},
+        "departure_date": {"type": "string", "format": "date"},
+        "return_date": {"type": "string", "format": "date"},
+        "dates": {"type": "string"},
+        "nights": {"type": "string"},
+        "airline": {"type": ["string", "null"]},
+        "direct": {"type": ["boolean", "null"]},
+        "rule": {"type": "string"},
+        "discount_pct": {"type": ["integer", "null"]},
+        "typical_low_eur": {"type": ["number", "null"]},
+        "baseline_days": {"type": "integer"},
+        "found_date": {"type": ["string", "null"], "format": "date",
+                       "description": "When a traveller found the price (provider cache)."},
+        "found_on": {"type": ["string", "null"]},
+        "fetched_at": {"$ref": "#/$defs/timestamp", "description": "When our collection first saw it."},
+        "checked_at": {"type": "string"},
+        "detected_at": {"$ref": "#/$defs/timestamp"},
+        "affiliate_url": {"type": ["string", "null"], "description": "Instagram Project partner link (D19)."},
+        "affiliate_error": {"type": ["string", "null"]},
+        "caption": {"type": ["string", "null"], "description": "Instagram caption as rendered (carries the disclosure)."},
+        "whatsapp_text": {"type": ["string", "null"], "description": "Ready-to-paste WhatsApp text, when generated (later ticket)."},
+        "page_url": {"type": ["string", "null"], "pattern": "^https://",
+                     "description": "The promotion page on the public site, for deals the site shows."},
+        "slides": {"type": "array", "items": {"$ref": "#/$defs/slide"}},
+        "live_check": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["last_checked_at", "last_seen_price_eur", "expired_reason", "query", "rules"],
+          "properties": {
+            "last_checked_at": {"$ref": "#/$defs/nullable_timestamp",
+                                "description": "Last recheck by the pipeline (collection or `deal check`)."},
+            "last_seen_price_eur": {"type": ["number", "null"]},
+            "expired_reason": {"type": ["string", "null"]},
+            "query": {
+              "type": "object",
+              "description": "Exact query of the provider request (prices_for_dates) that prices this trip now; the API token goes in the X-Access-Token header.",
+              "required": ["origin", "destination", "departure_at", "one_way", "currency"],
+              "additionalProperties": {"type": ["string", "integer"]}
+            },
+            "rules": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["direct_only", "max_transfers", "min_nights", "max_nights", "max_offer_age_days"],
+              "properties": {
+                "direct_only": {"type": "boolean"},
+                "max_transfers": {"type": ["integer", "null"]},
+                "min_nights": {"type": "integer"},
+                "max_nights": {"type": "integer"},
+                "max_offer_age_days": {"type": "integer"}
+              },
+              "description": "Same recheck rule as the pipeline: valid while the same departure and return dates are offered at the deal price or lower, within the route rules, found within max_offer_age_days."
+            }
+          }
+        },
+        "review_note": {"type": ["string", "null"]},
+        "reviewed_at": {"$ref": "#/$defs/nullable_timestamp"},
+        "published_at": {"$ref": "#/$defs/nullable_timestamp"},
+        "post_url": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

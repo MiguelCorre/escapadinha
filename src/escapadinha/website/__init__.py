@@ -49,6 +49,20 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-")
 
 
+def is_public(deal: Deal) -> bool:
+    """Approved/published deals, plus expired ones a human had approved before."""
+    return deal.status in LIVE or (deal.status == "expired" and deal.reviewed_at is not None)
+
+
+def promo_slug(deal_id: int, origin_city: str, destination_city: str) -> str:
+    return f"{deal_id}-{slugify(origin_city)}-{slugify(destination_city)}"
+
+
+def promo_images(deal_id: int) -> str:
+    """Folder of a promotion's slides on the site, under /img/ (slide_01.webp, ...)."""
+    return f"promos/{deal_id}"
+
+
 @dataclass
 class SiteDeal:
     deal: Deal
@@ -113,13 +127,13 @@ class SiteBuilder:
         rows = db.deals_with_status(self.conn, "approved", "published", "expired")
         deals = []
         for deal, obs in rows:
-            if deal.status == "expired" and deal.reviewed_at is None:
+            if not is_public(deal):
                 continue   # expired before anyone approved it: never public
             route = routes.get_route(self.conn, self.cfg.routes, obs.route_key)
             view = build_deal_view(deal, obs, origin_city=self.cfg.origin_name(obs.origin),
                                    destination_city=route.city_pt,
                                    photo=PhotoCredit.from_photo(None, None))
-            slug = f"{deal.id}-{slugify(view.origin_city)}-{slugify(view.destination_city)}"
+            slug = promo_slug(deal.id, view.origin_city, view.destination_city)
             checked_at = deal.last_checked_at or obs.fetched_at
             deals.append(SiteDeal(deal, obs, view, deal.status in LIVE, slug,
                                   checked=pt.lisbon_timestamp(checked_at)))
@@ -198,7 +212,7 @@ class SiteBuilder:
         folder = Path(d.deal.output_path) if d.deal.output_path else None
         if not folder or not folder.exists():
             return
-        d.images = self._images(folder, f"promos/{d.deal.id}")
+        d.images = self._images(folder, promo_images(d.deal.id))
         cover = folder / "slide_01.png"
         if cover.exists():
             thumb = self.out / "img" / "promos" / str(d.deal.id) / "thumb.webp"

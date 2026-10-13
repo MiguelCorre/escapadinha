@@ -151,6 +151,25 @@ class RateLimiter:
         self._calls.append(now)
 
 
+def request_params(origin: str, destination: str, month: date, *, currency: str, limit: int,
+                   market: str | None) -> dict:
+    """Query of one route-month request (the token goes in a header, not here). The review
+    snapshot carries it so the review Function's live check asks exactly the same (D26)."""
+    params = {
+        "origin": origin,
+        "destination": destination,
+        "departure_at": month.strftime("%Y-%m"),
+        "one_way": "false",
+        "currency": currency.lower(),
+        "sorting": "price",
+        "unique": "false",
+        "limit": limit,
+    }
+    if market:
+        params["market"] = market
+    return params
+
+
 class TravelpayoutsSource:
     name = SOURCE
 
@@ -179,18 +198,7 @@ class TravelpayoutsSource:
 
     def fetch(self, origin: str, destination: str, month: date, *,
               min_nights: int, max_nights: int) -> Fetched:
-        params = {
-            "origin": origin,
-            "destination": destination,
-            "departure_at": month.strftime("%Y-%m"),
-            "one_way": "false",
-            "currency": self._currency,
-            "sorting": "price",
-            "unique": "false",
-            "limit": self._limit,
-        }
-        if self._market:
-            params["market"] = self._market
+        params = self.request_params(origin, destination, month)
         payload = self._get(params)
         fetched_at = self._now()
         observations = parse_response(payload, origin=origin, destination=destination,
@@ -199,6 +207,11 @@ class TravelpayoutsSource:
         return Fetched(observations, {
             "origin": origin, "destination": destination, "month": month.strftime("%Y-%m"),
             "fetched_at": fetched_at.isoformat(), "params": params, "payload": payload})
+
+    def request_params(self, origin: str, destination: str, month: date) -> dict:
+        return request_params(origin, destination, month, currency=self._currency,
+                              limit=self._limit, market=self._market)
+
 
     def _get(self, params: dict) -> dict:
         for attempt in range(1, self._max_attempts + 1):

@@ -492,3 +492,63 @@ so nothing has to be hosted.
   requests at a time under the same thread-safe 550/min limiter; responses are still stored and
   archived in request order on one thread. ~1080 requests then take ~2 min (limit-bound) instead
   of ~6, so 12 runs/day fit the 2000 free Actions minutes of a private repo (#7).
+
+## D26: Review decisions as events, applied by the pipeline; review snapshot (2026-10-13, #8)
+- **Why:** with the database in R2 (D21) a decision written into a local copy is lost or collides
+  with the next run's push, and the review Function (#9) can't open SQLite at all. Decisions
+  therefore become an append-only log in the object store, and only the pipeline, holding the
+  run lock, turns them into statuses (story 25).
+- **Event** (`contract/review/v1/event.schema.json`): one JSON object per decision at
+  `review/events/pending/<YYYYMMDDTHHMMSSZ>-<id>.json` with `version` 1, `id` (UUID v4), `type`
+  (`approve` | `reject` | `published`), `deal_id`, `created_at` (UTC, `Z`), `actor`
+  (`cli:<user>@<host>`, `review-page:<user>@<host>`, or the Access e-mail from the Function),
+  `note`, `post_url` (published only) and `live_check` (`{valid, price_eur, reason, checked_at}`,
+  required and valid on approve, null otherwise). Every key is always present. `created_at`
+  becomes `reviewed_at` / `published_at`. Events are never edited: a new decision is a new event.
+- **Applier** (`pipeline.apply_review_events` → `review_events.apply_pending`), first step of
+  every `run`: pending events oldest first; each is re-checked with `review.check_decision`
+  against the deal's status *now* (same rules as before writing: transition table, affiliate link
+  for approve, `https?://` post URL) and approve also needs `live_check.valid`. The outcome
+  (`applied` | `refused` with the pt-PT reason) and the status change are written in **one
+  transaction** together with meta `review_event:<id>`. Unparseable objects are `malformed`. Every
+  event ends in `review/events/archive/<YYYY-MM of creation>/<same name>` as
+  `{event, outcome, reason, settled_at, status_before, status_after, ...}`. Nothing in here raises
+  for a bad event or a store error during archiving.
+- **Idempotency:** the database is the only judge of "already applied": an id with a meta
+  outcome is never applied again, whatever the store holds (a re-delivered copy, a pending object
+  whose delete failed after the archive put). Archive put comes before pending delete, and the
+  archive key is a function of the pending name, so retrying writes the same object. **With R2 the
+  database is only durable after the run pushes it**, so an event applied by run N stays pending;
+  run N+1, starting from the pushed database, finds the outcome and only archives it. If run N
+  died before pushing, run N+1 starts from the older database and simply applies it again.
+  Without R2 the database is durable on commit and events are archived at once.
+- **Where the live check happens:** in the writer, right before an approve event is written (CLI
+  and local page: `pipeline.price_now`; Function: its own request with the query the snapshot
+  gives it). It is a gate only: it stores no observations and changes no status, because the
+  Function has no database and both paths must behave the same. A moved price refuses the
+  approval with the reason and writes nothing; the next collection's recheck (every 2 h, same
+  rule) expires the deal. The applier doesn't call the provider: it re-checks the status, so a
+  deal that expired between the check and the run is refused, and approved deals keep being
+  rechecked by every run, so "never publish expired" holds. `deal check` keeps storing a
+  `live_check` run and expiring on a moved price (a recheck, pipeline-owned).
+- **CLI and local page:** `deal approve/reject/published` and the page's buttons pre-check the
+  same rules (and refuse while the deal has a pending decision), write the event and print the
+  pending list. Without R2 keys nothing else owns the database, so they apply pending events at
+  once (same experience as v1). With R2 keys they leave the event for the next run (or the
+  Function's dispatch) and say so; the local database copy is not touched.
+- **Contract:** only `review_events` writes approved/rejected/published (`db.settle_review_event`);
+  `db.record_review` is test setup only, and a test fails if any other module calls either.
+  Render (new → rendered) and rechecks (→ expired) stay with the pipeline.
+- **Snapshot** (`contract/review/v1/snapshot.schema.json`), `review/snapshot.json`, last step of
+  every run (fast or full): `queue` (new/rendered), `approved`, `published` and `closed` (latest 20
+  each), every deal with price (number and pt-PT text), dates, nights, airline, arrival airport,
+  discount, typical low, found/fetched/detected times, affiliate link, caption, `whatsapp_text`
+  (null until generated), `page_url`, `slides` and `live_check` (last recheck, expired reason, the
+  exact provider `query` and the route `rules` + freshness window, so the Function's check is the
+  pipeline's rule); plus `pending_events` (not yet in this database) and `recent_outcomes`.
+- **Slides:** "slide URLs on the public site" only exist for deals the site shows
+  (`<base_url>/img/promos/<id>/slide_NN.webp`, approved/published/expired-after-approval). A queue
+  item is not public, so every deal still open for review also gets WebP copies in the store at
+  `review/slides/<id>/slide_NN.webp` (uploaded once, deleted when the deal leaves review); the
+  Function serves those behind Access. Rejected: publishing queue slides on the public site.
+- **No schema change:** outcomes live in `meta` (one row per decision, a few a day).

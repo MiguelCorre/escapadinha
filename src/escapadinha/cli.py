@@ -12,11 +12,11 @@ from rich.console import Console
 from rich.table import Table
 
 from escapadinha import i18n_pt as pt
-from escapadinha import pipeline, routes
+from escapadinha import pipeline, review_events, routes
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
-from escapadinha.review import ReviewError
+from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError
 from escapadinha.website.deploy import DeployError
 from escapadinha.config import Context
 from escapadinha.storage import db, sync
@@ -277,27 +277,49 @@ def deal_check(deal_id: int) -> None:
     _print_check(*pipeline.live_check(ctx, conn, deal_id))
 
 
+def _print_decision(ctx, conn, decision: pipeline.Decision) -> None:
+    """What happened to the event just written, then every decision still pending (D26)."""
+    o, deal = decision.outcome, decision.deal
+    if o is None:
+        console.print(f"  Decisão registada ({DECISION_PT[decision.event.type]}): aplicada na "
+                      "próxima execução (`escapadinha run`).")
+    elif o.applied:
+        console.print(f"  deal {deal.id}: {STATUS_PT[deal.status]}")
+    else:
+        console.print(f"  [red]Decisão recusada:[/] {o.reason}")
+    waiting = pipeline.pending_decisions(ctx, conn)
+    if not waiting:
+        console.print("Nenhuma decisão pendente.")
+        return
+    console.print(f"{len(waiting)} decis{'ão' if len(waiting) == 1 else 'ões'} pendente"
+                  f"{'' if len(waiting) == 1 else 's'}: " + "; ".join(
+                      f"deal {e.deal_id}: {DECISION_PT[e.type]} ({e.actor}, "
+                      f"{pt.lisbon_timestamp(e.created_at)})" for e in waiting))
+
+
 @deal_app.command("approve")
 def deal_approve(deal_id: int, note: Annotated[str | None, typer.Option()] = None) -> None:
-    """Approve after a live price check (expires the deal if the price moved)."""
+    """Live price check, then an approval event (refused, writing nothing, if the price moved)."""
     ctx, conn = _ctx()
-    _print_check(*pipeline.approve(ctx, conn, deal_id, note))
+    decision = pipeline.approve(ctx, conn, deal_id, note, actor=review_events.local_actor("cli"))
+    console.print(f"  deal {deal_id}: [green]✓ preço confirmado[/] ({decision.check.reason})")
+    _print_decision(ctx, conn, decision)
 
 
 @deal_app.command("reject")
 def deal_reject(deal_id: int, note: Annotated[str | None, typer.Option()] = None) -> None:
-    """Reject a deal (final)."""
-    _, conn = _ctx()
-    deal = pipeline.reject(conn, deal_id, note)
-    console.print(f"  deal {deal.id}: {deal.status}")
+    """Reject a deal (final): writes a reject event."""
+    ctx, conn = _ctx()
+    _print_decision(ctx, conn, pipeline.reject(ctx, conn, deal_id, note,
+                                               actor=review_events.local_actor("cli")))
 
 
 @deal_app.command("published")
 def deal_published(deal_id: int, url: Annotated[str | None, typer.Option(help="Post URL")] = None) -> None:
-    """Mark an approved deal as published."""
-    _, conn = _ctx()
-    deal = pipeline.mark_published(conn, deal_id, url)
-    console.print(f"  deal {deal.id}: {deal.status}")
+    """Mark an approved deal as published: writes a published event."""
+    ctx, conn = _ctx()
+    _print_decision(ctx, conn, pipeline.mark_published(ctx, conn, deal_id, url,
+                                                       actor=review_events.local_actor("cli")))
 
 
 @site_app.command("build")
@@ -506,7 +528,24 @@ def store_check() -> None:
     console.print(f"Bucket [bold]{ctx.secrets.r2_bucket}[/] OK.")
 
 
+def apply_review_events() -> None:
+    """Pending review decisions (CLI, review page, review Function) applied to the database."""
+    ctx, conn = _ctx()
+    for o in pipeline.apply_review_events(ctx, conn):
+        what = f"{DECISION_PT.get(o.type, '?')} deal {o.deal_id}" if o.type else o.event_id
+        console.print(f"  decisão {what}: " + ("[green]aplicada[/]" if o.applied
+                                               else f"[yellow]recusada[/] ({o.reason})"))
+
+
+def export_review_snapshot() -> None:
+    ctx, conn = _ctx()
+    snap = pipeline.export_review_snapshot(ctx, conn)
+    console.print(f"Review snapshot: {len(snap['queue'])} por rever, {len(snap['approved'])} "
+                  f"aprovados, {len(snap['pending_events'])} decisões pendentes.")
+
+
 def _run_steps(render: bool) -> None:
+    apply_review_events()
     routes_upkeep()
     collect()
     recheck_cmd()
@@ -518,12 +557,13 @@ def _run_steps(render: bool) -> None:
         site_deploy()
     else:
         console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
+    export_review_snapshot()
 
 
 @app.command()
 def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = True) -> None:
-    """(monthly route discovery) → collect → recheck open deals → detect → render new deals.
-    What the scheduler runs.
+    """Review events → (monthly route discovery) → collect → recheck open deals → detect →
+    render new deals → site → review snapshot. What the scheduler runs.
 
     With R2 keys in .env: lock → pull the database → daily backup → steps → push → unlock.
     Another run holding the lock makes this one exit 0 without touching anything.

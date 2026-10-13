@@ -62,25 +62,29 @@ def test_transitions(current, target, ok):
 def test_approve_after_live_check_confirms_price(ctx):
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn)
-    full_run = db.latest_completed_run_id(conn)
+    runs = conn.execute("SELECT COUNT(*) FROM fetch_runs").fetchone()[0]
     price_api(58)
-    deal, check = pipeline.approve(ctx, conn, deal_id, note="bom deal")
-    assert check.valid and deal.status == "approved" and deal.review_note == "bom deal"
-    assert deal.last_seen_price == 58 and deal.reviewed_at is not None
-    # The live check is stored as its own run but never becomes the "latest" full collection.
-    scope = conn.execute("SELECT scope, n_requests FROM fetch_runs ORDER BY id DESC LIMIT 1").fetchone()
-    assert tuple(scope) == ("live_check", 1)
-    assert db.latest_completed_run_id(conn) == full_run
+    decision = pipeline.approve(ctx, conn, deal_id, note="bom deal", actor="test")
+    deal = decision.deal
+    assert decision.check.valid and deal.status == "approved" and deal.review_note == "bom deal"
+    assert deal.reviewed_at == decision.event.created_at
+    # The approval's live check is a gate only (D26): no run stored, like the review Function.
+    assert conn.execute("SELECT COUNT(*) FROM fetch_runs").fetchone()[0] == runs
 
 
 @respx.mock
-def test_approve_expires_deal_when_price_moved(ctx):
+def test_deal_check_expires_deal_when_price_moved(ctx):
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn)
+    full_run = db.latest_completed_run_id(conn)
     price_api(80)
-    deal, check = pipeline.approve(ctx, conn, deal_id)
+    deal, check = pipeline.live_check(ctx, conn, deal_id)
     assert not check.valid and deal.status == "expired" and deal.expired_reason == "o preço subiu para 80 €"
     assert (ctx.output_dir / "2026-10-12" / f"deal-LIS-LON-{deal_id}" / "EXPIRADO.txt").exists()
+    # The check is stored as its own run but never becomes the "latest" full collection.
+    scope = conn.execute("SELECT scope, n_requests FROM fetch_runs ORDER BY id DESC LIMIT 1").fetchone()
+    assert tuple(scope) == ("live_check", 1)
+    assert db.latest_completed_run_id(conn) == full_run
 
 
 @respx.mock
@@ -88,7 +92,7 @@ def test_cannot_approve_without_affiliate_link(ctx):
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn, with_link=False)
     with pytest.raises(ReviewError, match="link de afiliado"):
-        pipeline.approve(ctx, conn, deal_id)
+        pipeline.approve(ctx, conn, deal_id, actor="test")
 
 
 @respx.mock
@@ -97,10 +101,10 @@ def test_live_check_api_failure_leaves_deal_untouched(ctx):
     deal_id = rendered_deal(ctx, conn)
     respx.get(API_URL).mock(return_value=httpx.Response(401, text="bad token"))
     with pytest.raises(ReviewError, match="Não foi possível verificar"):
-        pipeline.approve(ctx, conn, deal_id)
+        pipeline.approve(ctx, conn, deal_id, actor="test")
     deal, _ = db.get_deal(conn, deal_id)
     assert deal.status == "rendered" and deal.last_checked_at is None
-    assert conn.execute("SELECT status FROM fetch_runs ORDER BY id DESC LIMIT 1").fetchone()[0] == "failed"
+    assert ctx.object_store.list("review/") == []
 
 
 @respx.mock
@@ -108,15 +112,16 @@ def test_reject_and_publish(ctx):
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn)
     with pytest.raises(ReviewError):
-        pipeline.mark_published(conn, deal_id)                 # must be approved first
+        pipeline.mark_published(ctx, conn, deal_id, actor="test")   # must be approved first
     price_api(58)
-    pipeline.approve(ctx, conn, deal_id)
+    pipeline.approve(ctx, conn, deal_id, actor="test")
     with pytest.raises(ReviewError, match="https"):
-        pipeline.mark_published(conn, deal_id, "instagram.com/p/x")
-    deal = pipeline.mark_published(conn, deal_id, "https://www.instagram.com/p/abc/")
+        pipeline.mark_published(ctx, conn, deal_id, "instagram.com/p/x", actor="test")
+    deal = pipeline.mark_published(ctx, conn, deal_id, "https://www.instagram.com/p/abc/",
+                                   actor="test").deal
     assert deal.status == "published" and deal.post_url.endswith("/p/abc/")
     with pytest.raises(ReviewError):
-        pipeline.reject(conn, deal_id)                         # published is final
+        pipeline.reject(ctx, conn, deal_id, actor="test")      # published is final
 
 
 @respx.mock
@@ -124,7 +129,7 @@ def test_approved_deals_are_still_rechecked(ctx):
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn)
     price_api(58)
-    pipeline.approve(ctx, conn, deal_id)
+    pipeline.approve(ctx, conn, deal_id, actor="test")
     price_api(90)
     pipeline.run_collect(ctx, conn)
     [(deal, _, check)] = pipeline.run_recheck(ctx, conn)

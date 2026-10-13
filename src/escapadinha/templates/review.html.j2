@@ -118,10 +118,13 @@ function card(d) {
   if (d.status === "expired") notes.push(`<div class="notice bad">Expirado: ${esc(d.expired_reason)}. Não publicar.</div>`);
   if (d.status === "approved") notes.push(`<div class="notice ok">Aprovado. Publica depressa: o preço é verificado de 2 em 2 horas e o deal expira se mudar.</div>`);
   if (d.review_note) notes.push(`<div class="notice warn">Nota: ${esc(d.review_note)}</div>`);
+  for (const p of d.pending) notes.push(`<div class="notice warn">Decisão pendente: ${esc(p.type_pt)} (${esc(p.actor)}, ${esc(p.created_at)}). É aplicada na próxima execução.</div>`);
 
   const btn = (act, label, cls = "") => `<button class="btn ${cls}" data-act="${act}" data-id="${d.id}">${label}</button>`;
   let actions = "";
-  if (d.status === "rendered" || d.status === "new") {
+  if (d.pending.length) {
+    actions = btn("check", "Verificar preço agora");
+  } else if (d.status === "rendered" || d.status === "new") {
     actions = `<input data-note="${d.id}" placeholder="Nota (opcional)" aria-label="Nota">`
       + btn("check", "Verificar preço agora") + btn("approve", "Aprovar", "primary") + btn("reject", "Rejeitar", "danger");
   } else if (d.status === "approved") {
@@ -180,7 +183,11 @@ async function act(action, id, button) {
     const res = await fetch(`/api/deals/${id}/${action}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
     const data = await res.json();
     if (!res.ok) { flash[id] = {kind: "bad", text: data.detail || "Erro"}; }
-    else if (data.check) {
+    else if (data.decision && data.decision.outcome === "pending") {
+      flash[id] = {kind: "warn", text: "Decisão registada: é aplicada na próxima execução."};
+    } else if (data.decision && data.decision.outcome !== "applied") {
+      flash[id] = {kind: "bad", text: `Decisão recusada: ${data.decision.reason}`};
+    } else if (data.check) {
       const c = data.check;
       flash[id] = c.valid
         ? {kind: "ok", text: action === "approve" ? `Preço confirmado (${c.latest_price}) e deal aprovado.` : `Preço confirmado agora: ${c.latest_price}.`}

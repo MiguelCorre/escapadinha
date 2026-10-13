@@ -82,7 +82,7 @@ uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you
 uv run escapadinha render deals            # renders deals with status 'new' → 'rendered'
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
-uv run escapadinha run                     # (monthly discovery) → collect → recheck → detect → render (the scheduler)
+uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → render → … → review snapshot
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
 uv run escapadinha store pull              # R2 only: bucket database → data/escapadinha.db
 uv run escapadinha store push              # R2 only: data/escapadinha.db → bucket (takes the lock)
@@ -228,16 +228,17 @@ The page (in Portuguese) has four tabs: **Por rever**, **Aprovados**, **Publicad
 affiliate link, and the facts behind it: price, typical low, discount, arrival airport,
 found/checked dates and the last recheck.
 
-- **Verificar preço agora** fetches that route and month from the API now and rechecks the deal.
-- **Aprovar** runs that same live check first. If the price moved, the deal expires instead of
-  being approved. A deal without an affiliate link can't be approved.
+- **Verificar preço agora** fetches that route and month from the API now and rechecks the deal
+  (stored as a `live_check` run; a moved price expires the deal).
+- **Aprovar** checks the price live first. If it moved, the approval is refused with the reason
+  and nothing is written: the next collection's recheck expires the deal. A deal without an
+  affiliate link can't be approved.
 - **Rejeitar** (optional note) and **Marcar como publicado** (optional post URL) record the decision.
   Publishing to Instagram is still manual.
 - Approved deals keep being rechecked every 2 h. If the price moves before you post, the deal
   expires and the page tells you.
 
-Live checks are stored as `live_check` runs, so their prices are traceable, but they never count
-as the latest full collection. The CLI applies the same rules:
+The CLI applies the same rules:
 
 ```bash
 uv run escapadinha deal check 12
@@ -248,6 +249,29 @@ uv run escapadinha deal published 12 --url https://www.instagram.com/p/...
 
 Status flow: `new → rendered → approved → published`. `rejected` and `expired` are final;
 `expired` is only set by price checks.
+
+### Review decisions are events (D26)
+
+Approve, reject and published never change the database directly. The page, the CLI and (soon)
+the review Function on Cloudflare each write one **review event** to the object store
+(`review/events/pending/<time>-<id>.json`, shape in `contract/review/v1/event.schema.json`), and
+the pipeline applies them:
+
+- **Without R2 keys** the database is on this PC, so the decision is applied right away (same
+  output as before) and the event goes to `review/events/archive/<YYYY-MM>/` under `data/objects/`.
+- **With R2 keys** the event goes to the bucket and the next `escapadinha run` applies it (first
+  step of every run). The CLI and the page say *pendente* and list the pending decisions; a deal
+  with a pending decision accepts no other one until it's applied.
+- When applied, each event is checked again against the deal's status at that moment. One that no
+  longer fits (the deal expired meanwhile, was already decided, doesn't exist, the file is broken)
+  is archived as *recusada* with the reason and the run carries on. Applying the same event twice
+  does nothing.
+
+At the end of every run the pipeline writes **`review/snapshot.json`** (`contract/review/v1/
+snapshot.schema.json`): the queue, approved deals, the latest published and closed ones, each with
+price, dates, discount, caption, slide links, the live-check query and last recheck, plus the
+pending decisions and the latest outcomes. Slides of deals still under review are copied to
+`review/slides/<id>/` as WebP (they aren't on the public site yet).
 
 ## Public website
 
@@ -373,8 +397,10 @@ database is `data/escapadinha.db` and objects live under `data/objects/`.
 | `archive/runs/<run>.json.gz` | Raw API responses per run (D18), written straight to the bucket |
 | `backups/<YYYY-MM-DD>/escapadinha.db` | The database before the first run of that Lisbon day |
 | `locks/run` | The run lock: `{owner, expires_at}` |
+| `review/events/pending/`, `review/events/archive/<YYYY-MM>/` | Review decisions waiting / applied or refused (D26) |
+| `review/snapshot.json`, `review/slides/<id>/` | The review queue for any UI, written by every run (D26) |
 
-`escapadinha run` then does: **lock → pull → daily backup → collect … deploy → push → unlock.**
+`escapadinha run` then does: **lock → pull → daily backup → review events → collect … deploy → review snapshot → push → unlock.**
 - The lock is created with a conditional write (`If-None-Match: *`), so only one run gets it. A
   run that finds it held prints `Another run is in progress (…): nothing done.` and exits 0
   without touching anything. A lock older than 60 minutes (a crashed run) is taken over with
@@ -387,7 +413,9 @@ database is `data/escapadinha.db` and objects live under `data/objects/`.
   if it changed on top of an older one, the run keeps it as `data/escapadinha.db.local-<time>`
   and uses the bucket's.
 
-**On your PC** (review, `deal approve`, stats): `store pull` before, `store push` after.
+**On your PC** (stats, `deal check`): `store pull` before, `store push` after. Review decisions
+(`review`, `deal approve/reject/published`) go to the bucket as events and need no push; pull first
+so the deal you decide on is in your copy.
 - `store push` takes the run lock, so it refuses while a run is in progress. It also refuses
   when the bucket moved on since your pull (`The bucket has a newer database: generation N …`);
   pull first, or `--force` to overwrite.

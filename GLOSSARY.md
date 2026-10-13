@@ -13,6 +13,9 @@ Vocabulário do projeto. Só conceitos do domínio; nada de implementação.
 - **Preço baixo** — uma observação recente pelo menos 15 % abaixo do preço habitual da rota (só quando o preço habitual já tem dias de dados suficientes). Aparece automaticamente nas páginas de rota e no explorador, sem revisão humana, com a data em que foi encontrado e o seu próprio link de reserva.
 - **Candidata a promoção** — um preço baixo pelo menos 30 % **e** pelo menos 15 € abaixo do preço habitual; no máximo uma por rota em cada recolha. Entra na fila de revisão do Miguel (estado "novo").
 - **Promoção** (deal) — uma candidata que passou a revisão humana e é destacada (home, Instagram). Toda a promoção aponta para exatamente uma observação.
+- **Decisão de revisão** (evento) — aprovar, rejeitar ou marcar como publicada uma promoção, registada por quem decidiu (Miguel no PC ou no telemóvel), com nota e hora. A decisão não muda nada sozinha: a recolha seguinte aplica-a, depois de confirmar que ainda faz sentido (ex.: uma promoção que entretanto expirou não pode ser aprovada). Enquanto não é aplicada, a decisão está **pendente**; uma decisão que já não faz sentido fica **recusada**, com o motivo.
+- **Verificação ao vivo** — o preço da viagem consultado no momento, antes de aprovar. Se mudou, a aprovação é recusada.
+- **Fila de revisão** — as candidatas à espera de decisão, mais as promoções aprovadas por publicar; é o que o Miguel vê no PC ou no telemóvel.
 - **Expirada** — uma promoção cujo preço já não se confirma (subiu, desapareceu, deixou de ser direto ou está demasiado antigo). Mantém-se visível como histórico, sem botão de reserva.
 - **Explorador** — a pesquisa sobre o nosso histórico: "para onde posso ir desde X por menos de Y €", mês mais barato por rota. Mostra preços encontrados, não preços ao vivo.
 - **Pesquisa ao vivo** — o widget do parceiro (Aviasales) para procurar voos com preços atuais; a reserva faz-se no parceiro.
