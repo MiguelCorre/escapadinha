@@ -8,7 +8,7 @@ Decisões tomadas por Miguel (Ronda 1):
 - D-R1.4 Roteiros e dicas: Claude rascunha, Miguel revê/aprova. Um roteiro por destino, só para destinos com promoções publicadas. Notícias fora.
 - D-R1.5 Monetização: afiliados de voos agora; eSIM + seguro + atividades nos roteiros; hotéis/pacotes só com tráfego; ads só >10k visitas/mês e nunca na página de promoção.
 - D-R1.6 Site migra para Astro + Tailwind com design system próprio; Python continua a ser o pipeline de dados e produz um contrato JSON.
-- D-R1.7 Nome e domínio: ADIADO. Nota: antes do redesign ir ao ar, fechar nome e comprar .pt (Miguel decide; guiar passo a passo).
+- D-R1.7 Nome e domínio: nome FECHADO a 2026-10-13 → **Ponto Nómada** (tagline "A Nocas pelo mundo, o mundo ao teu alcance."; esboço da partner do Miguel). Domínio .pt por registar (issue #22); handle IG muda mais tarde.
 - D-R1.8 Dois níveis de publicação: preços baixos automáticos nas páginas de rota/explorador; Promoções (home, Instagram) com aprovação humana.
 
 Ronda 2:

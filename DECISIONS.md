@@ -167,3 +167,16 @@ so nothing has to be hosted.
 - **v3: website (live at ondestaanocas.pages.dev, D15) + hotels.**
   - Static site generated from the DB (Cloudflare Pages) with per-route SEO pages.
   - Hotels: redo the API research then.
+
+## D16: Brand name "Ponto Nómada" (2026-10-13)
+- **Decided by Miguel** from a sketch by his partner: name **Ponto Nómada**, tagline
+  "A Nocas pelo mundo, o mundo ao teu alcance.", positioning "Viagens · Inspiração · Experiências"
+  (aspirational concept: mountains mark, serif-ish display type, sunset/sea imagery).
+- "Onde está a Nocas?" was the placeholder; the Instagram handle `@ondestaanocas` stays until Miguel
+  renames the account (a renamed handle needs a new Travelpayouts Project, see D9).
+- Availability checked 2026-10-13: `pontonomada.com` free (Verisign RDAP 404); `pontonomada.pt` and
+  `ponto-nomada.pt` have no DNS, registry confirmation pending in the brand runbook (issue #22);
+  Instagram `@pontonomada` and `@ponto.nomada` show no profile.
+- **Consequences:** `brand.name`/`brand.tagline` in config drive the site and slides; `site.base_url`
+  and the Cloudflare project stay on `ondestaanocas.pages.dev` until the domain is connected (#22 → #23).
+

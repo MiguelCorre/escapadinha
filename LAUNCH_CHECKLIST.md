@@ -3,7 +3,9 @@
 The steps before the first public post, in order. Tick them as they're done.
 
 ## 1. Brand and channels
-- [x] Brand: "Onde está a Nocas?" (2026-10-13). The logo is still a placeholder.
+- [x] Brand name: **Ponto Nómada** (2026-10-13, D16). Logo still provisional; final logo once the domain is set.
+- [ ] Register `pontonomada.pt` (and `.com` as defensive) — guided in GitHub issue #22.
+- [ ] Rename the Instagram handle to match (then: new Travelpayouts Project, update `brand.handle`).
 - [x] Instagram account: https://www.instagram.com/ondestaanocas/ (handle may still change).
 - [ ] Switch it to a **professional** (Business/Creator) account. v2 publishing via the Graph API needs this.
 - [x] Website live at https://ondestaanocas.pages.dev (2026-10-13). Every scheduled run rebuilds it

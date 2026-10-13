@@ -1,8 +1,9 @@
 # Escapadinha configuration. Secrets live in .env, never here.
 
 brand:
-  name: "Onde está a Nocas?"
-  handle: "@ondestaanocas"    # real Instagram account (name may change later)
+  name: "Ponto Nómada"          # final name (D16, 2026-10-13); logo/tagline sketch by Miguel's partner
+  tagline: "A Nocas pelo mundo, o mundo ao teu alcance."
+  handle: "@ondestaanocas"    # current Instagram handle; will be renamed to match the brand later
 
 collector:
   source: travelpayouts

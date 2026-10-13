@@ -2,7 +2,7 @@
 
 Status: draft for Miguel's approval · Origin: planning interview 2026-10-13 (`docs/plan/2026-10-13-interview.md`) · Vocabulary: `GLOSSARY.md` · Prior decisions: `DECISIONS.md` (D1–D15)
 
-Brand name and domain are **deferred** (D-R1.7); "Onde está a Nocas?" and `ondestaanocas.pages.dev` are placeholders throughout.
+Brand name decided 2026-10-13: **Ponto Nómada** (DECISIONS D16). Domain and Instagram handle rename are still pending (M6); `ondestaanocas.pages.dev` and `@ondestaanocas` remain placeholders throughout.
 
 ## Problem Statement
 

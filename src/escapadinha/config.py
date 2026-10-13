@@ -28,6 +28,7 @@ class Secrets(BaseSettings):
 
 class Brand(BaseModel):
     name: str = "Escapadinha"
+    tagline: str = ""
     handle: str = "@escapadinha.pt"
 
 
