@@ -617,7 +617,9 @@ so nothing has to be hosted.
   On a runner, slide names come from the `output/` listing and a deal folder is only downloaded to
   make missing copies. Rejected: publishing queue slides on the public site.
 - **Run order (with D25):** `apply_review_events` → collect … → fast or full path →
-  `export_review_snapshot`, the snapshot on both paths. A status the applier changes is part of
+  `export_review_snapshot`, the snapshot on both paths and also when a later step fails (a
+  collection where every request failed exits 1 after exporting it, so decisions the applier
+  just settled are visible; a snapshot error then never hides the run's own error). A status the applier changes is part of
   D25's fingerprint, so an applied approval takes the full path without the applier knowing.
 - **No schema change:** outcomes live in `meta` (one row per decision, a few a day).
 - **Shared with the site (D27):** "public" (`website.is_public`), page slugs (`promo_slug`) and

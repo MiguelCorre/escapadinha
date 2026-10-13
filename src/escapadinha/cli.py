@@ -592,7 +592,15 @@ def export_review_snapshot() -> None:
 
 def _run_steps(render: bool, full: bool, report: list[str]) -> None:
     apply_review_events()                       # first: the run sees the reviewer's decisions
-    _pipeline_steps(render, full, report)
+    try:
+        _pipeline_steps(render, full, report)
+    except BaseException:                       # failed collection (Exit 1) or an error
+        try:                                    # the reviewer still sees the applied decisions
+            export_review_snapshot()
+        except Exception as exc:                # never hides the run's own failure
+            console.print(f"[red]Review snapshot failed:[/] {exc}")
+            report.append(f"Review snapshot failed: {type(exc).__name__}")
+        raise
     export_review_snapshot()                    # last, on the fast and the full path (D26)
 
 

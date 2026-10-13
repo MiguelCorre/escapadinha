@@ -135,6 +135,24 @@ def test_a_collection_where_every_request_failed_fails_the_job(home, monkeypatch
     assert "Run failed in" in out
     text = summary.read_text("utf-8")
     assert text.startswith("### Escapadinha run: failed") and "Collection: failed" in text
+    assert "Review snapshot:" in out                        # still exported (D26)
+    assert json.loads(home.object_store.get("review/snapshot.json"))["version"] == 1
+
+
+def test_the_review_snapshot_never_hides_the_runs_own_failure(monkeypatch):
+    def broken(*a, **k):
+        raise RuntimeError("detect broke")
+
+    def snapshot_broken():
+        raise OSError("store down")
+
+    monkeypatch.setattr(cli, "apply_review_events", lambda: None)
+    monkeypatch.setattr(cli, "_pipeline_steps", broken)
+    monkeypatch.setattr(cli, "export_review_snapshot", snapshot_broken)
+    report = []
+    with pytest.raises(RuntimeError, match="detect broke"):
+        cli._run_steps(render=True, full=False, report=report)
+    assert report == ["Review snapshot failed: OSError"]
 
 
 def test_chromium_is_installed_on_a_runner_only_when_slides_are_rendered(monkeypatch):
