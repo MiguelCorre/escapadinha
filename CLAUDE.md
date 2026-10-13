@@ -11,6 +11,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `site build|preview|setup|deploy`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
+- Web package (`cd web`): `npm ci`, `npm test` (vitest builds from the fixtures), `npm run
+  build:fixtures` / `dev:fixtures`, `npm run build` (reads `SITE_DATA_DIR`), `npm run lhci`,
+  `npm run tokens`.
 
 ## Rules
 - **Never fabricate prices.** Observations come only from API payloads. No seed/demo data
@@ -20,6 +23,15 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   In the website JSON (`contract/site/v1`, D27) every price is an `eur` field next to its
   observation id, route key or deal id; a new price field must be taught to the checker in
   `tests/test_site_data.py` (a guard fails otherwise).
+- The Astro site in `web/` (D28) reads only the contract JSON from `SITE_DATA_DIR` (default
+  `web/src/data`, git-ignored; tests and Lighthouse CI use `contract/site/v1/fixtures`) and
+  validates it against the schemas at build time; never import Python output any other way.
+  Same rules as the Jinja site: every price element carries `data-obs`/`data-deal`/`data-route`
+  (`web/test/traceability.test.ts`), booking buttons only via `src/lib/cta.ts` (live + link, with
+  `labels.disclosure.site`), expired promotions `noindex` without a button, pt-PT formats from
+  `src/lib/format.ts`, copy passes `web/test/pt-lint.test.ts`. Styles use only the generated
+  tokens (`src/styles/tokens.css`, `npm run tokens`; `tests/test_web_tokens.py` catches drift).
+  `web/functions/` is reserved for the review Function (#9).
 - The website data contract is versioned: change `contract/site/v1/*.schema.json` together with
   `site_data.py`, keep changes additive within v1 (a breaking change is `v2/`), and regenerate the
   committed fixtures with `escapadinha export fixtures` (read-only DB copy, anonymous links and
@@ -119,5 +131,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
   `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
+- `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
+  validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a
+  promotion), `cta.ts` (booking button + disclosure); `src/layouts/Base.astro`, `src/components/`,
+  `src/pages/` (`index`, `promos/[slug]`, `404`, `og-default.png`); `scripts/tokens.mjs`;
+  `test/` (vitest); `lighthouserc.json`; CI in `.github/workflows/web.yml`
 - `src/escapadinha/design_directions/`: M2 visual directions (`build_directions` → `output/directions/`);
   palettes + fonts in `directions.py` (contrast computed by `contrast.py`), read-only data in `data.py`

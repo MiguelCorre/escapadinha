@@ -746,3 +746,76 @@ so nothing has to be hosted.
   `site build` into `site/img/`) or the export must start writing them; a per-route calendar of
   cheapest prices per departure date (#14); destination "best months" are derivable from
   `routes.json`; the explorer only sees low prices (none until baselines mature, D24).
+
+## D28: Astro site scaffold on the data contract (2026-10-13, #13)
+- **What:** a separate npm package in `web/` (own `package.json` + committed lockfile, exact
+  versions, Node 22 in CI) builds the M3 site from the contract JSON only (D27): home page and
+  promotion pages, live and expired. The Jinja site stays the live one until the cutover (#23);
+  `config.yaml` `site.data_dir` is unchanged until then. `web/functions/` is reserved for the
+  review Function (#9).
+- **Astro 7.3.5, static output** (`trailingSlash: always`, directory format, so paths are the
+  current site's `/promos/<id>-<origem>-<destino>/`; CSS inlined into each page). 7.x was the
+  current major (7.3.8 latest on 2026-10-13); 7.3.5 was picked as the newest release older than
+  two weeks. Astro telemetry is disabled in CI (`ASTRO_TELEMETRY_DISABLED`).
+- **Tailwind 4.3.3** via `@tailwindcss/vite`, CSS-first. The design tokens are not copied by hand:
+  `web/scripts/tokens.mjs` generates `src/styles/tokens.css` from `docs/design/tokens.json`: an
+  `@theme` that resets Tailwind's colour, font, text-size, radius and shadow namespaces
+  (`--color-*: initial`, …) so no framework default leaks through, then maps every token
+  (`--color-accent: var(--pn-accent)`, `--text-price-xl` with its line height, tracking and
+  weight, `--spacing-lg`, `--radius-sm`, `--shadow-focus`), plus the light/dark `--pn-*`
+  palettes (`prefers-color-scheme` and `data-theme`). A vitest test fails while the file is stale;
+  `tests/test_web_tokens.py` compares it value by value with `tokens.json`, so a change to
+  `renderer/tokens.py` fails `uv run pytest` until `npm run tokens` is run.
+- **Fonts through Astro's Fonts API** (local provider, files from `assets/fonts/`): family and
+  fallback stacks come from `tokens.json` in `astro.config.ts`; Astro adds metric-matched
+  fallbacks (`size-adjust`), so swapping in the web font barely moves the page (CLS 0.13 → 0.015
+  on the expired page). No font preload and no italic on first paint: Lighthouse's simulated
+  throttling counts fonts fetched before the first paint against it (FCP 3.0 s → 2.4 s), and the
+  slides keep the italic voice. The logo is `assets/logo-light.svg` inlined with its ink and sun
+  recoloured to `currentColor` / accent, so one file works on paper and in dark mode.
+- **Input seam:** `SITE_DATA_DIR` (relative to `web/`, default `web/src/data`, git-ignored: the
+  future export target) names the contract directory; `npm run build:fixtures` / tests / Lighthouse
+  point it at `contract/site/v1/fixtures`. A Vite virtual module (`virtual:site-data`) loads
+  every file named in `meta.json` and validates it with **ajv 8.20.0** (draft 2020-12, the
+  committed schemas, `allErrors`) before any page renders; a mismatch or a missing directory
+  stops the build with the file and field. A fixture build marks `<html data-fixture="true">` so
+  the cutover's deploy step can refuse it.
+- **Shared modules for #14+:** `src/lib/format.ts` (pt-PT: "49,50 €" with a no-break space,
+  "sex, 6 nov", "6 a 9 de novembro", "12/10/2026 às 22:17" in Europe/Lisbon via `Intl` time zone
+  data, month/weekday words equal to `labels.json`, tested), `src/lib/promotion.ts` (the
+  promotion view, like `presentation.DealView`: remote arrival airport in the headline),
+  `src/lib/cta.ts` + `BookingCta.astro` (a button only when the price is live and the contract
+  has a link, `rel="sponsored nofollow noopener"`, `labels.disclosure.site` next to it, never a
+  hand-built link). The site uses the contract's **site** disclosure next to buttons (its
+  documented place); `disclosure.post` stays for captions and CTA slides, which the promotion
+  page shows as images.
+- **Traceability (D2) in vitest:** `web/test/traceability.test.ts` walks every built page (text
+  and attribute values, prices split over elements included) and requires each price to sit in or
+  under the nearest `data-obs` / `data-deal` / `data-route` element whose contract amounts include
+  it (observation price; deal offer, typical low, recheck price; route month typical low or
+  average, cheapest). Element-level, stricter than the page-level Python checker. Pages with a
+  price in `<title>`/descriptions put `data-deal` on `<head>`.
+- **Expired promotions:** page kept at its URL, `<meta name="robots" content="noindex">`, no
+  booking button, the recheck's reason in an expired notice that carries the recheck price's
+  `data-obs`, the old price struck through. The home page lists them under "Expiradas
+  recentemente" without links to the partner.
+- **OG images:** a promotion page uses its rendered `images.og` (the pipeline's `og.jpg`); other
+  pages a branded default `og-default.png` (1200×630) rendered at build time with sharp from the
+  logo's outlined paths on paper, so no font is needed and the M6 logo swap updates it.
+  Promotion slides and thumbnails are contract paths only: a fixture build has no image files
+  (they 404; the link test skips `/img/promos/`), the cutover must bring them (D27 open question).
+- **Lighthouse CI:** `.github/workflows/web.yml` on pull requests touching `web/`, `contract/`,
+  the tokens, fonts or logo: `npm ci`, `npm test`, fixture build, then `@lhci/cli@0.15.1`
+  (run with `npx`, not a dependency: its old transitive dependencies carry audit warnings)
+  against the static build: mobile form factor, simulated throttling, 3 runs (median), on the
+  home page, the live and the expired promotion; performance, accessibility and SEO must be
+  ≥ 0.9. `is-crawlable` is skipped because the expired page is `noindex` on purpose (vitest
+  asserts robots per page type instead). Reports go to an artifact, never to public storage.
+  Local run 2026-10-13: 0.94 / 1 / 1 on all three pages (best practices 0.96: the missing images).
+- **pt-PT lint:** `web/test/pt-lint.test.ts` scans `src/**/*.astro` and `src/**/*.ts` (comments
+  skipped) for an explicit list of Brazilian words and spellings ("você", "celular", "equipe",
+  "registro", "ônibus", …) and English UI leftovers ("Book now", "Buy", "Search", …, matched
+  case-sensitively so code identifiers don't trip it), and checks `lang="pt-PT"` on every page.
+- **Not yet (later tickets):** route, origin and destination pages, explorer, sitemap, JSON-LD,
+  analytics beacon, `_redirects`/`_headers`, About/Privacy pages (the footer links none of them
+  yet), deploy and the `run` integration (#14–#16, #23).

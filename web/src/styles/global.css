@@ -1,0 +1,51 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/* Fonts: @font-face rules come from Astro's Fonts API (astro.config.ts, <Font> in the layout). */
+
+@layer base {
+  html {
+    background: var(--pn-bg);
+    color: var(--pn-ink);
+    color-scheme: light dark;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply font-text text-body bg-bg text-ink;
+    font-optical-sizing: auto;
+  }
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+  }
+  /* Secondary action: accent text with a 1px underline (design system §4 "Button"). */
+  a {
+    color: var(--pn-accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+  }
+}
+
+@layer components {
+  /* The design system's components (docs/design/design-system.md §4). */
+  .wrap { @apply mx-auto w-full max-w-page px-md; }
+  .num { font-variant-numeric: lining-nums tabular-nums; }
+  .label { @apply text-label font-text uppercase; }
+  .double-rule { border-top: 3px double var(--pn-ink); }
+  .tag { @apply inline-block rounded-sm px-xs py-2xs text-small font-semibold; }
+  .tag-success { @apply bg-success-bg text-success; }
+  .tag-expired { @apply bg-expired-bg text-expired; }
+  .tag-warning { @apply bg-warning-bg text-warning; }
+  .stamp { @apply inline-block px-xs py-2xs font-text text-label uppercase; border: 3px solid var(--pn-accent); color: var(--pn-accent); }
+  .stamp-expired { border-color: var(--pn-expired); color: var(--pn-expired); }
+  .btn {
+    @apply inline-flex min-h-11 items-center justify-center bg-accent px-[22px] py-[14px] font-text font-semibold text-on-accent no-underline;
+    letter-spacing: 0.04em;
+  }
+  .btn:hover { @apply underline underline-offset-4; }
+  .notice { @apply border-l-[6px] border-rule py-xs pl-md text-small; }
+  .notice-expired { @apply border-expired bg-expired-bg pr-md; }
+  .notice-warning { @apply border-warning bg-warning-bg pr-md; }
+  .price-sign { font-size: 0.4em; vertical-align: 0.9em; margin-left: 0.08em; }
+}

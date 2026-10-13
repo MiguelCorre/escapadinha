@@ -25,3 +25,4 @@ Vocabulário do projeto. Só conceitos do domínio; nada de implementação.
 - **Dica** — um artigo prático e intemporal sobre viajar (bagagem, seguros, eSIM…), também revisto antes de ir ao ar.
 - **Guia** — termo antigo do protótipo para o carrossel "guia rápido" no Instagram; é uma dica em formato de slides.
 - **Longo curso** — destinos fora da Europa/Norte de África, normalmente com escala; têm critérios de promoção próprios.
+- **Aviso de publicidade** (disclosure) — a frase que diz que os links de reserva são de afiliado e que podemos receber uma comissão sem custo extra. Tem duas versões, sempre palavra por palavra: a do site, ao lado de cada botão de reserva, e a dos posts, em cada legenda e no slide final. Onde há botão de reserva há aviso.

@@ -1,0 +1,54 @@
+// pt-PT formats, the same as src/escapadinha/i18n_pt.py (examples from its docstrings and the
+// design system). Prices carry a no-break space before "€" so "49 €" never wraps.
+import { describe, expect, it } from "vitest";
+import {
+  dateRange,
+  discount,
+  eur,
+  lisbonTimestamp,
+  nights,
+  numericDate,
+  shortDate,
+} from "../src/lib/format";
+
+const NBSP = " ";
+
+describe("pt-PT formats", () => {
+  it("prints euros with comma decimals and no cents when whole", () => {
+    expect(eur(49)).toBe(`49${NBSP}€`);
+    expect(eur(49.5)).toBe(`49,50${NBSP}€`);
+    expect(eur(1299)).toBe(`1299${NBSP}€`);
+  });
+
+  it("prints short dates with the weekday", () => {
+    expect(shortDate("2026-11-06")).toBe("sex, 6 nov");
+    expect(shortDate("2026-12-09")).toBe("qua, 9 dez");
+  });
+
+  it("prints numeric dates", () => {
+    expect(numericDate("2026-10-07")).toBe("07/10/2026");
+  });
+
+  it("prints date ranges in prose", () => {
+    expect(dateRange("2026-11-06", "2026-11-09")).toBe("6 a 9 de novembro");
+    expect(dateRange("2026-11-27", "2026-12-04")).toBe("27 de novembro a 4 de dezembro");
+    expect(dateRange("2026-12-30", "2027-01-03")).toBe("30 de dezembro de 2026 a 3 de janeiro de 2027");
+  });
+
+  it("shows instants in Lisbon time, summer and winter", () => {
+    // 21:17 UTC in October (WEST, UTC+1) is 22:17 in Lisbon; in January Lisbon is on UTC.
+    expect(lisbonTimestamp("2026-10-12T21:17:55Z")).toBe("12/10/2026 às 22:17");
+    expect(lisbonTimestamp("2027-01-05T09:04Z")).toBe("05/01/2027 às 09:04");
+    expect(lisbonTimestamp("2026-10-12T23:30:00Z")).toBe("13/10/2026 às 00:30");
+  });
+
+  it("counts nights", () => {
+    expect(nights(1)).toBe("1 noite");
+    expect(nights(3)).toBe("3 noites");
+  });
+
+  it("prints a discount with a true minus sign", () => {
+    expect(discount(0.4397)).toBe("−44%");
+    expect(discount(0.322)).toBe("−32%");
+  });
+});

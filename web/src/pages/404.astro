@@ -1,0 +1,8 @@
+---
+import Base from "../layouts/Base.astro";
+import { BRAND } from "../lib/brand";
+---
+<Base title={`Página não encontrada · ${BRAND}`} description="Esta página não existe ou mudou de endereço." path={null} noindex>
+  <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Página não encontrada</h1>
+  <p class="mt-md max-w-measure text-lead text-muted">Esta página não existe ou mudou de endereço. Vê as <a href="/#promocoes">promoções</a>.</p>
+</Base>

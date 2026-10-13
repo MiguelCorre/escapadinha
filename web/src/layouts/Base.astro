@@ -1,0 +1,75 @@
+---
+// Every page: pt-PT document, SEO and OpenGraph head, masthead with the double rule, footer with
+// where the numbers come from and the disclosure. Pages pass `refs` (data-obs / data-deal /
+// data-route) when their <title> or description shows a price, so it stays traceable (D2).
+import data from "virtual:site-data";
+import { Font } from "astro:assets";
+import "../styles/global.css";
+import Logo from "../components/Logo.astro";
+import { lisbonTimestamp } from "../lib/format";
+import { BRAND } from "../lib/brand";
+
+interface Props {
+  title: string;
+  description: string;
+  /** Site path of this page ("/promos/3-lisboa-paris/"); null for pages without a canonical URL. */
+  path: string | null;
+  noindex?: boolean;
+  /** Site path of the OpenGraph image; the branded default when absent. */
+  ogImage?: string | null;
+  refs?: Record<string, string | number>;
+}
+
+const { title, description, path, noindex = false, ogImage, refs = {} } = Astro.props;
+const base = data.meta.base_url;
+const og = `${base}${ogImage ?? "/og-default.png"}`;
+const headRefs = Object.fromEntries(Object.entries(refs).map(([k, v]) => [`data-${k}`, v]));
+---
+<!doctype html>
+<html lang="pt-PT" data-fixture={data.meta.fixture ? "true" : undefined}>
+<head {...headRefs}>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  {path && <link rel="canonical" href={`${base}${path}`} />}
+  {noindex && <meta name="robots" content="noindex" />}
+  <meta property="og:site_name" content={BRAND} />
+  <meta property="og:locale" content="pt_PT" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  {path && <meta property="og:url" content={`${base}${path}`} />}
+  <meta property="og:image" content={og} />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#F5F0E6" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#16140F" media="(prefers-color-scheme: dark)" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <Font cssVariable="--pn-font-display" />
+  <Font cssVariable="--pn-font-text" />
+</head>
+<body class="flex min-h-screen flex-col">
+  <a href="#conteudo" class="sr-only focus:not-sr-only focus:absolute focus:left-md focus:top-md focus:bg-surface focus:p-xs">Saltar para o conteúdo</a>
+  <header class="wrap pt-md">
+    <div class="flex flex-wrap items-center justify-between gap-md pb-sm">
+      <a href="/" class="text-ink" aria-label={`${BRAND}: início`}><Logo /></a>
+      <nav aria-label="Principal">
+        <ul class="flex gap-lg">
+          <li><a class="label text-ink underline decoration-accent decoration-2 underline-offset-8" href="/#promocoes">Promoções</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="double-rule"></div>
+  </header>
+  <main id="conteudo" class="wrap flex-1 py-xl">
+    <slot />
+  </main>
+  <footer class="wrap pb-2xl">
+    <div class="double-rule pt-md text-small text-muted">
+      <p class="max-w-measure">Os preços foram encontrados por viajantes no Aviasales e guardados por nós; não são preços ao vivo e podem já ter mudado. Confirma sempre o preço final antes de pagar.</p>
+      <p class="mt-xs max-w-measure">{data.labels.disclosure.site}</p>
+      <p class="mt-xs">Horas de Lisboa · Atualizado a <span class="num">{lisbonTimestamp(data.meta.generated_at)}</span></p>
+    </div>
+  </footer>
+</body>
+</html>

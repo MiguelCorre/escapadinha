@@ -1,0 +1,30 @@
+{
+  "name": "pontonomada-web",
+  "private": true,
+  "type": "module",
+  "description": "Ponto Nómada website: Astro static site built from the JSON data contract (contract/site/v1).",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "dev:fixtures": "node scripts/with-fixtures.mjs astro dev",
+    "build": "astro build",
+    "build:fixtures": "node scripts/with-fixtures.mjs astro build",
+    "preview": "astro preview",
+    "tokens": "node scripts/tokens.mjs",
+    "test": "vitest run",
+    "lhci": "npx --yes @lhci/cli@0.15.1 autorun --config=lighthouserc.json"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "ajv": "8.20.0",
+    "astro": "7.3.5",
+    "sharp": "0.35.5",
+    "tailwindcss": "4.3.3"
+  },
+  "devDependencies": {
+    "node-html-parser": "9.0.4",
+    "vitest": "4.1.11"
+  }
+}

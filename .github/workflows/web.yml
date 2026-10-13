@@ -1,0 +1,60 @@
+# The web package on pull requests (DECISIONS D28): vitest builds the site from the committed
+# contract fixtures and checks the HTML (traceability, noindex on expired promotions, pt-PT lint,
+# tokens up to date), then Lighthouse CI runs on the fixture build with the mobile settings and
+# fails below 0.9 on performance, accessibility and SEO for each page type. No secrets, no deploy.
+name: Web
+
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - "contract/**"
+      - "docs/design/tokens.json"
+      - "assets/fonts/**"
+      - "assets/logo-*.svg"
+      - ".github/workflows/web.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    env:
+      ASTRO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Tests (vitest builds the site from contract/site/v1/fixtures)
+        run: npm test
+
+      - name: Build from the fixtures
+        run: npm run build:fixtures
+
+      - name: Lighthouse CI (mobile, performance / accessibility / SEO >= 0.9)
+        run: npm run lhci
+
+      - name: Keep the Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: web/.lighthouseci/reports
+          if-no-files-found: ignore
+          retention-days: 14

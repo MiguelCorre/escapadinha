@@ -1,0 +1,14 @@
+---
+// The provisional logo (assets/logo-light.svg, #12) inlined, its ink and sun recoloured to the
+// theme's ink and accent so one file serves paper and dark mode (logo-dark.svg differs only there).
+import svg from "../../../assets/logo-light.svg?raw";
+
+const LIGHT_INK = /"#1E1B16"/g;
+const LIGHT_SUN = /fill="#A23E1C"/g;
+const inline = svg
+  .replace(/<!--[\s\S]*?-->/g, "")
+  .replace(LIGHT_SUN, 'fill="currentColor" class="text-accent"')
+  .replace(LIGHT_INK, '"currentColor"')
+  .replace("<svg ", '<svg class="h-10 w-auto" focusable="false" ');
+---
+<Fragment set:html={inline} />

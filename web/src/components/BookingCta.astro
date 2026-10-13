@@ -1,0 +1,16 @@
+---
+// Booking button + the site disclosure, always together (src/lib/cta.ts decides whether there is
+// a button at all). Reused by every page that links to the partner.
+import type { Cta } from "../lib/cta";
+
+interface Props {
+  cta: Cta;
+}
+
+const { cta } = Astro.props;
+---
+<div data-cta class="mt-lg">
+  <a class="btn" href={cta.href} rel={cta.rel} target="_blank">{cta.text} →</a>
+  <p class="mt-xs text-small text-muted">{cta.note}</p>
+  <p class="notice mt-sm text-muted">{cta.disclosure}</p>
+</div>
