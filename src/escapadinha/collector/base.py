@@ -10,19 +10,18 @@ from escapadinha.models import Observation
 
 
 @dataclass(frozen=True)
-class FetchResult:
+class Fetched:
     observations: list[Observation]
-    n_requests: int
-    errors: list[str]
+    response: dict      # request + verbatim API payload, for the run archive
 
 
 class PriceSource(Protocol):
     name: str
 
-    def fetch_round_trips(self, origin: str, destination: str, month: date, *,
-                          min_nights: int, max_nights: int) -> list[Observation]:
-        """Cheapest round-trips departing in `month` within the nights range.
-        Raises on transport/API errors."""
+    def fetch(self, origin: str, destination: str, month: date, *,
+              min_nights: int, max_nights: int) -> Fetched:
+        """Cheapest round-trips departing in `month` within the nights range, plus the raw
+        response. Raises on transport/API errors."""
         ...
 
 

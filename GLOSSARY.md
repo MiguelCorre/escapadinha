@@ -2,7 +2,8 @@
 
 Vocabulário do projeto. Só conceitos do domínio; nada de implementação.
 
-- **Observação** — um preço encontrado por um viajante numa data concreta, para uma viagem concreta (origem, destino, ida, volta), guardado com a hora em que o apanhámos e a fonte. Nunca inventamos uma observação.
+- **Observação** — um preço encontrado por um viajante numa data concreta, para uma viagem concreta (origem, destino, ida, volta), guardado com a hora em que o apanhámos e a fonte. Nunca inventamos uma observação. A mesma oferta vista em várias recolhas é uma só observação, com a primeira e a última vez que a vimos e quantas vezes a vimos.
+- **Recolha** (run) — uma passagem do coletor por todas as rotas ativas. As respostas da fonte de cada recolha ficam arquivadas tal como vieram, para se poder provar de onde veio cada preço.
 - **Rota** — um par origem → destino (ex.: Porto → Paris), independente das datas. Cada rota tem um *tipo* (Europa, Ilhas ou longo curso), regras (só diretos ou número máximo de escalas, intervalo de noites) e um estado (ativa ou adormecida).
 - **Regras da rota** — o que conta como oferta válida numa rota: só diretos ou até N escalas por sentido, e entre X e Y noites. Vêm do tipo da rota e podem ter exceções por rota. Ofertas fora das regras não entram no preço habitual nem são promoções.
 - **Ilhas** — rotas domésticas de e para a Madeira e os Açores (no código: *domestic*).

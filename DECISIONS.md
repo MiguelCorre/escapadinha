@@ -198,3 +198,21 @@ so nothing has to be hosted.
   a typical low. Unknown transfer counts never pass a stop limit.
 - **Excluded routes** are not seeded and not collected; a route excluded later stays in the
   table (its page and history are kept).
+
+## D18: Observations stored once, raw responses archived per run (2026-10-13, #3)
+- **Why:** the source is a cache, so every 2-hour run returns mostly the same offers. On the
+  real database 6644 rows held 606 distinct offers (most seen in 13–15 runs); at ~300 routes
+  that would be ~170k rows/day, and `raw_json` was most of the 9.4 MB.
+- **Identity:** (source, origin, destination, departure_at, return_at, airline, flight_number,
+  price, found_date). The UTC timestamps come from the API item (`departure_at`/`return_at`
+  columns); `found_date` is part of it, so a new search of the same price is a new observation.
+- **Repeat:** `last_seen_at`, `last_run_id`, `seen_count` (+1 once per run). `run_id` and
+  `fetched_at` stay the first sighting, so traceability points to the first run's payload.
+- **A run's prices** = offers with `last_run_id >= run`. Detection skips offers that already
+  have a deal (any status): the same row can come back after its deal expired.
+- **Raw archive:** one gzip JSON per run (request params without the token + verbatim payload)
+  behind `ObjectStore` (get/put/list/delete/lock), local directory now, R2 in #4 with the same
+  contract tests. A failed archive write marks the run `partial` with the error.
+- **Migration 7** keeps every deal's observation id, sums sightings into `seen_count`, and
+  archives the old `raw_json` per run as `reconstructed` objects (items grouped per route, as
+  whole responses were never stored). Result on the real DB: 9.4 MB → 0.65 MB + 0.8 MB archives.

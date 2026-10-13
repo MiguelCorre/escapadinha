@@ -6,14 +6,16 @@ route's own historical median, and renders Instagram carousel slides (1080×1350
 pt-PT captions into `./output/<date>/` **for manual review. v1 does not publish anything.**
 
 **Integrity rule:** every price shown comes from a stored API observation (`price_observations`)
-with its source, `fetched_at` timestamp, the day a traveller found it (`found_date`) and the
-verbatim API item (`raw_json`). Nothing is
-estimated or invented. Each rendered deal carries a `meta.json` pointing back to that row.
+with its source, first `fetched_at` timestamp and the day a traveller found it (`found_date`).
+The verbatim API responses of each run are archived as one gzip JSON object (`fetch_runs.archive_key`).
+Nothing is estimated or invented. Each rendered deal carries a `meta.json` pointing back to that
+row, its first run and the archive object: price → deal → observation → run → raw payload.
 
 ## Pipeline
 
 ```
-Travelpayouts API ──collect──▶ SQLite (price_observations)       (market=pt, every 2 h)
+Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 2 h)
+                       └──────▶ data/objects/archive/runs/<run>.json.gz (raw responses)
                                    │
                                recheck  open deals: same trip still ≤ price, fresh, direct?
                                    │            no → status expired + EXPIRADO.txt
@@ -77,8 +79,24 @@ uv run escapadinha run                     # collect → recheck → detect → 
 Output for review lives in `output/<YYYY-MM-DD>/`:
 - `deal-<ORIG>-<DEST>-<id>/slide_01.png … slide_03.png`: cover, details, CTA + disclosure
 - `caption.txt`: pt-PT caption, ready to paste
-- `meta.json`: observation id, run id, source, `fetched_at`, `found_date`, typical low, tracked
-  `affiliate_url` (or `affiliate_error`), raw `booking_url`, photo credit
+- `meta.json`: observation id, run id (first run that saw the price), `archive_key` (its raw
+  responses), source, `fetched_at`, `found_date`, typical low, tracked `affiliate_url` (or
+  `affiliate_error`), raw `booking_url`, photo credit
+
+### Observations are stored once (DECISIONS D18)
+The API returns the same cached offers run after run (at 10 routes, 6644 rows held 606 distinct
+offers). An offer is identified by source, route, departure/return timestamps, airline, flight
+number, price and found date. A repeat updates `last_seen_at`, `last_run_id` and `seen_count`
+(once per run); `run_id` and `fetched_at` keep the first sighting. `collect` prints new vs.
+repeated offers, `stats` the seen counts. "The prices of the latest run" are the offers whose
+`last_run_id` is that run or later (a live check counts as a sighting).
+
+Raw responses leave the database: each run (including live checks) writes
+`archive/runs/<run id>.json.gz` through the `ObjectStore` interface (`storage/objects.py`:
+get/put/list/delete/lock). Locally the store is `data/objects/`; Cloudflare R2 comes with #4.
+Upgrading from schema v6 collapses duplicates (rows with a deal keep their id), parks the old
+`raw_json` values and archives them per run on the next command (`reconstructed: true`), then
+VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 
 ## Configuration (`config.yaml`)
 

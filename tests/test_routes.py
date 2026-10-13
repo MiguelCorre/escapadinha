@@ -2,6 +2,7 @@
 
 import sqlite3
 from datetime import date, timedelta
+from pathlib import Path
 
 import httpx
 import respx
@@ -17,6 +18,16 @@ from test_pipeline import EMPTY, FIXTURE, ctx, mock_api, seed_history  # noqa: F
 
 SEEDED = ["LIS-LON", "LIS-PAR", "LIS-ROM", "LIS-BCN", "LIS-AMS",
           "OPO-LON", "OPO-PAR", "OPO-BCN", "OPO-MIL", "OPO-BER"]
+
+
+def v5_database(path) -> sqlite3.Connection:
+    """An empty database exactly as schema v5 created it (before routes and dedup)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.executescript((Path(__file__).parent / "fixtures" / "schema_v5.sql").read_text("utf-8"))
+    conn.execute("PRAGMA user_version = 5")
+    conn.commit()
+    return conn
 
 
 def configure(ctx: Context, **routes_cfg) -> Context:
@@ -44,16 +55,19 @@ def test_fresh_database_is_seeded_once_as_europe(ctx):
 
 
 def test_upgrade_from_v5_seeds_routes_and_backfills_last_observed(ctx):
-    path = ctx.db_path
-    conn = db.connect(path)
-    db.init(conn)
-    conn.executescript("DROP TABLE routes; PRAGMA user_version = 5;")   # a v5 database
-    seed_history(conn, days=3, price=100)                                # LIS-LON history
-    newest = conn.execute("SELECT MAX(fetched_at) FROM price_observations").fetchone()[0]
+    conn = v5_database(ctx.db_path)
+    conn.executescript("""
+        INSERT INTO fetch_runs (id, source, started_at, status) VALUES (1, 'test', '2026-10-01T00:00:00+00:00', 'ok');
+        INSERT INTO price_observations (run_id, source, origin, destination, departure_date, return_date,
+            nights, price, currency, fetched_at, raw_json)
+        VALUES (1, 'test', 'LIS', 'LON', '2026-11-01', '2026-11-05', 4, 80, 'EUR', '2026-10-01T00:00:00+00:00', '{}'),
+               (1, 'test', 'LIS', 'LON', '2026-11-02', '2026-11-06', 4, 90, 'EUR', '2026-10-02T00:00:00+00:00', '{}');
+    """)
+    newest = "2026-10-02T00:00:00+00:00"
     conn.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 6
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     lis_lon = pipeline.route_for(ctx, conn, "lis-lon")
     assert lis_lon.last_observed_at.isoformat() == newest
     assert pipeline.route_for(ctx, conn, "OPO-BER").last_observed_at is None
@@ -141,8 +155,8 @@ def test_long_haul_route_uses_its_kind_rules_end_to_end(ctx):
     respx.get(API_URL).mock(side_effect=lambda r: httpx.Response(
         200, json=payload if r.url.params["destination"] == "TYO" else EMPTY))
     summary = pipeline.run_collect(ctx, conn)
-    stored = [o.price for o in db.observations_for_run(conn, summary.run_id)]
-    assert sorted(stored) == [400, 400, 400, 520, 520, 520]     # 3 months; the 4-night trip dropped
+    stored = [o.price for o in db.observations_seen_since(conn, summary.run_id)]
+    assert sorted(stored) == [400, 520]     # stored once (3 identical months); 4-night trip dropped
 
     _, results = pipeline.run_detect(ctx, conn)
     tyo_result = {r.route: r for r in results}["LIS-TYO"]

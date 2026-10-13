@@ -55,7 +55,9 @@ def collect() -> None:
     ctx, conn = _ctx()
     summary = pipeline.run_collect(ctx, conn)
     console.print(f"Run #{summary.run_id}: [bold]{summary.status}[/] · "
-                  f"{summary.n_requests} requests · {summary.n_observations} observations stored")
+                  f"{summary.n_requests} requests · {summary.n_observations} offers "
+                  f"({summary.n_new} new, {summary.n_repeated} seen before) · "
+                  f"archive {summary.archive_key or '[red]missing[/]'}")
     for err in summary.errors:
         console.print(f"  [red]✗[/] {err}")
     if summary.status == "failed":
@@ -109,6 +111,9 @@ def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
     if not row["n"]:
         console.print(f"No observations for {r.key} yet.")
         return
+    console.print(f"{r.key}: {row['n']} distinct offers, seen {row['sightings']} times in total "
+                  f"(most repeated: {row['max_seen']} runs), "
+                  f"{row['min_price']:g}–{row['max_price']:g} €")
     console.print(f"Typical low per departure month (median of daily lows, "
                   f"needs {ctx.config.detector.min_baseline_days} days):")
     for (year, month), base in sorted(pipeline.current_baselines(ctx, conn, r).items()):

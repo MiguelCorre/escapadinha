@@ -1,8 +1,9 @@
 """Travelpayouts / Aviasales Data API client (v3 prices_for_dates).
 
-Data is a cache of prices Aviasales users found recently, so it is not live. We store
-every returned item verbatim (raw_json) with our own fetched_at timestamp and the day the
-price was actually found (`search_date` in the item's link), which can be days earlier.
+Data is a cache of prices Aviasales users found recently, so it is not live. Each response
+is archived verbatim with the run; each offer is stored once with our own fetched_at
+timestamp and the day the price was actually found (`search_date` in the item's link),
+which can be days earlier.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
+from escapadinha.collector.base import Fetched
 from escapadinha.models import Observation
 from escapadinha.storage.db import utcnow
 
@@ -109,6 +111,8 @@ def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: 
             fetched_at=fetched_at,
             found_date=found_date(link),
             raw_json=json.dumps(item, ensure_ascii=False, sort_keys=True),
+            departure_at=departure_at,
+            return_at=return_at,
         ))
     return observations
 
@@ -134,6 +138,11 @@ class TravelpayoutsSource:
 
     def fetch_round_trips(self, origin: str, destination: str, month: date, *,
                           min_nights: int, max_nights: int) -> list[Observation]:
+        return self.fetch(origin, destination, month, min_nights=min_nights,
+                          max_nights=max_nights).observations
+
+    def fetch(self, origin: str, destination: str, month: date, *,
+              min_nights: int, max_nights: int) -> Fetched:
         params = {
             "origin": origin,
             "destination": destination,
@@ -147,9 +156,13 @@ class TravelpayoutsSource:
         if self._market:
             params["market"] = self._market
         payload = self._get(params)
-        return parse_response(payload, origin=origin, destination=destination,
-                              fetched_at=self._now(), min_nights=min_nights,
-                              max_nights=max_nights, booking_base=self._booking_base)
+        fetched_at = self._now()
+        observations = parse_response(payload, origin=origin, destination=destination,
+                                      fetched_at=fetched_at, min_nights=min_nights,
+                                      max_nights=max_nights, booking_base=self._booking_base)
+        return Fetched(observations, {
+            "origin": origin, "destination": destination, "month": month.strftime("%Y-%m"),
+            "fetched_at": fetched_at.isoformat(), "params": params, "payload": payload})
 
     def _get(self, params: dict) -> dict:
         for attempt in range(1, self._max_attempts + 1):

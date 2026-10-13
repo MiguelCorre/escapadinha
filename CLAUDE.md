@@ -20,7 +20,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
   config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list and seed.
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
-  installs) and add the ALTER steps to `MIGRATIONS` (existing DBs). Test the upgrade.
+  installs) and add the ALTER steps to `MIGRATIONS` (existing DBs; a step may be a Python
+  callable). Test the upgrade from a real old schema (`tests/fixtures/schema_v5.sql`).
+- Observations are deduplicated (`dedup_key`); never assume one row per run. Use
+  `observations_seen_since(run_id)` for a run's prices. Raw payloads live only in the run archive
+  (`archive.py` via `ObjectStore`), never in the hot table.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
@@ -35,6 +39,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 ## Layout
 - `src/escapadinha/collector/`: `TravelpayoutsSource`, `runner.collect`
 - `src/escapadinha/routes.py`: `sync` (config → `routes` table), `all_routes`/`active_routes`/`get_route`
+- `src/escapadinha/storage/objects.py`: `ObjectStore` + `LocalObjectStore` (`data/objects/`); `archive.py`: per-run raw archive
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate`, `detect_route`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step, plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page

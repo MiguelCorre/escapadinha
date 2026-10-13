@@ -1,4 +1,4 @@
--- Schema version 6 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 7 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -8,13 +8,18 @@ CREATE TABLE IF NOT EXISTS fetch_runs (
     status         TEXT    NOT NULL DEFAULT 'running',  -- running | ok | partial | failed
     scope          TEXT    NOT NULL DEFAULT 'full',     -- full (all routes) | live_check (one deal)
     n_requests     INTEGER NOT NULL DEFAULT 0,
-    n_observations INTEGER NOT NULL DEFAULT 0,
-    error          TEXT
+    n_observations INTEGER NOT NULL DEFAULT 0,     -- offers returned by the source
+    n_new          INTEGER,                        -- of those, not stored before
+    error          TEXT,
+    archive_key    TEXT                            -- object store key of the raw responses
 );
 
+-- One row per distinct offer (dedup_key = source, route, departure/return timestamps,
+-- airline, flight number, price, found date). Raw API responses live in the run archive.
 CREATE TABLE IF NOT EXISTS price_observations (
     id                  INTEGER PRIMARY KEY,
-    run_id              INTEGER NOT NULL REFERENCES fetch_runs(id),
+    run_id              INTEGER NOT NULL REFERENCES fetch_runs(id),   -- first run that saw it
+    last_run_id         INTEGER NOT NULL REFERENCES fetch_runs(id),
     source              TEXT    NOT NULL,
     origin              TEXT    NOT NULL,
     destination         TEXT    NOT NULL,
@@ -30,13 +35,18 @@ CREATE TABLE IF NOT EXISTS price_observations (
     transfers           INTEGER,
     return_transfers    INTEGER,
     deep_link           TEXT,
-    fetched_at          TEXT    NOT NULL,
+    fetched_at          TEXT    NOT NULL,   -- first time we saw it
+    last_seen_at        TEXT    NOT NULL,
+    seen_count          INTEGER NOT NULL DEFAULT 1,   -- runs that returned it
     found_date          TEXT,               -- day a user found the price (source cache)
-    raw_json            TEXT    NOT NULL
+    departure_at        TEXT,               -- source timestamps (UTC)
+    return_at           TEXT,
+    dedup_key           TEXT    NOT NULL UNIQUE
 );
 
 CREATE INDEX IF NOT EXISTS ix_obs_route_time
     ON price_observations (origin, destination, fetched_at);
+CREATE INDEX IF NOT EXISTS ix_obs_last_run ON price_observations (last_run_id);
 
 CREATE TABLE IF NOT EXISTS deals (
     id              INTEGER PRIMARY KEY,

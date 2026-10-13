@@ -24,11 +24,16 @@ class Observation:
     transfers: int | None
     return_transfers: int | None
     deep_link: str | None
-    fetched_at: datetime
-    raw_json: str
+    fetched_at: datetime                 # first time we saw this offer
+    raw_json: str = ""                   # API item; archived per run, not stored in the table
     found_date: date | None = None   # when a user found the price (source cache), if known
-    run_id: int | None = None
+    run_id: int | None = None            # first run that saw it
     id: int | None = None
+    departure_at: str | None = None      # source timestamps, part of the offer's identity
+    return_at: str | None = None
+    last_seen_at: datetime | None = None
+    last_run_id: int | None = None
+    seen_count: int = 1                  # number of runs that returned this offer
 
     @property
     def nights(self) -> int:
@@ -39,10 +44,14 @@ class Observation:
         return f"{self.origin}-{self.destination}"
 
     @property
-    def offer_key(self) -> tuple:
-        """Identity of an offer independent of when we saw it."""
-        return (self.origin, self.destination, self.departure_date, self.return_date,
-                self.airline, self.price)
+    def dedup_key(self) -> str:
+        """Identity of an offer independent of when we saw it: repeats are stored once."""
+        parts = (self.source, self.origin, self.destination,
+                 self.departure_at or self.departure_date.isoformat(),
+                 self.return_at or self.return_date.isoformat(),
+                 self.airline or "", self.flight_number or "", f"{self.price:.2f}",
+                 self.found_date.isoformat() if self.found_date else "")
+        return "|".join(parts)
 
 
 @dataclass(frozen=True)

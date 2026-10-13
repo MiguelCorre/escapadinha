@@ -171,6 +171,12 @@ class Context:
         return self.root / "data" / "escapadinha.db"
 
     @property
+    def object_store(self) -> "LocalObjectStore":
+        """Raw archives (and later the DB sync, backups and lock). R2 comes with #4."""
+        from escapadinha.storage.objects import LocalObjectStore
+        return LocalObjectStore(self.root / "data" / "objects")
+
+    @property
     def output_dir(self) -> Path:
         return self.root / "output"
 

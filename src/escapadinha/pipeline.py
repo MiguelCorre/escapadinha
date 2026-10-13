@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from escapadinha import detector, i18n_pt, routes
+from escapadinha import archive, detector, i18n_pt, routes
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.captions import deal_caption, guide_caption
 from escapadinha.collector.runner import RunSummary, collect
@@ -27,9 +27,10 @@ from escapadinha.storage import db
 
 
 def open_db(ctx: Context) -> sqlite3.Connection:
-    """Connect, migrate and apply config.yaml's route settings to the routes table."""
+    """Connect, migrate, archive payloads left by migration 7, apply config's route settings."""
     conn = db.connect(ctx.db_path)
     db.init(conn)
+    archive.flush_legacy(conn, ctx.object_store)
     routes.sync(conn, ctx.config.routes, db.utcnow())
     return conn
 
@@ -46,8 +47,8 @@ def lisbon_today() -> date:
 
 def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
     return collect(conn, _source(ctx), routes.active_routes(conn, ctx.config.routes),
-                   today=lisbon_today(),
-                   months_ahead=ctx.config.collector.months_ahead)
+                   today=lisbon_today(), months_ahead=ctx.config.collector.months_ahead,
+                   store=ctx.object_store)
 
 
 # --- detect -------------------------------------------------------------------
@@ -65,13 +66,17 @@ class RouteDetection:
 
 def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None,
                now: datetime | None = None) -> tuple[int | None, list[RouteDetection]]:
-    """Evaluate the given (default: latest completed) run against each route's typical lows."""
+    """Evaluate the given (default: latest completed) run against each route's typical lows.
+
+    Candidates are the offers seen in that run or later, minus those already a deal.
+    """
     cfg = ctx.config.detector
     now = now or db.utcnow()
     run_id = run_id or db.latest_completed_run_id(conn)
     if run_id is None:
         return None, []
-    run_obs = db.observations_for_run(conn, run_id)
+    taken = db.deal_observation_ids(conn)
+    run_obs = [o for o in db.observations_seen_since(conn, run_id) if o.id not in taken]
 
     results = []
     for route in routes.active_routes(conn, ctx.config.routes):
@@ -138,7 +143,7 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
     run_id = run_id or db.latest_completed_run_id(conn)
     if run_id is None:
         return []
-    latest = db.observations_for_run(conn, run_id)
+    latest = db.observations_seen_since(conn, run_id)
     results = []
     for deal, obs in db.open_deals(conn):
         route_latest = [o for o in latest if o.route_key == obs.route_key]
@@ -185,14 +190,16 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     source = _source(ctx)
     run_id = db.start_run(conn, source.name, scope="live_check")
     try:
-        fresh = source.fetch_round_trips(obs.origin, obs.destination,
-                                         obs.departure_date.replace(day=1),
-                                         min_nights=rules.min_nights, max_nights=rules.max_nights)
+        fetched = source.fetch(obs.origin, obs.destination, obs.departure_date.replace(day=1),
+                               min_nights=rules.min_nights, max_nights=rules.max_nights)
     except Exception as exc:
         db.finish_run(conn, run_id, status="failed", n_requests=1, n_observations=0, error=str(exc))
         raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
-    db.insert_observations(conn, run_id, fresh)
-    db.finish_run(conn, run_id, status="ok", n_requests=1, n_observations=len(fresh), error=None)
+    fresh = fetched.observations
+    stored = db.insert_observations(conn, run_id, fresh)
+    archive.write_run(ctx.object_store, conn, run_id, [fetched.response])
+    db.finish_run(conn, run_id, status="ok", n_requests=1, n_observations=len(fresh),
+                  n_new=stored.new, error=None)
     now = now or db.utcnow()
     result = recheck(obs, fresh, ctx.config.detector, now, rules=rules)
     db.record_recheck(conn, deal_id, valid=result.valid, latest_price=result.latest_price,
@@ -328,9 +335,9 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
             renderer.render_deal(view, photo_path, out_dir)
             _write_text(out_dir / "caption.txt",
                         deal_caption(view, brand_name=ctx.config.brand.handle.lstrip("@")))
-            _write_text(out_dir / "meta.json",
-                        json.dumps(view.meta(deal, obs, ctx.config.collector.booking_base),
-                                   ensure_ascii=False, indent=2))
+            meta = view.meta(deal, obs, ctx.config.collector.booking_base)
+            meta["archive_key"] = db.run_archive_key(conn, obs.run_id)   # raw payload of run_id
+            _write_text(out_dir / "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
             db.set_deal_output_path(conn, deal.id, str(out_dir))
             if deal.status == "new":
                 db.set_deal_status(conn, deal.id, "rendered")

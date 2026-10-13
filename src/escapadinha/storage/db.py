@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from importlib.resources import files
 from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 ROUTES_TABLE = """CREATE TABLE IF NOT EXISTS routes (
     origin               TEXT NOT NULL,              -- airport IATA (LIS, OPO, ...)
@@ -58,6 +60,7 @@ MIGRATIONS = {
         "ALTER TABLE deals ADD COLUMN post_url TEXT"],
     # Routes move from config.yaml into the database (seeded by routes.sync on first use).
     6: [ROUTES_TABLE],
+    # 7 (dedup + raw archive) is a Python step, defined below `_dedupe_observations`.
 }
 
 
@@ -85,8 +88,8 @@ def init(conn: sqlite3.Connection) -> None:
         conn.executescript(files("escapadinha.storage").joinpath("schema.sql").read_text("utf-8"))
     else:
         for version in range(current + 1, SCHEMA_VERSION + 1):
-            for statement in MIGRATIONS[version]:
-                conn.execute(statement)
+            for step in MIGRATIONS[version]:
+                step(conn) if callable(step) else conn.execute(step)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
@@ -103,13 +106,24 @@ def start_run(conn: sqlite3.Connection, source: str, scope: str = "full") -> int
 
 
 def finish_run(conn: sqlite3.Connection, run_id: int, *, status: str, n_requests: int,
-               n_observations: int, error: str | None) -> None:
+               n_observations: int, error: str | None, n_new: int | None = None) -> None:
+    """`n_observations`: offers the source returned; `n_new`: of those, not stored before."""
     conn.execute(
         """UPDATE fetch_runs SET finished_at = ?, status = ?, n_requests = ?,
-           n_observations = ?, error = ? WHERE id = ?""",
-        (_ts(utcnow()), status, n_requests, n_observations, error, run_id),
+           n_observations = ?, n_new = ?, error = ? WHERE id = ?""",
+        (_ts(utcnow()), status, n_requests, n_observations, n_new, error, run_id),
     )
     conn.commit()
+
+
+def set_run_archive(conn: sqlite3.Connection, run_id: int, key: str) -> None:
+    conn.execute("UPDATE fetch_runs SET archive_key = ? WHERE id = ?", (key, run_id))
+    conn.commit()
+
+
+def run_archive_key(conn: sqlite3.Connection, run_id: int) -> str | None:
+    row = conn.execute("SELECT archive_key FROM fetch_runs WHERE id = ?", (run_id,)).fetchone()
+    return row["archive_key"] if row else None
 
 
 def latest_completed_run_id(conn: sqlite3.Connection) -> int | None:
@@ -122,24 +136,46 @@ def latest_completed_run_id(conn: sqlite3.Connection) -> int | None:
 
 # --- observations -------------------------------------------------------------
 
-def insert_observations(conn: sqlite3.Connection, run_id: int, observations: list[Observation]) -> int:
-    conn.executemany(
-        """INSERT INTO price_observations (
-               run_id, source, origin, destination, origin_airport, destination_airport,
-               departure_date, return_date, nights, price, currency, airline, flight_number,
-               transfers, return_transfers, deep_link, fetched_at, found_date, raw_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        [
-            (run_id, o.source, o.origin, o.destination, o.origin_airport, o.destination_airport,
-             o.departure_date.isoformat(), o.return_date.isoformat(), o.nights, o.price,
-             o.currency, o.airline, o.flight_number, o.transfers, o.return_transfers,
-             o.deep_link, _ts(o.fetched_at),
-             o.found_date.isoformat() if o.found_date else None, o.raw_json)
-            for o in observations
-        ],
-    )
+@dataclass(frozen=True)
+class Stored:
+    new: int        # offers stored for the first time
+    repeated: int   # offers already stored (seen again: last_seen_at, seen_count updated)
+
+
+def insert_observations(conn: sqlite3.Connection, run_id: int,
+                        observations: list[Observation]) -> Stored:
+    """Store each offer once (by `dedup_key`). A repeat keeps its first run and first
+    fetched_at and gets `last_seen_at`, `last_run_id` and `seen_count` (once per run) updated."""
+    new = 0
+    for o in observations:
+        seen = _ts(o.fetched_at)
+        inserted = conn.execute(
+            """INSERT INTO price_observations (
+                   run_id, last_run_id, source, origin, destination, origin_airport,
+                   destination_airport, departure_date, return_date, nights, price, currency,
+                   airline, flight_number, transfers, return_transfers, deep_link, fetched_at,
+                   last_seen_at, found_date, departure_at, return_at, dedup_key)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (dedup_key) DO NOTHING""",
+            (run_id, run_id, o.source, o.origin, o.destination, o.origin_airport,
+             o.destination_airport, o.departure_date.isoformat(), o.return_date.isoformat(),
+             o.nights, o.price, o.currency, o.airline, o.flight_number, o.transfers,
+             o.return_transfers, o.deep_link, seen, seen,
+             o.found_date.isoformat() if o.found_date else None, o.departure_at, o.return_at,
+             o.dedup_key),
+        ).rowcount
+        if inserted:
+            new += 1
+            continue
+        conn.execute(
+            """UPDATE price_observations SET
+                   last_seen_at = MAX(last_seen_at, ?),
+                   seen_count = seen_count + (last_run_id < ?),
+                   last_run_id = MAX(last_run_id, ?)
+               WHERE dedup_key = ?""",
+            (seen, run_id, run_id, o.dedup_key))
     conn.commit()
-    return len(observations)
+    return Stored(new=new, repeated=len(observations) - new)
 
 
 def _row_to_observation(row: sqlite3.Row) -> Observation:
@@ -152,14 +188,22 @@ def _row_to_observation(row: sqlite3.Row) -> Observation:
         price=float(row["price"]), currency=row["currency"], airline=row["airline"],
         flight_number=row["flight_number"], transfers=row["transfers"],
         return_transfers=row["return_transfers"], deep_link=row["deep_link"],
-        fetched_at=datetime.fromisoformat(row["fetched_at"]), raw_json=row["raw_json"],
+        fetched_at=datetime.fromisoformat(row["fetched_at"]),
         found_date=date.fromisoformat(row["found_date"]) if row["found_date"] else None,
+        departure_at=row["departure_at"], return_at=row["return_at"],
+        last_seen_at=_dt(row["last_seen_at"]), last_run_id=row["last_run_id"],
+        seen_count=row["seen_count"],
     )
 
 
-def observations_for_run(conn: sqlite3.Connection, run_id: int) -> list[Observation]:
+def observations_seen_since(conn: sqlite3.Connection, run_id: int) -> list[Observation]:
+    """Offers returned by this run or a later one (a live check, say).
+
+    With deduplication an offer is one row whose `last_run_id` moves forward, so "the
+    prices of the latest run" are the rows last seen in that run or after it.
+    """
     rows = conn.execute(
-        "SELECT * FROM price_observations WHERE run_id = ? ORDER BY origin, destination, price",
+        "SELECT * FROM price_observations WHERE last_run_id >= ? ORDER BY origin, destination, price",
         (run_id,),
     )
     return [_row_to_observation(r) for r in rows]
@@ -174,6 +218,11 @@ def route_history(conn: sqlite3.Connection, origin: str, destination: str, *,
         (origin, destination, _ts(since), exclude_run_id),
     )
     return [_row_to_observation(r) for r in rows]
+
+
+def deal_observation_ids(conn: sqlite3.Connection) -> set[int]:
+    """Observations that already became a deal (any status): never flagged twice."""
+    return {r[0] for r in conn.execute("SELECT observation_id FROM deals")}
 
 
 def get_observation(conn: sqlite3.Connection, observation_id: int) -> Observation:
@@ -375,8 +424,128 @@ def touch_routes_observed(conn: sqlite3.Connection, run_id: int) -> None:
 def route_stats(conn: sqlite3.Connection, origin: str, destination: str) -> sqlite3.Row:
     return conn.execute(
         """SELECT COUNT(*) AS n, MIN(price) AS min_price, MAX(price) AS max_price,
-                  MIN(fetched_at) AS first_seen, MAX(fetched_at) AS last_seen,
-                  COUNT(DISTINCT run_id) AS runs
+                  MIN(fetched_at) AS first_seen, MAX(last_seen_at) AS last_seen,
+                  COUNT(DISTINCT run_id) AS runs, SUM(seen_count) AS sightings,
+                  MAX(seen_count) AS max_seen
            FROM price_observations WHERE origin = ? AND destination = ?""",
         (origin, destination),
     ).fetchone()
+
+
+# --- migration 7: deduplicate observations, move raw payloads out --------------------
+
+OBSERVATIONS_V7 = """CREATE TABLE price_observations_v7 (
+    id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL REFERENCES fetch_runs(id),
+    last_run_id INTEGER NOT NULL REFERENCES fetch_runs(id), source TEXT NOT NULL,
+    origin TEXT NOT NULL, destination TEXT NOT NULL, origin_airport TEXT,
+    destination_airport TEXT, departure_date TEXT NOT NULL, return_date TEXT NOT NULL,
+    nights INTEGER NOT NULL, price NUMERIC NOT NULL CHECK (price > 0), currency TEXT NOT NULL,
+    airline TEXT, flight_number TEXT, transfers INTEGER, return_transfers INTEGER,
+    deep_link TEXT, fetched_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+    seen_count INTEGER NOT NULL DEFAULT 1, found_date TEXT, departure_at TEXT, return_at TEXT,
+    dedup_key TEXT NOT NULL UNIQUE)"""
+
+_V7_COLUMNS = ("id", "run_id", "last_run_id", "source", "origin", "destination", "origin_airport",
+               "destination_airport", "departure_date", "return_date", "nights", "price",
+               "currency", "airline", "flight_number", "transfers", "return_transfers",
+               "deep_link", "fetched_at", "last_seen_at", "seen_count", "found_date",
+               "departure_at", "return_at", "dedup_key")
+
+
+def _legacy_key(row: sqlite3.Row, raw: dict) -> str:
+    return Observation(
+        source=row["source"], origin=row["origin"], destination=row["destination"],
+        origin_airport=None, destination_airport=None,
+        departure_date=date.fromisoformat(row["departure_date"]),
+        return_date=date.fromisoformat(row["return_date"]), price=float(row["price"]),
+        currency=row["currency"], airline=row["airline"], flight_number=row["flight_number"],
+        transfers=None, return_transfers=None, deep_link=None,
+        fetched_at=datetime.fromisoformat(row["fetched_at"]),
+        found_date=date.fromisoformat(row["found_date"]) if row["found_date"] else None,
+        departure_at=raw.get("departure_at"), return_at=raw.get("return_at"),
+    ).dedup_key
+
+
+def _dedupe_observations(conn: sqlite3.Connection) -> None:
+    """Collapse identical offers into one row and park every raw payload in `raw_pending`,
+    which archive.flush_legacy moves to the object store. A row with a deal keeps its id."""
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")     # the table is rebuilt under deals' feet
+    conn.execute(OBSERVATIONS_V7)
+    conn.execute("""CREATE TABLE raw_pending (
+                        run_id INTEGER NOT NULL, observation_id INTEGER NOT NULL,
+                        origin TEXT NOT NULL, destination TEXT NOT NULL, raw_json TEXT NOT NULL)""")
+    with_deal = {r[0] for r in conn.execute("SELECT observation_id FROM deals")}
+    groups: dict[str, list[tuple[sqlite3.Row, dict]]] = {}
+    for row in conn.execute("SELECT * FROM price_observations ORDER BY id"):
+        raw = json.loads(row["raw_json"] or "{}")
+        groups.setdefault(_legacy_key(row, raw), []).append((row, raw))
+
+    for key, members in groups.items():
+        rows = [r for r, _ in members]
+        dealt = [r for r in rows if r["id"] in with_deal]
+        # Normally one row per offer. Two deals on the same offer (never observed) would
+        # both be kept, the second under a suffixed key, so no deal loses its observation.
+        keep = [dealt[0] if dealt else rows[0], *dealt[1:]]
+        for i, row in enumerate(keep):
+            merged = rows if i == 0 else [row]
+            new = dict(row)
+            new.update(
+                run_id=min(r["run_id"] for r in merged),
+                last_run_id=max(r["run_id"] for r in merged),
+                fetched_at=min(r["fetched_at"] for r in merged),
+                last_seen_at=max(r["fetched_at"] for r in merged),
+                seen_count=len({r["run_id"] for r in merged}),
+                departure_at=members[0][1].get("departure_at"),
+                return_at=members[0][1].get("return_at"),
+                dedup_key=key if i == 0 else f"{key}#legacy-{row['id']}")
+            conn.execute(f"INSERT INTO price_observations_v7 ({', '.join(_V7_COLUMNS)}) "
+                         f"VALUES ({', '.join('?' * len(_V7_COLUMNS))})",
+                         [new[c] for c in _V7_COLUMNS])
+        conn.executemany(
+            "INSERT INTO raw_pending VALUES (?, ?, ?, ?, ?)",
+            [(r["run_id"], keep[0]["id"], r["origin"], r["destination"], r["raw_json"])
+             for r in rows])
+
+    conn.execute("DROP TABLE price_observations")
+    conn.execute("ALTER TABLE price_observations_v7 RENAME TO price_observations")
+    conn.execute("CREATE INDEX ix_obs_route_time ON price_observations (origin, destination, fetched_at)")
+    conn.execute("CREATE INDEX ix_obs_last_run ON price_observations (last_run_id)")
+    conn.execute("ALTER TABLE fetch_runs ADD COLUMN n_new INTEGER")
+    conn.execute("ALTER TABLE fetch_runs ADD COLUMN archive_key TEXT")
+    broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if broken:
+        conn.rollback()
+        raise RuntimeError(f"Migration 7 would break references: {[tuple(b) for b in broken][:5]}")
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
+MIGRATIONS[7] = [_dedupe_observations]
+
+
+def raw_pending_exists(conn: sqlite3.Connection) -> bool:
+    """True until the payloads parked by migration 7 are archived."""
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'raw_pending'").fetchone() is not None
+
+
+def raw_pending_runs(conn: sqlite3.Connection) -> list[int]:
+    """Runs whose raw payloads still wait in `raw_pending`."""
+    return [r[0] for r in conn.execute("SELECT DISTINCT run_id FROM raw_pending ORDER BY run_id")]
+
+
+def raw_pending_items(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM raw_pending WHERE run_id = ? ORDER BY rowid",
+                        (run_id,)).fetchall()
+
+
+def drop_raw_pending(conn: sqlite3.Connection, run_id: int) -> None:
+    conn.execute("DELETE FROM raw_pending WHERE run_id = ?", (run_id,))
+    conn.commit()
+
+
+def finish_raw_pending(conn: sqlite3.Connection) -> None:
+    """All payloads archived: drop the table and give the space back."""
+    conn.execute("DROP TABLE IF EXISTS raw_pending")
+    conn.commit()
+    conn.execute("VACUUM")
