@@ -545,25 +545,46 @@ def deal_rel(output_path: str) -> str:
     return "/".join(PureWindowsPath(output_path).parts[-2:])
 
 
-def deal_folder(ctx: Context, deal: Deal) -> Path | None:
-    """The deal's rendered folder, downloaded from the object store if this machine lacks it."""
+SLIDES = "slide_*.png"      # a rendered folder's slides (what the site and review pages show)
+
+
+def deal_folder(ctx: Context, deal: Deal, files: str | None = "*") -> Path | None:
+    """The deal's rendered folder. `files`: the glob of the files the caller reads; those only
+    the object store has are downloaded first, each once per machine (D25). None: never
+    download, only a folder this machine already has."""
     if not deal.output_path:
         return None
     local = Path(deal.output_path)
     if local.is_dir():
         return local
-    return output_files(ctx).folder(deal_rel(deal.output_path))
+    rel = deal_rel(deal.output_path)
+    if files is None:
+        path = ctx.output_dir / rel
+        return path if path.is_dir() else None
+    return output_files(ctx).folder(rel, files)
 
 
-def guide_folder(ctx: Context, slug: str) -> Path | None:
-    """The guide's latest rendered folder (`output/<date>/guia-<slug>`), local or stored."""
+def deal_slide_names(ctx: Context, deal: Deal) -> list[str]:
+    """'slide_01.png', ... of the deal's rendered folder, local or listed in the object store,
+    without downloading anything."""
+    if not deal.output_path:
+        return []
+    local = deal_folder(ctx, deal, files=None)
+    if local is not None:
+        return sorted(p.name for p in local.glob(SLIDES))
+    return output_files(ctx).names(deal_rel(deal.output_path), SLIDES)
+
+
+def guide_folder(ctx: Context, slug: str, files: str = "*") -> Path | None:
+    """The guide's latest rendered folder (`output/<date>/guia-<slug>`), local or stored
+    (`files` as in `deal_folder`)."""
     name = f"guia-{slug}"
     local = sorted(ctx.output_dir.glob(f"*/{name}"))
     if local:
         return local[-1]
-    files = output_files(ctx)
-    dates = sorted({rel.split("/")[0] for rel in files.keys() if rel.split("/")[1:2] == [name]})
-    return files.folder(f"{dates[-1]}/{name}") if dates else None
+    mirror = output_files(ctx)
+    dates = sorted({rel.split("/")[0] for rel in mirror.keys() if rel.split("/")[1:2] == [name]})
+    return mirror.folder(f"{dates[-1]}/{name}", files) if dates else None
 
 
 def mirror_local_files(ctx: Context, conn: sqlite3.Connection) -> list[str]:

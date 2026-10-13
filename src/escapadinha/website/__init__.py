@@ -79,14 +79,14 @@ def promo_images(deal_id: int) -> str:
 
 def deal_image_paths(ctx: Context, deal: Deal) -> tuple[list[str], str | None, str | None] | None:
     """(slides, thumb, og) site paths the build writes for a rendered deal, else None. The
-    rendered folder comes from `pipeline.deal_folder`, like the build's (downloaded from the
-    object store on a runner, D25)."""
-    folder = pipeline.deal_folder(ctx, deal)
-    if folder is None:
+    slide names come from `pipeline.deal_slide_names` (on a runner: the object store's listing,
+    nothing downloaded; the build downloads the slides it converts, D25)."""
+    names = pipeline.deal_slide_names(ctx, deal)
+    if not names:
         return None
     base = f"/img/{promo_images(deal.id)}"
-    slides = [f"{base}/{png.stem}.webp" for png in sorted(folder.glob("slide_*.png"))]
-    cover = (folder / "slide_01.png").exists()
+    slides = [f"{base}/{name.removesuffix('.png')}.webp" for name in names]
+    cover = "slide_01.png" in names
     return slides, f"{base}/thumb.webp" if cover else None, f"{base}/og.jpg" if cover else None
 
 
@@ -208,7 +208,7 @@ class SiteBuilder:
             guide = Guide.model_validate(yaml.safe_load(path.read_text("utf-8")))
             if not guide.reviewed:
                 continue
-            rendered = pipeline.guide_folder(self.ctx, guide.slug)
+            rendered = pipeline.guide_folder(self.ctx, guide.slug, pipeline.SLIDES)
             images = self._images(rendered, f"guias/{guide.slug}") if rendered else []
             pages.append(GuidePage(guide, images))
         return pages
@@ -227,7 +227,7 @@ class SiteBuilder:
         return paths
 
     def _deal_images(self, d: SiteDeal) -> None:
-        folder = pipeline.deal_folder(self.ctx, d.deal)   # from the object store on a runner
+        folder = pipeline.deal_folder(self.ctx, d.deal, pipeline.SLIDES)   # stored on a runner
         if folder is None:
             return
         dest = promo_images(d.deal.id)

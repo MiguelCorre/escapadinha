@@ -553,7 +553,12 @@ so nothing has to be hosted.
     without R2 keys it only looks at the local folder). Uploaded when made (photo fetched, deal
     or guide rendered), downloaded on first use (`pipeline.deal_folder` resolves a stored
     `output_path` written on any OS by its last two parts; `guide_folder` takes the latest
-    stored date; `_photo`). `mirror_local_files` (run on every full path) uploads what the PC
+    stored date; `_photo`). Only the files a step reads are fetched, each at most once per
+    machine (`deal_folder(ctx, deal, files=pipeline.SLIDES)`: the site build gets the slide
+    PNGs, never `caption.txt`/`meta.json`; a local copy is never fetched again), and the site
+    data export only lists slide names (`deal_slide_names`, one LIST per public deal, no
+    download); a test counts the GETs of a runner's export + build. `mirror_local_files` (run
+    on every full path) uploads what the PC
     made before D25 and the bucket lacks: one LIST per prefix, nothing on a runner. Rejected:
     re-rendering slides on the runner (they must stay what Miguel reviewed and posted) and
     photos as database blobs (~50 MB in a file pulled every 2 hours).
@@ -665,9 +670,10 @@ so nothing has to be hosted.
   latest run, public deals from `website.public_deal_rows` (shared with `SiteBuilder`, as are
   `is_public`, `route_slug`, `promo_slug`, `promo_images` and `deal_image_paths`; the review
   snapshot of D26 uses the same ones), so page paths and image URLs are the ones the current site
-  serves (a test builds both and checks the files exist). The Jinja site is unchanged. Rendered
-  folders come from `pipeline.deal_folder` (D25), so a runner without `output/` exports the same
-  image paths as the PC (tested).
+  serves (a test builds both and checks the files exist). The Jinja site is unchanged. Slide
+  names come from `pipeline.deal_slide_names` (the local folder, else the `output/` listing of
+  D25, nothing downloaded), so a runner without `output/` exports the same image paths as the
+  PC (tested).
 - **Raw values, few display strings:** ISO dates, UTC timestamps (`Z`), euros as numbers, codes.
   pt-PT number/date formatting moves to the site; what it cannot derive comes from `i18n_pt.py`
   in `labels.json` (airline and airport names, remote airports, kind and status labels, month and

@@ -318,6 +318,41 @@ def test_a_fresh_runners_site_data_lists_the_slides_only_the_bucket_has(tmp_path
 
 
 @respx.mock
+def test_a_fresh_runners_full_path_downloads_each_slide_once_and_nothing_else(tmp_path, bucket):
+    """Export then site build on a runner without output/ (D25 budget): the export reads the
+    slide names from the listing, the build downloads each slide PNG once, and never the
+    caption or meta.json it does not show."""
+    from collections import Counter
+    from escapadinha import site_data
+
+    pc = project(tmp_path / "pc")
+    conn = pipeline.open_db(pc)
+    deal_id = approved_deal(pc, conn)
+    pipeline.mirror_local_files(pc, conn)
+    conn.close()
+    sync.push(bucket, pc.db_path, pc.sync_state_path, owner="pc", log=lambda _: None)
+    shutil.rmtree(pc.output_dir)
+
+    runner = project(tmp_path / "runner")
+    sync.pull(bucket, runner.db_path, runner.sync_state_path, log=lambda _: None)
+    conn = pipeline.open_db(runner)
+    gets = Counter()
+    real_get = bucket.get
+    bucket.get = lambda key: gets.update([key]) or real_get(key)
+    export = site_data.export_site_data(runner, conn, tmp_path / "data", now=NOW, new_links=False)
+    assert not [k for k in gets if k.startswith("output/")]          # names from the listing
+    build_site(runner, conn, now=NOW)
+    downloaded = {k: n for k, n in gets.items() if k.startswith("output/")}
+    assert sorted(k.rsplit("/", 1)[1] for k in downloaded) == \
+        ["slide_01.png", "slide_02.png", "slide_03.png"]
+    assert set(downloaded.values()) == {1}
+    [promo] = export.files["promotions.json"]["promotions"]
+    for path in [*promo["images"]["slides"], promo["images"]["thumb"], promo["images"]["og"]]:
+        assert (runner.site_dir / path.lstrip("/")).is_file(), path
+    assert promo["id"] == deal_id
+
+
+@respx.mock
 def test_the_pcs_full_path_uploads_what_a_runner_will_need(home, bucket, monkeypatch):
     for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
         monkeypatch.delenv(name)

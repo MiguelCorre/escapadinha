@@ -90,7 +90,7 @@ def _sync_slides(ctx: Context, rendered: _Rendered, deals: list[Deal]) -> dict[i
         have = {Path(k).stem for k in keys.get(deal.id, [])}
         if not rendered.stems(deal) - have:
             continue
-        folder = pipeline.deal_folder(ctx, deal)          # downloaded on a runner (D25)
+        folder = pipeline.deal_folder(ctx, deal, pipeline.SLIDES)   # stored on a runner (D25)
         for png in sorted(folder.glob("slide_*.png")) if folder else []:
             if png.stem in have:
                 continue

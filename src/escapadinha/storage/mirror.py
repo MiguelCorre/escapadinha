@@ -10,6 +10,7 @@ method only looks at the local folder.
 
 from __future__ import annotations
 
+from fnmatch import fnmatch
 from pathlib import Path
 
 from escapadinha.storage.objects import ObjectStore, check_key
@@ -57,15 +58,34 @@ class Mirror:
         except KeyError:
             return None
 
-    def folder(self, rel: str) -> Path | None:
-        """The local folder, downloaded first when only the store has it; None when neither has."""
+    def _stored(self, rel: str, pattern: str) -> list[str]:
+        """Keys of the stored files under folder `rel` whose path inside it matches `pattern`."""
+        if self.store is None:
+            return []
+        prefix = self._key(rel) + "/"
+        return [k for k in self.store.list(prefix) if fnmatch(k[len(prefix):], pattern)]
+
+    def names(self, rel: str, pattern: str = "*") -> list[str]:
+        """Names of the folder's files matching `pattern`: the local ones, else the stored ones
+        (one LIST, nothing downloaded)."""
         path = self.root / rel
-        if path.is_dir():
+        local = sorted(p.name for p in path.glob(pattern) if p.is_file()) if path.is_dir() else []
+        if local:
+            return local
+        return sorted(k.rsplit("/", 1)[1] for k in self._stored(rel, pattern))
+
+    def folder(self, rel: str, pattern: str = "*") -> Path | None:
+        """The local folder with its files matching `pattern`; those only the store has are
+        downloaded first, each once (a local copy is never fetched again). None when neither
+        has any."""
+        path = self.root / rel
+        if path.is_dir() and any(p.is_file() for p in path.glob(pattern)):
             return path
-        keys = self.store.list(self._key(rel) + "/") if self.store is not None else []
+        keys = self._stored(rel, pattern)
         for key in keys:
-            self._download(key)
-        return path if keys else None
+            if not (self.root / key[len(self.prefix) + 1:]).is_file():
+                self._download(key)
+        return path if keys or path.is_dir() else None
 
     def upload_missing(self, files: dict[str, Path]) -> list[str]:
         """Upload the files (relative path -> local file) the store lacks. Returns their keys."""
