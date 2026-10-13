@@ -291,28 +291,70 @@ def ensure_affiliate_links(ctx: Context, conn: sqlite3.Connection,
     Deals without a link are retried on every render. There is deliberately no fallback
     to a hand-built `marker=` URL: the program terms allow only network tools.
     """
-    base = ctx.config.collector.booking_base
     missing = [(d, o) for d, o in pairs if not d.affiliate_url and o.deep_link]
     if not missing:
         return pairs
-    project_id = ctx.config.affiliate.project_id
+    links = _partner_links(ctx, "instagram", missing, sub_prefix="deal")
+    for d, _ in missing:
+        url, error = links[d.id]
+        db.set_deal_affiliate(conn, d.id, url, error)
+    return [db.get_deal(conn, d.id) for d, _ in pairs]
+
+
+def _partner_links(ctx: Context, channel: str, pairs: list[tuple[Deal, Observation]],
+                   sub_prefix: str) -> dict[int, tuple[str | None, str | None]]:
+    """Tracked links for `channel`'s Travelpayouts Project: deal id -> (partner_url, error).
+
+    Always through `PartnerLinksClient`; a failure yields (None, reason), never a hand-built URL.
+    """
+    base = ctx.config.collector.booking_base
+    project_id = ctx.config.affiliate.project_for(channel)
     if project_id is None:
-        results, failure = {}, "affiliate.project_id is not set in config.yaml"
+        results, failure = {}, f"affiliate.projects.{channel} is not set in config.yaml"
     else:
         try:
             client = PartnerLinksClient(ctx.secrets.travelpayouts_token,
                                         marker=ctx.secrets.travelpayouts_marker,
                                         project_id=project_id, shorten=ctx.config.affiliate.shorten)
-            results = client.create([(booking_url(o.deep_link, base), f"deal-{d.id}")
-                                     for d, o in missing])
+            results = client.create([(booking_url(o.deep_link, base), f"{sub_prefix}-{d.id}")
+                                     for d, o in pairs])
             failure = None
         except (AffiliateError, httpx.HTTPError) as exc:
             results, failure = {}, str(exc)
-    for d, o in missing:
+    out = {}
+    for d, o in pairs:
         link = results.get(booking_url(o.deep_link, base))
-        db.set_deal_affiliate(conn, d.id, link.partner_url if link else None,
-                              (link.error if link else failure) or None)
-    return [db.get_deal(conn, d.id) for d, _ in pairs]
+        out[d.id] = (link.partner_url if link else None, (link.error if link else failure) or None)
+    return out
+
+
+def _site_links_file(ctx: Context) -> Path:
+    return ctx.db_path.parent / "site_links.json"
+
+
+def website_links(ctx: Context, pairs: list[tuple[Deal, Observation]]) -> dict[int, str | None]:
+    """Booking link per deal for the website, from the website's Travelpayouts Project.
+
+    Without a separate website Project (`affiliate.projects.website: null`) the site uses
+    the deal's stored link, exactly as before. With one, a link per (Project, deal) is created
+    once (sub_id `site-deal-<id>`) and cached in data/site_links.json; failures are retried on
+    the next build and meanwhile fall back to the deal's own tracked link (also from the
+    partner links API, only attributed to the Instagram Project).
+    """
+    aff = ctx.config.affiliate
+    project = aff.project_for("website")
+    if project is None or project == aff.project_for("instagram"):
+        return {d.id: d.affiliate_url for d, _ in pairs}
+    path = _site_links_file(ctx)
+    cache = json.loads(path.read_text("utf-8")) if path.exists() else {}
+    known = cache.setdefault(str(project), {})
+    missing = [(d, o) for d, o in pairs if o.deep_link and not known.get(str(d.id), {}).get("url")]
+    if missing:
+        for deal_id, (url, error) in _partner_links(ctx, "website", missing, "site-deal").items():
+            known[str(deal_id)] = {"url": url, "error": error}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cache, indent=2), encoding="utf-8", newline="\n")
+    return {d.id: known.get(str(d.id), {}).get("url") or d.affiliate_url for d, _ in pairs}
 
 
 def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new",

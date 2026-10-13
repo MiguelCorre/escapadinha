@@ -104,7 +104,7 @@ footer.site p { margin: 6px 0; max-width: 760px; }
   <div class="wrap">
     <p><strong>Publicidade:</strong> alguns links deste site são links de afiliado. Se reservares através deles, podemos receber uma pequena comissão, sem custo extra para ti. Não vendemos bilhetes: a reserva é feita no site parceiro.</p>
     <p>Os preços mudam muito depressa. Cada promoção indica quando o preço foi encontrado e verificado; confirma sempre o preço final antes de pagar.</p>
-    <p><a href="/sobre/">Como funciona</a> · <a href="/privacidade/">Privacidade</a> · <a href="https://www.instagram.com/{{ brand.handle.lstrip('@') }}/" rel="noopener">Instagram {{ brand.handle }}</a> · Atualizado a {{ built_at }}</p>
+    <p><a href="/sobre/">Como funciona</a> · <a href="/privacidade/">Privacidade</a> · <a href="{{ brand.instagram_url }}" rel="noopener">Instagram {{ brand.handle }}</a> · Atualizado a {{ built_at }}</p>
   </div>
 </footer>
 </body>

@@ -4,6 +4,9 @@ Only deals a human approved are published. Live deals (approved/published) carry
 tracked affiliate link; once a deal expires its page stays (shared links don't break)
 but says so, drops the booking button and is hidden from search engines. Guides are
 published only when `reviewed: true`. Everything shown is traceable to stored data.
+
+Booking links come from the website's Travelpayouts Project (`pipeline.website_links`).
+`_redirects`/`_headers` keep old URLs working and old hosts out of search (`redirects.py`).
 """
 
 from __future__ import annotations
@@ -21,13 +24,14 @@ import yaml
 from jinja2 import Environment, PackageLoader
 from PIL import Image
 
-from escapadinha import detector, routes
+from escapadinha import detector, pipeline, routes
 from escapadinha import i18n_pt as pt
 from escapadinha.config import Context
 from escapadinha.guides import Guide
 from escapadinha.models import Deal, Observation, Route
 from escapadinha.presentation import PhotoCredit, build_deal_view
 from escapadinha.storage import db
+from escapadinha.website import redirects
 
 LIVE = ("approved", "published")
 
@@ -49,6 +53,7 @@ class SiteDeal:
     thumb: str | None = None
     og_image: str | None = None
     checked: str = ""
+    booking_link: str | None = None   # tracked link for the website's Travelpayouts Project
 
     @property
     def url(self) -> str:
@@ -107,6 +112,10 @@ class SiteBuilder:
             checked_at = deal.last_checked_at or obs.fetched_at
             deals.append(SiteDeal(deal, obs, view, deal.status in LIVE, slug,
                                   checked=pt.lisbon_timestamp(checked_at)))
+        live = [d for d in deals if d.live]
+        links = pipeline.website_links(self.ctx, [(d.deal, d.obs) for d in live])
+        for d in live:
+            d.booking_link = links.get(d.deal.id)
         return deals
 
     def route_pages(self, deals: list[SiteDeal]) -> list[RoutePage]:
@@ -178,6 +187,27 @@ class SiteBuilder:
         path.write_text(self.env.get_template(template).render(**ctx), encoding="utf-8", newline="\n")
         return rel
 
+    def _write_routing(self, deals: list[SiteDeal], routes: list[RoutePage],
+                       guides: list[GuidePage]) -> redirects.RedirectPlan:
+        """Cloudflare Pages `_redirects` + `_headers` (D19); remembers every published path."""
+        pages = {f"page:{p}": p for p in ("/", "/sobre/", "/privacidade/")}
+        pages |= {f"deal:{d.deal.id}": d.url for d in deals}
+        pages |= {f"route:{r.route.key}": r.url for r in routes}
+        pages |= {f"guide:{g.guide.slug}": g.url for g in guides}
+        history_file = self.ctx.db_path.parent / "site_paths.json"
+        history = json.loads(history_file.read_text("utf-8")) if history_file.exists() else {}
+        aliases = {f"/promos/{d.deal.id}": d.url
+                   for d in sorted(deals, key=lambda d: d.deal.id, reverse=True)}
+        plan = redirects.plan_redirects(pages, history, extra=self.cfg.site.redirects,
+                                        aliases=aliases)
+        (self.out / "_redirects").write_text(plan.text(), encoding="utf-8", newline="\n")
+        (self.out / "_headers").write_text(redirects.headers_text(self.cfg.site),
+                                           encoding="utf-8", newline="\n")
+        history_file.parent.mkdir(parents=True, exist_ok=True)
+        history_file.write_text(json.dumps(redirects.update_history(history, pages), indent=2,
+                                           sort_keys=True), encoding="utf-8", newline="\n")
+        return plan
+
     def build(self) -> dict:
         if self.out.exists():
             shutil.rmtree(self.out)
@@ -212,8 +242,10 @@ class SiteBuilder:
         self._write("404.html", "404.html.j2", canonical=None)
         self._write("sitemap.xml", "sitemap.xml.j2", urls=indexed)
         self._write("robots.txt", "robots.txt.j2")
+        plan = self._write_routing(deals, routes, guides)
         summary = {"live_deals": len(live), "expired_pages": len(deals) - len(live),
-                   "routes": len(routes), "guides": len(guides), "pages": len(indexed)}
+                   "routes": len(routes), "guides": len(guides), "pages": len(indexed),
+                   "redirects": len(plan.rules), "skipped_redirects": plan.skipped}
         (self.out / "build.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         return summary
 

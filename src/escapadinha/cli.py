@@ -248,7 +248,13 @@ def site_build() -> None:
     summary = build_site(ctx, conn)
     console.print(f"Site built in [bold]{ctx.site_dir}[/]: {summary['live_deals']} live deals, "
                   f"{summary['expired_pages']} expired pages, {summary['routes']} routes, "
-                  f"{summary['guides']} guides")
+                  f"{summary['guides']} guides, {summary['redirects']} redirects")
+    for skipped in summary["skipped_redirects"]:
+        console.print(f"  [yellow]![/] redirect left out: {skipped}")
+    site = ctx.config.site
+    if not site.on_final_domain:
+        console.print(f"  [dim]Served at {site.base_url}; final domain {site.domain} not "
+                      f"connected yet (docs/runbooks/brand-switch.md)[/]")
 
 
 @site_app.command("preview")
