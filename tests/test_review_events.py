@@ -281,6 +281,24 @@ def test_run_applies_events_first_and_exports_the_snapshot_last(ctx, monkeypatch
     assert "Review snapshot: 0 por rever" in out
 
 
+@respx.mock
+def test_snapshot_on_a_runner_reads_rendered_slides_from_the_store(remote):
+    import shutil
+    from test_website import real_slides
+    ctx, store = remote
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    real_slides(conn, deal_id)
+    folder = ctx.output_dir / "2026-10-12" / f"deal-LIS-LON-{deal_id}"
+    pipeline.output_files(ctx).put_tree(folder)      # rendered elsewhere (D25)
+    shutil.rmtree(ctx.output_dir)                    # a fresh runner has no output/
+
+    [d] = pipeline.export_review_snapshot(ctx, conn)["queue"]
+    assert d["caption"] == "legenda de teste"
+    assert [s["key"] for s in d["slides"]] == [f"review/slides/{deal_id}/slide_0{n}.webp"
+                                               for n in (1, 2, 3)]
+
+
 class FlakyDelete:
     """A store whose next delete fails (e.g. the network drops after the archive put)."""
 

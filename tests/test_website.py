@@ -33,7 +33,8 @@ def approved_deal(ctx, conn):
     real_slides(conn, deal_id)
     price_api(58)
     decision = pipeline.approve(ctx, conn, deal_id, actor="test")
-    assert decision.check.valid and decision.deal.status == "approved"
+    pipeline.apply_review_events(ctx, conn)     # already applied without R2; with R2, as a run would
+    assert decision.check.valid and db.get_deal(conn, deal_id)[0].status == "approved"
     return deal_id
 
 
@@ -272,9 +273,9 @@ def test_deploy_skips_unchanged_site(ctx, monkeypatch):
         stdout = "✨ Deployment complete! https://abc123.ondestaanocas.pages.dev"
 
     monkeypatch.setattr(site_deploy, "_wrangler", lambda c, *args: calls.append(args) or Done())
-    assert site_deploy.deploy(ctx) == (True, "https://abc123.ondestaanocas.pages.dev")
-    assert site_deploy.deploy(ctx) == (False, "site unchanged since last deploy, skipped")
-    assert site_deploy.deploy(ctx, force=True)[0]
+    assert site_deploy.deploy(ctx, conn) == (True, "https://abc123.ondestaanocas.pages.dev")
+    assert site_deploy.deploy(ctx, conn) == (False, "site unchanged since last deploy, skipped")
+    assert site_deploy.deploy(ctx, conn, force=True)[0]
     assert len(calls) == 2 and calls[0][:2] == ("pages", "deploy")
 
 
@@ -284,7 +285,7 @@ def test_deploy_requires_keys(ctx, monkeypatch):
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     with pytest.raises(site_deploy.DeployError, match="CLOUDFLARE_API_TOKEN"):
-        site_deploy.deploy(ctx)
+        site_deploy.deploy(ctx, conn)
 
 
 @respx.mock

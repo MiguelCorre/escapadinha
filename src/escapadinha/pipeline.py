@@ -6,7 +6,7 @@ import json
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import httpx
 
@@ -26,6 +26,7 @@ from escapadinha.recheck import Recheck, recheck
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, check_decision
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db
+from escapadinha.storage.mirror import Mirror
 
 
 def open_db(ctx: Context) -> sqlite3.Connection:
@@ -224,6 +225,16 @@ def route_low_prices(ctx: Context, conn: sqlite3.Connection, route: Route,
         run_offers = db.observations_seen_since(conn, run_id) if run_id else []
     offers = [o for o in run_offers if o.route_key == route.key]
     return detector.low_prices(offers, history, ctx.config.detector, now, route.rules)
+
+
+def shown_low_prices(ctx: Context, conn: sqlite3.Connection, route: Route,
+                     history: list[Observation], now: datetime, run_offers: list[Observation],
+                     promoted: set[int]) -> list[detector.LowPrice]:
+    """The low prices a route page lists: the run's low prices minus the offers of live
+    promotions (`promoted`, shown above them), at most `site.low_prices_per_route`."""
+    lows = route_low_prices(ctx, conn, route, history, now, run_offers)
+    shown = [lp for lp in lows if lp.observation.id not in promoted]
+    return shown[: ctx.config.site.low_prices_per_route]
 
 
 def current_baselines(ctx: Context, conn: sqlite3.Connection,
@@ -475,6 +486,7 @@ def run_missing_photos(ctx: Context, conn: sqlite3.Connection,
         except (PhotoSourceError, httpx.HTTPError) as exc:
             done.append((key, f"failed ({query}): {exc}"))
             continue
+        photo_files(ctx).put(ctx.photos_dir / photo.file_path)
         db.upsert_photo(conn, photo)
         done.append((key, f"{photo.photographer} ({photo.source_url})"))
     return done, len(missing_photos(ctx, conn))
@@ -494,6 +506,7 @@ def run_fetch_photos(ctx: Context, conn: sqlite3.Connection, dest: str | None, f
             done.append((key, "cached"))
             continue
         photo = fetch_photo(client, key, query, ctx.photos_dir, pick=pick, must=musts.get(key))
+        photo_files(ctx).put(ctx.photos_dir / photo.file_path)
         db.upsert_photo(conn, photo)
         done.append((key, f"{photo.photographer} ({photo.source_url})"))
     return done
@@ -503,8 +516,61 @@ def _photo(ctx: Context, conn: sqlite3.Connection, key: str | None) -> tuple[Pho
     photo = db.get_photo(conn, key) if key else None
     if photo is None:
         return PhotoCredit.from_photo(None, None), None
-    path = ctx.photos_dir / photo.file_path
+    path = photo_files(ctx).file(photo.file_path) or ctx.photos_dir / photo.file_path
     return PhotoCredit.from_photo(photo, path.as_uri()), path
+
+
+# --- files a fresh runner lacks (D25) -------------------------------------------------
+
+def photo_files(ctx: Context) -> Mirror:
+    """The Pixabay photo cache, also kept under `photos/` in the object store when R2 is set."""
+    return Mirror(ctx.object_store if ctx.remote_store else None, ctx.photos_dir, "photos")
+
+
+def output_files(ctx: Context) -> Mirror:
+    """Rendered slides and captions, also kept under `output/` in the object store when R2 is set."""
+    return Mirror(ctx.object_store if ctx.remote_store else None, ctx.output_dir, "output")
+
+
+def deal_rel(output_path: str) -> str:
+    """'<date>/deal-<O>-<D>-<id>' from a stored output path (absolute, written on any OS)."""
+    return "/".join(PureWindowsPath(output_path).parts[-2:])
+
+
+def deal_folder(ctx: Context, deal: Deal) -> Path | None:
+    """The deal's rendered folder, downloaded from the object store if this machine lacks it."""
+    if not deal.output_path:
+        return None
+    local = Path(deal.output_path)
+    if local.is_dir():
+        return local
+    return output_files(ctx).folder(deal_rel(deal.output_path))
+
+
+def guide_folder(ctx: Context, slug: str) -> Path | None:
+    """The guide's latest rendered folder (`output/<date>/guia-<slug>`), local or stored."""
+    name = f"guia-{slug}"
+    local = sorted(ctx.output_dir.glob(f"*/{name}"))
+    if local:
+        return local[-1]
+    files = output_files(ctx)
+    dates = sorted({rel.split("/")[0] for rel in files.keys() if rel.split("/")[1:2] == [name]})
+    return files.folder(f"{dates[-1]}/{name}") if dates else None
+
+
+def mirror_local_files(ctx: Context, conn: sqlite3.Connection) -> list[str]:
+    """Upload the photos and rendered folders this machine made before D25 that the object
+    store lacks (a no-op without R2 keys or on a fresh runner). Returns the keys uploaded."""
+    photos = {p.name: p for p in ctx.photos_dir.glob("*") if p.is_file()}
+    outputs: dict[str, Path] = {}
+    folders = [(deal_rel(d.output_path), Path(d.output_path))
+               for d in db.deals_with_output(conn) if Path(d.output_path).is_dir()]
+    folders += [(f.relative_to(ctx.output_dir).as_posix(), f)
+                for f in ctx.output_dir.glob("*/guia-*") if f.is_dir()]
+    for rel, folder in folders:
+        outputs |= {f"{rel}/{p.relative_to(folder).as_posix()}": p
+                    for p in folder.rglob("*") if p.is_file()}
+    return photo_files(ctx).upload_missing(photos) + output_files(ctx).upload_missing(outputs)
 
 
 # --- render -------------------------------------------------------------------
@@ -559,33 +625,64 @@ def _partner_links(ctx: Context, channel: str, items: list[tuple[int, Observatio
     return out
 
 
-def _site_links_file(ctx: Context) -> Path:
-    return ctx.db_path.parent / "site_links.json"
+SITE_LINKS = "site.links"   # meta: website Project -> deal id -> {url, error} (D25)
+SITE_PATHS = "site.paths"   # meta: stable page key -> every path it was published at (D19, D25)
 
 
-def website_links(ctx: Context, pairs: list[tuple[Deal, Observation]]) -> dict[int, str | None]:
+def _legacy_json(ctx: Context, name: str) -> dict:
+    """A data/ file written before D25 (a CI runner has none; the PC keeps its last copy)."""
+    path = ctx.db_path.parent / name
+    return json.loads(path.read_text("utf-8")) if path.is_file() else {}
+
+
+def site_links(ctx: Context, conn: sqlite3.Connection) -> dict[str, dict[str, dict]]:
+    """Cached website links per Project and deal, from the database (synced to R2), with
+    the entries of the old data/site_links.json it lacks merged in."""
+    cache = json.loads(db.get_meta(conn, SITE_LINKS) or "{}")
+    for project, entries in _legacy_json(ctx, "site_links.json").items():
+        for deal_id, entry in entries.items():
+            cache.setdefault(project, {}).setdefault(deal_id, entry)
+    return cache
+
+
+def site_paths(ctx: Context, conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Redirect history from the database, with the old data/site_paths.json merged in
+    (append-only, so merging it again changes nothing)."""
+    history = json.loads(db.get_meta(conn, SITE_PATHS) or "{}")
+    for key, paths in _legacy_json(ctx, "site_paths.json").items():
+        known = history.setdefault(key, [])
+        known += [p for p in paths if p not in known]
+    return history
+
+
+def save_site_paths(conn: sqlite3.Connection, history: dict[str, list[str]]) -> None:
+    db.set_meta(conn, SITE_PATHS, json.dumps(history, sort_keys=True))
+
+
+def website_links(ctx: Context, conn: sqlite3.Connection,
+                  pairs: list[tuple[Deal, Observation]]) -> dict[int, str | None]:
     """Booking link per deal for the website, from the website's Travelpayouts Project.
 
     Without a separate website Project (`affiliate.projects.website: null`) the site uses
     the deal's stored link, exactly as before. With one, a link per (Project, deal) is created
-    once (sub_id `site-deal-<id>`) and cached in data/site_links.json; failures are retried on
-    the next build and meanwhile fall back to the deal's own tracked link (also from the
-    partner links API, only attributed to the Instagram Project).
+    once (sub_id `site-deal-<id>`) and cached in the database (`site_links`, D25); failures are
+    retried on the next build and meanwhile fall back to the deal's own tracked link (also from
+    the partner links API, only attributed to the Instagram Project).
     """
     aff = ctx.config.affiliate
     project = aff.project_for("website")
     if project is None or project == aff.project_for("instagram"):
         return {d.id: d.affiliate_url for d, _ in pairs}
-    path = _site_links_file(ctx)
-    cache = json.loads(path.read_text("utf-8")) if path.exists() else {}
+    cache = site_links(ctx, conn)
     known = cache.setdefault(str(project), {})
     missing = [(d, o) for d, o in pairs if o.deep_link and not known.get(str(d.id), {}).get("url")]
     if missing:
         made = _partner_links(ctx, "website", [(d.id, o) for d, o in missing], "site-deal")
         for deal_id, (url, error) in made.items():
             known[str(deal_id)] = {"url": url, "error": error}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(cache, indent=2), encoding="utf-8", newline="\n")
+    value = json.dumps(cache, sort_keys=True)
+    if value != db.get_meta(conn, SITE_LINKS):     # new links, or the old file merged in
+        db.set_meta(conn, SITE_LINKS, value)
     return {d.id: known.get(str(d.id), {}).get("url") or d.affiliate_url for d, _ in pairs}
 
 
@@ -663,6 +760,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
             meta = view.meta(deal, obs, ctx.config.collector.booking_base)
             meta["archive_key"] = db.run_archive_key(conn, obs.run_id)   # raw payload of run_id
             _write_text(out_dir / "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
+            output_files(ctx).put_tree(out_dir)            # the site build may run elsewhere
             db.set_deal_output_path(conn, deal.id, str(out_dir))
             if deal.status == "new":
                 db.set_deal_status(conn, deal.id, "rendered")
@@ -681,4 +779,5 @@ def run_render_guide(ctx: Context, conn: sqlite3.Connection, slug: str) -> tuple
         {"guide": guide.slug, "reviewed": guide.reviewed, "sources": guide.sources,
          "photo": None if credit.photographer is None else asdict(credit)},
         ensure_ascii=False, indent=2))
+    output_files(ctx).put_tree(out_dir)
     return out_dir, guide.reviewed

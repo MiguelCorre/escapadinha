@@ -12,14 +12,17 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 from pathlib import Path
 
 import httpx
 
 from escapadinha.config import Context
+from escapadinha.storage import db
 
 BUILT_AT = re.compile(rb"Atualizado a [^<]*")
+DEPLOYED = "site.deployed"   # meta: {hash, url} of the last deployment (D25)
 NODE_DIRS = [Path(r"C:\Program Files\nodejs")]
 API = "https://api.cloudflare.com/client/v4"
 
@@ -67,8 +70,14 @@ def _wrangler(ctx: Context, *args: str) -> subprocess.CompletedProcess:
                           encoding="utf-8", errors="replace", timeout=600)
 
 
-def _state_file(ctx: Context) -> Path:
-    return ctx.db_path.parent / "site_deploy.json"
+def _last_deploy(ctx: Context, conn: sqlite3.Connection) -> dict:
+    """{hash, url} of the last deployment, from the database (synced to R2, D25); before D25
+    it was data/site_deploy.json, still read when the database has none."""
+    stored = db.get_meta(conn, DEPLOYED)
+    if stored:
+        return json.loads(stored)
+    legacy = ctx.db_path.parent / "site_deploy.json"
+    return json.loads(legacy.read_text("utf-8")) if legacy.is_file() else {}
 
 
 def create_project(ctx: Context, client: httpx.Client | None = None) -> str:
@@ -95,15 +104,13 @@ def create_project(ctx: Context, client: httpx.Client | None = None) -> str:
     return f"Created Pages project '{name}': https://{body['result']['subdomain']}"
 
 
-def deploy(ctx: Context, force: bool = False) -> tuple[bool, str]:
+def deploy(ctx: Context, conn: sqlite3.Connection, force: bool = False) -> tuple[bool, str]:
     """Upload site/ if its content changed. Returns (deployed, message)."""
     site_dir = ctx.site_dir
     if not (site_dir / "index.html").exists():
         raise DeployError("site/ is empty: run `escapadinha site build` first")
     digest = content_hash(site_dir)
-    state_file = _state_file(ctx)
-    state = json.loads(state_file.read_text("utf-8")) if state_file.exists() else {}
-    if not force and state.get("hash") == digest:
+    if not force and _last_deploy(ctx, conn).get("hash") == digest:
         return False, "site unchanged since last deploy, skipped"
     result = _wrangler(ctx, "pages", "deploy", str(site_dir),
                        "--project-name", ctx.config.site.cloudflare_project,
@@ -114,7 +121,5 @@ def deploy(ctx: Context, force: bool = False) -> tuple[bool, str]:
                 if "not found" in output.lower() else "")
         raise DeployError(f"wrangler deploy failed{hint}:\n{output[-1500:]}")
     urls = re.findall(r"https://\S+\.pages\.dev\S*", output)
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps({"hash": digest, "url": urls[-1] if urls else None}, indent=2),
-                          encoding="utf-8")
+    db.set_meta(conn, DEPLOYED, json.dumps({"hash": digest, "url": urls[-1] if urls else None}))
     return True, urls[-1] if urls else "deployed"
