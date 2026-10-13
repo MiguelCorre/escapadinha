@@ -21,7 +21,7 @@ from escapadinha.config import Context
 from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation, Route
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
-from escapadinha.presentation import PhotoCredit, booking_url, build_deal_view
+from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, recheck
 from escapadinha.review import STATUS_PT, ReviewError, ensure_transition
 from escapadinha.renderer import SlideRenderer
@@ -146,13 +146,16 @@ class RouteDetection:
     status: str                         # deals | no_deal | insufficient_history | no_fresh | no_data
     deal_ids: list[int]
     note: str
+    low_prices: int = 0                 # low prices this run (shown on the route page, D24)
 
 
 def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None,
                now: datetime | None = None) -> tuple[int | None, list[RouteDetection]]:
     """Evaluate the given (default: latest completed) run against each route's typical lows.
 
-    Candidates are the offers seen in that run or later, minus those already a deal.
+    Both tiers come from the offers seen in that run or later (D18, D24): low prices are
+    counted (the website lists them, `route_low_prices`); promotion candidates, minus offers
+    that already are a deal, become deals in status `new`.
     """
     cfg = ctx.config.detector
     now = now or db.utcnow()
@@ -160,7 +163,7 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
     if run_id is None:
         return None, []
     taken = db.deal_observation_ids(conn)
-    run_obs = [o for o in db.observations_seen_since(conn, run_id) if o.id not in taken]
+    run_obs = db.observations_seen_since(conn, run_id)
 
     results = []
     for route in routes.active_routes(conn, ctx.config.routes):
@@ -172,25 +175,28 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
                                    since=now - timedelta(days=cfg.lookback_days), exclude_run_id=None)
         recent = db.recently_flagged_offers(conn, route.origin, route.destination,
                                             since=now - timedelta(days=cfg.dedupe_days))
-        flags = detector.detect_route(offers, history, recent, cfg, route.price_cap_eur,
-                                      now, cfg.max_deals_per_route, route.rules)
+        found = detector.detect(offers, history, recent, cfg, route.price_cap_eur, now,
+                                cfg.max_deals_per_route, route.rules, taken=taken)
         deal_ids = [
             db.insert_deal(conn, observation_id=f.observation.id, rule=f.decision.rule,
                            baseline_median=f.baseline.median, sample_size=f.baseline.sample_size,
                            discount_pct=f.decision.discount_pct, threshold=cfg.threshold)
-            for f in flags
+            for f in found.candidates
         ]
-        results.append(_summarise(route, offers, history, flags, deal_ids, cfg, now))
+        open_offers = [o for o in offers if o.id not in taken]
+        results.append(_summarise(route, open_offers, history, found, deal_ids, cfg, now))
     return run_id, results
 
 
 def _summarise(route: Route, offers: list[Observation], history: list[Observation],
-               flags: list[detector.Flag], deal_ids: list[int], cfg, now: datetime) -> RouteDetection:
+               found: detector.Detection, deal_ids: list[int], cfg, now: datetime) -> RouteDetection:
+    flags, lows = found.candidates, len(found.low_prices)
     fresh = [o for o in detector.eligible(offers, route.rules) if detector.is_fresh(o, cfg, now)]
     if not fresh:
         kind = "direct " if route.rules.direct_only else ""
         return RouteDetection(route.key, 0, None, None, "no_fresh", [],
-                              f"no {kind}price found in the last {cfg.max_offer_age_days} days")
+                              f"no {kind}price found in the last {cfg.max_offer_age_days} days",
+                              lows)
     baselines = detector.month_baselines(history, cfg, now, route.rules)
     empty = detector.Baseline(None, 0, 0)
 
@@ -202,7 +208,22 @@ def _summarise(route: Route, offers: list[Observation], history: list[Observatio
     base = baselines.get(detector.month_key(best), empty)
     decision = detector.evaluate(best, base, cfg, route.price_cap_eur)
     status = "deals" if deal_ids else decision.kind
-    return RouteDetection(route.key, len(fresh), best, base, status, deal_ids, decision.reason)
+    return RouteDetection(route.key, len(fresh), best, base, status, deal_ids, decision.reason,
+                          lows)
+
+
+def route_low_prices(ctx: Context, conn: sqlite3.Connection, route: Route,
+                     history: list[Observation], now: datetime,
+                     run_offers: list[Observation] | None = None) -> list[detector.LowPrice]:
+    """The route's low prices in the latest completed run (D24), biggest discount first.
+
+    `run_offers`: that run's offers (all routes) when the caller already loaded them.
+    """
+    if run_offers is None:
+        run_id = db.latest_completed_run_id(conn)
+        run_offers = db.observations_seen_since(conn, run_id) if run_id else []
+    offers = [o for o in run_offers if o.route_key == route.key]
+    return detector.low_prices(offers, history, ctx.config.detector, now, route.rules)
 
 
 def current_baselines(ctx: Context, conn: sqlite3.Connection,
@@ -425,18 +446,20 @@ def ensure_affiliate_links(ctx: Context, conn: sqlite3.Connection,
     missing = [(d, o) for d, o in pairs if not d.affiliate_url and o.deep_link]
     if not missing:
         return pairs
-    links = _partner_links(ctx, "instagram", missing, sub_prefix="deal")
+    links = _partner_links(ctx, "instagram", [(d.id, o) for d, o in missing], sub_prefix="deal")
     for d, _ in missing:
         url, error = links[d.id]
         db.set_deal_affiliate(conn, d.id, url, error)
     return [db.get_deal(conn, d.id) for d, _ in pairs]
 
 
-def _partner_links(ctx: Context, channel: str, pairs: list[tuple[Deal, Observation]],
+def _partner_links(ctx: Context, channel: str, items: list[tuple[int, Observation]],
                    sub_prefix: str) -> dict[int, tuple[str | None, str | None]]:
-    """Tracked links for `channel`'s Travelpayouts Project: deal id -> (partner_url, error).
+    """Tracked links for `channel`'s Travelpayouts Project: key -> (partner_url, error).
 
-    Always through `PartnerLinksClient`; a failure yields (None, reason), never a hand-built URL.
+    `items` are (key, observation) pairs; the key (deal or observation id) also names the
+    link's sub_id (`<sub_prefix>-<key>`). Always through `PartnerLinksClient`; a failure
+    yields (None, reason), never a hand-built URL.
     """
     base = ctx.config.collector.booking_base
     project_id = ctx.config.affiliate.project_for(channel)
@@ -447,15 +470,15 @@ def _partner_links(ctx: Context, channel: str, pairs: list[tuple[Deal, Observati
             client = PartnerLinksClient(ctx.secrets.travelpayouts_token,
                                         marker=ctx.secrets.travelpayouts_marker,
                                         project_id=project_id, shorten=ctx.config.affiliate.shorten)
-            results = client.create([(booking_url(o.deep_link, base), f"{sub_prefix}-{d.id}")
-                                     for d, o in pairs])
+            results = client.create([(booking_url(o.deep_link, base), f"{sub_prefix}-{key}")
+                                     for key, o in items])
             failure = None
         except (AffiliateError, httpx.HTTPError) as exc:
             results, failure = {}, str(exc)
     out = {}
-    for d, o in pairs:
+    for key, o in items:
         link = results.get(booking_url(o.deep_link, base))
-        out[d.id] = (link.partner_url if link else None, (link.error if link else failure) or None)
+        out[key] = (link.partner_url if link else None, (link.error if link else failure) or None)
     return out
 
 
@@ -481,11 +504,67 @@ def website_links(ctx: Context, pairs: list[tuple[Deal, Observation]]) -> dict[i
     known = cache.setdefault(str(project), {})
     missing = [(d, o) for d, o in pairs if o.deep_link and not known.get(str(d.id), {}).get("url")]
     if missing:
-        for deal_id, (url, error) in _partner_links(ctx, "website", missing, "site-deal").items():
+        made = _partner_links(ctx, "website", [(d.id, o) for d, o in missing], "site-deal")
+        for deal_id, (url, error) in made.items():
             known[str(deal_id)] = {"url": url, "error": error}
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(cache, indent=2), encoding="utf-8", newline="\n")
     return {d.id: known.get(str(d.id), {}).get("url") or d.affiliate_url for d, _ in pairs}
+
+
+LINK_RETENTION = timedelta(days=30)   # partner_links rows older than this are pruned
+
+
+@dataclass(frozen=True)
+class LowLinks:
+    urls: dict[int, str]     # observation id -> tracked link (website Project)
+    created: int             # links created in this call
+    pending: int             # low prices still without a link (cap reached or API failure)
+
+
+def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.LowPrice],
+                    now: datetime | None = None) -> LowLinks:
+    """A tracked booking link per low price, from the website's Travelpayouts Project (D24).
+
+    Each link is created once per (observation, Project) through `PartnerLinksClient`
+    (sub_id `site-low-<observation id>`) and stored in `partner_links`, so a build only asks
+    the API for new low prices: at most `site.max_new_links_per_build`, biggest discounts
+    first (10 links per request, API limit 100 requests/min). Failed ones are retried on
+    later builds. Low prices without a link are shown without a booking button; never a
+    hand-built `marker=` URL.
+    """
+    now = now or db.utcnow()
+    project = ctx.config.affiliate.project_for("website")
+    usable = [lp.observation for lp in sorted(lows, key=lambda lp: -lp.discount_pct)
+              if lp.observation.deep_link and lp.observation.id is not None]
+    if project is None or not usable:
+        return LowLinks({}, 0, len(lows))
+    db.prune_partner_links(conn, now - LINK_RETENTION)
+    stored = db.partner_links(conn, project, [o.id for o in usable])
+    todo = [o for o in usable
+            if not stored.get(o.id, (None, None))[0]][: ctx.config.site.max_new_links_per_build]
+    if todo:
+        made = _partner_links(ctx, "website", [(o.id, o) for o in todo], "site-low")
+        db.save_partner_links(conn, project, made)
+        stored |= made
+    urls = {oid: url for oid, (url, _) in stored.items() if url}
+    return LowLinks(urls, sum(1 for o in todo if urls.get(o.id)),
+                    sum(1 for lp in lows if lp.observation.id not in urls))
+
+
+def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal,
+              obs: Observation) -> tuple[DealView, Path | None]:
+    """What a deal's slides and caption show (with its destination photo, if cached)."""
+    route = route_for(ctx, conn, obs.route_key)
+    credit, photo_path = _photo(ctx, conn, obs.destination)
+    view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
+                           destination_city=route.city_pt, photo=credit)
+    return view, photo_path
+
+
+def deal_caption_text(ctx: Context, view: DealView) -> str:
+    """A deal's Instagram caption, exactly as `render deals` writes it to caption.txt."""
+    return deal_caption(view, brand_name=ctx.config.brand.handle.lstrip("@"))
 
 
 def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new",
@@ -500,14 +579,10 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
     written = []
     with SlideRenderer(ctx.assets_dir, ctx.config.brand) as renderer:
         for deal, obs in pairs:
-            route = route_for(ctx, conn, obs.route_key)
-            credit, photo_path = _photo(ctx, conn, obs.destination)
-            view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
-                                   destination_city=route.city_pt, photo=credit)
+            view, photo_path = deal_view(ctx, conn, deal, obs)
             out_dir = out_root / f"deal-{obs.origin}-{obs.destination}-{deal.id}"
             renderer.render_deal(view, photo_path, out_dir)
-            _write_text(out_dir / "caption.txt",
-                        deal_caption(view, brand_name=ctx.config.brand.handle.lstrip("@")))
+            _write_text(out_dir / "caption.txt", deal_caption_text(ctx, view))
             meta = view.meta(deal, obs, ctx.config.collector.booking_base)
             meta["archive_key"] = db.run_archive_key(conn, obs.run_id)   # raw payload of run_id
             _write_text(out_dir / "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))

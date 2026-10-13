@@ -90,6 +90,7 @@ def test_collect_and_detect(ctx):
     by_route = {r.route: r for r in results}
     assert run_id == summary.run_id
     assert by_route["LIS-LON"].status == "deals" and len(by_route["LIS-LON"].deal_ids) == 1
+    assert by_route["LIS-LON"].low_prices == 1          # the same 58 € offer is also a low price
     assert by_route["OPO-BCN"].status == "no_data"
     assert by_route["LIS-LON"].baseline.median == 101
 

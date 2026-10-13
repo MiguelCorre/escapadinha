@@ -4,7 +4,8 @@ import pytest
 
 from escapadinha.config import DetectorConfig
 from escapadinha.detector import (
-    Baseline, Decision, baseline, day_key, detect_route, evaluate, is_fresh, month_baselines,
+    Baseline, Decision, Detection, LowPrice, baseline, day_key, detect, detect_route, evaluate,
+    is_fresh, low_prices, month_baselines,
 )
 from escapadinha.models import Observation, RouteRules
 
@@ -239,3 +240,100 @@ def test_nights_range_filters_the_baseline_too():
 def replace_nights(o, nights):
     from dataclasses import replace
     return replace(o, return_date=o.departure_date + timedelta(days=nights))
+
+
+# --- two tiers: promotion candidates (threshold + 15 € floor) and low prices (D24) ---------
+
+CHEAP = Baseline(median=40, sample_size=6, span_days=6)
+
+
+def test_candidate_needs_the_min_saving_in_euros_too():
+    """26 € is 35 % below a 40 € typical low but saves only 14 €: not a promotion."""
+    d = evaluate(obs(26), CHEAP, CFG, price_cap=None)
+    assert d.kind == "no_deal" and "saves only 14.00" in d.reason
+    assert evaluate(obs(25), CHEAP, CFG, price_cap=None).kind == "deal"        # exactly 15 €
+    assert evaluate(obs(25.01), CHEAP, CFG, price_cap=None).kind == "no_deal"
+
+
+def test_min_saving_floor_is_configurable_and_both_rules_must_hold():
+    assert evaluate(obs(26), CHEAP, CFG.model_copy(update={"min_saving_eur": 0}), None).kind == "deal"
+    strict = CFG.model_copy(update={"min_saving_eur": 50})
+    assert evaluate(obs(60), MATURE, strict, price_cap=None).kind == "no_deal"   # 40 % but 40 €
+    assert evaluate(obs(75), MATURE, CFG, price_cap=None).kind == "no_deal"      # 25 € but 25 %
+
+
+def test_price_cap_path_ignores_the_saving_floor():
+    d = evaluate(obs(39), Baseline(None, 0, 0), CFG, price_cap=40)
+    assert d.kind == "deal" and d.rule == "price_cap"
+
+
+def test_low_threshold_boundaries():
+    history = lows([100] * 5)
+    assert [lp.observation.id for lp in low_prices([obs(85, oid=1)], history, CFG, NOW)] == [1]
+    assert low_prices([obs(85.01, oid=1)], history, CFG, NOW) == []
+    [lp] = low_prices([obs(80, oid=1)], history, CFG, NOW)
+    assert lp.discount_pct == pytest.approx(0.20) and lp.baseline.median == 100
+
+
+def test_low_threshold_is_configurable():
+    history = lows([100] * 5)
+    loose = CFG.model_copy(update={"low_threshold": 0.05})
+    assert len(low_prices([obs(94, oid=1)], history, loose, NOW)) == 1
+    assert low_prices([obs(94, oid=1)], history, CFG, NOW) == []
+
+
+def test_default_tiers_and_low_threshold_above_threshold_is_rejected():
+    default = DetectorConfig()
+    assert (default.low_threshold, default.threshold, default.min_saving_eur) == (0.15, 0.30, 15)
+    with pytest.raises(ValueError, match="low_threshold"):
+        DetectorConfig(threshold=0.2, low_threshold=0.3)
+
+
+def test_low_prices_need_a_mature_baseline_even_with_a_price_cap():
+    thin = lows([100] * 3)                                   # 3 of 4 days
+    assert low_prices([obs(10, oid=1)], thin, CFG, NOW) == []
+    assert len(detect_route([obs(10, oid=1)], thin, [], CFG, 40, NOW, 1)) == 1   # cap candidate
+
+
+def test_low_prices_are_fresh_within_the_rules_one_per_trip_biggest_discount_first():
+    history = lows([100] * 5, dep=date(2026, 11, 1)) + lows([200] * 5, dep=date(2026, 12, 1))
+    offers = [
+        obs(80, oid=1, dep=date(2026, 11, 20)),                  # -20 %
+        obs(78, oid=2, dep=date(2026, 11, 20)),                  # same trip, cheaper: kept
+        obs(120, oid=3, dep=date(2026, 12, 20)),                 # -40 % vs December
+        obs(50, oid=4, found_ago=4),                             # stale
+        _with_stops(obs(50, oid=5, dep=date(2026, 11, 25))),     # not direct
+        obs(90, oid=6, dep=date(2026, 11, 22)),                  # -10 %: not low
+    ]
+    assert [lp.observation.id for lp in low_prices(offers, history, CFG, NOW)] == [3, 2]
+
+
+def test_detect_returns_low_prices_and_candidates_separately():
+    history = lows([100] * 5, dep=date(2026, 11, 1))
+    low_only = obs(80, oid=1, dep=date(2026, 11, 20))           # -20 %: low price only
+    both = obs(65, oid=2, dep=date(2026, 11, 22))               # -35 %, 35 €: also a candidate
+    found = detect([low_only, both], history, [], CFG, None, NOW, max_deals=5)
+    assert isinstance(found, Detection)
+    assert [lp.observation.id for lp in found.low_prices] == [2, 1]
+    assert all(isinstance(lp, LowPrice) for lp in found.low_prices)
+    assert [f.observation.id for f in found.candidates] == [2]
+
+
+def test_detect_keeps_one_candidate_per_route_but_every_low_price():
+    history = lows([100] * 5, dep=date(2026, 11, 1))
+    offers = [obs(60, oid=1, dep=date(2026, 11, 20)), obs(62, oid=2, dep=date(2026, 11, 22))]
+    found = detect(offers, history, [], CFG, None, NOW, max_deals=1)
+    assert [f.observation.id for f in found.candidates] == [1]
+    assert [lp.observation.id for lp in found.low_prices] == [1, 2]
+
+
+def test_detect_offers_already_a_deal_stay_low_prices_but_never_candidates():
+    history = lows([100] * 5)
+    found = detect([obs(60, oid=7)], history, [], CFG, None, NOW, max_deals=1, taken={7})
+    assert [lp.observation.id for lp in found.low_prices] == [7] and found.candidates == []
+
+
+def test_small_fare_route_gets_low_prices_but_no_candidate():
+    """A 40 € route: 26 € is a low price (-35 %) but saves only 14 €, so no promotion."""
+    found = detect([obs(26, oid=1)], lows([40] * 5), [], CFG, None, NOW, max_deals=1)
+    assert [lp.observation.id for lp in found.low_prices] == [1] and found.candidates == []

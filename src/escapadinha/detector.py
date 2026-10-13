@@ -1,8 +1,15 @@
 """Deal detection. Pure functions: no I/O, no clock, so every rule is unit-testable.
 
-A deal is a fresh price well below the route's *typical lowest price* for the same
-departure month. The typical lowest price is the median of daily lows: for each day,
-the cheapest price travellers found for that route and month.
+Prices are measured against the route's *typical lowest price* for the same departure
+month: the median of daily lows (for each day, the cheapest price travellers found for
+that route and month). Each run yields two tiers (D24):
+
+- **low prices**: fresh offers at least `low_threshold` below the typical low. Shown on
+  the route pages automatically, never reviewed, so they need a mature baseline.
+- **promotion candidates**: fresh offers at least `threshold` AND `min_saving_eur` below
+  the typical low, one per route per run, deduplicated over `dedupe_days`. They become
+  deals for human review. While a route's history is short only an explicit per-route
+  `price_cap` can make a candidate.
 
 Comparing against daily lows (not against all fares) matters: the cheapest dates of a
 route are always far below the median of all fares, so that rule flags almost every
@@ -20,15 +27,19 @@ from __future__ import annotations
 
 import statistics
 from collections import defaultdict
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from typing import TypeVar
 
 from escapadinha.config import DetectorConfig
 from escapadinha.models import Observation, RouteRules
 
 Month = tuple[int, int]
+T = TypeVar("T")
 
 DIRECT = RouteRules()   # Europe default: nonstop both ways, 2-10 nights
+EPS = 1e-9
 
 
 @dataclass(frozen=True)
@@ -48,9 +59,26 @@ class Decision:
 
 @dataclass(frozen=True)
 class Flag:
+    """A promotion candidate: becomes a deal in status `new`."""
+
     observation: Observation
     decision: Decision
     baseline: Baseline
+
+
+@dataclass(frozen=True)
+class LowPrice:
+    """A fresh offer at least `low_threshold` below its month's typical low."""
+
+    observation: Observation
+    baseline: Baseline
+    discount_pct: float          # 0.2 = 20 % below the typical low
+
+
+@dataclass(frozen=True)
+class Detection:
+    low_prices: list[LowPrice]   # every low price, biggest discount first, one per trip dates
+    candidates: list[Flag]       # promotion candidates, at most `max_deals`
 
 
 def day_key(o: Observation) -> date:
@@ -104,21 +132,39 @@ def month_baselines(history: list[Observation], cfg: DetectorConfig, now: dateti
     return {m: baseline(obs, since=since, before=before) for m, obs in by_month.items()}
 
 
+def is_mature(base: Baseline, cfg: DetectorConfig) -> bool:
+    """Enough days of lows to trust the typical low."""
+    return base.median is not None and base.sample_size >= cfg.min_baseline_days
+
+
 def evaluate(candidate: Observation, base: Baseline, cfg: DetectorConfig,
              price_cap: float | None) -> Decision:
-    if base.sample_size < cfg.min_baseline_days:
+    """Promotion candidate or not: `threshold` and `min_saving_eur` below the typical low."""
+    if not is_mature(base, cfg):
         why = f"baseline {base.sample_size}/{cfg.min_baseline_days} days"
         if price_cap is not None and candidate.price <= price_cap:
             return Decision("deal", "price_cap", None, f"{why}; price <= cap {price_cap:g}")
         return Decision("insufficient_history", None, None, why)
 
     limit = base.median * (1 - cfg.threshold)
+    saving = base.median - candidate.price
     discount = 1 - candidate.price / base.median
-    if candidate.price <= limit + 1e-9:
-        return Decision("deal", "median", discount,
-                        f"{candidate.price:g} is {discount:.0%} below typical low {base.median:g}")
-    return Decision("no_deal", None, None,
-                    f"{candidate.price:g} vs limit {limit:.2f} (typical low {base.median:g})")
+    if candidate.price > limit + EPS:
+        return Decision("no_deal", None, None,
+                        f"{candidate.price:g} vs limit {limit:.2f} (typical low {base.median:g})")
+    if saving < cfg.min_saving_eur - EPS:
+        return Decision("no_deal", None, None,
+                        f"{candidate.price:g} is {discount:.0%} below typical low {base.median:g} "
+                        f"but saves only {saving:.2f} (< {cfg.min_saving_eur:g})")
+    return Decision("deal", "median", discount,
+                    f"{candidate.price:g} is {discount:.0%} below typical low {base.median:g}")
+
+
+def low_discount(o: Observation, base: Baseline, cfg: DetectorConfig) -> float | None:
+    """Discount vs the typical low when `o` is a low price (mature baseline only), else None."""
+    if not is_mature(base, cfg) or o.price > base.median * (1 - cfg.low_threshold) + EPS:
+        return None
+    return 1 - o.price / base.median
 
 
 def _already_flagged(candidate: Observation, recent: list[Observation]) -> bool:
@@ -131,16 +177,52 @@ def _already_flagged(candidate: Observation, recent: list[Observation]) -> bool:
     )
 
 
+def _one_per_trip(items: list[T], obs: Callable[[T], Observation]) -> list[T]:
+    """Keep the first item per (departure, return) dates; `items` are sorted best first."""
+    chosen, seen = [], set()
+    for item in items:
+        trip = (obs(item).departure_date, obs(item).return_date)
+        if trip not in seen:
+            seen.add(trip)
+            chosen.append(item)
+    return chosen
+
+
+def low_prices(offers: list[Observation], history: list[Observation], cfg: DetectorConfig,
+               now: datetime, rules: RouteRules = DIRECT,
+               baselines: dict[Month, Baseline] | None = None) -> list[LowPrice]:
+    """One route's low prices among `offers`: fresh, within the rules, at least
+    `low_threshold` below a mature typical low. Biggest discount first, one per trip dates
+    (the cheapest). Offers that already are deals still count: a low price is not a post.
+    There is no price-cap path: without a mature baseline there is nothing to be low against.
+    """
+    baselines = month_baselines(history, cfg, now, rules) if baselines is None else baselines
+    empty = Baseline(None, 0, 0)
+    lows = []
+    for o in eligible(offers, rules):
+        if not is_fresh(o, cfg, now):
+            continue
+        base = baselines.get(month_key(o), empty)
+        discount = low_discount(o, base, cfg)
+        if discount is not None:
+            lows.append(LowPrice(o, base, discount))
+    lows.sort(key=lambda lp: (-lp.discount_pct, lp.observation.price,
+                              lp.observation.departure_date, lp.observation.id or 0))
+    return _one_per_trip(lows, lambda lp: lp.observation)
+
+
 def detect_route(candidates: list[Observation], history: list[Observation],
                  recently_flagged: list[Observation], cfg: DetectorConfig,
                  price_cap: float | None, now: datetime, max_deals: int,
-                 rules: RouteRules = DIRECT) -> list[Flag]:
-    """Deals among one route's candidates, biggest discount first, at most `max_deals`.
+                 rules: RouteRules = DIRECT,
+                 baselines: dict[Month, Baseline] | None = None) -> list[Flag]:
+    """Promotion candidates among one route's offers, biggest discount first, at most
+    `max_deals`.
 
     `history` may include the candidates' own run: only days before the freshness
     window count towards the baseline.
     """
-    baselines = month_baselines(history, cfg, now, rules)
+    baselines = month_baselines(history, cfg, now, rules) if baselines is None else baselines
     dedupe_start = now - timedelta(days=cfg.dedupe_days)
     recent = [r for r in recently_flagged if r.fetched_at >= dedupe_start]
     empty = Baseline(None, 0, 0)
@@ -157,13 +239,21 @@ def detect_route(candidates: list[Observation], history: list[Observation],
     # Median-rule deals by discount, then cap deals by price; one deal per trip dates.
     flags.sort(key=lambda f: (f.decision.rule != "median", -(f.decision.discount_pct or 0),
                               f.observation.price))
-    chosen, seen = [], set()
-    for f in flags:
-        trip = (f.observation.departure_date, f.observation.return_date)
-        if trip in seen:
-            continue
-        seen.add(trip)
-        chosen.append(f)
-        if len(chosen) >= max_deals:
-            break
-    return chosen
+    return _one_per_trip(flags, lambda f: f.observation)[:max_deals]
+
+
+def detect(offers: list[Observation], history: list[Observation],
+           recently_flagged: list[Observation], cfg: DetectorConfig, price_cap: float | None,
+           now: datetime, max_deals: int, rules: RouteRules = DIRECT,
+           taken: Collection[int] = ()) -> Detection:
+    """Both tiers for one route's offers in a run.
+
+    `taken`: ids of observations that already are deals (any status). They can still be
+    low prices but never become a second deal.
+    """
+    baselines = month_baselines(history, cfg, now, rules)
+    lows = low_prices(offers, history, cfg, now, rules, baselines)
+    open_offers = [o for o in offers if o.id is None or o.id not in taken]
+    candidates = detect_route(open_offers, history, recently_flagged, cfg, price_cap, now,
+                              max_deals, rules, baselines)
+    return Detection(lows, candidates)

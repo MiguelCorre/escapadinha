@@ -105,3 +105,14 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24),
+-- created once through the partner links API.
+CREATE TABLE IF NOT EXISTS partner_links (
+    observation_id INTEGER NOT NULL REFERENCES price_observations(id),
+    project_id     INTEGER NOT NULL,             -- Travelpayouts Project ("trs")
+    partner_url    TEXT,                         -- NULL when the conversion failed
+    error          TEXT,
+    created_at     TEXT NOT NULL,                -- UTC, last attempt
+    PRIMARY KEY (observation_id, project_id)
+);

@@ -64,12 +64,24 @@ class CollectorConfig(BaseModel):
 
 
 class DetectorConfig(BaseModel):
+    """Two tiers (D24): low prices (>= low_threshold below the typical low, automatic on the
+    site) and promotion candidates (>= threshold AND >= min_saving_eur below, reviewed)."""
+
     threshold: float = Field(0.30, gt=0, lt=1)
+    min_saving_eur: float = Field(15, ge=0)
+    low_threshold: float = Field(0.15, gt=0, lt=1)
     lookback_days: int = Field(90, ge=1)
     min_baseline_days: int = Field(4, ge=1)
     dedupe_days: int = Field(7, ge=0)
     max_deals_per_route: int = Field(1, ge=1)
     max_offer_age_days: int = Field(3, ge=0)
+
+    @model_validator(mode="after")
+    def _tiers_nest(self):
+        if self.low_threshold > self.threshold:
+            raise ValueError("detector.low_threshold must be <= detector.threshold "
+                             "(every promotion candidate is also a low price)")
+        return self
 
 
 RouteKind = Literal["europe", "long_haul", "domestic"]
@@ -163,6 +175,12 @@ class SiteConfig(BaseModel):
     wrangler_version: str = "4.149.0"
     analytics_token: str | None = None   # Cloudflare Web Analytics (cookieless), optional
     recent_expired: int = 6              # expired deals listed per route page
+    # Low prices on route pages (D24): the biggest discounts per route, each with its own
+    # tracked link from the partner links API, created once and stored in `partner_links`.
+    low_prices_per_route: int = Field(5, ge=0)
+    # New partner links per build, biggest discounts first; the rest wait for the next build.
+    # <= 900 keeps one build under the API's 100 requests/min (10 links per request).
+    max_new_links_per_build: int = Field(300, ge=0, le=900)
 
     @field_validator("base_url")
     @classmethod

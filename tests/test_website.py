@@ -1,5 +1,6 @@
 """Public website: only approved deals go public, expired pages stay but say so, links resolve."""
 
+import json
 import re
 import shutil
 from datetime import timedelta
@@ -9,12 +10,15 @@ import pytest
 import respx
 from PIL import Image
 
+from escapadinha import i18n_pt as pt
 from escapadinha import pipeline
+from escapadinha.presentation import SITE_DISCLOSURE
 from escapadinha.storage import db
 from escapadinha.website import build_site, slugify
 from escapadinha.website import deploy as site_deploy
-from test_pipeline import ctx, seed_history  # noqa: F401
+from test_pipeline import ctx, mock_links, seed_history  # noqa: F401
 from test_review import price_api, rendered_deal
+from test_traceability import build_scenario
 
 
 def real_slides(conn, deal_id):
@@ -130,6 +134,121 @@ def test_guides_are_published_only_when_reviewed(ctx):
     page = html(ctx, "guias/voos-baratos-dicas/index.html")
     assert "Compara Lisboa, Porto e Faro" in page
     assert "/guias/voos-baratos-dicas/" in html(ctx, "index.html")
+
+
+# --- low prices on route pages (D24) ------------------------------------------------------
+
+def low_rows(page: str) -> dict[int, str]:
+    """observation id -> that low price's <li> markup."""
+    return {int(oid): row for oid, row in
+            re.findall(r'<li class="low" data-obs="(\d+)">(.*?)</li>', page, flags=re.S)}
+
+
+@respx.mock
+def test_route_page_lists_low_prices_with_found_date_and_tracked_link(ctx):
+    links = mock_links()
+    conn = pipeline.open_db(ctx)
+    s = build_scenario(ctx, conn)
+    summary = build_site(ctx, conn)
+    page = html(ctx, "voos/lisboa-londres/index.html")
+    rows = low_rows(page)
+    assert set(rows) == set(s.low_only)               # the live promotion's offer isn't repeated
+    obs = db.get_observation(conn, s.low_only[0])
+    row = rows[obs.id]
+    assert "80 €" in row and "−20% vs. habitual" in row and "Gatwick (LGW)" in row
+    assert f"Encontrado a {obs.found_date:%d/%m/%Y}" in row                      # found date ...
+    assert f"visto por nós a {pt.lisbon_timestamp(obs.fetched_at)}" in row      # ... vs fetched_at
+    assert (f'href="https://aviasales.tpo.lu/site-low-{obs.id}" '
+            'rel="sponsored nofollow noopener"') in row
+    assert SITE_DISCLOSURE in page and "marker=" not in page
+    sent = [l for call in links.calls for l in json.loads(call.request.content)["links"]]
+    low_sent = [l for l in sent if l["sub_id"].startswith("site-low-")]
+    assert all(l["url"].startswith("https://www.aviasales.pt/search/") for l in low_sent)
+    assert "26 €" in html(ctx, "voos/lisboa-barcelona/index.html")   # low, never a promotion
+    assert summary["low_prices"] == 4 and summary["low_prices_without_link"] == 0
+    # Home unchanged: promotions only, no low prices.
+    home = html(ctx, "index.html")
+    assert 'class="low"' not in home and "Preços baixos" not in home and "80 €" not in home
+    assert not internal_links_resolve(ctx.site_dir)
+
+
+@respx.mock
+def test_low_price_links_are_created_once_and_stored(ctx):
+    links = mock_links()
+    conn = pipeline.open_db(ctx)
+    build_scenario(ctx, conn)
+    before = links.call_count
+    build_site(ctx, conn)
+    made = links.call_count - before
+    assert made == 1                                  # 4 low prices, one request (10 per request)
+    stored = conn.execute("SELECT COUNT(*) FROM partner_links WHERE partner_url IS NOT NULL")
+    assert stored.fetchone()[0] == 4
+    summary = build_site(ctx, conn)
+    assert links.call_count - before == made and summary["low_price_links_created"] == 0
+
+
+@respx.mock
+def test_new_links_per_build_are_capped_biggest_discounts_first(ctx):
+    mock_links()
+    conn = pipeline.open_db(ctx)
+    s = build_scenario(ctx, conn)
+    ctx.config.site.max_new_links_per_build = 1
+    summary = build_site(ctx, conn)
+    assert summary["low_price_links_created"] == 1 and summary["low_prices_without_link"] == 3
+    # LIS-ROM 70 € is -42 %, the biggest discount: it gets the one link.
+    assert "site-low-" in html(ctx, "voos/lisboa-roma/index.html")
+    row = low_rows(html(ctx, "voos/lisboa-londres/index.html"))[s.low_only[0]]
+    assert "Link de reserva indisponível" in row and "href" not in row
+    build_site(ctx, conn)
+    build_site(ctx, conn)
+    row = low_rows(html(ctx, "voos/lisboa-londres/index.html"))[s.low_only[0]]
+    assert f"site-low-{s.low_only[0]}" in row
+
+
+@respx.mock
+def test_failed_low_price_link_shows_no_button_and_is_retried(ctx):
+    conn = pipeline.open_db(ctx)
+    mock_links()
+    s = build_scenario(ctx, conn)
+    respx.routes.clear()
+    mock_links(ok=False)
+    build_site(ctx, conn)
+    row = low_rows(html(ctx, "voos/lisboa-londres/index.html"))[s.low_only[0]]
+    assert "Link de reserva indisponível" in row and "href" not in row
+    assert "marker=" not in html(ctx, "voos/lisboa-londres/index.html")
+    error = conn.execute("SELECT error FROM partner_links WHERE observation_id = ?",
+                         (s.low_only[0],)).fetchone()[0]
+    assert error == "trs is not subscribed for brand"
+    respx.routes.clear()
+    mock_links()
+    build_site(ctx, conn)
+    assert f"site-low-{s.low_only[0]}" in html(ctx, "voos/lisboa-londres/index.html")
+
+
+def test_partner_links_upsert_and_prune(ctx):
+    conn = pipeline.open_db(ctx)
+    seed_history(conn, days=2, price=100)
+    ids = [r[0] for r in conn.execute("SELECT id FROM price_observations ORDER BY id")]
+    db.save_partner_links(conn, 7, {ids[0]: (None, "failed"), ids[1]: ("https://x/1", None)})
+    db.save_partner_links(conn, 7, {ids[0]: ("https://x/0", None)})          # retry succeeded
+    assert db.partner_links(conn, 7, ids) == {ids[0]: ("https://x/0", None),
+                                              ids[1]: ("https://x/1", None)}
+    assert db.partner_links(conn, 8, ids) == {}                              # per Project
+    assert db.prune_partner_links(conn, db.utcnow() - timedelta(days=1)) == 0
+    assert db.prune_partner_links(conn, db.utcnow() + timedelta(seconds=1)) == 2
+
+
+@respx.mock
+def test_low_prices_per_route_cap(ctx):
+    mock_links()
+    conn = pipeline.open_db(ctx)
+    build_scenario(ctx, conn)
+    ctx.config.site.low_prices_per_route = 1
+    build_site(ctx, conn)
+    assert len(low_rows(html(ctx, "voos/lisboa-londres/index.html"))) == 1
+    ctx.config.site.low_prices_per_route = 0
+    build_site(ctx, conn)
+    assert "Não há preços baixos recentes" in html(ctx, "voos/lisboa-londres/index.html")
 
 
 # --- deploy -------------------------------------------------------------------------

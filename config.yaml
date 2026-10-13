@@ -15,10 +15,14 @@ collector:
   booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
   requests_per_minute: 550    # client-side cap (API limit 600/min); a run is ~routes x months_ahead calls
 
-# A deal = a fresh price well below the route's typical LOW for that departure month:
+# Two tiers (DECISIONS D24), both against the route's typical LOW for that departure month:
 # the median of daily lowest prices (day = when travellers found the price).
+#  - low price: a fresh price >= low_threshold below it; shown on route pages automatically.
+#  - promotion candidate: >= threshold AND >= min_saving_eur below it; becomes a deal for review.
 detector:
-  threshold: 0.30            # deal when price <= typical_low * (1 - threshold)
+  threshold: 0.30            # candidate when price <= typical_low * (1 - threshold) ...
+  min_saving_eur: 15         # ... and typical_low - price >= this many euros
+  low_threshold: 0.15        # low price when price <= typical_low * (1 - low_threshold)
   lookback_days: 90          # days of daily lows used for the typical low
   min_baseline_days: 4       # need this many days with a low before trusting it
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
@@ -124,6 +128,8 @@ site:
   cloudflare_project: ondestaanocas           # Pages project names can't be renamed; stays
   wrangler_version: 4.149.0
   analytics_token: null                       # Cloudflare Web Analytics token (cookieless), optional
+  low_prices_per_route: 5                     # low prices listed per route page (biggest discounts)
+  max_new_links_per_build: 300                # partner links created per build (<= 900: API 100 req/min)
 
 origins_pt:
   LIS: Lisboa
