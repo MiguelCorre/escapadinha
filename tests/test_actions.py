@@ -245,6 +245,29 @@ def test_a_fresh_runner_builds_the_same_site_as_the_pc(tmp_path, bucket, deploym
 
 
 @respx.mock
+def test_a_fresh_runners_site_data_lists_the_slides_only_the_bucket_has(tmp_path, bucket):
+    """The export runs before the site build on a runner without output/ (D25, D27)."""
+    from escapadinha import site_data
+
+    pc = project(tmp_path / "pc")
+    conn = pipeline.open_db(pc)
+    deal_id = approved_deal(pc, conn)
+    pipeline.mirror_local_files(pc, conn)
+    conn.close()
+    sync.push(bucket, pc.db_path, pc.sync_state_path, owner="pc", log=lambda _: None)
+    shutil.rmtree(pc.output_dir)          # the stored output_path points at another machine
+
+    runner = project(tmp_path / "runner")
+    sync.pull(bucket, runner.db_path, runner.sync_state_path, log=lambda _: None)
+    conn = pipeline.open_db(runner)
+    assert not runner.output_dir.exists()
+    export = site_data.export_site_data(runner, conn, tmp_path / "data", now=NOW, new_links=False)
+    [promo] = export.files["promotions.json"]["promotions"]
+    assert promo["id"] == deal_id and promo["images"] is not None
+    assert len(promo["images"]["slides"]) == 3 and promo["images"]["thumb"]
+
+
+@respx.mock
 def test_the_pcs_full_path_uploads_what_a_runner_will_need(home, bucket, monkeypatch):
     for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
         monkeypatch.delenv(name)

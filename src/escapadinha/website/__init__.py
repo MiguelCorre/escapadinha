@@ -69,12 +69,19 @@ def public_deal_rows(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]
             if deal.status != "expired" or deal.reviewed_at is not None]
 
 
-def deal_image_paths(deal: Deal) -> tuple[list[str], str | None, str | None] | None:
-    """(slides, thumb, og) site paths the build writes for a rendered deal, else None."""
-    folder = Path(deal.output_path) if deal.output_path else None
-    if not folder or not folder.exists():
+def promo_images(deal_id: int) -> str:
+    """Folder of a promotion's images on the site, under /img/ (slide_NN.webp, thumb, og)."""
+    return f"promos/{deal_id}"
+
+
+def deal_image_paths(ctx: Context, deal: Deal) -> tuple[list[str], str | None, str | None] | None:
+    """(slides, thumb, og) site paths the build writes for a rendered deal, else None. The
+    rendered folder comes from `pipeline.deal_folder`, like the build's (downloaded from the
+    object store on a runner, D25)."""
+    folder = pipeline.deal_folder(ctx, deal)
+    if folder is None:
         return None
-    base = f"/img/promos/{deal.id}"
+    base = f"/img/{promo_images(deal.id)}"
     slides = [f"{base}/{png.stem}.webp" for png in sorted(folder.glob("slide_*.png"))]
     cover = (folder / "slide_01.png").exists()
     return slides, f"{base}/thumb.webp" if cover else None, f"{base}/og.jpg" if cover else None
@@ -220,17 +227,18 @@ class SiteBuilder:
         folder = pipeline.deal_folder(self.ctx, d.deal)   # from the object store on a runner
         if folder is None:
             return
-        d.images = self._images(folder, f"promos/{d.deal.id}")
+        dest = promo_images(d.deal.id)
+        d.images = self._images(folder, dest)
         cover = folder / "slide_01.png"
         if cover.exists():
-            thumb = self.out / "img" / "promos" / str(d.deal.id) / "thumb.webp"
-            og = self.out / "img" / "promos" / str(d.deal.id) / "og.jpg"
+            thumb = self.out / "img" / dest / "thumb.webp"
+            og = self.out / "img" / dest / "og.jpg"
             with Image.open(cover) as im:
                 rgb = im.convert("RGB")
                 rgb.resize((540, 675), Image.LANCZOS).save(thumb, "WEBP", quality=78, method=6)
                 rgb.save(og, "JPEG", quality=82, optimize=True, progressive=True)
-            d.thumb = f"/img/promos/{d.deal.id}/thumb.webp"
-            d.og_image = f"/img/promos/{d.deal.id}/og.jpg"
+            d.thumb = f"/img/{dest}/thumb.webp"
+            d.og_image = f"/img/{dest}/og.jpg"
 
     # --- output -------------------------------------------------------------------
 

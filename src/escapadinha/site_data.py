@@ -395,7 +395,7 @@ def _latest_seen(conn: sqlite3.Connection, deal: Deal, o: Observation) -> dict |
 def _promotion(ctx: Context, conn: sqlite3.Connection, d: Deal, o: Observation, route: Route,
                link: str | None) -> dict:
     live = d.status in LIVE
-    images = deal_image_paths(d)
+    images = deal_image_paths(ctx, d)
     return {
         "id": d.id, "route": o.route_key, "status": d.status, "live": live,
         "path": f"/promos/{promo_slug(d.id, ctx.config.origin_name(o.origin), route.city_pt)}/",
