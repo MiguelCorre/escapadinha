@@ -1,4 +1,4 @@
-"""ObjectStore contract. Every implementation (local now, R2 with #4) must pass these."""
+"""ObjectStore contract. Every implementation (local directory, S3/R2) must pass these."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -10,11 +10,11 @@ NOW = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
 TTL = timedelta(minutes=30)
 
 
-@pytest.fixture(params=["local"])
+@pytest.fixture(params=["local", "s3"])
 def store(request, tmp_path):
     if request.param == "local":
         return LocalObjectStore(tmp_path / "objects")
-    raise NotImplementedError(request.param)
+    return request.getfixturevalue("s3_store")
 
 
 def test_put_get_overwrite(store):
@@ -76,3 +76,29 @@ def test_expired_lock_is_taken_over_and_kept_from_the_old_owner(store):
         with pytest.raises(LockHeld, match="held by b"):
             with store.lock("run", owner="c", ttl=TTL, now=later):
                 pass
+
+
+def test_same_owner_can_lock_again_after_release(store):
+    with store.lock("run", owner="a", ttl=TTL, now=NOW):
+        assert store.list("locks/") == ["locks/run"]
+    with store.lock("run", owner="a", ttl=TTL, now=NOW):
+        pass
+    assert store.list("locks/") == []
+
+
+# --- S3 specifics --------------------------------------------------------------
+
+def test_s3_list_follows_continuation_tokens(s3_store):
+    """S3 returns at most 1000 keys per response."""
+    for i in range(1005):
+        s3_store.client.put_object(Bucket=s3_store.bucket, Key=f"k/{i:04d}", Body=b"")
+    assert len(s3_store.list("k/")) == 1005
+
+
+def test_s3_expired_lock_takeover_race_has_one_winner(s3_store):
+    """Two runs read the same expired lock: only the first conditional takeover succeeds."""
+    stale = s3_store.lock("run", owner="a", ttl=TTL, now=NOW)
+    stale.__enter__()
+    _, etag = s3_store._get("locks/run")
+    assert s3_store._conditional_put("locks/run", b'{"owner": "b"}', IfMatch=etag)
+    assert not s3_store._conditional_put("locks/run", b'{"owner": "c"}', IfMatch=etag)

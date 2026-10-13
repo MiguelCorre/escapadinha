@@ -284,3 +284,40 @@ so nothing has to be hosted.
   white pixel. Pages use real data only (DB opened read-only), mark expired promotions without a booking
   link and carry the disclosure. The mountain marks are provisional SVGs; the designer's logo is M6.
 
+## D21: Database, archives, backups and run lock in Cloudflare R2 (2026-10-13, #4)
+- **Why:** the pipeline moves to GitHub Actions (spec #1), which keeps nothing between runs. The
+  SQLite file (≈1 MB after D18) is downloaded at the start of a run and uploaded at the end,
+  which is simpler and cheaper than a hosted database and keeps plain SQL (D8).
+- **Dependency: boto3** (runtime) + **moto** (tests). Rejected: httpx + hand-written SigV4. It
+  would be ~150 lines of signing, XML listing/pagination and error mapping we'd own, and the
+  contract tests would run against a fake S3 we wrote ourselves; moto's S3 is independent and
+  honours the conditional headers the lock depends on. boto3 is imported only when the R2 keys
+  are set. Client settings follow Cloudflare's boto3 guidance: region `auto`, checksums only
+  when required.
+- **Selection:** `Context.object_store` is `S3ObjectStore` when all four `R2_*` keys are in
+  `.env`, else `LocalObjectStore(data/objects)`. No keys = exactly the previous behaviour.
+- **Lock (`locks/run`, `{owner, expires_at}`):** acquire with `PUT If-None-Match: *` (one
+  winner); an expired lock is taken over with `PUT If-Match: <etag read>` (one winner among
+  racers); release only while the object still names us, with `DELETE If-Match` (plain DELETE
+  where that is not implemented). TTL 60 min, well above a run; the Actions job timeout must
+  stay below it. A held lock makes `run` exit 0 with a message and touch nothing (the next
+  scheduled run will do the work).
+- **Database objects:** `db/escapadinha.db` (SQLite backup API copy, `quick_check` before every
+  upload and install) and `db/escapadinha.json` (`generation`, sha256, `pushed_at`, `pushed_by`,
+  last run id), written in that order. A local `data/escapadinha.db.sync.json` holds the
+  generation and file hash of the last pull/push: that is how `store push` knows the bucket moved
+  on (refuse unless `--force`) and `store pull` knows there are unpushed local changes (refuse
+  unless `--force`, which keeps a `.local-<time>` copy). Rejected: object ETags (not part of the
+  `ObjectStore` interface; the local store has none) and a schema change (other tickets own it).
+- **Run:** lock → pull → backup → steps → push → unlock. Push also happens when a step fails
+  (collected data and its archives are already real). A run never blocks on a local conflict:
+  local changes on the current generation are fast-forwarded, on an older one set aside as
+  `.local-<time>`. `store push` takes the same lock, so it cannot interleave with a run.
+- **Backups:** `backups/<Lisbon date>/escapadinha.db` = the database before that day's first run,
+  so a bad run can be undone. Expiry is a bucket lifecycle rule (prefix `backups/`, 30 days),
+  set by Miguel in the dashboard; the code never deletes backups. `store restore <date>` +
+  `store push` puts one live.
+- **Not synced yet** (local files the website build reads): `data/site_paths.json`,
+  `data/site_links.json`, `assets/photos/`, `output/`. The Actions ticket must move or rebuild
+  them before CI builds the site.
+

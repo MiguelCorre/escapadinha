@@ -8,7 +8,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list`, `photos fetch`,
   `render deals|guide`, `run`, `review`, `deal check|approve|reject|published`,
-  `site build|preview|setup|deploy`, `design directions`).
+  `site build|preview|setup|deploy`, `design directions`,
+  `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 
 ## Rules
@@ -25,6 +26,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Observations are deduplicated (`dedup_key`); never assume one row per run. Use
   `observations_seen_since(run_id)` for a run's prices. Raw payloads live only in the run archive
   (`archive.py` via `ObjectStore`), never in the hot table.
+- Objects go through `ctx.object_store` (R2 when the `R2_*` keys are set, else `data/objects/`);
+  never write the bucket or `data/objects/` directly. Every `ObjectStore` implementation passes
+  `tests/test_objects.py` (S3 runs on moto, no network). The database file is only uploaded via
+  `storage/sync.py` (backup-API snapshot under the run lock), never the live file (D21).
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
@@ -44,6 +49,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/collector/`: `TravelpayoutsSource`, `runner.collect`
 - `src/escapadinha/routes.py`: `sync` (config → `routes` table), `all_routes`/`active_routes`/`get_route`
 - `src/escapadinha/storage/objects.py`: `ObjectStore` + `LocalObjectStore` (`data/objects/`); `archive.py`: per-run raw archive
+- `src/escapadinha/storage/s3.py`: `S3ObjectStore` (R2, conditional-write lock); `sync.py`: database
+  pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate`, `detect_route`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step, plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions; `web.py` + `templates/review.html.j2`: the local review page
