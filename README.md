@@ -120,9 +120,11 @@ goes back to sleep. Nothing is deleted. Excluded routes are left alone.
 discovery or run, so ~160 destinations take four runs. Failures are retried next time.
 
 **Budget:** a run makes one request per active route and departure month. On 2026-10-13 that
-was 360 routes × 3 = 1080 requests in 5 min 40 s (≈190/min, latency-bound). The source allows
-600/min; `collector.requests_per_minute: 550` caps it client-side and a 429 still waits and retries.
-At 12 runs/day that's ~13k requests/day and ~70 runner-minutes/day (see D23 for GitHub Actions).
+was 360 routes × 3 = 1080 requests in 5 min 40 s one at a time (≈190/min, latency-bound); with
+`collector.workers: 8` in flight they take ~2 min, bound by the limit. The source allows 600/min;
+`collector.requests_per_minute: 550` caps it client-side and a 429 still waits and retries.
+At 12 runs/day that's ~13k requests/day and ~24 runner-minutes/day, ≈ 720 min/month of the 2000
+free ones (D24's Actions budget; see *Minutes used* below).
 
 Output for review lives in `output/<YYYY-MM-DD>/`:
 - `deal-<ORIG>-<DEST>-<id>/slide_01.png … slide_03.png`: cover, details, CTA + disclosure
