@@ -2,13 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pontonomada.pt/contract/site/v1/affiliates.schema.json",
   "title": "affiliates.json: affiliate blocks in itineraries and tips",
-  "description": "What the eSIM, travel insurance and activities blocks (D37) link to. Every block programme is listed: its brand when config.yaml (affiliate.programmes) connects one, null while none is configured (the block then renders nothing and the build warns). links holds one tracked link per published article (reviewed, D33; the test-only ones in fixtures) and configured programme its front matter lists in `affiliates`, created once by the partner links API for the website's Project with the article's sub_id (roteiro-<slug>, dica-<slug>), never built by hand; a pair without a link (the API failed, retried on the next export) renders nothing. No prices. Added in v1 (additive): an export without it has no meta.files.affiliates.",
+  "description": "What the eSIM, travel insurance and activities blocks (D37) link to. Every block programme is listed: its brand when config.yaml (affiliate.programmes) connects one, null while none is configured (the block then renders nothing and the build warns). links holds one tracked link per published article (reviewed, D33; the test-only ones in fixtures) and configured programme its front matter lists in `affiliates`, created once by the partner links API for the website's Project with the article's sub_id (roteiro-<slug>, dica-<slug>), never built by hand; a pair without a link (the API failed: retried by the next full path's export) renders nothing. Every block shows labels.json's disclosure.affiliate. No prices. Added in v1 (additive): an export without it has no meta.files.affiliates.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "disclosure", "programmes", "links"],
+  "required": ["version", "programmes", "links"],
   "properties": {
     "version": {"$ref": "defs.schema.json#/$defs/version"},
-    "disclosure": {"type": "string", "minLength": 1, "description": "In every block (presentation.BLOCK_DISCLOSURE)."},
     "programmes": {
       "type": "object",
       "additionalProperties": false,

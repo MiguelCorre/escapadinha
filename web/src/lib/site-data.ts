@@ -80,7 +80,7 @@ export function loadSiteData(dir: string): SiteData {
     pontes: meta.files.pontes ? read(meta.files.pontes, "pontes") : { version: 1, source: "", pontes: [] },
     // Added within v1 (D37): an older export configures no affiliate block.
     affiliates: meta.files.affiliates ? read(meta.files.affiliates, "affiliates") : {
-      version: 1, disclosure: "", links: [],
+      version: 1, links: [],
       programmes: { esim: null, insurance: null, activities: null },
     },
     lowPrices: Object.fromEntries(

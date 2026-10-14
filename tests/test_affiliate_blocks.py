@@ -15,7 +15,7 @@ import respx
 import yaml
 from pydantic import ValidationError
 
-from escapadinha import pipeline, site_data
+from escapadinha import articles, pipeline, site_data
 from escapadinha.affiliate import API_URL as LINKS_URL
 from escapadinha.config import AffiliateConfig, AppConfig, Context
 from escapadinha.storage import db
@@ -122,6 +122,31 @@ def test_each_link_is_created_once_and_kept_in_the_database(ctx, tmp_path):  # n
     assert affiliates(tmp_path / "c") == affiliates(tmp_path / "d") == affiliates(tmp_path / "b")
 
 
+@respx.mock
+def test_links_of_unpublished_articles_and_other_projects_are_forgotten(ctx, tmp_path):  # noqa: F811
+    """An article taken off the site (back to draft, deleted) and a Project switch drop the stored
+    links: an article that comes back, or a Project switched back, gets fresh ones."""
+    configure(ctx, PROGRAMMES)
+    path = write_article(ctx, "itineraries", "roma-em-3-dias", ITINERARY)
+    api = mock_partner_links()
+    conn = pipeline.open_db(ctx)
+    export = lambda: site_data.export_site_data(ctx, conn, tmp_path / "data")  # noqa: E731
+
+    export()
+    path.write_text(ITINERARY.replace("reviewed: true", "reviewed: false"), "utf-8")
+    export()
+    path.write_text(ITINERARY, "utf-8")
+    export()
+    assert api.call_count == 2                     # created again after coming back
+
+    ctx.config.affiliate.projects["website"] = 999999
+    export()
+    ctx.config.affiliate.projects["website"] = None    # back to the Instagram Project's
+    export()
+    assert api.call_count == 4
+    assert len(affiliates(tmp_path / "data")["links"]) == 2
+
+
 TIP = """---
 title: Internet em viagem
 description: Uma dica.
@@ -189,6 +214,29 @@ def test_a_failed_link_is_left_out_and_retried_on_the_next_export(ctx, tmp_path)
     assert api.call_count == 1 and len(affiliates(tmp_path / "data")["links"]) == 2
 
 
+GATE_CASES = json.loads((REPO / "web" / "test" / "fixtures" / "content-gate-cases.json")
+                        .read_text("utf-8"))["cases"]
+
+
+@pytest.mark.parametrize("case", GATE_CASES, ids=[c["name"] for c in GATE_CASES])
+def test_articles_read_the_front_matter_as_the_site_does(case, tmp_path):
+    """The shared cases (also checked by web/test/content.test.ts on the zod schemas and Astro's
+    YAML parser): the articles that get affiliate links are exactly the ones the site builds."""
+    web = tmp_path / "web"
+    path = web / articles.CONTENT / case["kind"] / f"{case['slug']}.mdx"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"---\n{case['front_matter']}\n---\n\nTexto.\n", "utf-8")
+    if case["error"]:
+        with pytest.raises(articles.ArticleError, match=case["slug"]):
+            articles.load(web / articles.CONTENT)
+        return
+    [article] = articles.load(web / articles.CONTENT)
+    assert (article.key, list(article.affiliates)) == (case["key"], case["affiliates"])
+    published = {"site": articles.published(web, fixture=False),
+                 "fixture_site": articles.published(web, fixture=True)}
+    assert {k: v == [article] for k, v in published.items()} == case["published"]
+
+
 @pytest.mark.parametrize("programmes, problem", [
     ({"hotels": None}, "unknown programme"),
     ({"esim": {"brand": "Yesim", "url": "http://yesim.tech"}}, "https"),
@@ -208,13 +256,17 @@ def test_the_repos_config_connects_esim_and_activities_and_no_insurance_yet():
 
 
 def test_committed_fixtures_carry_the_affiliate_blocks_of_the_fixture_content():
-    """contract/site/v1/fixtures/affiliates.json was added by hand (D37, like D36's post_url):
-    it must be what `export fixtures` would write for the repo's config and fixture content."""
+    """contract/site/v1/fixtures/affiliates.json and labels.json's disclosure.affiliate were added
+    by hand (D37, like D36's post_url): they must be what `export fixtures` would write for the
+    repo's config and fixture content (labels.json holds no database data at all)."""
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     db.init(conn)
     export = site_data.build_export(Context(root=REPO), conn, new_links=False, fixture=True)
     fixtures = REPO / "contract" / "site" / "v1" / "fixtures"
+    labels = json.loads((fixtures / "labels.json").read_text("utf-8"))
+    assert labels == export.files["labels.json"]
+    assert labels["disclosure"]["affiliate"].startswith("Publicidade: esta ligação é um link de afiliado")
     committed = json.loads((fixtures / "affiliates.json").read_text("utf-8"))
     assert committed == export.files["affiliates.json"]
     assert {(lk["article"], lk["programme"]) for lk in committed["links"]} == {

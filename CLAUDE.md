@@ -175,14 +175,19 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `site.max_new_links_per_build`).
 - Affiliate blocks (D37: `<EsimBlock />`, `<InsuranceBlock />`, `<ActivitiesBlock />` in MDX): the
   programme → brand/page map lives only in config `affiliate.programmes` (`ProgrammeConfig`; a new
-  programme is a config change, never code). Links only via `pipeline.article_links` (website
-  Project, sub_id `roteiro-<slug>`/`dica-<slug>`, stored in meta `site.article_links`), for
-  reviewed articles that list the programme in front matter `affiliates` (`articles.py` reads
-  it), exported in `affiliates.json`. On the site only through `src/lib/affiliates.ts`
-  (`affiliateBlock`) and `AffiliateBlock.astro`, always with the contract's `disclosure`; a
-  programme not configured or a missing link renders nothing and warns, a block not listed in
-  front matter fails the build. A front matter schema change in `src/lib/content.ts` also edits
-  `src/content.config.ts` (Astro's content cache only notices that file).
+  programme is a config change, never code). Which (article, programme) pairs get a link is
+  `pipeline.block_targets` only; links only via `pipeline.article_links` (website Project, sub_id
+  `roteiro-<slug>`/`dica-<slug>`, meta `site.article_links`, pruned to the current pairs and
+  Project on every write), exported in `affiliates.json`. `articles.py` reads the front matter
+  exactly as the site does (zod + Astro's YAML): change either side together with
+  `web/test/fixtures/content-gate-cases.json` (`tests/test_affiliate_blocks.py`,
+  `web/test/content.test.ts`); the article key is `content.articleKey` / `Article.key`. On the
+  site only through `src/lib/affiliates.ts` (`affiliateBlock`, link via `cta.partnerLink`) and
+  `AffiliateBlock.astro`, always with `labels.disclosure.affiliate`; a programme not configured
+  or a missing link renders nothing and warns, a block not listed in front matter fails the
+  build. Every Astro build is `astro build --force` (`npm run build`,
+  `build:fixtures`, `test/build-site.ts`): Astro's content cache ignores schema changes in
+  `src/lib/content.ts`.
 - Domain moves go through `site.base_url` + `site.legacy_hosts` and the Bulk Redirect in
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
   key in `website/routing.current_pages` (`deal:`, `route:`, `origin:`, `destination:`) so renamed

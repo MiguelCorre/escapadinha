@@ -37,15 +37,13 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from escapadinha import articles, detector, i18n_pt, pipeline, pontes, routes
-from escapadinha.config import Context
+from escapadinha.config import PROGRAMMES, Context
 from escapadinha.models import Deal, Observation, Route
-from escapadinha.config import PROGRAMMES
 from escapadinha.presentation import BLOCK_DISCLOSURE, DISCLOSURE, SITE_DISCLOSURE
 from escapadinha.storage import db
-from escapadinha.website import node
 from escapadinha.website import (
-    DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, origin_slug,
-    ponte_path, promo_slug, public_deal_rows, redirects, route_slug,
+    DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, node,
+    origin_slug, ponte_path, promo_slug, public_deal_rows, redirects, route_slug,
 )
 
 VERSION = 1
@@ -530,7 +528,7 @@ def _labels() -> dict:
         "kinds": dict(i18n_pt.ROUTE_KIND), "route_status": dict(i18n_pt.ROUTE_STATUS),
         "months": list(i18n_pt.MONTHS), "months_short": list(i18n_pt.MONTHS_SHORT),
         "weekdays_short": list(i18n_pt.WEEKDAYS_SHORT),
-        "disclosure": {"site": SITE_DISCLOSURE, "post": DISCLOSURE},
+        "disclosure": {"site": SITE_DISCLOSURE, "post": DISCLOSURE, "affiliate": BLOCK_DISCLOSURE},
     }
 
 
@@ -557,14 +555,13 @@ def _affiliates(ctx: Context, conn: sqlite3.Connection, new_links: bool, fixture
     gets the test-only articles too, and a placeholder per link instead of a stored one."""
     aff = ctx.config.affiliate
     published = articles.published(node.web_dir(ctx), fixture=fixture)
-    wanted = [(a, p) for a in published for p in a.affiliates
-              if p in PROGRAMMES and aff.programme(p) is not None]
     if fixture:
-        links = {(a.key, p): f"{FIXTURE_LINK}{a.sub_id}" for a, p in wanted}
+        links = {pair: f"{FIXTURE_LINK}{a.sub_id}"
+                 for pair, (a, _) in pipeline.block_targets(ctx, published).items()}
     else:
-        links = pipeline.article_links(ctx, conn, wanted, create=new_links)
+        links = pipeline.article_links(ctx, conn, published, create=new_links)
     return {
-        "version": VERSION, "disclosure": BLOCK_DISCLOSURE,
+        "version": VERSION,
         "programmes": {p: ({"brand": c.brand} if (c := aff.programme(p)) else None)
                        for p in PROGRAMMES},
         "links": [{"article": key, "programme": p, "url": url}

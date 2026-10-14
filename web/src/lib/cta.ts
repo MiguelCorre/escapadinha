@@ -25,11 +25,16 @@ export interface Cta extends BookingLink {
   disclosure: string;
 }
 
+/** Any partner link from the contract as an anchor's href and rel (booking buttons, the affiliate
+ * blocks of D37): as given, never built here. Throws on a non-https link. */
+export function partnerLink(link: string): { href: string; rel: string } {
+  if (!link.startsWith("https://")) throw new Error(`partner link is not https: ${link}`);
+  return { href: link, rel: CTA_REL };
+}
+
 /** The button for a link from the contract, or null without one. Throws on a non-https link. */
 export function bookingLink(link: string | null): BookingLink | null {
-  if (!link) return null;
-  if (!link.startsWith("https://")) throw new Error(`booking link is not https: ${link}`);
-  return { href: link, text: CTA_TEXT, rel: CTA_REL };
+  return link ? { ...partnerLink(link), text: CTA_TEXT } : null;
 }
 
 /** The booking button for a price, or null: no link, or not live (expired: never a button). */

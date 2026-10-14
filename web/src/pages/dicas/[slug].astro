@@ -10,7 +10,7 @@ import ContentArticle from "../../components/ContentArticle.astro";
 import { MDX_COMPONENTS } from "../../components/mdx-components";
 import { tips } from "../../collections";
 import { BRAND } from "../../lib/brand";
-import { contentPath } from "../../lib/content";
+import { articleKey, contentPath } from "../../lib/content";
 import { articleLd } from "../../lib/structured-data";
 
 export const getStaticPaths = (async () => {
@@ -21,7 +21,7 @@ const { entry } = Astro.props;
 const { data } = entry;
 const { Content } = await render(entry);
 // The affiliate blocks in the body find their links by the article (D37).
-Astro.locals.article = { key: `tips/${entry.id}`, affiliates: data.affiliates };
+Astro.locals.article = { key: articleKey("tips", entry.id), affiliates: data.affiliates };
 const path = contentPath("tips", entry.id);
 const article = data.reviewed
   ? articleLd(siteData, { title: data.title, description: data.description, path, lastChecked: data.last_checked })

@@ -51,7 +51,8 @@ export interface Labels {
   months: string[];
   months_short: string[];
   weekdays_short: string[];
-  disclosure: { site: string; post: string };
+  /** affiliate: in every affiliate block (D37); absent in older exports. */
+  disclosure: { site: string; post: string; affiliate?: string };
 }
 
 export interface Origin {
@@ -187,7 +188,6 @@ export type Programme = "esim" | "insurance" | "activities";
  * per (published article, configured programme its front matter lists). */
 export interface Affiliates {
   version: 1;
-  disclosure: string;
   programmes: Record<Programme, { brand: string } | null>;
   /** article = "<collection>/<entry id>", e.g. "itineraries/paris-em-3-dias". */
   links: { article: string; programme: Programme; url: string }[];

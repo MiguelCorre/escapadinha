@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "astro dev",
     "dev:fixtures": "node scripts/with-fixtures.mjs astro dev",
-    "build": "astro build",
-    "build:fixtures": "node scripts/with-fixtures.mjs astro build",
+    "build": "astro build --force",
+    "build:fixtures": "node scripts/with-fixtures.mjs astro build --force",
     "preview": "astro preview",
     "tokens": "node scripts/tokens.mjs",
     "typecheck": "tsc -p tsconfig.functions.json && tsc -p tsconfig.typecheck.json",

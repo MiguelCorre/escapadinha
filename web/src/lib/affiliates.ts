@@ -4,11 +4,10 @@
 // article (partner links API, website Project, sub_id per article) and exports it in
 // affiliates.json. Which brand a programme is lives in config.yaml, never here: a block of a
 // programme not configured (or still without a link) renders nothing and the build warns.
-import type { Affiliates, Programme } from "./contract";
+import type { Programme, SiteData } from "./contract";
+import { partnerLink } from "./cta";
 
 export const PROGRAMMES = ["esim", "insurance", "activities"] as const satisfies readonly Programme[];
-
-export const BLOCK_REL = "sponsored nofollow noopener";
 
 /** The article a block is rendered in, set by its page (Astro.locals, see env.d.ts). */
 export interface ArticleRef {
@@ -56,27 +55,30 @@ export type BlockResult = { block: Block } | { warning: string };
 /**
  * The block of `programme` in `article`. Throws (the build stops) on an author's mistake: a block
  * outside an article, or of a programme its front matter does not list. A programme not
- * configured, or a link not created yet, is not a mistake: no block, and a warning.
+ * configured, or a link not created yet, is not a mistake: no block, and a warning. A block is
+ * never shown without labels.json's disclosure.affiliate (one export carries both).
  */
-export function affiliateBlock(data: Affiliates, article: ArticleRef | undefined, programme: Programme): BlockResult {
+export function affiliateBlock(data: Pick<SiteData, "affiliates" | "labels">, article: ArticleRef | undefined,
+  programme: Programme): BlockResult {
   if (!article) throw new Error(`the ${programme} block can only be placed in an itinerary or a tip`);
   if (!article.affiliates.includes(programme)) {
     throw new Error(`${article.key}: the ${programme} block needs "${programme}" in the front matter's affiliates`);
   }
-  const brand = data.programmes[programme]?.brand;
+  const brand = data.affiliates.programmes[programme]?.brand;
   if (!brand) {
     return { warning: `${article.key}: ${programme} block not shown: no programme configured (config.yaml affiliate.programmes.${programme})` };
   }
-  const link = data.links.find((l) => l.article === article.key && l.programme === programme);
+  const link = data.affiliates.links.find((l) => l.article === article.key && l.programme === programme);
   if (!link) {
-    return { warning: `${article.key}: ${programme} block not shown: no tracked link yet (the next export creates it)` };
+    return { warning: `${article.key}: ${programme} block not shown: no tracked link yet (created by the next full path's export)` };
   }
-  if (!link.url.startsWith("https://")) throw new Error(`affiliate link is not https: ${link.url}`);
+  const disclosure = data.labels.disclosure.affiliate;
+  if (!disclosure) throw new Error(`${article.key}: labels.json has no disclosure.affiliate for the ${programme} block`);
   const copy = BLOCK_COPY[programme];
   return {
     block: {
-      programme, title: copy.title, text: copy.text(brand), href: link.url, cta: copy.cta(brand),
-      rel: BLOCK_REL, disclosure: data.disclosure,
+      programme, title: copy.title, text: copy.text(brand), ...partnerLink(link.url), cta: copy.cta(brand),
+      disclosure,
     },
   };
 }

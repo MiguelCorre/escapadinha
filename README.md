@@ -544,14 +544,14 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 | File | Content |
 |---|---|
 | `meta.json` | Contract version, `generated_at`, latest run id, detector settings, list of files, counts, `fixture` flag |
-| `labels.json` | pt-PT names from `i18n_pt.py` (airlines, airports + remote flag, route kinds, months, disclosures) |
+| `labels.json` | pt-PT names from `i18n_pt.py` (airlines, airports + remote flag, route kinds, months, disclosures: `site`, `post` and, since D37, `affiliate` for the affiliate blocks) |
 | `origins.json` | The Portuguese origins (name, slug, origin page path `/partidas/<slug>/`, active/dormant routes, low prices, live promotions) |
 | `routes.json` | Every route: kind, status, rules, page path, typical low and plain average per departure month (null while the month has too few days), cheapest fresh offer, calendar (cheapest fresh offer per departure date, D30), counts |
 | `destinations.json` | Destination hubs: city, hub path `/destinos/<slug>/` (stable once exported: a same-name city found later takes its code; paths remembered in `site.paths` for 301s), airports, routes from Portugal, photo credit |
 | `promotions.json` | Approved deals, live and expired after approval (for `site.expired_promotions_days`, 30, after expiring): offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
 | `low-prices/<ORIGIN>.json` | One origin's low prices for the explorer: compact rows `[obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link]` |
 | `pontes.json` | Every long weekend ("pontes", D31) of `content/holidays.yaml`, past ones too: holiday, days off, bridge day, travel window, one page path per origin. No prices, no display text (added within v1: older exports lack it) |
-| `affiliates.json` | Affiliate blocks (D37): the block disclosure, each programme's brand (`esim`, `insurance`, `activities`; null while not configured) and one tracked link per (reviewed article, configured programme it lists). Added within v1: older exports lack it |
+| `affiliates.json` | Affiliate blocks (D37): each programme's brand (`esim`, `insurance`, `activities`; null while not configured) and one tracked link per (reviewed article, configured programme it lists). Added within v1: older exports lack it |
 
 - **Raw values:** ISO dates, UTC timestamps, euros as numbers. pt-PT formatting is the site's job,
   with the names from `labels.json`. `found` (traveller) and `fetched` (us) are separate fields.
@@ -588,6 +588,8 @@ npm run build:fixtures     # → web/dist from contract/site/v1/fixtures (test d
 npm run dev:fixtures       # http://localhost:4321 on the fixtures
 npm run build              # → web/dist from SITE_DATA_DIR (default web/src/data, git-ignored):
                            #   needs exported data first, see below; fails without it on purpose
+                           # (every build is `astro build --force`: Astro's content cache misses
+                           #  front matter schema changes, D37)
 npm run lhci               # Lighthouse CI on web/dist (mobile, ≥ 0.9 perf/a11y/SEO)
 npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.ts after docs/design/tokens.json changes
 ```
@@ -657,9 +659,12 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   `<ActivitiesBlock />` where it fits in the MDX body (no import: the pages pass them,
   `src/components/mdx-components.ts`) **and** lists the programme in its front matter, e.g.
   `affiliates: [esim, activities]` (a block whose programme is not listed stops the build). Each
-  block shows its pt-PT copy with the brand, the tracked link from `affiliates.json` (`rel="sponsored
-  nofollow noopener"`) and the block disclosure ("Publicidade: esta ligação é um link de
-  afiliado…"); the logic is `src/lib/affiliates.ts`. A programme not configured in `config.yaml`
+  block shows its pt-PT copy with the brand, the tracked link from `affiliates.json` (through
+  `cta.partnerLink`: https only, `rel="sponsored nofollow noopener"`) and the block disclosure
+  (`labels.json` `disclosure.affiliate`, "Publicidade: esta ligação é um link de afiliado…"); the
+  logic is `src/lib/affiliates.ts`. The front matter must read the same for the site and the
+  pipeline (`reviewed: true`, not `yes`; known programmes only): shared cases in
+  `web/test/fixtures/content-gate-cases.json`. A programme not configured in `config.yaml`
   (insurance today), or an article whose link wasn't created yet, renders **nothing** and the
   build prints `[affiliates] <article>: <programme> block not shown: …`.
 - **Scale:** `web/test/scale.test.ts` builds a synthetic dataset the size of the real data
@@ -782,8 +787,10 @@ affiliate:
 `PartnerLinksClient` for the website Project, with `sub_id=roteiro-<slug>` or `dica-<slug>` (one
 per article: the dashboard shows what each article earns), one API request per article, and
 stores it in the database (`meta` key `site.article_links`, with the brand page it was made
-for: a new page in config gets a new link). Failures are kept with their reason, left out of
-the site and retried on the next export. To connect insurance later: join a programme in
+for: a new page in config gets a new link; entries of articles no longer published, programmes
+no longer listed or configured, and other Projects are dropped on every write). Failures are kept
+with their reason, left out of the site and retried by the next full path (the export only runs
+there, like the website's deal links; a failed link alone doesn't trigger one). To connect insurance later: join a programme in
 Travelpayouts for the website Project, then replace `insurance: null` with its `brand` and `url`
 — a config change only (the next run takes the full path, since config.yaml is part of its
 fingerprint).
@@ -1006,11 +1013,15 @@ uv run pytest -m "not browser"
   when a schema gains a price field the checker doesn't know), and tests the size budget.
 - `test_affiliate_blocks.py` (D37): the affiliate blocks' links through the export with the
   partner links API mocked (one per programme and reviewed article, sub_id per article, created
-  once, a city page from config, failures retried, drafts and test-only entries left out), the
-  programme config's validation, and that the hand-added `affiliates.json` fixture is what the
-  export writes for the fixture content. `web/test/affiliate-blocks.test.ts` checks the rendering
-  on the fixture build (eSIM and activities shown where placed, insurance absent with the build's
-  warning) and on the configured build (insurance with a fake brand).
+  once, a city page from config, failures retried, drafts and test-only entries left out, stale
+  links pruned), the programme config's validation, the shared front matter cases
+  (`web/test/fixtures/content-gate-cases.json`, also checked by `web/test/content.test.ts` with
+  the zod schemas and Astro's YAML parser), and that the hand-added `affiliates.json` and
+  `disclosure.affiliate` fixtures are what the export writes for the fixture content.
+  `web/test/affiliate-blocks.test.ts` checks the rendering on the fixture build (eSIM and
+  activities shown where placed, insurance absent with the build's warning) and on the
+  configured build (insurance with a fake brand; activities configured without a link: absent,
+  with a warning).
 - `test_web_tokens.py` fails when `web/src/styles/tokens.css` or `web/src/lib/tokens.ts` no longer
   matches `docs/design/tokens.json` (run `npm run tokens` in `web/`).
 - `test_web_build.py`: `site build` (npm ci only when needed, the export's path, promotion

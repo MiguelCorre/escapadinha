@@ -3,10 +3,6 @@
 // the test-only ones in test/fixtures/content/<kind>/ (front matter `fixture: true`); which entries
 // are built is the review gate's job (src/collections.ts), not the loader's, so every file,
 // drafts included, is validated on every build. The file name is the slug.
-//
-// Astro's content cache (node_modules/.astro/data-store.json) is dropped only when THIS file's text
-// changes, not when the schemas in src/lib/content.ts do: a cached entry then lacks a new field.
-// So a front matter schema change also bumps this line. Schema: v2 (D37, `affiliates`).
 import { defineCollection } from "astro:content";
 import { glob } from "astro/loaders";
 import { itinerarySchema, tipSchema, type ContentKind } from "./lib/content";

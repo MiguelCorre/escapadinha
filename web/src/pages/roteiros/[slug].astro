@@ -11,7 +11,7 @@ import ContentArticle from "../../components/ContentArticle.astro";
 import { MDX_COMPONENTS } from "../../components/mdx-components";
 import { itineraries } from "../../collections";
 import { BRAND } from "../../lib/brand";
-import { contentPath } from "../../lib/content";
+import { articleKey, contentPath } from "../../lib/content";
 import { count, monthList } from "../../lib/format";
 import { articleLd } from "../../lib/structured-data";
 
@@ -23,7 +23,7 @@ const { entry } = Astro.props;
 const it = entry.data;
 const { Content } = await render(entry);
 // The affiliate blocks in the body find their links by the article (D37).
-Astro.locals.article = { key: `itineraries/${entry.id}`, affiliates: it.affiliates };
+Astro.locals.article = { key: articleKey("itineraries", entry.id), affiliates: it.affiliates };
 const hub = data.destinations.destinations.find((d) => d.code === it.destination);
 const path = contentPath("itineraries", entry.id);
 // Article (D34): by Ponto Nómada, modified when its facts were last checked; none for a draft.

@@ -968,43 +968,54 @@ def website_links(ctx: Context, conn: sqlite3.Connection, pairs: list[tuple[Deal
 ARTICLE_LINKS = "site.article_links"   # meta: website Project -> "<programme>:<article>" -> link (D37)
 
 
-def article_links(ctx: Context, conn: sqlite3.Connection, wanted: list[tuple[Article, str]],
+def block_targets(ctx: Context, published: list[Article]) -> dict[tuple[str, str], tuple[Article, str]]:
+    """What gets an affiliate block link (D37): (article key, programme) -> (article, brand page)
+    for every programme a published article lists that config.yaml configures. The page is
+    `ProgrammeConfig.target`: the article's city page when config has one, else the brand's site."""
+    aff = ctx.config.affiliate
+    return {(a.key, name): (a, programme.target(a.destination))
+            for a in published for name in a.affiliates
+            if (programme := aff.programme(name)) is not None}
+
+
+def article_links(ctx: Context, conn: sqlite3.Connection, published: list[Article],
                   create: bool = True) -> dict[tuple[str, str], str]:
-    """Tracked link per (article, programme) for the affiliate blocks (D37): (key, programme)
-    -> partner link, for the configured programmes only.
+    """Tracked link per `block_targets` pair of the published articles: (key, programme) ->
+    partner link.
 
     Each link is created once through `PartnerLinksClient` for the website's Project, for the
-    programme's brand page (`ProgrammeConfig.target`: the article's city page when config has
-    one, else the brand's site) with the article's sub_id (`roteiro-<slug>`, `dica-<slug>`), and
-    stored in the database (meta `site.article_links`, D25: a CI runner keeps no files). A new
-    target (config changed) gets a new link; failures are kept with their reason and retried on
-    the next export. One API request per article (its programmes are different brands, and the
-    client keys results by url). `create=False` only reads the stored links.
+    brand page with the article's sub_id (`roteiro-<slug>`, `dica-<slug>`), and stored in the
+    database (meta `site.article_links`, D25: a CI runner keeps no files). A new page (config
+    changed) gets a new link; failures are kept with their reason and retried by the next call
+    that creates (the export of the next full path). Writing also forgets every other entry: of
+    articles no longer published, programmes no longer listed or configured, other Projects. One
+    API request per article (its programmes are different brands, and the client keys results
+    by url). `create=False` only reads the stored links.
     """
-    aff = ctx.config.affiliate
-    project = aff.project_for("website")
-    targets = {(a.key, p): (a, aff.programme(p).target(a.destination))
-               for a, p in wanted if aff.programme(p) is not None}
-    if project is None or not targets:
+    targets = block_targets(ctx, published)
+    project = ctx.config.affiliate.project_for("website")
+    if project is None:
         return {}
-    cache = db.get_meta_json(conn, ARTICLE_LINKS)
-    known = cache.setdefault(str(project), {})
+    known = db.get_meta_json(conn, ARTICLE_LINKS).get(str(project), {})
 
     def stored(key: str, programme: str) -> str | None:
         entry = known.get(f"{programme}:{key}", {})
         return entry.get("url") if entry.get("target") == targets[key, programme][1] else None
 
-    todo: dict[str, list[tuple[str, Article, str]]] = {}
-    for (key, programme), (article, target) in targets.items():
-        if not stored(key, programme):
-            todo.setdefault(key, []).append((programme, article, target))
-    if create and todo:
+    if create:
+        todo: dict[str, list[tuple[str, Article, str]]] = {}
+        for (key, programme), (article, target) in targets.items():
+            if not stored(key, programme):
+                todo.setdefault(key, []).append((programme, article, target))
         for key, items in sorted(todo.items()):
             made = _tracked_links(ctx, "website", [(t, a.sub_id) for _, a, t in items])
             for programme, _, target in items:
                 url, error = made[target]
                 known[f"{programme}:{key}"] = {"target": target, "url": url, "error": error}
-        db.set_meta(conn, ARTICLE_LINKS, json.dumps(cache, sort_keys=True))
+        kept = {f"{p}:{key}": known[f"{p}:{key}"] for key, p in targets if f"{p}:{key}" in known}
+        value = json.dumps({str(project): kept} if kept else {}, sort_keys=True)
+        if value != (db.get_meta(conn, ARTICLE_LINKS) or "{}"):
+            db.set_meta(conn, ARTICLE_LINKS, value)
     return {(key, p): url for key, p in targets if (url := stored(key, p))}
 
 

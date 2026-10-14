@@ -91,6 +91,12 @@ export function contentPath(kind: ContentKind, id: string): string {
   return `/${SECTIONS[kind]}/${id}/`;
 }
 
+/** How affiliates.json names an entry (D37): "<collection>/<file name>", like the pipeline's
+ * `articles.Article.key` (test/fixtures/content-gate-cases.json checks both). */
+export function articleKey(kind: ContentKind, id: string): string {
+  return `${kind}/${id}`;
+}
+
 /** Listing order: most recently checked first, then by title (pt collation). */
 export function byLastChecked<T extends { data: { last_checked?: string; title: string } }>(a: T, b: T): number {
   return (b.data.last_checked ?? "").localeCompare(a.data.last_checked ?? "")
