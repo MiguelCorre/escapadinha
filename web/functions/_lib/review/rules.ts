@@ -1,5 +1,7 @@
 // Which decisions a reviewer may make, ported from src/escapadinha/review.py (TRANSITIONS,
-// STATUS_PT, DECISIONS, DECISION_PT, check_decision). The Function pre-checks against the
+// STATUS_PT, DECISIONS, DECISION_PT, check_decision) and db.OPEN_STATUSES. Both sides are checked
+// against contract/review/v1/fixtures/review-rules.json (web/test/review/rules.test.ts,
+// tests/test_review_rules_cases.py): change the three together. The Function pre-checks against the
 // snapshot's statuses so Miguel hears a refusal at once; the pipeline's applier
 // (review_events.apply_pending) checks again against the status the deal has when it applies the
 // event, so a stale snapshot can never move a deal the wrong way (D26).

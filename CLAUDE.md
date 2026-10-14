@@ -41,7 +41,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   injected) and tested in `web/test/review/` on the in-memory bucket. Its live check is a port of
   `pipeline.price_now` + `recheck.recheck`: change both sides together and keep
   `contract/review/v1/fixtures/live-check-cases.json` passing on both (`tests/test_live_check_cases.py`,
-  `web/test/review/live-check.test.ts`). Function sources import only relative modules under
+  `web/test/review/live-check.test.ts`). Its decision rules port `review.py` (`TRANSITIONS`,
+  `STATUS_PT`, `DECISIONS`, `DECISION_PT`, `check_decision`) and `db.OPEN_STATUSES`: change them
+  with `contract/review/v1/fixtures/review-rules.json`, which `tests/test_review_rules_cases.py`
+  and `web/test/review/rules.test.ts` check on both sides. Function sources import only relative modules under
   `web/functions/` or `web/src/lib/` (no npm packages: wrangler bundles them without
   `node_modules`); `website/deploy.py` stages exactly those files, and both the deploy hash and
   `run_path._code_files` include them.

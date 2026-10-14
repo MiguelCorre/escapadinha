@@ -1,0 +1,30 @@
+{
+  "description": "The review decision rules both writers apply (D26, D29): src/escapadinha/review.py (TRANSITIONS, STATUS_PT, DECISIONS, DECISION_PT, check_decision) and db.OPEN_STATUSES on the pipeline side, web/functions/_lib/review/rules.ts on the review Function's. tests/test_review_rules_cases.py and web/test/review/rules.test.ts check both against this file: change it together with both tables.",
+  "transitions": {
+    "new": ["expired", "rejected", "rendered"],
+    "rendered": ["approved", "expired", "rejected"],
+    "approved": ["expired", "published", "rejected"],
+    "rejected": [],
+    "expired": [],
+    "published": []
+  },
+  "status_pt": {
+    "new": "novo", "rendered": "por rever", "approved": "aprovado",
+    "published": "publicado", "rejected": "rejeitado", "expired": "expirado"
+  },
+  "decisions": {"approve": "approved", "reject": "rejected", "published": "published"},
+  "decision_pt": {"approve": "aprovar", "reject": "rejeitar", "published": "marcar como publicado"},
+  "open_statuses": ["new", "rendered", "approved"],
+  "check_decision": [
+    {"kind": "approve", "status": "rendered", "affiliate_url": "https://example.com/a", "expected": {"status": "approved"}},
+    {"kind": "reject", "status": "new", "affiliate_url": null, "expected": {"status": "rejected"}},
+    {"kind": "published", "status": "approved", "affiliate_url": "https://example.com/a", "post_url": "https://www.instagram.com/p/x/", "expected": {"status": "published"}},
+    {"kind": "published", "status": "approved", "affiliate_url": null, "post_url": null, "expected": {"status": "published"}},
+    {"kind": "approve", "status": "rendered", "affiliate_url": null, "expected": {"error": "Este deal ainda não tem link de afiliado. Volta a renderizar."}},
+    {"kind": "approve", "status": "approved", "affiliate_url": "https://example.com/a", "expected": {"error": "Não é possível passar de 'aprovado' para 'aprovado'."}},
+    {"kind": "reject", "status": "expired", "affiliate_url": null, "expected": {"error": "Não é possível passar de 'expirado' para 'rejeitado'."}},
+    {"kind": "published", "status": "rendered", "affiliate_url": "https://example.com/a", "expected": {"error": "Não é possível passar de 'por rever' para 'publicado'."}},
+    {"kind": "published", "status": "approved", "affiliate_url": null, "post_url": "instagram.com/p/x", "expected": {"error": "O link do post tem de começar por https://"}},
+    {"kind": "delete", "status": "rendered", "affiliate_url": null, "expected": {"error": "Decisão desconhecida: 'delete'."}}
+  ]
+}

@@ -868,7 +868,10 @@ so nothing has to be hosted.
   `published`, `live_check` only on `approve`). Before writing, the Function applies the same
   pre-checks as `pipeline._decidable` against the snapshot: the transition table and the
   affiliate-link and post-URL rules (`rules.ts`, a port of `review.check_decision` with the same
-  pt-PT messages) and "one pending decision per deal". Pending = the snapshot's `pending_events`
+  pt-PT messages) and "one pending decision per deal". The ported tables (`TRANSITIONS`,
+  `STATUS_PT`, `DECISIONS`, `DECISION_PT`, `db.OPEN_STATUSES`) and `check_decision` cases live in
+  `contract/review/v1/fixtures/review-rules.json`, checked against both sides
+  (`tests/test_review_rules_cases.py`, `web/test/review/rules.test.ts`), so they can't drift. Pending = the snapshot's `pending_events`
   plus objects under `pending/` whose name is not older than the snapshot's `generated_at`: an
   older object missing from the snapshot was already applied by the run that made it (D26 keeps it
   pending until the next run), so it must not block, e.g., marking a just-approved deal
