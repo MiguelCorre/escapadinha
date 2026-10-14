@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import respx
 
-from escapadinha import pipeline, run_path, site_data
+from escapadinha import i18n_pt, pipeline, run_path, site_data
 from escapadinha.storage import db
 from escapadinha.website import astro, node
 from escapadinha.website import deploy as site_deploy
@@ -340,18 +340,25 @@ def test_a_change_to_the_web_package_takes_the_full_path(ctx):
         (web / rel).parent.mkdir(parents=True, exist_ok=True)
         (web / rel).write_text(text, "utf-8")
     conn = pipeline.open_db(ctx)
-    run_path.record_full_path(ctx, conn)
+    record(ctx, conn)
     assert not run_path.decide(ctx, conn).full
     for rel in ("src/pages/index.astro", "src/content/tips/dica.mdx", "astro.config.ts",
                 "public/favicon.svg", "package-lock.json"):
         (web / rel).write_text((web / rel).read_text("utf-8") + "\n// changed\n", "utf-8")
         decision = run_path.decide(ctx, conn)
         assert decision.full and "code" in decision.reason, rel
-        run_path.record_full_path(ctx, conn)
+        record(ctx, conn)
     # The export's output, installed packages and the build are not sources.
     for rel in ("src/data/meta.json", "node_modules/x/index.js", "dist/index.html"):
         (web / rel).write_text("changed", "utf-8")
     assert not run_path.decide(ctx, conn).full
+
+
+def record(ctx, conn, now=None) -> site_data.Export:
+    """A successful full path: the export it wrote and deployed is what gets recorded."""
+    export = site_data.build_export(ctx, conn, now, new_links=False)
+    run_path.record_full_path(ctx, conn, export)
+    return export
 
 
 def store_offer(conn, price: float, departure) -> None:
@@ -374,12 +381,37 @@ def test_what_the_exported_data_shows_decides_the_path_not_the_run_bookkeeping(c
     from datetime import date
     conn = pipeline.open_db(ctx)
     store_offer(conn, 120, date(2026, 12, 4))
-    run_path.record_full_path(ctx, conn)
+    record(ctx, conn)
     store_offer(conn, 120, date(2026, 12, 4))              # the same offer seen again
     assert run_path.decide(ctx, conn) == run_path.PathDecision(False, "nothing the site shows changed")
     store_offer(conn, 99, date(2026, 12, 4))               # a cheaper one: the site changes
     decision = run_path.decide(ctx, conn)
     assert decision.full and decision.reason == "changed: site data"
+
+
+def test_a_full_path_records_the_export_it_deployed_not_a_later_state(ctx):
+    """The fingerprint stored after a full path is the export that was built and deployed (its
+    data and its day), not the database re-read later: an offer that went stale between the
+    export and the record must still take the next run's full path, or the site would keep
+    showing it."""
+    from datetime import date
+    conn = pipeline.open_db(ctx)
+    store_offer(conn, 99, date.today() + timedelta(days=50))
+    exported_at = db.utcnow()
+    export = site_data.build_export(ctx, conn, exported_at, new_links=False)
+    [route] = [r for r in export.files["routes.json"]["routes"] if r["key"] == "LIS-LON"]
+    assert route["cheapest"] is not None                         # the page shows the 99 € offer
+    stale = exported_at + timedelta(days=ctx.config.detector.max_offer_age_days + 1)
+    later = site_data.build_export(ctx, conn, stale, new_links=False)
+    [route] = [r for r in later.files["routes.json"]["routes"] if r["key"] == "LIS-LON"]
+    assert route["cheapest"] is None                             # no longer fresh by then
+    run_path.record_full_path(ctx, conn, export)                 # recorded after a long deploy
+    stored = json.loads(db.get_meta(conn, run_path.FINGERPRINT))
+    assert stored["site_data"] == site_data.shown_digest(export)
+    assert stored["day"] == exported_at.astimezone(i18n_pt.LISBON).date().isoformat()
+    decision = run_path.decide(ctx, conn, now=stale)
+    assert decision.full and "site data" in decision.reason      # the stale offer goes away
+    assert not run_path.decide(ctx, conn, now=exported_at).full  # nothing else moved
 
 
 def test_the_site_never_shows_what_the_fingerprint_leaves_out():

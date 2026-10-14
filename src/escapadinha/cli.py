@@ -404,15 +404,22 @@ def export_site_data(
     new_links: Annotated[bool, typer.Option(help="Create missing partner links (API)")] = True,
 ) -> None:
     """Write the website's JSON data (origins, routes, promotions, low prices per origin, ...)."""
+    _export_site_data(out, new_links)
+
+
+def _export_site_data(out: Path | None, new_links: bool):
+    """`export site-data`; returns the `site_data.Export` written (the full path records it)."""
     from escapadinha import site_data
 
     ctx, conn = _ctx()
     out = out or site_data.default_dir(ctx)
-    counts = site_data.export_site_data(ctx, conn, out, new_links=new_links).counts
+    export = site_data.export_site_data(ctx, conn, out, new_links=new_links)
+    counts = export.counts
     console.print(f"Site data written to [bold]{out}[/]: {counts['routes']} routes, "
                   f"{counts['origins']} origins, {counts['destinations']} destinations, "
                   f"{counts['promotions_live']} live + {counts['promotions_expired']} expired "
                   f"promotions, {counts['low_prices']} low prices")
+    return export
 
 
 @export_app.command("fixtures")
@@ -755,13 +762,13 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
         console.print(f"{len(uploaded)} local files uploaded to the object store.")
     if render:
         render_deals()
-    export_site_data(out=None, new_links=True)   # → web/src/data (site.data_dir)
+    export = _export_site_data(None, new_links=True)   # → web/src/data (site.data_dir)
     _site_build(until)                           # the Astro site → web/dist (D35)
     if _site_configured(ctx):
         _site_deploy(force=False, until=until)
     else:
         console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
-    run_path.record_full_path(ctx, conn)
+    run_path.record_full_path(ctx, conn, export)   # what was exported, built and deployed
 
 
 def _duration(seconds: float) -> str:

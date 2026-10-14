@@ -772,7 +772,8 @@ on `ubuntu-latest`: lock → pull the database from R2 → daily backup → (mon
 collect → recheck → detect → publish due posts (D32) → **full path only when needed** → push → unlock.
 
 - **Fast path, full path.** After detection the run compares a fingerprint of what the public
-  outputs show with the one stored at the last full path: promotions (id, status, link), the
+  outputs show with the one stored at the last full path (from the export it deployed, not
+  re-read afterwards): promotions (id, status, link), the
   site data exactly as the next build would read it (computed in memory, without the run id,
   timestamps and counters no page shows), routes (key, status, name), the Lisbon date, and the
   code, config and content (the Python package, `config.yaml`, `content/`, the web package's

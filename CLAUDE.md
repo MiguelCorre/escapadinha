@@ -174,7 +174,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`;
   `mirror.py`: `Mirror` (a local folder also kept under a store prefix: `photos/`, `output/`)
 - `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint` incl. `site_data_digest`,
-  `record_full_path`)
+  `record_full_path(ctx, conn, export)`: records the export the full path wrote, never a re-read)
 - `.github/workflows/pipeline.yml`: 2-hourly `escapadinha run` on Actions; dispatch → `--full` (D25)
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate` (candidates),
   `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)

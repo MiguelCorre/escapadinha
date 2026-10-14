@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from escapadinha import pipeline, run_path
+from escapadinha import pipeline, run_path, site_data
 from escapadinha.website import deploy as site_deploy
 from escapadinha.website import node
 from test_pipeline import ctx  # noqa: F401
@@ -145,12 +145,12 @@ def test_a_function_change_redeploys_an_unchanged_site(ctx, wrangler):
 def test_a_function_change_takes_the_full_path(ctx):
     w = web(ctx.root)
     conn = pipeline.open_db(ctx)
-    run_path.record_full_path(ctx, conn)
+    run_path.record_full_path(ctx, conn, site_data.build_export(ctx, conn, new_links=False))
     assert not run_path.decide(ctx, conn).full
     (w / "functions/review/index.ts").write_text("export const onRequest = () => new Response('x');\n", "utf-8")
     decision = run_path.decide(ctx, conn)
     assert decision.full and "code" in decision.reason
-    run_path.record_full_path(ctx, conn)
+    run_path.record_full_path(ctx, conn, site_data.build_export(ctx, conn, new_links=False))
     # Since the cutover (D35) the whole web package's sources count, not only the Function's.
     (w / "src/lib/site-data.ts").write_text("// not part of the Function\n", "utf-8")
     assert run_path.decide(ctx, conn).full

@@ -109,6 +109,11 @@ class Export:
     def counts(self) -> dict:
         return self.files["meta.json"]["counts"]
 
+    @property
+    def generated_at(self) -> datetime:
+        """The `now` the export was made for (UTC, to the second)."""
+        return datetime.fromisoformat(self.files["meta.json"]["generated_at"].replace("Z", "+00:00"))
+
 
 # --- what a page shows (the full path's fingerprint, D35) -----------------------------------
 

@@ -432,7 +432,7 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     from escapadinha import run_path
     calls = []
     for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "publish_due",
-                 "render_deals", "export_site_data", "_site_build", "_site_deploy",
+                 "render_deals", "_export_site_data", "_site_build", "_site_deploy",
                  "export_review_snapshot"):
         monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
@@ -441,7 +441,7 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     monkeypatch.setattr(cli, "_site_configured", lambda ctx: True)
     monkeypatch.setattr(cli.pipeline, "mirror_local_files", lambda ctx, conn: [])
     monkeypatch.setattr(run_path, "record_full_path",
-                        lambda ctx, conn: calls.append("record_full_path"))
+                        lambda ctx, conn, export: calls.append("record_full_path"))
     monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.PathDecision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
     assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",

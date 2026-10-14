@@ -103,12 +103,17 @@ def site_data_digest(ctx: Context, conn: sqlite3.Connection, now: datetime) -> s
     return site_data.shown_digest(site_data.build_export(ctx, conn, now, new_links=False))
 
 
-def fingerprint(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, str]:
+def fingerprint(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None, *,
+                export: site_data.Export | None = None) -> dict[str, str]:
+    """The components now, or, with `export`, as of that export (its data and its day)."""
+    if export is not None:
+        now = export.generated_at
     now = now or db.utcnow()
     all_routes = routes.all_routes(conn, ctx.config.routes)
     return {
         "promotions": _digest(db.deal_states(conn)),
-        "site_data": site_data_digest(ctx, conn, now),
+        "site_data": (site_data.shown_digest(export) if export is not None
+                      else site_data_digest(ctx, conn, now)),
         "routes": _digest(sorted((r.key, r.status, r.city_pt) for r in all_routes)),
         "day": now.astimezone(i18n_pt.LISBON).date().isoformat(),
         "code": _files_digest(_code_files(ctx)),
@@ -130,6 +135,9 @@ def decide(ctx: Context, conn: sqlite3.Connection, *, force: bool = False,
     return PathDecision(False, "nothing the site shows changed")
 
 
-def record_full_path(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None) -> None:
-    """After a successful full path: what the published outputs now reflect."""
-    db.set_meta(conn, FINGERPRINT, json.dumps(fingerprint(ctx, conn, now)))
+def record_full_path(ctx: Context, conn: sqlite3.Connection, export: site_data.Export) -> None:
+    """After a successful full path: what the published outputs now reflect. `export` is the
+    site data that was written and built (and deployed): its digest and its day are recorded,
+    not the database's state at a later moment (an offer that went stale, or a new Lisbon day,
+    between the export and now must still take the next run's full path)."""
+    db.set_meta(conn, FINGERPRINT, json.dumps(fingerprint(ctx, conn, export=export)))

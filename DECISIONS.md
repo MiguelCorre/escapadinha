@@ -1554,6 +1554,13 @@ so nothing has to be hosted.
   isn't, the knob is `site_data.shown` (e.g. leave the calendar to the daily refresh), not the build.
   Rejected: hashing `web/src/data` after the previous export (a runner has none, CI keeps no
   files) and comparing built sites (that is the cost the fast path avoids).
+  **Recorded from the export that went live** (code review, 2026-10-14): `record_full_path(ctx,
+  conn, export)` takes the `site_data.Export` the full path wrote, built and deployed, and stores
+  its `shown_digest` and its day (`Export.generated_at`); it no longer rebuilds the export at
+  record time. A full path can take minutes (npm ci, build, deploy): an offer that stops being
+  fresh, or a new Lisbon day, in between would otherwise be recorded as published while the site
+  still shows the earlier state, and the next run would wrongly take the fast path (tested with
+  an offer that goes stale between the export and the record).
 - **CI:** `actions/setup-node` with `cache: npm` keyed on `web/package-lock.json`, so the full
   path's `npm ci` installs from the cache; the fast path never runs npm. Timeout unchanged (45 <
   60 min lock). The PC task needs Node 22+ installed (it already did for wrangler).
