@@ -253,6 +253,7 @@ def project(root: Path) -> Context:
     config = yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))
     config["routes"]["long_haul"] = []
     config["affiliate"]["projects"]["website"] = 700001
+    config["site"]["search_widget"] = None   # the real widget carries the real Project
     root.mkdir(parents=True, exist_ok=True)
     (root / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True), "utf-8")
     shutil.copytree(REPO / "assets", root / "assets", ignore=shutil.ignore_patterns("photos"))
