@@ -71,15 +71,25 @@ def test_uv_and_the_browser_download_are_cached():
 
 
 def test_the_full_path_can_build_and_deploy_the_astro_site_on_a_fresh_runner():
-    """Node 22 with npm's download cache keyed on the web lockfile: the full path's `site build`
-    runs `npm ci` itself (only when it builds, D35), so a fast path never installs anything.
+    """Node 22; the full path's `site build` runs `npm ci` itself (only when it builds, D35), so
+    a fast path never installs anything. npm's download cache is restored (keyed on the web
+    lockfile) and saved only after a full path's npm ci on a miss, never by a fast path.
     wrangler (npx) bundles web/functions; the Function imports no npm package (D29)."""
     from escapadinha.website import deploy as site_deploy
     [job] = load()["jobs"].values()
     uses = {s.get("uses", "").split("@")[0]: s for s in job["steps"]}
     node = uses["actions/setup-node"]["with"]
     assert int(node["node-version"]) >= 22
-    assert node["cache"] == "npm" and node["cache-dependency-path"] == "web/package-lock.json"
+    assert "cache" not in node                       # its post step would save on any miss
+    restore, save = uses["actions/cache/restore"], uses["actions/cache/save"]
+    assert restore["with"]["path"] == save["with"]["path"] == "~/.npm"
+    assert "hashFiles('web/package-lock.json')" in restore["with"]["key"]
+    assert save["with"]["key"] == f"${{{{ steps.{restore['id']}.outputs.cache-primary-key }}}}"
+    [run] = [s for s in job["steps"] if "escapadinha run" in s.get("run", "")]
+    assert f"steps.{run['id']}.outputs.npm_ci == 'true'" in save["if"]
+    assert f"steps.{restore['id']}.outputs.cache-hit != 'true'" in save["if"]
+    steps = job["steps"]
+    assert steps.index(restore) < steps.index(run) < steps.index(save)
     assert "sparse-checkout" not in (uses["actions/checkout"].get("with") or {})
     assert not any("npm ci" in s.get("run", "") for s in job["steps"])   # Python decides
     repo_web = WORKFLOW.parent.parent.parent / "web"

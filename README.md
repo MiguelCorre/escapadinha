@@ -797,9 +797,10 @@ collect → recheck → detect → publish due posts (D32) → **full path only 
 - **Caches.** uv's cache (setup-uv) and the Chromium download (`~/.cache/ms-playwright`, keyed on
   `uv.lock`). Chromium and its system libraries are installed only when slides are rendered
   (`ESCAPADINHA_INSTALL_BROWSER=1`: `playwright install --with-deps chromium` the first time a
-  renderer opens), so the fast path never pays for it. Node 22 with npm's download cache
-  (`setup-node`, keyed on `web/package-lock.json`) for the full path's `npm ci`, the Astro build
-  and `npx wrangler`; the fast path never runs npm.
+  renderer opens), so the fast path never pays for it. Node 22 for the full path's `npm ci`, the
+  Astro build and `npx wrangler`; the fast path never runs npm. npm's download cache (`~/.npm`,
+  keyed on `web/package-lock.json`) is restored on every run (a few seconds) and saved only after
+  a full path that ran `npm ci` on a cache miss (`npm_ci=true` in `$GITHUB_OUTPUT`, D35).
 - **Secrets:** repo → *Settings* → *Secrets and variables* → *Actions* → *New repository
   secret*, one per `.env` key: `TRAVELPAYOUTS_TOKEN`, `TRAVELPAYOUTS_MARKER`, `PIXABAY_API_KEY`,
   `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`,

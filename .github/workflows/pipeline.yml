@@ -55,13 +55,22 @@ jobs:
           enable-cache: true
 
       # Node for the Astro site (web/, D35) and `npx wrangler` (deploy + the review Function,
-      # D29). npm's download cache is keyed on the web lockfile; `escapadinha run` runs `npm ci`
-      # itself on the full path only, so a fast path installs nothing.
+      # D29). `escapadinha run` runs `npm ci` itself, on the full path only.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+
+      # npm's download cache (~/.npm), keyed on the web lockfile, restored on every run (a few
+      # seconds: the run only knows after detection whether it takes the full path) and saved
+      # only by the step below, after a full path that ran npm ci on a miss. setup-node's own
+      # `cache: npm` would save on any job that missed, a fast path's empty ~/.npm included (D35).
+      - name: Restore npm's download cache
+        id: npm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-node22-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-node22-
 
       - name: Cache the Chromium download
         uses: actions/cache@v4
@@ -73,6 +82,7 @@ jobs:
         run: uv sync --frozen --no-dev
 
       - name: Run
+        id: run
         env:
           FULL: ${{ github.event_name == 'repository_dispatch' || inputs.full == true }}
         run: |
@@ -81,6 +91,15 @@ jobs:
           else
             uv run --no-sync escapadinha run
           fi
+
+      # `escapadinha run` writes npm_ci=true to $GITHUB_OUTPUT after a full path's npm ci and
+      # build succeeded; a fast path never does.
+      - name: Save npm's download cache
+        if: always() && steps.run.outputs.npm_ci == 'true' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
 
       - name: Mark the summary of a failed or cancelled job
         if: failure() || cancelled()

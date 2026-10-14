@@ -356,8 +356,9 @@ def site_build() -> None:
     _site_build(until=None)
 
 
-def _site_build(until: float | None) -> None:
-    """`site build` within the deadline `until` (the full path's, D35; None: a budget of its own)."""
+def _site_build(until: float | None):
+    """`site build` within the deadline `until` (the full path's, D35; None: a budget of its own).
+    Returns the `astro.BuildSummary`."""
     from escapadinha.website import astro
 
     ctx, conn = _ctx()
@@ -377,6 +378,7 @@ def _site_build(until: float | None) -> None:
     if not site.on_final_domain:
         console.print(f"  [dim]Served at {site.base_url}; final domain {site.domain} not "
                       f"connected yet (docs/runbooks/brand-switch.md)[/]")
+    return summary
 
 
 @site_app.command("build-jinja")
@@ -765,7 +767,8 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     if render:
         render_deals()
     export = _export_site_data(None, new_links=True)   # → web/src/data (site.data_dir)
-    _site_build(until)                           # the Astro site → web/dist (D35)
+    if _site_build(until).installed:             # the Astro site → web/dist (D35)
+        _github_output("npm_ci", "true")         # the workflow saves npm's cache (D35)
     if _site_configured(ctx):
         _site_deploy(force=False, until=until)
     else:
@@ -776,6 +779,14 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
 def _duration(seconds: float) -> str:
     minutes, secs = divmod(round(seconds), 60)
     return f"{minutes} min {secs} s" if minutes else f"{secs} s"
+
+
+def _github_output(name: str, value: str) -> None:
+    """A step output for the workflow (only when Actions sets the file)."""
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{name}={value}\n")
 
 
 def _step_summary(status: str, took: str, report: list[str]) -> None:

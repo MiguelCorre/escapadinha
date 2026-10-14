@@ -434,7 +434,8 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "publish_due",
                  "render_deals", "_export_site_data", "_site_build", "_site_deploy",
                  "export_review_snapshot"):
-        monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n))
+        monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n)
+                            or SimpleNamespace(installed=False))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
         status="ok", n_requests=1, n_observations=1, n_new=0, errors=[]))
     monkeypatch.setattr(cli, "_ctx", lambda: (None, None))

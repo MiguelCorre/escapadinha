@@ -114,6 +114,20 @@ def test_the_full_path_shares_one_deadline_between_build_and_deploy(home, npm, m
 
 
 @respx.mock
+def test_only_a_full_path_that_ran_npm_ci_asks_the_workflow_to_save_npms_cache(home, monkeypatch,
+                                                                               tmp_path):
+    """`npm_ci=true` in $GITHUB_OUTPUT: the workflow's save step runs on it (D35)."""
+    output = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    mock_api()
+    assert "Path: full" in run_cli()                      # npm ci ran (no node_modules yet)
+    assert output.read_text("utf-8") == "npm_ci=true\n"
+    output.write_text("", "utf-8")
+    assert "Path: fast" in run_cli()
+    assert run_cli("--full") and output.read_text("utf-8") == ""    # installed already
+
+
+@respx.mock
 def test_new_deals_and_review_decisions_take_the_full_path(home):
     conn = pipeline.open_db(home)
     seed_history(conn, days=25, price=100)

@@ -1577,9 +1577,21 @@ so nothing has to be hosted.
   fresh, or a new Lisbon day, in between would otherwise be recorded as published while the site
   still shows the earlier state, and the next run would wrongly take the fast path (tested with
   an offer that goes stale between the export and the record).
-- **CI:** `actions/setup-node` with `cache: npm` keyed on `web/package-lock.json`, so the full
-  path's `npm ci` installs from the cache; the fast path never runs npm. Timeout unchanged (45 <
-  60 min lock). The PC task needs Node 22+ installed (it already did for wrangler).
+- **CI:** `actions/setup-node` (Node 22, no `cache:`), and npm's download cache (`~/.npm`) in
+  two steps: `actions/cache/restore` before the run (key: OS, Node 22, the web lockfile's hash;
+  falls back to the newest cache of an older lockfile), `actions/cache/save` after it, only when
+  the run wrote `npm_ci=true` to `$GITHUB_OUTPUT` (`cli._github_output`: a full path whose npm ci
+  and build succeeded) and the restore missed the exact key. Why not setup-node's `cache: npm`
+  (code review, 2026-10-14): its post step saves whenever the key missed, so a fast path (no npm
+  at all) after a lockfile change would save a nearly empty `~/.npm` under the new key, and every
+  later full path would "hit" it and download everything. The **restore still runs on every
+  run**, fast paths included: the run only knows after detection whether it takes the full path,
+  inside one `escapadinha run` (lock → pull → … → push, D21), and splitting that process around
+  the decision is not worth it. The cost is the download of ~/.npm for this lockfile (~363
+  packages, tens of MB compressed; a few seconds), about 1 % of a ~2-minute fast path; skipping
+  it would make each full path download from the registry instead. The fast path never runs
+  npm. Timeout unchanged (45 < 60 min lock). The PC task needs Node 22+ installed (it already
+  did for wrangler).
 - **CLI:** `site build` (Astro, prints pages per type, images, redirects, size), `site
   build-jinja` (legacy, never deployed), `site preview` (serves `web/dist`; `_redirects` not
   applied), `site deploy` (refuses fixtures), `site crawl`.
