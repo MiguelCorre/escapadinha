@@ -16,7 +16,7 @@ import { writeSyntheticData, type Synthetic } from "./synthetic-data";
 import { traceableAmounts, untraceable } from "./trace";
 
 const WEB_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-/** Build-time budget for the full-size site (D30): measured ~30-40 s on Miguel's PC. */
+/** Build-time budget for the full-size site (D30): ~5 s measured on Miguel's PC (~18 s cold). */
 export const BUILD_BUDGET_SECONDS = 120;
 
 let dataDir = "";
