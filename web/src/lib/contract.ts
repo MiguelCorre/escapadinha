@@ -26,6 +26,12 @@ export interface Meta {
   run: { id: number; finished_at: string | null } | null;
   currency: "EUR";
   base_url: string;
+  /** Cloudflare Web Analytics beacon token (D34); null/absent: no beacon. */
+  analytics_token?: string | null;
+  /** Aviasales search form script src from Travelpayouts' widget constructor (D34). */
+  search_widget?: string | null;
+  /** "@ondestaanocas": the contact on the About and Privacy pages (D34). */
+  instagram_handle?: string;
   detector: Record<string, number>;
   files: {
     origins: string; routes: string; destinations: string; promotions: string; labels: string;

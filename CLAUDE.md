@@ -43,11 +43,21 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   pages `/roteiros/<slug>/`, `/dicas/<slug>/`), front matter per `src/lib/content.ts`. Only
   `reviewed: true` is built or listed, and only a human sets it (never mark Claude's drafts
   reviewed); a reviewed entry needs `last_checked` and an official https source. Pages, listings,
-  itinerary links (and a future sitemap) read entries only through `src/collections.ts` (the
+  itinerary links read entries only through `src/collections.ts` (the
   gate); drafts show in `astro dev` only. No prices in content: no "€"/"EUR"/euro amounts (the
   pt-PT lint over all MDX refuses them, plus pt-BR words, "3.5", ISO/English dates, "20 %");
   prices come from the contract with their `data-obs`. Test-only entries (`fixture: true`) live
   in `web/test/fixtures/content/` and are built from fixture data only.
+- SEO on the Astro site (D34): a page decides its own `noindex`; `sitemap.xml` is generated from
+  the built pages (`src/lib/sitemap.ts`), never from a list. JSON-LD only through
+  `src/lib/structured-data.ts` (schema-dts types; add the type's JSON Schema to
+  `web/test/jsonld.ts`) and `JsonLd.astro`/`Breadcrumbs.astro`; a block with a price carries its
+  `data-obs`/`data-deal` (the traceability test checks JSON-LD too); no Offer on an expired
+  promotion. Third-party scripts only from the contract's `meta`: the Cloudflare beacon only with
+  `analytics_token` (null: the zone's automatic setup measures at the edge), the Aviasales search
+  form only with `search_widget` (from Travelpayouts' widget constructor, never hand-built; route
+  and destination pages only, loaded lazily by `src/lib/search-widget.ts`). Fixtures keep both
+  null. The site sets no cookies (no `document.cookie`, no Set-Cookie).
 - The review Function (D29, `web/functions/`, TypeScript) is a writer of pending review events
   only: it never changes a status (the applier does, D26). Every request must pass
   `access.verifyAccess` (RS256 Access JWT: signature against the team's certs, `aud` =
@@ -185,13 +195,17 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
   `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
 - `web/`: the Astro site (D28): `src/pages/` (home, `promos/`, `voos/` route pages, `partidas/`
-  origin pages, `destinos/` hubs, D30; `roteiros/`, `dicas/` D33), view logic in `src/lib/`
+  origin pages, `destinos/` hubs, D30; `roteiros/`, `dicas/` D33; `sobre/`, `privacidade/`,
+  `robots.txt` D34), view logic in `src/lib/`
   (`promotion.ts`, `routes.ts`, `low-prices.ts`, `format.ts` + `dates.ts`, `cta.ts`, `content.ts` +
-  `itinerary.ts` + `related.ts`),
+  `itinerary.ts` + `related.ts`; SEO D34: `structured-data.ts`, `sitemap.ts` (Astro integration),
+  `search-widget.ts`),
   `src/content.config.ts` + `src/collections.ts` (MDX collections + review gate), tests in
-  `web/test/` (fixture build, `scale.test.ts` full-size synthetic build, traceability, internal
-  links, `content-pages.test.ts`)
-- `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
+  `web/test/` (fixture build + a configured build with fake analytics/widget values in
+  `build-site.ts`, `scale.test.ts` full-size synthetic build, traceability, internal links,
+  `content-pages.test.ts`, `seo.test.ts` + `jsonld.ts`, `seo-configured.test.ts`)
+- `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`,
+  `search-widget.md`)
 - `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
   validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a
   promotion), `cta.ts` (booking button + disclosure); `src/layouts/Base.astro`, `src/components/`,

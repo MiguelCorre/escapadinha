@@ -22,6 +22,18 @@
     },
     "currency": {"const": "EUR"},
     "base_url": {"type": "string", "pattern": "^https://[^/]+$"},
+    "analytics_token": {
+      "description": "Added in v1 (D34): Cloudflare Web Analytics beacon token; null or absent: no beacon script (the zone's automatic setup measures at the edge). Always null in fixtures.",
+      "anyOf": [{"type": "string", "pattern": "^[A-Za-z0-9]{16,64}$"}, {"type": "null"}]
+    },
+    "search_widget": {
+      "description": "Added in v1 (D34): src of the Aviasales search form script from Travelpayouts' widget constructor (config.SEARCH_WIDGET_HOSTS); null or absent: no widget. Always null in fixtures.",
+      "anyOf": [{"type": "string", "pattern": "^https://(tp\\.media|tpwgts\\.com|tpembd\\.com|tpemd\\.com|tpscr\\.com)/[^\\s\"'<>`\\\\]*$"}, {"type": "null"}]
+    },
+    "instagram_handle": {
+      "description": "Added in v1 (D34): the brand's Instagram handle (config brand.handle), the contact on the About and Privacy pages.",
+      "type": "string", "pattern": "^@[A-Za-z0-9._]{1,30}$"
+    },
     "detector": {
       "type": "object",
       "description": "Settings behind typical lows, low prices and promotions (DECISIONS D3, D24).",

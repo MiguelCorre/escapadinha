@@ -6,11 +6,13 @@ import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
 import BookingCta from "../../components/BookingCta.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import PriceBlock from "../../components/PriceBlock.astro";
 import type { Promotion } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { bookingCta } from "../../lib/cta";
 import { airportLabel, promotionView } from "../../lib/promotion";
+import { promotionLd } from "../../lib/structured-data";
 
 export const getStaticPaths = (() => {
   return data.promotions.promotions.map((promotion) => {
@@ -38,6 +40,8 @@ const description = view.live
     + (view.discount ? `, ${view.discount.value} abaixo do habitual em ${view.month}` : "")
     + (view.foundOn ? `. Encontrado por um viajante a ${view.foundOn}.` : ".")
   : `Promoção expirada: ${view.headline}, ${view.datesProse}. Fica como registo, sem ligação de reserva.`;
+// Live only (D34): a Trip with its Offer, the offer's own price, traced through data-obs/data-deal.
+const trip = promotionLd(data, promotion, view, description);
 ---
 <Base
   title={title}
@@ -45,9 +49,12 @@ const description = view.live
   path={promotion.path}
   noindex={!view.live}
   ogImage={promotion.images?.og ?? null}
+  ogImageAlt={`Promoção ${view.headline}`}
   refs={{ deal: view.id }}
+  jsonLd={trip ? [{ data: trip, refs: { obs: view.obs, deal: view.id } }] : []}
 >
-  <nav aria-label="Caminho" class="text-small text-muted"><a href="/#promocoes">Promoções</a> › {view.originName} → {view.city}</nav>
+  <Breadcrumbs crumbs={[{ name: "Promoções", path: "/" }, { name: view.headline, path: promotion.path }]}
+    hrefs={{ "/": "/#promocoes" }} />
 
   <article data-deal={view.id} class="mt-lg grid grid-cols-1 gap-2xl md:grid-cols-2">
     {slides.length > 0 && (

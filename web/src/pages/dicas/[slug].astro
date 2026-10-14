@@ -1,12 +1,16 @@
 ---
-// One page per tip that passed the review gate (D33): /dicas/<file name>/.
+// One page per tip that passed the review gate (D33): /dicas/<file name>/, with its Article JSON-LD
+// and breadcrumbs (D34).
 import type { GetStaticPaths } from "astro";
 import { render } from "astro:content";
+import siteData from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import ContentArticle from "../../components/ContentArticle.astro";
 import { tips } from "../../collections";
 import { BRAND } from "../../lib/brand";
 import { contentPath } from "../../lib/content";
+import { articleLd } from "../../lib/structured-data";
 
 export const getStaticPaths = (async () => {
   return (await tips()).map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
@@ -15,13 +19,20 @@ export const getStaticPaths = (async () => {
 const { entry } = Astro.props;
 const { data } = entry;
 const { Content } = await render(entry);
+const path = contentPath("tips", entry.id);
+const article = data.reviewed
+  ? articleLd(siteData, { title: data.title, description: data.description, path, lastChecked: data.last_checked })
+  : null;
 ---
 <Base
   title={`${data.title} · ${BRAND}`}
   description={data.description}
-  path={contentPath("tips", entry.id)}
+  path={path}
   noindex={!data.reviewed}
+  ogType="article"
+  jsonLd={article ? [{ data: article }] : []}
 >
+  <div class="mb-lg"><Breadcrumbs crumbs={[{ name: "Dicas", path: "/dicas/" }, { name: data.title, path }]} /></div>
   <ContentArticle kicker="Dica" title={data.title} description={data.description} reviewed={data.reviewed}
     lastChecked={data.last_checked} sources={data.sources}>
     <Content />

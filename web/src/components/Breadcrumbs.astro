@@ -1,0 +1,23 @@
+---
+// The trail at the top of a page ("Destinos › Paris") and the same trail as a schema.org
+// BreadcrumbList (D34), from one list, so the visible and the structured trail never differ. The
+// last crumb is the page itself: plain text on the page, its canonical URL in the JSON-LD.
+import data from "virtual:site-data";
+import JsonLd from "./JsonLd.astro";
+import { breadcrumbLd, type Crumb } from "../lib/structured-data";
+
+interface Props {
+  crumbs: Crumb[];
+  /** Visible link of a crumb when it differs from its JSON-LD URL ("/#promocoes" for "/"). */
+  hrefs?: Record<string, string>;
+}
+
+const { crumbs, hrefs = {} } = Astro.props;
+const last = crumbs.length - 1;
+---
+<nav aria-label="Caminho" class="text-small text-muted">
+  {crumbs.map((c, i) => (
+    <>{i > 0 && " › "}{i < last ? <a href={hrefs[c.path] ?? c.path}>{c.name}</a> : <span aria-current="page">{c.name}</span>}</>
+  ))}
+</nav>
+<JsonLd data={breadcrumbLd(data, crumbs)} />

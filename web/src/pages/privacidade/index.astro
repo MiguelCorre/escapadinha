@@ -1,0 +1,40 @@
+---
+// Privacy (D34): what the site collects (almost nothing), the cookieless Cloudflare Web Analytics
+// (zone automatic setup, or the beacon when a token is configured), that the site sets no cookies
+// itself, and when the partner (Travelpayouts / Aviasales) may set its own. Carried over from the
+// Jinja site's privacy page and brought up to date.
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import { BRAND } from "../../lib/brand";
+import { CTA_TEXT } from "../../lib/cta";
+import { instagramUrl } from "../../lib/structured-data";
+
+const handle = data.meta.instagram_handle;
+const instagram = instagramUrl(handle);
+---
+<Base
+  title={`Privacidade · ${BRAND}`}
+  description="Que dados este site recolhe (quase nenhuns), como contamos as visitas sem cookies e o que acontece quando clicas num link de afiliado."
+  path="/privacidade/"
+>
+  <article class="prose max-w-measure">
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Privacidade</h1>
+    <p class="text-lead text-muted">Este site não tem contas, formulários nem newsletter, e não define cookies: não guarda cookies nem nada parecido no teu navegador.</p>
+
+    <h2>O que acontece quando visitas o site</h2>
+    <p>O site está alojado na Cloudflare (Cloudflare Pages). Como qualquer servidor web, a Cloudflare processa dados técnicos de cada pedido, como o endereço IP e o navegador, para entregar as páginas e proteger o serviço.</p>
+
+    <h2>Como contamos as visitas</h2>
+    <p>Usamos o Cloudflare Web Analytics para saber quantas pessoas visitam cada página. Não usa cookies nem guarda nada no teu navegador, não cria um perfil teu e não te segue de um site para outro. Só vemos totais agregados, como o número de visitas por página, o país e o site de onde vieram. Não recolhemos dados pessoais, por isso não te pedimos consentimento nem mostramos um aviso de cookies.</p>
+
+    <h2>Links de afiliado e pesquisa de voos</h2>
+    <p>Quando clicas em "{CTA_TEXT}", passas pela Travelpayouts e segues para o site parceiro (Aviasales). Nas páginas das rotas e dos destinos pode haver também uma pesquisa de voos do Aviasales, que só é carregada quando chegas a essa parte da página. A Travelpayouts e o Aviasales podem usar cookies próprios só depois de clicares num link de reserva ou de usares essa pesquisa, para registar que vieste daqui e atribuir a comissão de uma eventual reserva. O que fazem com os teus dados é regido pelas políticas de privacidade deles.</p>
+
+    {instagram && (
+      <>
+        <h2>Contacto</h2>
+        <p>Para qualquer questão sobre privacidade, envia-nos mensagem no Instagram <a href={instagram}>{handle}</a>.</p>
+      </>
+    )}
+  </article>
+</Base>

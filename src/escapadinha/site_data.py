@@ -510,6 +510,10 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
     return {
         "version": VERSION, "generated_at": db.utc_iso(now), "fixture": fixture, "run": run,
         "currency": "EUR", "base_url": ctx.config.site.base_url,
+        # Third-party scripts the site may load (D34); a fixture build never gets them.
+        "analytics_token": None if fixture else ctx.config.site.analytics_token,
+        "search_widget": None if fixture else ctx.config.site.search_widget,
+        "instagram_handle": ctx.config.brand.handle,
         "detector": {"low_threshold": det.low_threshold, "threshold": det.threshold,
                      "min_saving_eur": det.min_saving_eur,
                      "min_baseline_days": det.min_baseline_days,

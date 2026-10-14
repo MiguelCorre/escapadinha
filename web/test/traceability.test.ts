@@ -24,10 +24,11 @@ describe("traceability of prices", () => {
       problems.push(...result.problems.map((p) => `${path}: ${p}`));
     }
     expect(problems).toEqual([]);
-    // The checker saw the prices it guards: 2 on the home page, 6 on the live promotion (title,
-    // descriptions, price, typical low), 3 on the expired one (old price, recheck price, typical low).
+    // The checker saw the prices it guards: 2 on the home page, 10 on the live promotion (title,
+    // OpenGraph and Twitter title and descriptions, price, typical low, the JSON-LD offer price and
+    // description), 3 on the expired one (old price, recheck price, typical low).
     const promos = ["/", ...[...checked.keys()].filter((p) => p.startsWith("/promos/"))];
-    expect(promos.reduce((n, p) => n + checked.get(p)!, 0)).toBe(11);
+    expect(promos.reduce((n, p) => n + checked.get(p)!, 0)).toBe(15);
     // Route pages: at least every calendar day, typical low and low price (two prices each).
     const routes = data.routes.routes;
     const lows = Object.values(data.lowPrices).reduce((n, f) => n + f.rows.length, 0);
@@ -53,5 +54,22 @@ describe("traceability of prices", () => {
     const { checked, problems } = untraceable(bad, amounts);
     expect(checked).toBe(5);
     expect(problems).toHaveLength(4);
+  });
+
+  it("checks JSON-LD prices too: a number, an amount of the block's own reference", () => {
+    const ld = (attrs: string, offer: object) =>
+      `<script type="application/ld+json" ${attrs}>${JSON.stringify({ "@type": "Trip", offers: { "@type": "Offer", ...offer } })}</script>`;
+    const html = `<html><head>
+      ${ld('data-obs="7226"', { price: 69 })}
+      ${ld("", { price: 69 })}
+      ${ld('data-obs="7226"', { price: 70 })}
+      ${ld('data-obs="7226"', { price: "69" })}
+      ${ld('data-obs="999999"', { price: 69 })}
+      ${ld('data-obs="7226"', { description: "Por 70 € ida e volta" })}
+    </head><body></body></html>`;
+    const { checked, problems } = untraceable(html, amounts);
+    expect(checked).toBe(6);
+    expect(problems).toHaveLength(5);
+    expect(problems.join("\n")).toContain("no data-obs/data-deal/data-route on its <script>");
   });
 });

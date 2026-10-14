@@ -1311,5 +1311,133 @@ so nothing has to be hosted.
   `src/lib/related.ts` `tipsFor` over the gated `tips()`, `RelatedTips.astro`); nothing is rendered
   when there are none. The test tip now has `destinations: [PAR]`: `/destinos/paris/` links it,
   Barcelona's and Madeira's hubs show no section.
-- **Not done here:** a nav link, JSON-LD and the sitemap, affiliate blocks (#18), the drafts
-  themselves (#19).
+- **Not done here:** a nav link, JSON-LD and the sitemap (done in D34), affiliate blocks (#18), the
+  drafts themselves (#19).
+
+## D34: SEO, structured data, search widget and analytics (2026-10-14, #16)
+- **What:** the Astro site (D28) gets canonical, OpenGraph and Twitter tags on every page,
+  `sitemap.xml` and `robots.txt`, JSON-LD, the About (`/sobre/`, "Como funciona") and Privacy
+  (`/privacidade/`) pages carried over from the Jinja site and linked from every footer, the
+  Aviasales search form on route and destination pages, and the Cloudflare Web Analytics beacon
+  when a token is configured. The site sets no cookies.
+- **Analytics (decided with Miguel):** Cloudflare Web Analytics already runs in **automatic setup**
+  on the `pontonomada.pt` zone: Cloudflare measures at the edge, with nothing in our build and no
+  cookies (19 page views counted in the 24 h before this ticket; in automatic setup Cloudflare may
+  add its own beacon to the HTML it serves, which is its job, not the build's). So `site.analytics_token` stays
+  `null`: a beacon too would count every visit twice. The code path stays for the day the
+  automatic setup is turned off: with a token every page gets the official snippet
+  (`<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": …}'>`),
+  without one no beacon at all; both are tested. The issue's "Ações do Miguel" step 1 (add a site,
+  paste the token) is therefore not needed. The token is validated (16–64 letters and digits) in
+  `config.py` and in the contract, so it can't break out of the attribute.
+- **Contract, additive within v1:** `meta.json` gets `analytics_token`, `search_widget` (both
+  `null` when unset) and `instagram_handle` (config `brand.handle`, the contact on the About and
+  Privacy pages and the Organization's `sameAs`). Optional in the schema, always written by
+  `export site-data`; **a fixture export always writes `null` for the first two** (a fixture build
+  is unconfigured, so Lighthouse measures the site without third parties). The committed
+  `fixtures/meta.json` got the three fields by hand, the values a regeneration writes (as in D31).
+- **Search widget:** the embed must come from Travelpayouts' widget constructor (we never build
+  `marker=` URLs by hand, Aviasales term 1.4, D12/D19). Config `site.search_widget` holds the
+  `src` of the constructor's script; `config.SEARCH_WIDGET_HOSTS` (`tp.media`, `tpwgts.com`,
+  `tpembd.com`, `tpemd.com`, `tpscr.com`: the hosts the constructor's script embeds use) and the
+  same list in the schema's pattern (a test compares them) accept only an https URL on one of them,
+  with no quote, space or angle bracket. `SearchWidget.astro` renders, on route and destination
+  pages only, a "Pesquisar outras datas" section near the end of the page: a line saying these
+  are the partner's live prices (ours are prices travellers found), an empty box with the src in
+  `data-src` (22 rem reserved, so nothing moves when it fills), the site disclosure, and the
+  loader. `src/lib/search-widget.ts` adds the `<script async>` inside the box when it comes within
+  300 px of the viewport (IntersectionObserver), or on the first scroll, tap or key press in a
+  browser without it; never before, and once. The component and its script render nothing when
+  the src is null (Astro renders a component's script only where the template renders it; the
+  fixture build has no trace of either, tested), and never on the home page, promotion pages or
+  any other page. Miguel's steps (Tools → Widgets → Search form → Aviasales, Project "Pontonomada"
+  585209, language pt, currency EUR, paste the `src`) are in `docs/runbooks/search-widget.md`.
+  The widget's prices are drawn by the partner inside its own frame, not by us, so they are not
+  ours to trace (D2 covers what our pages show).
+- **No cookies:** the site writes none (no `document.cookie`/`cookieStore` in the built site, in
+  `web/src/` or `web/functions/`, tested; the review Function's responses carry no `Set-Cookie`,
+  and it is the only Function: public pages never go through one). The privacy page says so,
+  describes the cookieless analytics (aggregate, no personal data, hence no consent banner) and
+  that Travelpayouts/Aviasales may set their own cookies only after a click on a booking link or
+  in the search form.
+- **Head tags:** canonical = contract `base_url` + the page path (as before); `og:type` `article`
+  on itineraries and tips, `website` elsewhere; `og:image:alt` (the promotion's headline or the
+  logo card, never a price); `twitter:title`, `twitter:description`, `twitter:image` equal to the
+  OpenGraph ones. Their prices are traced like the title's (`data-deal` on `<head>`).
+- **Sitemap from the built pages:** an Astro integration (`src/lib/sitemap.ts`, `astro:build:done`)
+  reads every built HTML page's `<head>` and lists the canonical URL of each page without
+  `<meta name="robots" content="noindex">`. Each page already decides its own noindex (expired
+  promotions D28, empty or past pontes D31, empty listings and drafts D33, the 404 has no
+  canonical), so the sitemap can't disagree with the pages and no rule is written twice. Rejected:
+  `@astrojs/sitemap` (it lists every route and would need a filter repeating those rules) and an
+  endpoint with its own list. The test compares the sitemap with the set of built pages without
+  noindex. **Fixture build: 31 of 81 HTML pages** (home, 1 live promotion, 10 routes, 3 origins +
+  `/partidas/`, 7 hubs + `/destinos/`, `/explorar/`, 1 itinerary + `/roteiros/`, 1 tip + `/dicas/`,
+  `/sobre/`, `/privacidade/`); out: the expired promotion, the 48 ponte pages (no fixture trip fits
+  a ponte, so all are noindex) and the 404. `robots.txt` is an endpoint (`Allow: /` and
+  `Sitemap: <base_url>/sitemap.xml`), replacing the static `public/robots.txt`.
+- **JSON-LD types** (`src/lib/structured-data.ts`, rendered by `JsonLd.astro`, `<` escaped):
+  - Home: `WebSite` (name, url, `inLanguage` pt-PT, publisher) and `Organization` (name, url,
+    `sameAs` the Instagram profile).
+  - Live promotion: a `Trip` (name = headline, description, url, `tripOrigin` and `itinerary` as
+    `Airport` with `iataCode`, two `subTrip`s "Ida"/"Regresso" with their `departureTime` dates)
+    whose `offers` is an `Offer` (`price` = the offer's price as a number, `priceCurrency` EUR, `url`
+    = the page). Why `Trip`: schema.org `Flight` (a `Trip` subtype) is about one scheduled flight
+    and expects a flight number, departure and arrival times and the airline per leg; the API
+    gives none of that per offer, and making them up would be fabricating. `Offer` is in `Trip`'s
+    `offers` range, and `Trip` in `Offer.itemOffered`'s. No `availability`, `priceValidUntil` or
+    `validFrom`: we don't know them. The block carries the offer's `data-obs` and `data-deal`.
+    **Never on an expired promotion** (breadcrumbs only).
+  - Itineraries and tips: `Article` (headline, description, `inLanguage`, `dateModified` =
+    `last_checked`, author and publisher the Ponto Nómada `Organization`, `mainEntityOfPage`,
+    url, image = the default OG image). No `datePublished`: we don't record one. Drafts get none.
+  - `BreadcrumbList` on promotion, route, origin, destination, itinerary and tip pages, from the
+    same list as the visible trail (`Breadcrumbs.astro`), so they never differ; the last crumb is
+    the page itself (plain text on the page, its URL in the JSON-LD). Route pages now show the
+    route as the last crumb, itineraries and tips got a trail ("Roteiros › …", "Dicas › …"), the
+    promotion trail ends with the headline (remote airport included). "Promoções" is `/` in the
+    JSON-LD (the visible link stays `/#promocoes`).
+- **Validation, two layers:** (1) **compile time:** the builders are typed with **schema-dts
+  2.0.0** (devDependency, types only, nothing shipped; the schema.org vocabulary generated as
+  TypeScript; exact pin, 2.1.0 was 12 days old), so `npm run typecheck` fails on a property
+  schema.org doesn't define for the type or a value of the wrong type (checked with probes: a
+  misspelt `pricee`, `priceCurrrency` and a number as `tripOrigin` all fail). (2) **run time:**
+  `web/test/jsonld.ts` has one JSON Schema per emitted type (ajv 2020, strict), listing exactly the
+  properties we use (`additionalProperties: false`), plus our rules: https URLs on the base,
+  ISO dates, `price` a number > 0, EUR, headline ≤ 110 characters, positions from 1. Every block on
+  every built page must validate (an unknown `@type` fails), and seeded bad blocks must not. Not
+  the online schema.org validator (no network in tests); worth one manual pass on the live site
+  after the cutover (#23). Rejected: a JSON-LD processor with the full schema.org vocabulary file
+  (a several-MB download committed or fetched in tests for the same check schema-dts gives).
+- **Prices in JSON-LD are traced (D2):** `test/trace.ts` now reads every JSON-LD block: each
+  `price`/`lowPrice`/`highPrice` must be a number and an amount of the block's own
+  `data-obs`/`data-deal`/`data-route`, and each price string in its text ("69 €" in the
+  description) is checked like any other; the live promotion page's count went from 6 to 10
+  (Twitter title and description, the offer price and the Trip description). A test also checks
+  the offer price against the fixture (obs 7226, 69 €) and the price the page shows.
+- **About and Privacy:** content from the Jinja `about.html.j2`/`privacy.html.j2`, updated: every
+  watched Portuguese airport (from `origins.json`) instead of "Lisboa e Porto", promotions "within
+  the route's rules" instead of "direct only", the explorer and route pages' low prices, the
+  analytics paragraph always present (the automatic setup measures whether or not a token is set),
+  the search form. Contact: the Instagram handle from the contract. A separate contact page (in
+  the spec's page list) is not made: contact is a section of both pages.
+- **Tests:** `web/test/seo.test.ts` (fixture build: head tags, sitemap and robots, JSON-LD
+  validity and per page type, prices, breadcrumbs against the visible trail and built pages,
+  About/Privacy, no beacon, no widget, no cookie code), `seo-configured.test.ts` (a second build in
+  the global setup, after the first: astro builds of one project can't run at once, they share
+  `.astro/`; fixtures with `analytics_token` `fakeTestToken0000…` and `search_widget`
+  `https://tp.media/content?fake=test-only&promo_id=0`: beacon on every page with the token,
+  widget box on route and hub pages only, empty, src only in `data-src`, loader and disclosure
+  present, absent from everything else), `search-widget.test.ts` (the loader with a fake
+  IntersectionObserver: nothing appended before intersection, one script after, none twice;
+  interaction fallback), the JSON-LD traceability case, and Python: the export carries the three
+  fields, fixtures never carry the token or the widget, the config refuses an http, foreign-host
+  or quote-carrying widget URL and a non-alphanumeric token, the schema accepts the same hosts.
+- **Lighthouse:** `/privacidade/` and `/sobre/` added to `web/lighthouserc.json` (12 URLs).
+  Local run 2026-10-14 (fixture build, so no widget or beacon; mobile, median of 3; performance /
+  accessibility / best practices / SEO): home 0.92, live promotion 0.92, expired 0.94, route 0.93,
+  origin 0.95, destination 0.93, explorer 0.92, ponte 0.94, itinerary 0.95, tip 0.94, privacy 0.95,
+  about 0.94 performance, and 1 / 1 / 1 on every URL; all assertions passed.
+- **Not done here:** submitting the sitemap in Google Search Console (runbook brand-switch step 7,
+  after the cutover), the Astro site's `_headers`/`_redirects` and deploy (#23), the widget's
+  real `src` (Miguel, runbook).

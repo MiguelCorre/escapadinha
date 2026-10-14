@@ -196,6 +196,11 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 - `site.data_dir: output/site-data/v1` (where `export site-data` writes; `web/src/data` once the
   Astro package exists), `site.max_low_prices_per_origin: 1500` (row cap per low-price file) and
   `site.expired_promotions_days: 30` (expired promotions stay in the export this long).
+- `site.search_widget: null` (D34): the Aviasales search form's script `src` from Travelpayouts'
+  widget constructor (https, a Travelpayouts widget host, validated); set it by following
+  [docs/runbooks/search-widget.md](docs/runbooks/search-widget.md). `site.analytics_token: null`:
+  Cloudflare Web Analytics runs in the zone's automatic setup, so no beacon token (it would count
+  visits twice). Both go to the website contract's `meta.json` (null in fixtures).
 - `collector.market: pt` and `collector.booking_base: https://www.aviasales.pt` use prices from
   the Portuguese market, and links open in euros with a 24h clock. Aviasales' UI is English/Russian only.
 
@@ -498,8 +503,27 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   validated against `contract/site/v1/*.schema.json` (ajv) before any page renders; a mismatch
   fails the build naming the file and the field. A fixture build carries `<html data-fixture>`.
 - **Pages:** `/` (live promotions, then recently expired ones), `/promos/<id>-<origem>-<destino>/`
-  (the path from the contract, same URLs as today), `404.html`, `robots.txt`, `og-default.png`.
-  An expired promotion is `noindex`, has no booking button and says why (the recheck's reason).
+  (the path from the contract, same URLs as today), `/sobre/` ("Como funciona") and
+  `/privacidade/` (linked from every footer), `404.html`, `robots.txt`, `sitemap.xml`,
+  `og-default.png`. An expired promotion is `noindex`, has no booking button and says why (the
+  recheck's reason).
+- **SEO (D34):** every page has its canonical URL (contract `base_url` + path), OpenGraph and
+  Twitter tags (`og:type` `article` on itineraries and tips). `sitemap.xml` is written after the
+  build from the built pages themselves (`src/lib/sitemap.ts`): every page with a canonical URL
+  and without `noindex`, so expired promotions, empty or past pontes, empty listings and drafts
+  leave it by themselves (fixture build: 31 of 81 pages). `robots.txt` points at it. JSON-LD
+  (`src/lib/structured-data.ts`): `WebSite` + `Organization` on the home page, `Trip` with an
+  `Offer` on live promotions (the offer's own price, `data-obs`/`data-deal` on the block, never
+  on an expired one), `Article` on itineraries and tips (`dateModified` = `last_checked`), and a
+  `BreadcrumbList` with the visible trail (`Breadcrumbs.astro`) on promotion, route, origin,
+  destination, itinerary and tip pages. Checked twice: `npm run typecheck` against the schema.org
+  vocabulary (`schema-dts`), `web/test/seo.test.ts` with a JSON Schema per type (`test/jsonld.ts`).
+- **Search widget and analytics (D34):** with `meta.search_widget` (config `site.search_widget`)
+  route and destination pages get "Pesquisar outras datas": an empty box whose script
+  (`src/lib/search-widget.ts`) is added only when it nears the viewport; never on the home page or
+  promotions; nothing at all while unset (the fixture build). With `meta.analytics_token` every
+  page gets Cloudflare's beacon script; null now (automatic setup at the edge). The site sets no
+  cookies (a test fails on `document.cookie` in the build or the sources).
 - **Route, origin and destination pages (D30):** `/voos/<origem>-<destino>/` (the contract's
   `path`, the Jinja site's URLs): promotions on the route, recent low prices (biggest 5 discounts,
   by date, each with its found-on date, our first sight and its own partner link, the disclosure
@@ -548,7 +572,8 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   holidays 2026–2027, Código do Trabalho art. 234.º/235.º; add the next year's dates before 2028).
 - **Prices:** every price element carries `data-obs` / `data-deal` / `data-route` (also on `<head>`
   when the title shows a price); `web/test/traceability.test.ts` fails on any price string on a
-  built page that isn't an amount of the referenced observation, deal or route in the contract.
+  built page that isn't an amount of the referenced observation, deal or route in the contract,
+  JSON-LD included (every `price` and every price string in a block, against the block's own refs).
 - **Links:** `web/test/pages.test.ts` fails on any internal link (`a`, `link`, `img`) that doesn't
   resolve to a built page or file; every route page is linked from its origin page and its hub.
 - **Booking links** come from the contract as given (never built here); `src/lib/cta.ts` shows a
@@ -572,7 +597,9 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all
   three page types; on 2026-10-14 (D30) route 0.91–0.93, origin 0.95, destination 0.95–1 (accessibility,
   best practices and SEO 1), and 0.92–0.98 on the full-size synthetic build's largest pages; (D31)
-  the explorer 0.92 / 1 / 1 and a ponte page 0.95 / 1 / 1; (D33) the test itinerary and tip 0.95 / 1 / 1.
+  the explorer 0.92 / 1 / 1 and a ponte page 0.95 / 1 / 1; (D33) the test itinerary and tip 0.95 / 1 / 1;
+  (D34, 12 URLs with `/privacidade/` and `/sobre/`) performance 0.92–0.95, accessibility, best
+  practices and SEO 1 everywhere.
 
 ## Visual directions (M2, issue #11)
 

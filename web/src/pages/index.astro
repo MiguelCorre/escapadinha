@@ -10,6 +10,7 @@ import { itineraries, tips } from "../collections";
 import { BRAND } from "../lib/brand";
 import { contentPath } from "../lib/content";
 import { promotionView } from "../lib/promotion";
+import { organizationLd, websiteLd } from "../lib/structured-data";
 
 const all = data.promotions.promotions.map((p) => ({ promotion: p, view: promotionView(data, p) }));
 const live = all.filter((x) => x.promotion.live);
@@ -25,6 +26,7 @@ const reading = [
   title={`${BRAND}: promoções de voos desde Portugal`}
   description="Voos de ida e volta desde Portugal bem abaixo do preço habitual de cada rota. Cada promoção foi revista por nós e diz quando o preço foi encontrado e verificado."
   path="/"
+  jsonLd={[{ data: websiteLd(data) }, { data: organizationLd(data) }]}
 >
   <section class="max-w-measure">
     <p class="label text-accent">Caderno de viagem</p>

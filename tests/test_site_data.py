@@ -685,3 +685,76 @@ def test_origin_articles_come_from_config(ctx, tmp_path):  # noqa: F811
         "origins.json"]["origins"]
     assert {o["iata"]: o["article"] for o in origins}.get("LIS") == "a"
     assert all(o["article"] is None for o in origins if o["iata"] != "LIS")
+
+
+# --- site integrations (D34): analytics token, search widget, Instagram handle ----------------
+
+FAKE_TOKEN = "fakeTestToken0000000000000000000"
+FAKE_WIDGET = "https://tp.media/content?fake=test-only&promo_id=0"
+
+
+def test_meta_carries_the_analytics_token_search_widget_and_handle_from_config(ctx, tmp_path):  # noqa: F811
+    ctx.config.site.analytics_token = FAKE_TOKEN
+    ctx.config.site.search_widget = FAKE_WIDGET
+    conn = pipeline.open_db(ctx)
+    export = site_data.build_export(ctx, conn, db.utcnow(), new_links=False)
+    meta = export.files["meta.json"]
+    assert meta["analytics_token"] == FAKE_TOKEN
+    assert meta["search_widget"] == FAKE_WIDGET
+    assert meta["instagram_handle"] == ctx.config.brand.handle
+    out = tmp_path / "site-data"
+    export.write(out)
+    assert validation_errors(out) == []
+
+
+def test_meta_says_null_when_analytics_and_widget_are_not_configured(ctx):  # noqa: F811
+    conn = pipeline.open_db(ctx)
+    meta = site_data.build_export(ctx, conn, db.utcnow(), new_links=False).files["meta.json"]
+    assert meta["analytics_token"] is None and meta["search_widget"] is None
+
+
+@respx.mock
+def test_fixtures_never_carry_the_analytics_token_or_the_widget(ctx, tmp_path):  # noqa: F811
+    """A fixture build stays unconfigured (Lighthouse measures the site without third parties)."""
+    mock_links()
+    ctx.config.site.analytics_token = FAKE_TOKEN
+    ctx.config.site.search_widget = FAKE_WIDGET
+    conn = pipeline.open_db(ctx)
+    build_scenario(ctx, conn)
+    conn.close()
+    out = tmp_path / "fixtures"
+    site_data.generate_fixtures(ctx, ctx.db_path, out)
+    meta = read(out, "meta.json")
+    assert meta["analytics_token"] is None and meta["search_widget"] is None
+    assert validation_errors(out) == [] and no_real_links(out) == []
+
+
+def test_committed_fixtures_are_unconfigured():
+    meta = read(FIXTURES, "meta.json")
+    assert meta["analytics_token"] is None and meta["search_widget"] is None
+    assert meta["instagram_handle"].startswith("@")
+
+
+def test_search_widget_must_be_an_https_travelpayouts_widget_script():
+    from pydantic import ValidationError
+    from escapadinha.config import SEARCH_WIDGET_HOSTS, SiteConfig
+    assert SiteConfig(search_widget=FAKE_WIDGET).search_widget == FAKE_WIDGET
+    for bad in ("http://tp.media/content?x=1", "https://example.com/content?x=1",
+                "https://tp.media.example.com/x", "https://tp.media/x\" onload=\"x"):
+        with pytest.raises(ValidationError, match="search_widget"):
+            SiteConfig(search_widget=bad)
+    # The contract's pattern accepts exactly the same hosts.
+    pattern = re.compile(json.loads((CONTRACT / "meta.schema.json").read_text("utf-8"))
+                         ["properties"]["search_widget"]["anyOf"][0]["pattern"])
+    for host in SEARCH_WIDGET_HOSTS:
+        assert pattern.search(f"https://{host}/content?x=1"), host
+    assert not pattern.search("https://example.com/content?x=1")
+    assert not pattern.search("https://tp.media.example.com/x")
+
+
+def test_analytics_token_is_a_plain_token():
+    from pydantic import ValidationError
+    from escapadinha.config import SiteConfig
+    assert SiteConfig(analytics_token=FAKE_TOKEN).analytics_token == FAKE_TOKEN
+    with pytest.raises(ValidationError, match="analytics_token"):
+        SiteConfig(analytics_token='x"}; alert(1)')

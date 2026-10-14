@@ -148,9 +148,11 @@ O `site deploy` continua a funcionar igual: o wrangler envia para o projeto, nã
 
 ## 7. (Opcional) Pesquisa e estatísticas
 
-- [ ] Se ativaste o Cloudflare Web Analytics (`site.analytics_token`): Cloudflare → **Analytics &
-      Logs** → **Web Analytics** → confirma que o site `pontonomada.pt` aparece; se for preciso
-      um site novo, troca o token no `config.yaml`.
+- [ ] Cloudflare Web Analytics: Cloudflare → **Analytics & Logs** → **Web Analytics** → confirma
+      que o site `pontonomada.pt` aparece. Está em configuração automática (a Cloudflare conta as
+      visitas do lado dela, sem nada no código do site), por isso `site.analytics_token` fica `null` (D34); só com a
+      configuração automática desligada é que o token vai para o `config.yaml`. A pesquisa de
+      voos do Aviasales tem o seu guia: [search-widget.md](search-widget.md).
 - [ ] Google Search Console → **Adicionar propriedade** → **Domínio** `pontonomada.pt` → copia o
       registo TXT → Cloudflare → `pontonomada.pt` → **DNS** → **Add record** (Type `TXT`, Name `@`)
       → **Verificar**. Depois **Sitemaps** → `https://pontonomada.pt/sitemap.xml` → **Enviar**.

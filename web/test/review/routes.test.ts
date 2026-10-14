@@ -25,6 +25,7 @@ describe("Pages Functions routes", () => {
     for (const route of [index, catchAll]) {
       const res = await route.onRequest({ request: new Request("https://ondestaanocas.pages.dev/review"), env: w.env });
       expect(res.status).toBe(403);
+      expect(res.headers.get("set-cookie")).toBeNull();   // the site sets no cookies (D34)
     }
   });
 

@@ -91,7 +91,30 @@ export function untraceable(html: string, amounts: Amounts): { checked: number; 
   };
   // A price may be split over elements ("86<span>&nbsp;€</span>"), so prices are matched in an
   // element's whole text; a match belongs to the deepest element whose text contains all of it.
+  // Structured data (D34): every "price" (or lowPrice/highPrice) in a JSON-LD block counts as a
+  // price shown on the page and must be an amount of the block's own data-obs/data-deal/data-route.
+  const checkJsonLd = (el: HTMLElement) => {
+    const visit = (node: unknown) => {
+      if (typeof node === "string") return check(node, el, "JSON-LD text");   // "69 €" in a description
+      if (Array.isArray(node)) return node.forEach(visit);
+      if (!node || typeof node !== "object") return;
+      for (const [key, value] of Object.entries(node)) {
+        if (/^(price|lowPrice|highPrice)$/.test(key)) {
+          checked += 1;
+          const refs = nearestRefs(el);
+          const { ok, unknown } = allowed(refs, amounts);
+          const where = `JSON-LD ${key} ${JSON.stringify(value)}`;
+          if (typeof value !== "number") problems.push(`${where}: not a number`);
+          else if (!refs) problems.push(`${where}: no data-obs/data-deal/data-route on its <script>`);
+          else if (unknown.length) problems.push(`${where}: unknown ${unknown.join(", ")}`);
+          else if (!ok.has(cents(value))) problems.push(`${where}: not an amount of its references`);
+        } else visit(value);
+      }
+    };
+    visit(JSON.parse(el.textContent));
+  };
   const walk = (el: HTMLElement) => {
+    if (el.rawTagName === "script" && el.getAttribute("type") === "application/ld+json") return checkJsonLd(el);
     if (el.rawTagName === "script" || el.rawTagName === "style") return;
     for (const [name, value] of Object.entries(el.attributes ?? {})) check(value, el, `${name} of <${el.rawTagName}>`);
     const spans: { start: number; end: number; element: boolean }[] = [];

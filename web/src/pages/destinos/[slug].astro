@@ -7,6 +7,8 @@
 import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import SearchWidget from "../../components/SearchWidget.astro";
 import ItineraryLink from "../../components/ItineraryLink.astro";
 import PromotionCard from "../../components/PromotionCard.astro";
 import RelatedTips from "../../components/RelatedTips.astro";
@@ -49,7 +51,7 @@ const fromText = fromNames.length > 1 ? `${fromNames.slice(0, -1).join(", ")} e 
   description={`Voos para ${city} desde ${fromText}: o preço mais baixo encontrado agora, os melhores meses para ir e a página de cada rota.`}
   path={destination.path}
 >
-  <nav aria-label="Caminho" class="text-small text-muted"><a href="/destinos/">Destinos</a> › {city}</nav>
+  <Breadcrumbs crumbs={[{ name: "Destinos", path: "/destinos/" }, { name: city, path: destination.path }]} />
 
   <header class="mt-lg max-w-measure">
     <p class="label text-accent">{destination.kinds.map((k) => data.labels.kinds[k]).join(" · ")}</p>
@@ -106,4 +108,5 @@ const fromText = fromNames.length > 1 ? `${fromNames.slice(0, -1).join(", ")} e 
 
   <ItineraryLink destination={destination.code} city={city} />
   <RelatedTips destination={destination.code} city={city} />
+  <SearchWidget about={`para ${city}`} />
 </Base>

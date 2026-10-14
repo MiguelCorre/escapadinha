@@ -169,6 +169,13 @@ def host_of(value: str) -> str:
     return (urlsplit(value if "//" in value else f"//{value}").hostname or "").lower()
 
 
+# Hosts Travelpayouts' widget constructor serves its script embeds from (D34). The contract's
+# meta.schema.json `search_widget` pattern lists the same hosts (a test compares them). If the
+# constructor ever hands out another host, add it to both.
+SEARCH_WIDGET_HOSTS: tuple[str, ...] = ("tp.media", "tpwgts.com", "tpembd.com", "tpemd.com", "tpscr.com")
+_UNSAFE_URL_CHARS = set(" \t\r\n\"'<>`\\")
+
+
 class SiteConfig(BaseModel):
     base_url: str = "https://ondestaanocas.pages.dev"   # canonical URLs, sitemap, OG tags
     domain: str | None = None        # final domain (D19); live once base_url points at it
@@ -176,7 +183,12 @@ class SiteConfig(BaseModel):
     redirects: dict[str, str] = {}   # extra old path -> new path (301), written to _redirects
     cloudflare_project: str = "ondestaanocas"
     wrangler_version: str = "4.149.0"
-    analytics_token: str | None = None   # Cloudflare Web Analytics (cookieless), optional
+    # Cloudflare Web Analytics beacon token (cookieless), optional. Null while the zone's
+    # automatic setup measures at the edge (D34): a token too would count every visit twice.
+    analytics_token: str | None = None
+    # Aviasales search form (D34): the `src` of the script Travelpayouts' widget constructor gives
+    # (Tools → Widgets → Search form, Project "Pontonomada"). Null: no widget anywhere.
+    search_widget: str | None = None
     recent_expired: int = 6              # expired deals listed per route page
     # Low prices on route pages (D24): the biggest discounts per route, each with its own
     # tracked link from the partner links API, created once and stored in `partner_links`.
@@ -199,6 +211,26 @@ class SiteConfig(BaseModel):
         if not v.startswith("https://"):
             raise ValueError("site.base_url must start with https://")
         return v.rstrip("/")
+
+    @field_validator("analytics_token")
+    @classmethod
+    def _plain_token(cls, v: str | None) -> str | None:
+        if v is not None and not (16 <= len(v) <= 64 and v.isascii() and v.isalnum()):
+            raise ValueError("site.analytics_token must be the token Cloudflare shows (letters and digits)")
+        return v
+
+    @field_validator("search_widget")
+    @classmethod
+    def _widget_script(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        parts = urlsplit(v)
+        if (parts.scheme != "https" or parts.hostname not in SEARCH_WIDGET_HOSTS
+                or parts.port is not None or parts.username is not None
+                or any(c in _UNSAFE_URL_CHARS for c in v)):
+            raise ValueError("site.search_widget must be the https script URL from Travelpayouts' "
+                             f"widget constructor (hosts: {', '.join(SEARCH_WIDGET_HOSTS)})")
+        return v
 
     @field_validator("domain")
     @classmethod

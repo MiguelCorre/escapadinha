@@ -1,0 +1,28 @@
+---
+// The partner's live search form (Aviasales, from Travelpayouts' widget constructor, D34), on route
+// and destination pages only, near the end of the page. Rendered only when the contract has a
+// script src (config site.search_widget); otherwise nothing at all. The script is not in the HTML:
+// src/lib/search-widget.ts adds it when the box nears the viewport. The prices inside are the
+// partner's live prices, not ours; the affiliate disclosure sits next to it.
+import data from "virtual:site-data";
+
+interface Props {
+  /** "Paris" or "Lisboa para Paris": what the visitor is looking at. */
+  about: string;
+}
+
+const { about } = Astro.props;
+const src = data.meta.search_widget ?? null;
+---
+{src && (
+  <section data-search-widget-section class="mt-2xl max-w-measure" aria-labelledby="titulo-pesquisa">
+    <h2 id="titulo-pesquisa" class="font-display text-title">Pesquisar outras datas</h2>
+    <p class="mt-xs text-small text-muted">Os preços acima foram encontrados por viajantes. Para ver preços ao vivo de voos {about} noutras datas, pesquisa no Aviasales, o nosso parceiro: os preços, a reserva e o pagamento são dele.</p>
+    <div data-search-widget data-src={src} class="mt-md min-h-[22rem]"></div>
+    <p class="mt-xs text-small text-muted">{data.labels.disclosure.site}</p>
+    <script>
+      import { mountSearchWidgets } from "../lib/search-widget";
+      mountSearchWidgets(document);
+    </script>
+  </section>
+)}
