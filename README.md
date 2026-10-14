@@ -418,8 +418,8 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
 - **`site build`** (`website/astro.py`) runs `npm ci` only when `web/node_modules` is missing or
   `package-lock.json` changed (a stamp in node_modules), then `npm run build` with `SITE_DATA_DIR`
   = the export, and refuses to go on without an export. It prints pages per type, images,
-  redirects and the size. Node 22+ is required (on Windows `npm.cmd` is found on the PATH or in
-  `C:\Program Files\nodejs`).
+  redirects and the size (real data, 2026-10-14: 627 pages, 31 MB, ~8 s, ~18 s with `npm ci`).
+  Node 22+ is required (on Windows `npm.cmd` is found on the PATH or in `C:\Program Files\nodejs`).
 - **`site deploy`** uploads `web/dist` with `npx wrangler@<site.wrangler_version>` running in
   `web/`, so the review Function (`web/functions/`) ships in the same deployment. It refuses a
   fixture build (`<html data-fixture="true">`) and skips the upload when the content hash (the

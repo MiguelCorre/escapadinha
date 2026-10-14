@@ -1509,7 +1509,7 @@ so nothing has to be hosted.
   every low price, which move more often than the five low prices per route page did. Replaying
   the last 13 runs of the real database (2026-10-13/14) the site data changed between 7 of them,
   the old `low_prices` component in 1: about half of the runs will take the full path (+ npm ci
-  from cache, ~15–20 s astro build, a deploy of the changed files) instead of about one a day.
+  from cache, ~8 s astro build, a deploy of the changed files) instead of about one a day.
   That's still within the Actions budget (D25: ~720 of 2000 min/month for the fast paths); if it
   isn't, the knob is `_shown` (e.g. leave the calendar to the daily refresh), not the build.
   Rejected: hashing `web/src/data` after the previous export (a runner has none, CI keeps no
@@ -1533,6 +1533,24 @@ so nothing has to be hosted.
   sitemap's 363 URLs resolve on the real-data build (below). Rejected: committing a snapshot of
   the live sitemap (the Jinja build from the same database is the same list and stays honest as
   the data changes).
+- **Real-data check (2026-10-14, a read-only copy of the database after run 33, nothing
+  deployed):** export (no new links) 360 routes, 6 origins, 156 destinations, 0 promotions (none
+  approved yet), 7 low prices. `site build`: **627 HTML pages** (360 route, 157 destination hubs
+  + index, 7 origin + index, 96 ponte, home, explorer, `/roteiros/`, `/dicas/`, About, Privacy,
+  404), `sitemap.xml` 528 URLs, 2 redirects (`/guias/voos-baratos-dicas` ±slash → `/dicas/`, the
+  tip still a draft); **17.6 s with `npm ci`, 7.8 s without**; `web/dist` 31.2 MB in 644 files
+  (route pages ~50–60 KB each with inlined CSS and logo). A rebuild with a newer export gave the
+  same deploy hash (would be skipped). The live sitemap (https://pontonomada.pt/sitemap.xml, 363
+  URLs) and the Jinja build's: all 363 resolve on that build (`site crawl --dist`).
+  **Lighthouse** (`lhci` with a temporary config on the real build, mobile, median of 3;
+  performance / accessibility / best practices / SEO): home 0.95/1/1/1, route
+  `/voos/lisboa-londres/` 0.93/1/1/1, origin `/partidas/lisboa/` 0.93/1/1/1, hub
+  `/destinos/londres/` 0.93/1/1/1, explorer 0.92/**0.96**/1/1, ponte
+  `/pontes/1-dezembro-2026/porto/` 0.95/1/1/1; CLS 0 everywhere, FCP 2.4–2.7 s. The explorer's
+  0.96 is `target-size`: with six origins its ponte links sit too close (the fixtures have
+  three); a web package fix, not the cutover's. No promotion page could be measured (none in the
+  real data); the fixture runs of D28/D34 cover them, and the slide-strip CLS flake noted in D28
+  is to be checked on the first real promotion.
 - **Phase 2 (not here):** after a week live with `site crawl --sitemap <the old sitemap>`
   clean, delete `SiteBuilder`/`build_site`, `website/templates/`, `site build-jinja` and their
   tests; keep the slug helpers (move them out of `website/__init__.py`), `images.py`,
