@@ -433,6 +433,7 @@ So far: home page and promotion pages (live and expired).
 ```bash
 cd web
 npm ci                     # Node 22+ (CI uses 22)
+npm run typecheck          # tsc, strict: functions/ without Node types, then src/lib + test
 npm test                   # vitest: builds the site from the fixtures and checks the HTML
 npm run build:fixtures     # → web/dist from contract/site/v1/fixtures
 npm run dev:fixtures       # http://localhost:4321 on the fixtures
@@ -460,7 +461,7 @@ npm run tokens             # regenerate src/styles/tokens.css after docs/design/
   Tailwind's default colours, fonts, sizes, radii and shadows; fonts come from `assets/fonts/`
   through Astro's Fonts API (metric-matched fallbacks), the logo from `assets/logo-light.svg`.
 - **CI:** `.github/workflows/web.yml` runs on pull requests touching `web/`, `contract/`, the
-  tokens, fonts or logo: `npm ci`, `npm test`, fixture build, Lighthouse CI (reports kept as an
+  tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, Lighthouse CI (reports kept as an
   artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all
   three page types.
 

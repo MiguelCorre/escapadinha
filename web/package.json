@@ -13,6 +13,7 @@
     "build:fixtures": "node scripts/with-fixtures.mjs astro build",
     "preview": "astro preview",
     "tokens": "node scripts/tokens.mjs",
+    "typecheck": "tsc -p tsconfig.functions.json && tsc -p tsconfig.typecheck.json",
     "test": "vitest run",
     "lhci": "npx --yes @lhci/cli@0.15.1 autorun --config=lighthouserc.json"
   },
@@ -24,7 +25,9 @@
     "tailwindcss": "4.3.3"
   },
   "devDependencies": {
+    "@types/node": "22.20.4",
     "node-html-parser": "9.0.4",
+    "typescript": "5.9.3",
     "vitest": "4.1.11"
   }
 }

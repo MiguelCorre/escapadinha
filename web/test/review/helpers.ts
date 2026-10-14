@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import Ajv2020 from "ajv/dist/2020.js";
+import { Ajv2020 } from "ajv/dist/2020.js";
 import { KeyCache } from "../../functions/_lib/review/access";
 import type { Bucket, Deps, Env } from "../../functions/_lib/review/types";
 
@@ -16,7 +16,7 @@ export const NOW = new Date("2026-10-14T09:30:00Z");
 
 // --- contract ------------------------------------------------------------------------------
 
-const ajv = new Ajv2020.default({ allErrors: true, strict: false });
+const ajv = new Ajv2020({ allErrors: true, strict: false });
 for (const name of ["event", "snapshot"]) {
   ajv.addSchema(JSON.parse(readFileSync(resolve(CONTRACT, `${name}.schema.json`), "utf8")));
 }
@@ -38,7 +38,7 @@ export class MemoryBucket implements Bucket {
     const data = this.objects.get(key);
     if (!data) return null;
     return {
-      body: new Response(data).body!,
+      body: new Response(data.slice()).body!,
       text: async () => new TextDecoder().decode(data),
       arrayBuffer: async () => data.slice().buffer,
     };

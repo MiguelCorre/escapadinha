@@ -8,7 +8,7 @@
 export const HEADER = "Cf-Access-Jwt-Assertion";
 const KEYS_TTL_MS = 60 * 60 * 1000;      // Access rotates its keys every 6 weeks, with overlap
 const REFETCH_MS = 60 * 1000;            // unknown kid: fetch again, at most once a minute
-const LEEWAY_S = 60;                     // clock skew allowed on nbf / iat
+const LEEWAY_S = 60;                     // clock skew allowed on nbf (iat is not checked)
 
 export class AccessError extends Error {}
 
@@ -26,7 +26,8 @@ export interface AccessConfig {
 
 type Fetch = typeof fetch;
 
-function b64urlBytes(text: string): Uint8Array {
+/** Backed by a plain ArrayBuffer, which WebCrypto's BufferSource requires. */
+function b64urlBytes(text: string): Uint8Array<ArrayBuffer> {
   const b64 = text.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(text.length / 4) * 4, "=");
   const bin = atob(b64);
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));

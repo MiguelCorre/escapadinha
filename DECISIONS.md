@@ -817,7 +817,7 @@ so nothing has to be hosted.
   Promotion slides and thumbnails are contract paths only: a fixture build has no image files
   (they 404; the link test skips `/img/promos/`), the cutover must bring them (D27 open question).
 - **Lighthouse CI:** `.github/workflows/web.yml` on pull requests touching `web/`, `contract/`,
-  the tokens, fonts or logo: `npm ci`, `npm test`, fixture build, then `@lhci/cli@0.15.1`
+  the tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, then `@lhci/cli@0.15.1`
   (run with `npx`, not a dependency: its old transitive dependencies carry audit warnings)
   against the static build: mobile form factor, simulated throttling, 3 runs (median), on the
   home page, the live and the expired promotion; performance, accessibility and SEO must be
@@ -858,6 +858,13 @@ so nothing has to be hosted.
   which becomes the event's `actor`. Missing settings fail closed. Refusals are 403 in pt-PT.
   WebCrypto only; the clock, fetch, UUIDs and the key cache are injected, so vitest signs tokens
   with a generated RSA key.
+- **Type check:** `npm run typecheck` (CI, before the tests) runs `tsc` strict twice, with
+  `typescript` 5.9.3 and `@types/node` 22.20.4 pinned as dev dependencies:
+  `tsconfig.functions.json` checks `functions/` and the `src/lib` modules it imports with web
+  platform globals only (no Node types, so a `Buffer` or `node:` import fails here instead of in
+  the Workers runtime); `tsconfig.typecheck.json` checks `src/lib` and the tests with Node types.
+  `.astro` templates are left to the build. It caught WebCrypto's `BufferSource` wanting an
+  `ArrayBuffer`-backed `Uint8Array` in `access.ts`.
 - **Handler seam:** `handler.handle(request, env, deps)` is pure; the tests (`web/test/review/`)
   drive it with an in-memory R2 stub (paginated listing), a fake fetch for the certs,
   Travelpayouts and GitHub, and validate every written event against

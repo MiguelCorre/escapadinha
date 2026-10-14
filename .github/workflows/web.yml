@@ -42,6 +42,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Type check (strict; the review Function without Node types)
+        run: npm run typecheck
+
       - name: Tests (vitest builds the site from contract/site/v1/fixtures)
         run: npm test
 

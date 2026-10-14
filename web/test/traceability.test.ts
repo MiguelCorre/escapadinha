@@ -57,7 +57,7 @@ function traceableAmounts(data: SiteData): Amounts {
 
 function nearestRefs(el: HTMLElement | null): HTMLElement | null {
   for (let e = el; e; e = e.parentNode as HTMLElement | null) {
-    if (e.getAttribute && REF_ATTRS.some((attr) => e.hasAttribute(attr))) return e;
+    if (typeof e.hasAttribute === "function" && REF_ATTRS.some((attr) => e.hasAttribute(attr))) return e;
   }
   return null;
 }

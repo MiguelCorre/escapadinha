@@ -18,18 +18,21 @@ function target(c: any) {
   };
 }
 
+/** it.each rows: [name, case]. */
+const named = (cases: any[]): [string, any][] => cases.map((c) => [c.name, c]);
+
 function payload(c: any) {
   return c.payload ?? { success: true, currency: "eur",
     data: c.items.map((i: any) => ({ ...CASES.defaults.item, ...i })) };
 }
 
 describe("live check: shared cases with the pipeline", () => {
-  it.each(CASES.cases.map((c: any) => [c.name, c]))("%s", (_, c: any) => {
+  it.each(named(CASES.cases))("%s", (_, c: any) => {
     const now = new Date(c.now ?? CASES.defaults.now);
     expect(recheckPayload(target(c), payload(c), now)).toEqual(c.expected);
   });
 
-  it.each(CASES.failures.cases.map((c: any) => [c.name, c]))("provider failure: %s", async (_, c: any) => {
+  it.each(named(CASES.failures.cases))("provider failure: %s", async (_, c: any) => {
     const net = new FakeNet().on(PRICES, () => {
       if (c.network_error) throw new TypeError("network down");
       if (c.http_status) return new Response(c.body, { status: c.http_status });

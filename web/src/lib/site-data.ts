@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import Ajv2020 from "ajv/dist/2020.js";
+import { Ajv2020 } from "ajv/dist/2020.js";
 import type { SiteData } from "./contract";
 
 const WEB_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -27,7 +27,7 @@ export function dataDirFromEnv(env: Record<string, string | undefined> = process
 }
 
 function validator() {
-  const ajv = new Ajv2020.default({ allErrors: true, strict: false });
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
   for (const name of SCHEMAS) {
     ajv.addSchema(JSON.parse(readFileSync(join(CONTRACT_DIR, `${name}.schema.json`), "utf8")));
   }

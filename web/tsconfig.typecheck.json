@@ -1,0 +1,11 @@
+{
+  // `npm run typecheck`, part 2: the shared modules and the tests, strict, with Node types (the
+  // build-time loaders and vitest run on Node). .astro templates are checked by the build.
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "allowJs": false
+  },
+  "include": ["src/env.d.ts", "src/lib", "functions", "test"]
+}
