@@ -777,7 +777,11 @@ so nothing has to be hosted.
 - **Fonts through Astro's Fonts API** (local provider, files from `assets/fonts/`): family and
   fallback stacks come from `tokens.json` in `astro.config.ts`; Astro adds metric-matched
   fallbacks (`size-adjust`), so swapping in the web font barely moves the page (CLS 0.13 → 0.015
-  on the expired page). No font preload and no italic on first paint: Lighthouse's simulated
+  on the expired page). That match is against Georgia / Iowan, which Linux and Android don't have:
+  on the PR runner the swap moved whole sections (CLS 0.19 on a destination hub, 0.26 on a ponte
+  page). Since #14 the fonts use `font-display: optional`: the browser uses the web font only if it
+  is there before first paint (from cache after the first page), otherwise the fallback for that
+  page, so a font never moves the layout on any system (2026-10-14). No font preload and no italic on first paint: Lighthouse's simulated
   throttling counts fonts fetched before the first paint against it (FCP 3.0 s → 2.4 s), and the
   slides keep the italic voice. The logo is `assets/logo-light.svg` inlined with its ink and sun
   recoloured to `currentColor` / accent, so one file works on paper and in dark mode.
