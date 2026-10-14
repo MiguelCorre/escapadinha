@@ -84,7 +84,7 @@ describe("approve", () => {
 describe("reject and published", () => {
   it("writes a reject event without a live check", async () => {
     const w = await world();
-    const { res } = await decide(w, { type: "reject", deal_id: 7, note: "  " });
+    const { res } = await decide(w, { type: "reject", deal_id: 7, note: "" });
     expect(res.status).toBe(200);
     const [key] = w.store.keys(PENDING);
     const event = w.store.json(key);

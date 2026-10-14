@@ -106,7 +106,8 @@ async function onDecision(request: Request, env: Env, deps: Deps, actor: string)
   if (found instanceof Response) return found;
   const { snapshot, deal } = found;
   const note = kind === "published" || typeof body.note !== "string" ? null : body.note;
-  const postUrl = kind === "published" && typeof body.post_url === "string" ? body.post_url.trim() : null;
+  // As given, like pipeline.mark_published (the page trims before sending).
+  const postUrl = kind === "published" && typeof body.post_url === "string" ? body.post_url : null;
 
   // pipeline._decidable: one decision per deal until the pipeline applies it.
   const waiting = (await pendingEvents(env.STORE, snapshot)).filter((e) => e.deal_id === deal.id);

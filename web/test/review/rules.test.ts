@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkDecision, DECISION_PT, DECISIONS, OPEN_STATUSES, ReviewError, STATUS_PT, TRANSITIONS,
 } from "../../functions/_lib/review/rules";
+import { newEvent } from "../../functions/_lib/review/events";
 import { CONTRACT } from "./helpers";
 
 const RULES = JSON.parse(readFileSync(resolve(CONTRACT, "fixtures/review-rules.json"), "utf8"));
@@ -32,5 +33,12 @@ describe("review rules: shared with the pipeline", () => {
       } else {
         expect(run()).toBe(c.expected.status);
       }
+    });
+
+  it.each(RULES.new_event_text.cases.map((c: any) => [JSON.stringify(c.given), c]))(
+    "event text %s like Event.new", (_, c: any) => {
+      const event = newEvent("published", 1, { id: "x", actor: "test", now: new Date("2026-10-14T00:00:00Z"),
+        note: c.given, postUrl: c.given });
+      expect([event.note, event.post_url]).toEqual([c.expected, c.expected]);
     });
 });

@@ -1,14 +1,17 @@
-"""The review rules, pipeline side, against contract/review/v1/fixtures/review-rules.json: the
-review Function's port (web/functions/_lib/review/rules.ts) is checked against the same file by
-web/test/review/rules.test.ts, so the two tables can't drift apart (D29)."""
+"""The review rules and event text, pipeline side, against
+contract/review/v1/fixtures/review-rules.json: the review Function's port
+(web/functions/_lib/review/rules.ts, events.ts) is checked against the same file by
+web/test/review/rules.test.ts, so the two can't drift apart (D29)."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from escapadinha import review
 from escapadinha.review import ReviewError, check_decision
+from escapadinha.review_events import Event
 from escapadinha.storage import db
 
 RULES = json.loads((Path(__file__).parent.parent / "contract" / "review" / "v1" / "fixtures"
@@ -34,3 +37,10 @@ def test_check_decision_matches_the_shared_cases(case):
         assert str(exc.value) == expected["error"]
     else:
         assert check_decision(case["kind"], case["status"], **kwargs) == expected["status"]
+
+
+@pytest.mark.parametrize("case", RULES["new_event_text"]["cases"], ids=repr)
+def test_event_text_matches_the_shared_cases(case):
+    event = Event.new("published", 1, actor="test", now=datetime(2026, 10, 14, tzinfo=UTC),
+                      note=case["given"], post_url=case["given"])
+    assert (event.note, event.post_url) == (case["expected"], case["expected"])

@@ -864,8 +864,10 @@ so nothing has to be hosted.
   `contract/review/v1/event.schema.json` with ajv. They assert exactly one dispatch per decision,
   none when the event can't be stored, and the pt-PT message when GitHub fails.
 - **Events** have the Python writer's shape and key (`review/events/pending/<YYYYMMDDTHHMMSSZ>-<uuid
-  v4>.json`, `created_at` to the second with `Z`, empty note → null, `post_url` only on
-  `published`, `live_check` only on `approve`). Before writing, the Function applies the same
+  v4>.json`, `created_at` to the second with `Z`, note and post link stored as sent with only an
+  empty one becoming null, exactly like `Event.new` (`note or None`; the pages trim before
+  sending; cases in `review-rules.json`), `post_url` only on `published`, `live_check` only on
+  `approve`). Before writing, the Function applies the same
   pre-checks as `pipeline._decidable` against the snapshot: the transition table and the
   affiliate-link and post-URL rules (`rules.ts`, a port of `review.check_decision` with the same
   pt-PT messages) and "one pending decision per deal". The ported tables (`TRANSITIONS`,

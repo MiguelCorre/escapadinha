@@ -26,5 +26,15 @@
     {"kind": "published", "status": "rendered", "affiliate_url": "https://example.com/a", "expected": {"error": "Não é possível passar de 'por rever' para 'publicado'."}},
     {"kind": "published", "status": "approved", "affiliate_url": null, "post_url": "instagram.com/p/x", "expected": {"error": "O link do post tem de começar por https://"}},
     {"kind": "delete", "status": "rendered", "affiliate_url": null, "expected": {"error": "Decisão desconhecida: 'delete'."}}
-  ]
+  ],
+  "new_event_text": {
+    "description": "review_events.Event.new / events.ts newEvent: note and post_url are kept as given; only an empty or missing value becomes null (the pages trim before sending).",
+    "cases": [
+      {"given": null, "expected": null},
+      {"given": "", "expected": null},
+      {"given": "  ", "expected": "  "},
+      {"given": " bom preço ", "expected": " bom preço "},
+      {"given": "https://www.instagram.com/p/x/", "expected": "https://www.instagram.com/p/x/"}
+    ]
+  }
 }

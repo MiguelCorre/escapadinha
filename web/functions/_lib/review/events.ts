@@ -12,13 +12,14 @@ export function stamp(utc: string): string {
   return utc.replace(/[-:]/g, "").replace(/\.\d+/, "");
 }
 
-/** Event.new: created_at to the second, empty note / post_url become null. */
+/** Event.new: created_at to the second; note and post_url kept as given, only an empty or missing
+ * one becomes null (Python's `note or None`; shared cases in review-rules.json). */
 export function newEvent(type: DecisionType, dealId: number, { id, actor, now, note, postUrl, liveCheck }: {
   id: string; actor: string; now: Date; note?: string | null; postUrl?: string | null; liveCheck?: LiveCheck | null;
 }): ReviewEvent {
   return {
     version: 1, id, type, deal_id: dealId, created_at: utcIso(now), actor,
-    note: note?.trim() || null, post_url: postUrl?.trim() || null, live_check: liveCheck ?? null,
+    note: note || null, post_url: postUrl || null, live_check: liveCheck ?? null,
   };
 }
 
