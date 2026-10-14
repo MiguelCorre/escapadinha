@@ -43,8 +43,10 @@ class Result:
 def sitemap_urls(source: str, client: httpx.Client | None = None) -> list[str]:
     """The <loc> URLs of a sitemap given as a file path or an http(s) URL."""
     if source.startswith(("http://", "https://")):
-        http = client or httpx.Client(timeout=30)
-        response = http.get(source)
+        if client is None:
+            with httpx.Client(timeout=30) as own:       # closed here: we made it
+                return sitemap_urls(source, own)
+        response = client.get(source)
         response.raise_for_status()
         text = response.text
     else:

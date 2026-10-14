@@ -58,6 +58,25 @@ def test_a_build_resolves_pages_and_redirects_and_reports_what_it_cannot(tmp_pat
 
 
 @respx.mock
+def test_a_sitemap_url_is_fetched_with_a_client_that_is_closed_afterwards(monkeypatch):
+    respx.get("https://pontonomada.pt/sitemap.xml").respond(
+        200, text="<urlset><url><loc>https://pontonomada.pt/</loc></url></urlset>")
+    made = []
+    real = httpx.Client
+
+    def tracked(*args, **kwargs):
+        made.append(real(*args, **kwargs))
+        return made[-1]
+
+    monkeypatch.setattr(crawl.httpx, "Client", tracked)
+    assert crawl.sitemap_urls("https://pontonomada.pt/sitemap.xml") == ["https://pontonomada.pt/"]
+    assert len(made) == 1 and made[0].is_closed
+    with real() as mine:                                   # the caller's client stays open
+        assert crawl.sitemap_urls("https://pontonomada.pt/sitemap.xml", mine)
+        assert not mine.is_closed
+
+
+@respx.mock
 def test_the_live_crawl_reports_anything_but_200_or_a_301_to_a_200(tmp_path):
     base = "https://pontonomada.pt"
     respx.get(f"{base}/").mock(return_value=httpx.Response(200))
