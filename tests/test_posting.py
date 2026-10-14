@@ -22,6 +22,15 @@ UTC = timezone.utc
 SLOTS = [time(9), time(13), time(19)]
 
 
+@pytest.fixture(autouse=True)
+def dry_run_channels(request):
+    """D32's queue rules are tested with both channels on the dry-run publisher (config.yaml
+    has `instagram: instagram`, which waits without its secrets, D36: test_instagram.py)."""
+    if "ctx" in request.fixturenames:
+        ctx = request.getfixturevalue("ctx")
+        ctx.config.posting.publishers = {channel: "dry-run" for channel in posting.CHANNELS}
+
+
 def utc(*args) -> datetime:
     return datetime(*args, tzinfo=UTC)
 
@@ -131,8 +140,8 @@ def test_upgrade_from_real_old_schemas_adds_the_posting_queue(ctx, fixture, vers
     columns = [c[0] for c in _queue_shape(conn)[0]]
     assert "checked_at" in columns
     # v11 (D36): the Instagram publisher's progress per row.
-    assert columns[-7:] == ["container_id", "media_id", "story_status", "story_container_id",
-                            "story_media_id", "story_attempts", "story_note"]
+    assert columns[-8:] == ["container_id", "media_id", "story_status", "story_container_id",
+                            "story_media_id", "story_attempts", "story_note", "caption"]
     for c in (conn, fresh):
         c.execute("PRAGMA foreign_keys = OFF")          # only the channel CHECK can refuse it
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
@@ -180,6 +189,10 @@ def test_the_channel_check_in_sql_is_posting_channels():
         table = sql[sql.index("CREATE TABLE IF NOT EXISTS posting_queue"):]
         listed = re.search(r"channel IN \(([^)]*)\)", table).group(1)
         assert tuple(re.findall(r"'([a-z]+)'", listed)) == posting.CHANNELS
+    for sql in (schema, " ".join(db.MIGRATIONS[11])):         # story statuses: one list too
+        table = sql[sql.index("posting_queue"):]
+        listed = re.search(r"story_status IN \(([^)]*)\)", table).group(1)
+        assert set(re.findall(r"'([a-z]+)'", listed)) == set(posting.StoryStatus)
     assert tuple(PostingConfig().publishers) == posting.CHANNELS
     assert PostingConfig(publishers={"telegram": "dry-run"}).publishers == {
         channel: "dry-run" for channel in posting.CHANNELS}

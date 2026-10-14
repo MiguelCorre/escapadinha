@@ -148,19 +148,25 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). Channels are named only in
   `posting.CHANNELS` (the SQL CHECK is tested against it). A post goes out only from
   `pipeline.run_publish`, after re-verification; expired/rejected promotions cancel their posts.
-  Publishers implement `posting.Publisher` and never change a review status (a real one returns
-  `Published(marks_published=True)` and `run_publish` writes the `published` event); they signal
-  `PublishWait` (no attempt counted) / `PublishCancel` / any other error (retried). Post texts: the
-  caption (Instagram) and `captions.whatsapp_text` (stored partner link + `DISCLOSURE`), never a
-  hand-built link.
-- Instagram publisher (D36, `instagram.py`): the Graph host and version only from
-  `instagram.HOSTS[config.instagram.login]` + `api_version`; images only the public JPEGs of
-  `website.deal_jpeg_paths` (HEAD 200 first, else wait); store every container/media id with
-  `db.save_post_progress` as soon as Meta returns it and check the account's latest posts by
-  caption before creating a carousel: a retry must never post twice; a story never reposts its
-  carousel. The token never reaches a log, an error message (`Graph` redacts it), the database
-  or CI output: a refreshed one lives only at `instagram.TOKEN_KEY` in the object store, meta
-  `instagram.token` holds its fingerprint and expiry. HTTP in tests: respx only, no real call.
+  Publishers implement `posting.Publisher` (a story too: `posting.StoryPublisher`) and never
+  change a review status (a real one returns `Published(marks_published=True)` and `run_publish`
+  calls `pipeline.mark_published`); they signal `PublishWait` (no attempt counted) /
+  `PublishCancel` / any other error (retried), read through `posting.attempt`. A real publisher
+  that can't post (no secrets, no token) waits, never falls back to a dry run that would settle
+  the post. Story states only from `posting.StoryStatus` (SQL CHECK tested against it). Post
+  texts: the caption (Instagram) and `captions.whatsapp_text` (stored partner link +
+  `DISCLOSURE`), never a hand-built link.
+- Instagram publisher (D36, `instagram.py`): the Graph host only from `config.GRAPH_HOSTS` via
+  `InstagramConfig.host`, the version from `api_version` (`Graph(http, api, token)`); images only
+  `website.public_jpeg_urls` (HEAD 200, https redirects followed, else wait, bounded by
+  `images_wait_hours`); poll every child and the carousel container to FINISHED; store every
+  container/media id and the first attempt's caption with `db.save_post_progress` as soon as
+  known, and check the account's latest posts by that stored caption before creating a
+  carousel: a retry must never post twice; a story never reposts its carousel. Code 190 on any
+  call waits and leaves a notice (`token_state`). The token never reaches a log, an error
+  message (`Graph` redacts it), the database or CI output: a refreshed one lives only at
+  `instagram.TOKEN_KEY` in the object store, meta `instagram.token` holds its fingerprint and
+  expiry. HTTP in tests: respx only, no real call.
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with
   `affiliate.project_for("instagram"|"website")`; never read `project_id` directly (D19).
@@ -208,12 +214,14 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `assets/fonts/` (OFL WOFF2), logos `assets/logo-light.svg` / `logo-dark.svg`.
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`, `whatsapp.txt.j2`
 - `src/escapadinha/posting.py`: posting queue rules (`CHANNELS`, slots, `verdict` →
-  `VerdictAction`, `story_verdict`) + the publisher protocol (`Published`, `PublishWait`,
-  `PublishCancel`, `DryRunPublisher`); DB wiring in `pipeline.run_publish` (`publishers_for`,
-  `PostResult.action`: `PostAction`, stories in `_run_stories`), the queue read with `db.posts`
+  `VerdictAction`, `story_verdict`, `StoryStatus`) + the publisher protocol (`Publisher`,
+  `StoryPublisher`, `Published`, `PublishWait`, `PublishCancel`, `attempt`, `DryRunPublisher`);
+  DB wiring in `pipeline.run_publish` (`publishers_for`, `PostResult.action`: `PostAction`,
+  stories in `_run_stories`), the queue read with `db.posts`
 - `src/escapadinha/instagram.py`: `Graph` (calls, token redacted), `classify` (Graph error →
-  wait/cancel/retry), `InstagramPublisher` (carousel, story, limit, HEAD check, polling),
-  `Paused`, `ensure_token` (refresh, stored token), `notices`; runbook `docs/runbooks/instagram.md`
+  wait/cancel/retry), `image_problem` (HEAD), `InstagramPublisher` (carousel, story, limit,
+  polling, `_reuse`/`_finish` resume), `Paused`, `ensure_token` (refresh, stored token),
+  `token_state`, `notices`; runbook `docs/runbooks/instagram.md`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: `astro.py` (`site build`: npm ci stamp, `astro_build`, `finish`),
   `routing.py` (`plan`/`write`: `_redirects` only to built pages, chains collapsed, fails over

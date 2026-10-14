@@ -147,6 +147,11 @@ def deal_jpeg_paths(ctx: Context, deal: Deal) -> list[str]:
             for name in pipeline.deal_slide_names(ctx, deal)]
 
 
+def public_jpeg_urls(ctx: Context, deal: Deal) -> list[str]:
+    """`deal_jpeg_paths` on the live site (`site.base_url`): what Meta fetches (D36)."""
+    return [f"{ctx.config.site.base_url}{path}" for path in deal_jpeg_paths(ctx, deal)]
+
+
 @dataclass
 class SiteDeal:
     deal: Deal

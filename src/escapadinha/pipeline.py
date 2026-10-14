@@ -522,71 +522,41 @@ def publishers_for(ctx: Context, conn: sqlite3.Connection, http: httpx.Client, *
                    now: datetime, log: Callable[[str], None],
                    sleep: Callable[[float], None]) -> dict[str, posting.Publisher]:
     """channel -> publisher, from `posting.publishers` in config. `instagram` needs both
-    INSTAGRAM_* secrets (else the dry run, saying why) and a usable token (refreshed here when
-    due, every run, so a quiet week never lets it expire; else every due post waits, D36)."""
+    INSTAGRAM_* secrets and a usable token (refreshed here when due, every run, so a quiet week
+    never lets it expire); without them the channel is `Paused`: its due posts wait, never
+    settled by a dry run, so no slot is lost (D36)."""
     from escapadinha import instagram
+    from escapadinha.website import public_jpeg_urls      # imports this module
     out: dict[str, posting.Publisher] = {}
     for channel, name in ctx.config.posting.publishers.items():
         if name != "instagram":
             out[channel] = posting.DryRunPublisher(log)
             continue
-        secrets = ctx.secrets
+        secrets, api = ctx.secrets, ctx.config.instagram
         if not secrets.instagram_configured:
-            out[channel] = posting.DryRunPublisher(log, note=(
-                "Instagram em dry run: faltam INSTAGRAM_ACCESS_TOKEN e/ou INSTAGRAM_ACCOUNT_ID "
-                f"(.env ou secrets do GitHub, {instagram.RUNBOOK})."))
+            out[channel] = instagram.Paused(
+                "À espera do token: faltam INSTAGRAM_ACCESS_TOKEN e/ou INSTAGRAM_ACCOUNT_ID "
+                f"(.env ou secrets do GitHub, {instagram.RUNBOOK}).")
             continue
-        cfg = ctx.config.instagram
         try:
             token, problem = instagram.ensure_token(
-                secrets.instagram_access_token.strip(), conn=conn, store=ctx.object_store,
-                http=http, login=cfg.login, version=cfg.api_version,
-                refresh_days=cfg.refresh_days, now=now, log=log)
+                secrets.instagram_access_token.strip(), api, conn=conn, store=ctx.object_store,
+                http=http, now=now, log=log)
         except Exception as exc:                # e.g. the store unreachable: never stops the run
-            token, problem = None, (f"não foi possível ler ou guardar o token "
+            token, problem = None, (f"Não foi possível ler ou guardar o token do Instagram "
                                     f"({type(exc).__name__}); as publicações esperam.")
         if token is None:
             log(f"Instagram: {problem}")
             out[channel] = instagram.Paused(problem)
             continue
         out[channel] = instagram.InstagramPublisher(
-            instagram.Graph(http, host=instagram.HOSTS[cfg.login], version=cfg.api_version,
-                            token=token),
-            secrets.instagram_account_id.strip(),
-            image_urls=lambda deal: _public_jpegs(ctx, deal),
-            head=lambda url: _head(http, url),
+            instagram.Graph(http, api, token), secrets.instagram_account_id.strip(),
+            image_urls=lambda deal: public_jpeg_urls(ctx, deal),
+            check_image=lambda url: instagram.image_problem(http, url),
             save=lambda post_id, **fields: db.save_post_progress(conn, post_id, **fields),
-            sleep=sleep, log=log,
-            on_token_problem=lambda reason: instagram.token_problem(conn, reason))
+            now=now, images_wait=timedelta(hours=api.images_wait_hours), sleep=sleep, log=log,
+            token_state=lambda problem: instagram.token_state(conn, problem))
     return out
-
-
-def _public_jpegs(ctx: Context, deal: Deal) -> list[str]:
-    from escapadinha.website import deal_jpeg_paths    # imports this module
-    return [f"{ctx.config.site.base_url}{path}" for path in deal_jpeg_paths(ctx, deal)]
-
-
-def _head(http: httpx.Client, url: str) -> int:
-    """HEAD status of a public URL, 0 when it doesn't answer (no redirect followed: Meta must
-    get the image itself)."""
-    try:
-        return http.head(url, follow_redirects=False).status_code
-    except httpx.HTTPError:
-        return 0
-
-
-def _mark_published(ctx: Context, deal: Deal, url: str | None, now: datetime,
-                    log: Callable[[str], None]) -> None:
-    """A real publisher put the promotion out: a `published` event (D26), applied by the next
-    run; never a status change here. Failing to write it never fails the post (it is out)."""
-    from escapadinha import instagram
-    try:
-        check_decision("published", deal.status, affiliate_url=deal.affiliate_url, post_url=url)
-        review_events.write(ctx.object_store, review_events.Event.new(
-            "published", deal.id, actor=instagram.ACTOR, now=now, post_url=url))
-    except Exception as exc:
-        log(f"Deal {deal.id}: publicado, mas o evento 'publicado' não foi escrito "
-            f"({type(exc).__name__}: {exc}); marca-o com `escapadinha deal published`.")
 
 
 def _run_stories(ctx: Context, conn: sqlite3.Connection, publishers: dict[str, posting.Publisher],
@@ -595,37 +565,38 @@ def _run_stories(ctx: Context, conn: sqlite3.Connection, publishers: dict[str, p
     so or after `posting.max_attempts` errors; a wait counts nothing. Never touches the post."""
     cfg = ctx.config.posting
     max_check_age = timedelta(hours=cfg.max_check_age_hours)
+    Story = posting.StoryStatus
     for post in db.posts(conn, "published"):
         publisher = publishers.get(post.channel)
-        if post.story_status != "pending" or not hasattr(publisher, "publish_story"):
+        if post.story_status != Story.PENDING or not isinstance(publisher, posting.StoryPublisher):
             continue
         deal, _ = db.get_deal(conn, post.deal_id)
         what = f"Story Instagram deal {post.deal_id}"
         verdict = posting.story_verdict(post, deal, now=now, max_check_age=max_check_age)
         if verdict.action is posting.VerdictAction.CANCEL:
-            db.save_post_progress(conn, post.id, story_status="skipped", story_note=verdict.reason)
+            db.save_post_progress(conn, post.id, story_status=Story.SKIPPED,
+                                  story_note=verdict.reason)
             log(f"{what}: não sai ({verdict.reason})")
             continue
-        try:
-            media_id = publisher.publish_story(post, deal)
-        except posting.PublishWait as wait:
-            db.save_post_progress(conn, post.id, story_note=str(wait))
-            log(f"{what}: à espera ({wait})")
-        except posting.PublishCancel as cancel:
-            db.save_post_progress(conn, post.id, story_status="skipped", story_note=str(cancel))
-            log(f"{what}: não sai ({cancel})")
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
-            attempts = db.story_fails(conn, post.id, error)
+        done = posting.attempt(lambda: publisher.publish_story(post, deal))
+        if done.wait:
+            db.save_post_progress(conn, post.id, story_note=done.wait)
+            log(f"{what}: à espera ({done.wait})")
+        elif done.cancel:
+            db.save_post_progress(conn, post.id, story_status=Story.SKIPPED,
+                                  story_note=done.cancel)
+            log(f"{what}: não sai ({done.cancel})")
+        elif done.error:
+            attempts = db.story_fails(conn, post.id, done.error)
             if attempts >= cfg.max_attempts:
-                db.save_post_progress(conn, post.id, story_status="skipped",
-                                      story_note=f"A story falhou {attempts} vezes: {error}")
-                log(f"{what}: não sai (falhou {attempts} vezes: {error})")
+                db.save_post_progress(conn, post.id, story_status=Story.SKIPPED,
+                                      story_note=f"A story falhou {attempts} vezes: {done.error}")
+                log(f"{what}: não sai (falhou {attempts} vezes: {done.error})")
             else:
-                log(f"{what}: falhou ({error}), nova tentativa na próxima execução")
+                log(f"{what}: falhou ({done.error}), nova tentativa na próxima execução")
         else:
-            db.save_post_progress(conn, post.id, story_status="published",
-                                  story_media_id=media_id, story_note=None)
+            db.save_post_progress(conn, post.id, story_status=Story.PUBLISHED,
+                                  story_media_id=done.result, story_note=None)
             log(f"{what}: publicada")
 
 
@@ -638,8 +609,8 @@ def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
     due ones whose price was verified recently (`posting.verdict`, D32). At most one Instagram
     post per run, so a backlog never goes out in a burst. A publisher error leaves the post
     queued; `posting.max_attempts` errors cancel it; a `PublishWait` (images not deployed yet,
-    API limit, token) waits without counting one. A real Instagram post writes a `published`
-    event and leaves its story pending, posted right after (`_run_stories`, D36)."""
+    API limit, token, no secrets) waits without counting one. A real Instagram post writes a
+    `published` decision and leaves its story pending, posted right after (`_run_stories`, D36)."""
     now = now or db.utcnow()
     cfg = ctx.config.posting
     with httpx.Client(timeout=30) as http:
@@ -672,28 +643,32 @@ def _publish_one(ctx: Context, conn: sqlite3.Connection, publisher: posting.Publ
                  post: Post, deal: Deal, obs: Observation, now: datetime,
                  log: Callable[[str], None]) -> tuple[posting.PostAction, str | None]:
     cfg = ctx.config.posting
-    try:
-        published = publisher.publish(_message(ctx, conn, post, deal, obs))
-    except posting.PublishWait as wait:
-        db.post_waits(conn, post.id, str(wait), failed=False)
-        return posting.PostAction.WAITING, str(wait)
-    except posting.PublishCancel as cancel:
-        db.settle_post(conn, post.id, "cancelled", at=now, reason=str(cancel))
-        return posting.PostAction.CANCELLED, str(cancel)
-    except Exception as exc:          # a channel being down never stops the run
-        error = f"{type(exc).__name__}: {exc}"
-        attempts = db.post_waits(conn, post.id, error, failed=True)
+    done = posting.attempt(lambda: publisher.publish(_message(ctx, conn, post, deal, obs)))
+    if done.wait:
+        db.post_waits(conn, post.id, done.wait, failed=False)
+        return posting.PostAction.WAITING, done.wait
+    if done.cancel:
+        db.settle_post(conn, post.id, "cancelled", at=now, reason=done.cancel)
+        return posting.PostAction.CANCELLED, done.cancel
+    if done.error:                    # a channel being down never stops the run
+        attempts = db.post_waits(conn, post.id, done.error, failed=True)
         if attempts >= cfg.max_attempts:
-            reason = f"O publicador falhou {attempts} vezes: {error}"
+            reason = f"O publicador falhou {attempts} vezes: {done.error}"
             db.settle_post(conn, post.id, "cancelled", at=now, reason=reason)
             return posting.PostAction.CANCELLED, reason
-        return posting.PostAction.FAILED, error
-    if published.marks_published:
-        _mark_published(ctx, deal, published.url, now, log)
+        return posting.PostAction.FAILED, done.error
+    published: posting.Published = done.result
+    if published.marks_published:     # the promotion is out: a `published` decision (D26)
+        try:
+            mark_published(ctx, conn, deal.id, published.url,
+                           actor=posting.publisher_actor(publisher.name), now=now)
+        except Exception as exc:      # it is out: failing to record that never fails the post
+            log(f"Deal {deal.id}: publicado, mas a decisão 'publicado' não foi escrita "
+                f"({type(exc).__name__}: {exc}); marca-o com `escapadinha deal published`.")
     db.settle_post(conn, post.id, "published", at=now, publisher=publisher.name,
                    result_url=published.url)
     if published.story:
-        db.save_post_progress(conn, post.id, story_status="pending")
+        db.save_post_progress(conn, post.id, story_status=posting.StoryStatus.PENDING)
     return posting.PostAction.PUBLISHED, None
 
 

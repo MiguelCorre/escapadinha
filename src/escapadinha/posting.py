@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from escapadinha import i18n_pt
 from escapadinha.i18n_pt import LISBON
@@ -84,6 +84,15 @@ class PostAction(StrEnum):
     CANCELLED = "cancelled"
     WAITING = "waiting"
     FAILED = "failed"       # publisher error, retried next run
+
+
+class StoryStatus(StrEnum):
+    """The story that follows a published Instagram carousel (`posting_queue.story_status`, D36;
+    the SQL CHECK is tested against it). NULL in the table: no story for this post."""
+
+    PENDING = "pending"         # the carousel is out, the story not yet
+    PUBLISHED = "published"
+    SKIPPED = "skipped"         # will not go out (reason in story_note)
 
 
 @dataclass(frozen=True)
@@ -164,6 +173,30 @@ class Published:
     story: bool = False     # a story follows (`Publisher.publish_story`), retried on its own
 
 
+@dataclass(frozen=True)
+class Attempt:
+    """What one publisher call came to (`attempt`): its result, or why it waits, is cancelled
+    or failed (pt-PT; a failure is `Type: message`)."""
+
+    result: object = None
+    wait: str | None = None
+    cancel: str | None = None
+    error: str | None = None
+
+
+def attempt(call: Callable[[], object]) -> Attempt:
+    """Run a publisher call; its signals (`PublishWait`, `PublishCancel`, any other error, which
+    never stops the run) as data, so the post and the story ladders read the same."""
+    try:
+        return Attempt(result=call())
+    except PublishWait as wait:
+        return Attempt(wait=str(wait))
+    except PublishCancel as cancel:
+        return Attempt(cancel=str(cancel))
+    except Exception as exc:
+        return Attempt(error=f"{type(exc).__name__}: {exc}")
+
+
 class PublishWait(Exception):
     """Not now, through no fault of the post (images not deployed yet, API limit, token):
     it stays queued and no attempt is counted. `str(exc)` says why (pt-PT)."""
@@ -174,31 +207,40 @@ class PublishCancel(Exception):
     `str(exc)` as the reason (pt-PT)."""
 
 
+@runtime_checkable
 class Publisher(Protocol):
     """Posts a message to one channel. Raises `PublishWait` to wait without counting an attempt,
-    `PublishCancel` to cancel, anything else on a failure the run retries (D32's max_attempts).
-    A publisher whose `publish` returns `Published(story=True)` also has
-    `publish_story(post, deal) -> str | None`, with the same exceptions."""
+    `PublishCancel` to cancel, anything else on a failure the run retries (D32's max_attempts)."""
 
     name: str
 
     def publish(self, message: Message) -> Published: ...
 
 
+@runtime_checkable
+class StoryPublisher(Publisher, Protocol):
+    """A publisher whose `publish` can return `Published(story=True)`: the story is posted
+    afterwards on its own (its media id, None when out but unknown), same exceptions."""
+
+    def publish_story(self, post: Post, deal: Deal) -> str | None: ...
+
+
+def publisher_actor(name: str) -> str:
+    """The actor of the `published` decision a real publisher's post writes: 'instagram-publisher'."""
+    return f"{name}-publisher"
+
+
 class DryRunPublisher:
-    """Posts nothing (no network): logs what would be posted (after `note`, why it is a dry run
-    when a real publisher was configured but can't be used)."""
+    """Posts nothing (no network): logs what would be posted. Only for a channel configured as
+    `dry-run`; a real publisher that can't post (no secrets) waits instead (D36)."""
 
     name = "dry-run"
 
-    def __init__(self, log: Callable[[str], None], note: str | None = None):
+    def __init__(self, log: Callable[[str], None]):
         self.log = log
-        self.note = note
 
     def publish(self, message: Message) -> Published:
         post = message.post
-        if self.note:
-            self.log(self.note)
         self.log(f"[dry-run] {CHANNEL_PT[post.channel]} · deal {post.deal_id} · "
                  f"{message.headline} · {message.price} · agendada para "
                  f"{i18n_pt.lisbon_timestamp(post.due_at)}")

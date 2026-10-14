@@ -109,7 +109,8 @@ MIGRATIONS = {
          "ALTER TABLE posting_queue ADD COLUMN story_container_id TEXT",
          "ALTER TABLE posting_queue ADD COLUMN story_media_id TEXT",
          "ALTER TABLE posting_queue ADD COLUMN story_attempts INTEGER NOT NULL DEFAULT 0",
-         "ALTER TABLE posting_queue ADD COLUMN story_note TEXT"],
+         "ALTER TABLE posting_queue ADD COLUMN story_note TEXT",
+         "ALTER TABLE posting_queue ADD COLUMN caption TEXT"],
 }
 
 
@@ -512,7 +513,8 @@ def _row_to_post(row: sqlite3.Row) -> Post:
         settled_at=_dt(row["settled_at"]), container_id=row["container_id"],
         media_id=row["media_id"], story_status=row["story_status"],
         story_container_id=row["story_container_id"], story_media_id=row["story_media_id"],
-        story_attempts=row["story_attempts"], story_note=row["story_note"])
+        story_attempts=row["story_attempts"], story_note=row["story_note"],
+        caption=row["caption"])
 
 
 def posts(conn: sqlite3.Connection, *statuses: str) -> list[Post]:
@@ -557,7 +559,7 @@ def post_waits(conn: sqlite3.Connection, post_id: int, why: str, *, failed: bool
 # What a publisher records while it works (Instagram, D36): set as soon as known and committed
 # at once, so a retry after a crash or a timeout resumes instead of posting twice.
 POST_PROGRESS = ("container_id", "media_id", "story_status", "story_container_id",
-                 "story_media_id", "story_note")
+                 "story_media_id", "story_note", "caption")
 
 
 def save_post_progress(conn: sqlite3.Connection, post_id: int, **fields: str | None) -> None:

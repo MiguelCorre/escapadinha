@@ -149,6 +149,7 @@ class Post:
     story_media_id: str | None = None
     story_attempts: int = 0
     story_note: str | None = None      # last story error, why it waits or was skipped (pt-PT)
+    caption: str | None = None         # the first attempt's caption: retries post and match it
 
 
 @dataclass(frozen=True)

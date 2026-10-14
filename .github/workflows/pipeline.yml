@@ -47,7 +47,7 @@ jobs:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      # Instagram publisher (D36), optional: unset, Instagram posts stay a dry run. A refreshed
+      # Instagram publisher (D36), optional: unset, due Instagram posts wait. A refreshed
       # token is kept in R2 and used from there; `escapadinha instagram token` (PC) shows it.
       INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
       INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}

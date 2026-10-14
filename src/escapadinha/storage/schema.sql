@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS posting_queue (
     story_media_id     TEXT,                 -- the published story's media id
     story_attempts     INTEGER NOT NULL DEFAULT 0,   -- story errors so far
     story_note         TEXT,                 -- last story error, why it waits or was skipped (pt-PT)
+    caption            TEXT,                 -- the caption of the first attempt, reused by retries
     UNIQUE (deal_id, channel)
 );
 

@@ -1,23 +1,25 @@
 """Instagram publisher (D36): a due queue item as a carousel, then a story of its cover.
 
-Graph API (content publishing), Instagram API with Instagram Login by default
-(`instagram.login` in config: the host is `HOSTS[login]`, the version `instagram.api_version`):
+Graph API (content publishing), Instagram API with Instagram Login by default; the host and
+version come from config `instagram` (`InstagramConfig.host`, `api_version`):
 
-1. the slides' JPEG copies on the public site (`website.deal_jpeg_paths`) must answer 200 to a
-   HEAD first; otherwise the post waits for the deploy (no attempt counted);
+1. the slides' JPEG copies on the public site (`website.public_jpeg_urls`) must answer 200 to a
+   HEAD (redirects followed, https only); otherwise the post waits for the deploy, without
+   counting an attempt until `instagram.images_wait_hours` after its slot;
 2. `content_publishing_limit` must leave room for the carousel and its story, else it waits;
-3. a carousel already on the account with this caption (a run that died after `media_publish`)
-   is adopted, never posted again;
-4. one container per slide (`is_carousel_item`), the carousel container with the caption, its
-   status polled until FINISHED (bounded, backing off; still IN_PROGRESS: wait for the next run,
-   the container is kept), `media_publish`, the permalink;
+3. a carousel already on the account with this post's caption (a run that died after
+   `media_publish`) is adopted, never posted again. The caption is the one stored at the first
+   attempt (`posting_queue.caption`), so a later change of the rendered text can't miss it;
+4. one container per slide (`is_carousel_item`), each polled until FINISHED, then the carousel
+   container with that caption, polled the same way (bounded, backing off; still IN_PROGRESS:
+   wait for the next run, the carousel container is kept), `media_publish`, the permalink;
 5. later in the same run (`pipeline.run_publish`), the story: a STORIES container of the cover,
    polled and published the same way. Its failure never touches the carousel.
 
 Every id is stored on the queue row as soon as it is known (`db.save_post_progress`), so a retry
 resumes where the last attempt stopped. Graph errors become the queue's signals (`classify`):
-token problems, rate and publishing limits and missing permissions wait; media Meta refuses
-for good cancels; anything else is retried up to `posting.max_attempts`.
+token problems (code 190 on any call), rate and publishing limits and missing permissions wait;
+media Meta refuses for good cancels; anything else is retried up to `posting.max_attempts`.
 
 The long-lived token (`ensure_token`) is refreshed when fewer than `instagram.refresh_days`
 remain. CI can't write GitHub secrets, so a new token is kept in the object store
@@ -37,12 +39,12 @@ from datetime import datetime, timedelta
 import httpx
 
 from escapadinha import i18n_pt
+from escapadinha.config import InstagramConfig
 from escapadinha.models import Deal, Post
-from escapadinha.posting import Message, Published, PublishCancel, PublishWait
+from escapadinha.posting import Message, Published, PublishCancel, PublishWait, publisher_actor
 from escapadinha.storage import db
 from escapadinha.storage.objects import ObjectStore
 
-HOSTS = {"instagram": "https://graph.instagram.com", "facebook": "https://graph.facebook.com"}
 RUNBOOK = "docs/runbooks/instagram.md"
 README = "README §Instagram"
 MAX_CHILDREN = 10                       # Instagram's carousel limit
@@ -52,7 +54,9 @@ RECENT_MEDIA = 25                       # the account's latest posts searched fo
 TOKEN_KEY = "private/instagram/token.json"   # a refreshed token (object store, never the DB)
 TOKEN_META = "instagram.token"          # meta: fingerprint, expiry, notices (never the token)
 TOKEN_MIN_AGE = timedelta(days=1)       # Instagram refreshes only tokens at least 24 h old
-ACTOR = "instagram-publisher"           # the `published` event's actor
+ACTOR = publisher_actor("instagram")    # the `published` event's actor
+DONE = ("FINISHED", "PUBLISHED")
+BROKEN = ("ERROR", "EXPIRED")
 
 # Graph error codes (Meta's error reference) -> what the queue does.
 TOKEN_CODES = {102, 190}                # invalid, expired or revoked token
@@ -106,16 +110,18 @@ def classify(err: GraphError) -> Exception:
 
 
 class Graph:
-    """Graph API calls with one token (`access_token` parameter, as Meta documents)."""
+    """Graph API calls with one token (`access_token` parameter, as Meta documents), at the
+    configured host and version."""
 
-    def __init__(self, http: httpx.Client, *, host: str, version: str, token: str):
-        self.http, self.host, self.version, self.token = http, host, version, token
+    def __init__(self, http: httpx.Client, api: InstagramConfig, token: str):
+        self.http, self.api, self.token = http, api, token
 
     def _redact(self, text: str) -> str:
         return text.replace(self.token, "***") if self.token else text
 
     def call(self, method: str, path: str, *, versioned: bool = True, **params: str) -> dict:
-        url = f"{self.host}/{self.version}/{path}" if versioned else f"{self.host}/{path}"
+        host = self.api.host
+        url = f"{host}/{self.api.api_version}/{path}" if versioned else f"{host}/{path}"
         params = {**params, "access_token": self.token}
         try:
             if method == "GET":
@@ -145,25 +151,41 @@ class Graph:
         return self.call("POST", path, **params)
 
 
+def image_problem(http: httpx.Client, url: str) -> str | None:
+    """None when `url` is live for Meta: a HEAD answers 200, following redirects but only
+    over https; else what is wrong ('404', 'redirecionado para http://…', 'sem resposta')."""
+    try:
+        response = http.head(url, follow_redirects=True)
+    except httpx.HTTPError:
+        return "sem resposta"
+    if response.url.scheme != "https":
+        return f"redirecionado para {response.url}"
+    return None if response.status_code == 200 else str(response.status_code)
+
+
 def caption_key(text: str | None) -> str:
     """A caption compared line by line, ignoring blank lines and outer spaces."""
     return "\n".join(line.strip() for line in (text or "").splitlines() if line.strip())
 
 
 class InstagramPublisher:
-    """`posting.Publisher` for the instagram channel (D36). Injected: the Graph client, the
-    deal's public JPEG URLs, a HEAD check (status code), where progress is saved, the sleeper."""
+    """`posting.StoryPublisher` for the instagram channel (D36). Injected: the Graph client,
+    the deal's public JPEG URLs, the image check, where progress is saved, the clock and the
+    sleeper."""
 
     name = "instagram"
 
     def __init__(self, graph: Graph, account_id: str, *,
-                 image_urls: Callable[[Deal], list[str]], head: Callable[[str], int],
-                 save: Callable[..., None], sleep: Callable[[float], None] = time.sleep,
+                 image_urls: Callable[[Deal], list[str]],
+                 check_image: Callable[[str], str | None],
+                 save: Callable[..., None], now: datetime, images_wait: timedelta,
+                 sleep: Callable[[float], None] = time.sleep,
                  log: Callable[[str], None] = print,
-                 on_token_problem: Callable[[str], None] = lambda reason: None):
+                 token_state: Callable[[str | None], None] = lambda problem: None):
         self.graph, self.account = graph, account_id
-        self.image_urls, self.head, self.save = image_urls, head, save
-        self.sleep, self.log, self.on_token_problem = sleep, log, on_token_problem
+        self.image_urls, self.check_image, self.save = image_urls, check_image, save
+        self.now, self.images_wait = now, images_wait
+        self.sleep, self.log, self.token_state = sleep, log, token_state
 
     # --- the carousel ------------------------------------------------------------------------
 
@@ -173,35 +195,33 @@ class InstagramPublisher:
             media_id = post.media_id or self._carousel(message)
         except GraphError as err:
             raise self._signal(err) from None
+        self.token_state(None)
         return Published(self._permalink(media_id), marks_published=True, story=True)
 
     def _carousel(self, message: Message) -> str:
         post = message.post
-        urls = self._live_images(message.deal)
+        caption = post.caption or message.text      # the first attempt's, whatever renders now
+        if post.caption is None:
+            self.save(post.id, caption=caption)
+        urls = self._live_images(message.deal, post)
         self._check_quota(QUOTA_CAROUSEL)
-        found = self._already_posted(message.text)
+        found = self._already_posted(caption)
         if found:
             self.log(f"Instagram: o carrossel do deal {post.deal_id} já estava publicado "
                      f"({found}): não volta a ser publicado.")
             self.save(post.id, media_id=found, container_id=None)
             return found
-        container = post.container_id
-        if container:
-            status, _ = self._status(container)
-            if status == "PUBLISHED":           # out, but not among the latest posts
-                raise PublishCancel(
-                    f"O carrossel já foi publicado (contentor {container}) mas o post não foi "
-                    "encontrado: confirma no Instagram e marca a promoção como publicada.")
-            if status in ("ERROR", "EXPIRED"):
-                container = None
+        container, published = self._reuse(post.container_id)
+        if published:                           # out, but not among the latest posts
+            raise PublishCancel(
+                f"O carrossel já foi publicado (contentor {container}) mas o post não foi "
+                "encontrado: confirma no Instagram e marca a promoção como publicada.")
         if not container:
-            container = self._create_carousel(urls[:MAX_CHILDREN], message.text)
+            container = self._create_carousel(urls[:MAX_CHILDREN], caption)
             self.save(post.id, container_id=container)
-        self._wait_finished(container, lambda: self.save(post.id, container_id=None))
-        media_id = str(self.graph.post(f"{self.account}/media_publish",
-                                       creation_id=container)["id"])
-        self.save(post.id, media_id=media_id, container_id=None)
-        return media_id
+        return self._finish(container, forget=lambda: self.save(post.id, container_id=None),
+                            done=lambda media: self.save(post.id, media_id=media,
+                                                         container_id=None))
 
     def _create_carousel(self, urls: list[str], caption: str) -> str:
         if len(urls) == 1:                      # one slide: a single-image post
@@ -209,6 +229,7 @@ class InstagramPublisher:
                                        caption=caption)["id"])
         children = [str(self.graph.post(f"{self.account}/media", image_url=url,
                                         is_carousel_item="true")["id"]) for url in urls]
+        self._wait_finished(children, forget=lambda: None)   # a broken child: new ones next time
         return str(self.graph.post(f"{self.account}/media", media_type="CAROUSEL",
                                    children=",".join(children), caption=caption)["id"])
 
@@ -223,45 +244,65 @@ class InstagramPublisher:
             raise self._signal(err) from None
 
     def _story(self, post: Post, deal: Deal) -> str | None:
-        cover = self._live_images(deal)[0]
-        container = post.story_container_id
-        if container:
-            status, _ = self._status(container)
-            if status == "PUBLISHED":
-                self.save(post.id, story_container_id=None)
-                return None
-            if status in ("ERROR", "EXPIRED"):
-                container = None
+        cover = self._live_images(deal, None)[0]
+        container, published = self._reuse(post.story_container_id)
+        if published:
+            self.save(post.id, story_container_id=None)
+            return None
         if not container:
             self._check_quota(1)
             container = str(self.graph.post(f"{self.account}/media", image_url=cover,
                                             media_type="STORIES")["id"])
             self.save(post.id, story_container_id=container)
-        self._wait_finished(container, lambda: self.save(post.id, story_container_id=None))
-        media_id = str(self.graph.post(f"{self.account}/media_publish",
-                                       creation_id=container)["id"])
-        self.save(post.id, story_media_id=media_id, story_container_id=None)
-        return media_id
+        return self._finish(container, forget=lambda: self.save(post.id, story_container_id=None),
+                            done=lambda media: self.save(post.id, story_media_id=media,
+                                                         story_container_id=None))
 
     # --- shared steps ------------------------------------------------------------------------
+
+    def _reuse(self, container: str | None) -> tuple[str | None, bool]:
+        """A container kept from an earlier attempt: (it, False) to go on with it, (it, True)
+        when it was published already, (None, False) when there is none or it broke."""
+        if not container:
+            return None, False
+        status, _ = self._status(container)
+        if status == "PUBLISHED":
+            return container, True
+        return (None, False) if status in BROKEN else (container, False)
+
+    def _finish(self, container: str, *, forget: Callable[[], None],
+                done: Callable[[str], None]) -> str:
+        """Wait until Meta processed the container, publish it, record the media id."""
+        self._wait_finished([container], forget)
+        media_id = str(self.graph.post(f"{self.account}/media_publish",
+                                       creation_id=container)["id"])
+        done(media_id)
+        return media_id
 
     def _signal(self, err: GraphError) -> Exception:
         signal = classify(err)
         if isinstance(signal, TokenProblem):
-            self.on_token_problem(str(signal))
+            self.token_state(str(signal))
+            self.log(f"Instagram: {signal}")
         return signal
 
-    def _live_images(self, deal: Deal) -> list[str]:
-        """The slides' public JPEG URLs, once every one answers 200 (the deploy that carries
-        them may still be to come: a new approval's full path runs after the publish step)."""
+    def _live_images(self, deal: Deal, post: Post | None) -> list[str]:
+        """The slides' public JPEG URLs, once every one is live (the deploy that carries them
+        may still be to come: a new approval's full path runs after the publish step). Waiting
+        is free until `images_wait` after the post's slot, then each wait is a failure, so
+        D32's max_attempts ends a post whose images never arrive."""
         urls = self.image_urls(deal)
         if not urls:
             raise PublishCancel("A promoção não tem slides renderizados.")
         for url in urls[:MAX_CHILDREN]:
-            status = self.head(url)
-            if status != 200:
-                raise PublishWait(f"As imagens ainda não estão no site ({url} → "
-                                  f"{status or 'sem resposta'}): espera pelo próximo deploy.")
+            problem = self.check_image(url)
+            if problem:
+                if post is not None and self.now - post.due_at > self.images_wait:
+                    hours = i18n_pt.number(self.images_wait.total_seconds() / 3600)
+                    raise InstagramError(f"As imagens continuam sem estar no site mais de "
+                                         f"{hours} h depois da hora marcada ({url} → {problem}).")
+                raise PublishWait(f"As imagens ainda não estão no site ({url} → {problem}): "
+                                  "espera pelo próximo deploy.")
         return urls
 
     def _check_quota(self, needed: int) -> None:
@@ -285,19 +326,24 @@ class InstagramPublisher:
         body = self.graph.get(container, fields="status_code,status")
         return str(body.get("status_code") or ""), str(body.get("status") or "")
 
-    def _wait_finished(self, container: str, forget: Callable[[], None]) -> None:
-        """Poll until FINISHED; ERROR/EXPIRED forgets the container (a new one next time) and
-        fails; still in progress after the last poll waits for the next run (kept)."""
+    def _wait_finished(self, containers: list[str], forget: Callable[[], None]) -> None:
+        """Poll until every container is FINISHED; one in ERROR/EXPIRED forgets the kept
+        container (a new one next time) and fails; still in progress after the last poll
+        waits for the next run."""
+        waiting = list(containers)
         for delay in (0, *POLL_DELAYS):
             if delay:
                 self.sleep(delay)
-            status, detail = self._status(container)
-            if status in ("FINISHED", "PUBLISHED"):
+            for container in list(waiting):
+                status, detail = self._status(container)
+                if status in DONE:
+                    waiting.remove(container)
+                elif status in BROKEN:
+                    forget()
+                    raise InstagramError(f"O Instagram não processou as imagens ({status}"
+                                         + (f": {detail}" if detail else "") + ").")
+            if not waiting:
                 return
-            if status in ("ERROR", "EXPIRED"):
-                forget()
-                raise InstagramError(f"O Instagram não processou as imagens ({status}"
-                                     + (f": {detail}" if detail else "") + ").")
         raise PublishWait("O Instagram ainda está a processar as imagens: a próxima execução "
                           "continua.")
 
@@ -310,7 +356,8 @@ class InstagramPublisher:
 
 
 class Paused:
-    """The instagram channel while the token can't be used: every due post waits."""
+    """The instagram channel while it can't post (no secrets, no usable token): every due post
+    waits, no attempt counted, the reason in `queue list`."""
 
     name = "instagram"
 
@@ -344,17 +391,17 @@ def _iso(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
 
-def ensure_token(secret: str, *, conn, store: ObjectStore, http: httpx.Client, login: str,
-                 version: str, refresh_days: int, now: datetime,
+def ensure_token(secret: str, api: InstagramConfig, *, conn, store: ObjectStore,
+                 http: httpx.Client, now: datetime,
                  log: Callable[[str], None]) -> tuple[str | None, str | None]:
     """(token to publish with, None) or (None, why nothing can be posted, pt-PT).
 
     The secret is the seed. A token this pipeline refreshed (`TOKEN_KEY`) replaces it while the
-    secret is still one it replaced (Miguel hasn't updated the secret yet). With Instagram Login,
-    a token whose expiry is within `refresh_days`, or unknown (a new secret: refreshing tells
-    its expiry) and at least a day old, is refreshed; a new token string is stored and Miguel is
-    told to update the secret. Meta `instagram.token` keeps the fingerprint, expiry and notices
-    `notices` shows."""
+    secret is still one it replaced (Miguel hasn't updated the secret yet). When the login
+    refreshes (`api.refreshes`, Instagram Login), a token whose expiry is within
+    `api.refresh_days`, or unknown (a new secret: refreshing tells its expiry) and at least a day
+    old, is refreshed; a new token string is stored and Miguel is told to update the secret.
+    Meta `instagram.token` keeps the fingerprint, expiry and notices `notices` shows."""
     meta = db.get_meta_json(conn, TOKEN_META)
     stored = stored_token(store)
     secret_fp = fingerprint(secret)
@@ -379,10 +426,10 @@ def ensure_token(secret: str, *, conn, store: ObjectStore, http: httpx.Client, l
         db.set_meta(conn, TOKEN_META, json.dumps(meta))
         return None, meta["problem"]
     first_seen = _iso(meta.get("first_seen")) or now
-    due = (expires - now < timedelta(days=refresh_days) if expires is not None
+    due = (expires - now < timedelta(days=api.refresh_days) if expires is not None
            else now - first_seen >= TOKEN_MIN_AGE)
-    if login == "instagram" and due:
-        graph = Graph(http, host=HOSTS["instagram"], version=version, token=token)
+    if api.refreshes and due:
+        graph = Graph(http, api, token)
         try:
             body = graph.call("GET", "refresh_access_token", versioned=False,
                               grant_type="ig_refresh_token")
@@ -411,8 +458,8 @@ def ensure_token(secret: str, *, conn, store: ObjectStore, http: httpx.Client, l
             meta.update(fingerprint=fp, expires_at=db.utc_iso(expires),
                         refreshed_at=db.utc_iso(now))
             meta.setdefault("first_seen", db.utc_iso(now))
+            meta.pop("problem", None)            # Meta accepted it
             log(f"Instagram: token renovado, válido até {i18n_pt.lisbon_timestamp(expires)}.")
-    meta.pop("problem", None)
     db.set_meta(conn, TOKEN_META, json.dumps(meta))
     return token, None
 
@@ -423,10 +470,14 @@ def secret_notice(at: datetime) -> str:
             f"neste PC) — {README}.")
 
 
-def token_problem(conn, reason: str) -> None:
-    """A call refused the token: kept in meta until a run gets through with it."""
+def token_state(conn, problem: str | None) -> None:
+    """A call refused the token (`problem`, kept in meta for `queue list`), or Meta accepted it
+    again (None: the notice goes). A new secret starts without one."""
     meta = db.get_meta_json(conn, TOKEN_META)
-    meta["problem"] = reason
+    if problem:
+        meta["problem"] = problem
+    elif meta.pop("problem", None) is None:
+        return
     db.set_meta(conn, TOKEN_META, json.dumps(meta))
 
 

@@ -33,6 +33,7 @@ class FakeGraph:
         self.calls: list[tuple[str, str, dict]] = []
         self.statuses: dict[str, list[str]] = {}
         self.default_status: list[str] = ["FINISHED"]
+        self.kind_status: dict[str, list[str]] = {}    # kind ('child', 'carousel'...) -> statuses
         self.containers: dict[str, dict] = {}
         self.media: list[dict] = []
         self.quota = (0, 100)
@@ -86,7 +87,7 @@ class FakeGraph:
             case "child" | "carousel" | "story" | "image":
                 container = self._id()
                 self.containers[container] = {"kind": kind, **params}
-                self.statuses[container] = list(self.default_status)
+                self.statuses[container] = list(self.kind_status.get(kind, self.default_status))
                 return httpx.Response(200, json={"id": container})
             case "status":
                 container = parts[-1]
@@ -116,14 +117,17 @@ def graph(ctx, monkeypatch):
     monkeypatch.setenv("INSTAGRAM_ACCOUNT_ID", ACCOUNT)
     fake = FakeGraph()
     fake.site_status = 200
+    fake.redirect_to = None             # a Location the site's JPEGs redirect to
     fake.heads = []
     with respx.mock:                    # the default router: the provider mocks of the helpers too
         respx.route(host="graph.instagram.com").mock(side_effect=fake)
 
         def head(request):
             fake.heads.append(str(request.url))
+            if fake.redirect_to and request.url.path.startswith("/img/"):
+                return httpx.Response(301, headers={"Location": fake.redirect_to})
             return httpx.Response(fake.site_status)
-        respx.head(url__startswith=f"{SITE}/img/").mock(side_effect=head)
+        respx.head(url__regex=r"^https?://(cdn\.)?pontonomada\.pt/").mock(side_effect=head)
         fake.router = respx.mock
         yield fake
 
@@ -152,27 +156,44 @@ def run(ctx, conn, now=DUE, sleep=no_sleep):
     return publish(ctx, conn, now, sleep=sleep)
 
 
-def pending_events(ctx) -> list[dict]:
-    store = ctx.object_store
-    return [json.loads(store.get(k)) for k in store.list(review_events.PENDING)]
+def published_decisions(ctx) -> list[dict]:
+    """Every `published` event written, pending or applied (archived with its outcome)."""
+    store, out = ctx.object_store, []
+    for key in store.list(review_events.PENDING) + store.list(review_events.ARCHIVE):
+        doc = json.loads(store.get(key))
+        out.append(doc.get("event", doc))
+    return [e for e in out if e["type"] == "published"]
 
 
 # --- missing secrets ------------------------------------------------------------------------
 
+WAIT_TOKEN = ("À espera do token: faltam INSTAGRAM_ACCESS_TOKEN e/ou INSTAGRAM_ACCOUNT_ID (.env ou "
+              "secrets do GitHub, docs/runbooks/instagram.md).")
+
+
 @respx.mock
-def test_without_the_secrets_instagram_stays_a_dry_run_and_says_why(ctx):
+def test_without_the_secrets_a_due_instagram_post_waits_and_keeps_its_slot(ctx, monkeypatch):
+    """`instagram: instagram` configured, secrets not set yet: the post waits (no attempt, not
+    settled by a dry run, so the promotion's Instagram slot isn't lost); expiry still cancels."""
     conn = pipeline.open_db(ctx)
     deal_id = approved(ctx, conn)
     publish(ctx, conn, APPLIED)
     db.record_recheck(conn, deal_id, valid=True, latest_price=58, reason="continua",
                       at=utc(2026, 12, 1, 8, 30))
     done, lines = publish(ctx, conn, DUE)
-    assert done == [(deal_id, "instagram", "published")]
-    log = "\n".join(lines)
-    assert "Instagram em dry run: faltam INSTAGRAM_ACCESS_TOKEN e/ou INSTAGRAM_ACCOUNT_ID" in log
-    assert "[dry-run] Instagram" in log
-    assert by_channel(conn)["instagram"].publisher == "dry-run"
-    assert pending_events(ctx) == []                      # a dry run marks nothing published
+    assert done == [(deal_id, "instagram", "waiting")]
+    assert not any("[dry-run] Instagram" in line for line in lines)
+    post = by_channel(conn)["instagram"]
+    assert (post.status, post.attempts, post.publisher, post.last_error) == (
+        "queued", 0, None, WAIT_TOKEN)
+    assert published_decisions(ctx) == []
+    out = cli(ctx, monkeypatch, "queue", "list")
+    assert "À espera do token" in out
+
+    db.record_recheck(conn, deal_id, valid=False, latest_price=80,
+                      reason="o preço subiu para 80 €", at=utc(2026, 12, 1, 10))
+    done, _ = publish(ctx, conn, utc(2026, 12, 1, 10))
+    assert done == [(deal_id, "instagram", "cancelled")]
 
 
 # --- the carousel and the story -------------------------------------------------------------
@@ -184,6 +205,7 @@ def test_a_due_post_goes_out_as_a_carousel_then_a_story(ctx, graph):
     done, lines = run(ctx, conn)
     assert done == [(deal_id, "instagram", "published")]
     assert graph.kinds() == ["content_publishing_limit", "media", "child", "child", "child",
+                             "status", "status", "status",          # every child FINISHED first
                              "carousel", "status", "media_publish", "permalink",
                              "content_publishing_limit", "story", "status", "media_publish"]
     jpegs = [f"{SITE}/img/promos/{deal_id}/slide_0{n}.jpg" for n in (1, 2, 3)]
@@ -209,13 +231,11 @@ def test_a_due_post_goes_out_as_a_carousel_then_a_story(ctx, graph):
     assert post.container_id is None and post.story_container_id is None
     assert f"Story Instagram deal {deal_id}: publicada" in "\n".join(lines)
 
-    # The promotion is marked published by an event (D26), applied by the next run.
-    [event] = pending_events(ctx)
+    # The promotion is marked published by a decision (D26, `pipeline.mark_published`): without
+    # R2 it is applied at once, with R2 by the next run.
+    [event] = published_decisions(ctx)
     assert (event["type"], event["deal_id"], event["actor"], event["post_url"]) == \
         ("published", deal_id, "instagram-publisher", post.result_url)
-    assert db.get_deal(conn, deal_id)[0].status == "approved"
-    [outcome] = pipeline.apply_review_events(ctx, conn, now=utc(2026, 12, 1, 11))
-    assert outcome.applied
     deal = db.get_deal(conn, deal_id)[0]
     assert (deal.status, deal.post_url) == ("published", post.result_url)
 
@@ -230,13 +250,36 @@ def test_status_is_polled_with_backoff_until_finished(ctx, graph):
     slept: list[float] = []
     done, _ = run(ctx, conn, sleep=slept.append)
     assert done == [(deal_id, "instagram", "published")]
-    assert slept == [2, 3, 2, 3]                     # carousel, then story: each 3 polls
-    assert graph.kinds().count("status") == 6
+    assert slept == [2, 3, 2, 3, 2, 3]       # children (together), carousel, story: 3 polls each
+    assert graph.kinds().count("status") == 3 * 3 + 3 + 3
+
+
+def test_a_child_in_error_is_a_failure_and_the_next_attempt_makes_new_children(ctx, graph):
+    conn, deal_id = setup(ctx, graph)
+    graph.kind_status["child"] = ["ERROR"]
+    done, _ = run(ctx, conn)
+    assert done == [(deal_id, "instagram", "failed")]
+    assert "carousel" not in graph.kinds()             # never built on a broken child
+    post = by_channel(conn)["instagram"]
+    assert (post.attempts, post.container_id) == (1, None)
+    assert post.last_error == "InstagramError: O Instagram não processou as imagens (ERROR: error)."
+    del graph.kind_status["child"]
+    done, _ = run(ctx, conn, utc(2026, 12, 1, 11))
+    assert done == [(deal_id, "instagram", "published")]
+    assert graph.kinds().count("child") == 6
+
+
+def test_a_child_still_in_progress_waits_without_building_the_carousel(ctx, graph):
+    conn, deal_id = setup(ctx, graph)
+    graph.kind_status["child"] = ["IN_PROGRESS"]
+    done, _ = run(ctx, conn)
+    assert done == [(deal_id, "instagram", "waiting")]
+    assert "carousel" not in graph.kinds() and by_channel(conn)["instagram"].attempts == 0
 
 
 def test_a_container_still_in_progress_waits_and_the_next_run_resumes_it(ctx, graph):
     conn, deal_id = setup(ctx, graph)
-    graph.default_status = ["IN_PROGRESS"]
+    graph.kind_status["carousel"] = ["IN_PROGRESS"]
     slept: list[float] = []
     done, _ = run(ctx, conn, sleep=slept.append)
     assert done == [(deal_id, "instagram", "waiting")]
@@ -249,7 +292,7 @@ def test_a_container_still_in_progress_waits_and_the_next_run_resumes_it(ctx, gr
     assert graph.containers[container]["kind"] == "carousel"
 
     graph.statuses[container] = ["FINISHED"]
-    graph.default_status = ["FINISHED"]
+    del graph.kind_status["carousel"]
     graph.calls.clear()
     done, _ = run(ctx, conn, utc(2026, 12, 1, 11))
     assert done == [(deal_id, "instagram", "published")]
@@ -259,7 +302,7 @@ def test_a_container_still_in_progress_waits_and_the_next_run_resumes_it(ctx, gr
 
 def test_a_container_in_error_is_a_retried_failure_with_a_new_container(ctx, graph):
     conn, deal_id = setup(ctx, graph)
-    graph.default_status = ["ERROR"]
+    graph.kind_status["carousel"] = ["ERROR"]
     done, _ = run(ctx, conn)
     assert done == [(deal_id, "instagram", "failed")]
     post = by_channel(conn)["instagram"]
@@ -267,7 +310,7 @@ def test_a_container_in_error_is_a_retried_failure_with_a_new_container(ctx, gra
     assert post.last_error == "InstagramError: O Instagram não processou as imagens (ERROR: error)."
     assert graph.media == []
 
-    graph.default_status = ["FINISHED"]
+    del graph.kind_status["carousel"]
     done, _ = run(ctx, conn, utc(2026, 12, 1, 11))
     assert done == [(deal_id, "instagram", "published")]
     assert len([k for k in graph.kinds() if k == "carousel"]) == 2      # a fresh container
@@ -300,6 +343,40 @@ def test_images_not_on_the_site_yet_wait_for_the_deploy(ctx, graph):
     assert run(ctx, conn, utc(2026, 12, 1, 11))[0] == [(deal_id, "instagram", "published")]
 
 
+def test_images_behind_an_https_redirect_are_live_but_not_behind_an_http_one(ctx, graph):
+    conn, deal_id = setup(ctx, graph)
+    graph.redirect_to = f"http://pontonomada.pt/elsewhere.jpg"
+    done, _ = run(ctx, conn)
+    assert done == [(deal_id, "instagram", "waiting")] and graph.calls == []
+    assert "redirecionado para http://pontonomada.pt/elsewhere.jpg" in \
+        by_channel(conn)["instagram"].last_error
+    graph.redirect_to = "https://cdn.pontonomada.pt/slide.jpg"
+    assert run(ctx, conn, utc(2026, 12, 1, 11))[0] == [(deal_id, "instagram", "published")]
+    assert "https://cdn.pontonomada.pt/slide.jpg" in graph.heads
+
+
+def test_images_still_missing_a_day_after_the_slot_count_as_failures(ctx, graph):
+    """The wait for the deploy is bounded (`instagram.images_wait_hours`, 24): after that each
+    run counts a failed attempt, so `posting.max_attempts` ends it with the reason."""
+    ctx.config.posting.max_attempts = 2
+    conn, deal_id = setup(ctx, graph)
+    graph.site_status = 404
+    for hours in (2, 24):                                 # within the day after 09:00: free
+        db.record_recheck(conn, deal_id, valid=True, latest_price=58, reason="continua",
+                          at=DUE + timedelta(hours=hours))
+        assert run(ctx, conn, DUE + timedelta(hours=hours))[0] == [
+            (deal_id, "instagram", "waiting")]
+    for hours, action in ((24.5, "failed"), (26, "cancelled")):
+        at = DUE + timedelta(hours=hours)
+        db.record_recheck(conn, deal_id, valid=True, latest_price=58, reason="continua", at=at)
+        assert run(ctx, conn, at)[0] == [(deal_id, "instagram", action)]
+    post = by_channel(conn)["instagram"]
+    assert post.reason == (f"O publicador falhou 2 vezes: InstagramError: As imagens continuam "
+                           f"sem estar no site mais de 24 h depois da hora marcada ({SITE}/img/"
+                           f"promos/{deal_id}/slide_01.jpg → 404).")
+    assert "media" not in graph.kinds("POST")                # nothing was ever sent to Meta
+
+
 def test_a_crash_between_publish_and_recording_never_posts_twice(ctx, graph, monkeypatch):
     """The run dies after `media_publish` answered and before its id was stored (here the save
     fails; with R2 a killed job loses the database copy too). The retry finds the carousel on
@@ -314,7 +391,7 @@ def test_a_crash_between_publish_and_recording_never_posts_twice(ctx, graph, mon
     monkeypatch.setattr(db, "save_post_progress", crash_on_media)
     done, _ = run(ctx, conn)
     assert done == [(deal_id, "instagram", "failed")]
-    assert len(graph.media) == 1 and pending_events(ctx) == []
+    assert len(graph.media) == 1 and published_decisions(ctx) == []
     monkeypatch.setattr(db, "save_post_progress", real)
     db.save_post_progress(conn, by_channel(conn)["instagram"].id, container_id=None)  # lost too
 
@@ -326,7 +403,35 @@ def test_a_crash_between_publish_and_recording_never_posts_twice(ctx, graph, mon
     assert "já estava publicado" in "\n".join(lines)
     post = by_channel(conn)["instagram"]
     assert post.media_id == graph.media[0]["id"]
-    assert [e["type"] for e in pending_events(ctx)] == ["published"]
+    assert [e["type"] for e in published_decisions(ctx)] == ["published"]
+
+
+def test_the_duplicate_check_uses_the_first_attempts_caption_even_if_the_text_changed(
+        ctx, graph, monkeypatch):
+    """Between the lost publish and the retry the rendered caption changes (a new photo credit,
+    a hashtag): the retry still matches the carousel by the caption stored at the first
+    attempt, and never posts a second one with the new text."""
+    conn, deal_id = setup(ctx, graph)
+    real = db.save_post_progress
+
+    def crash_on_media(conn_, post_id, **fields):
+        if fields.get("media_id"):
+            raise RuntimeError("o processo morreu")
+        real(conn_, post_id, **fields)
+    monkeypatch.setattr(db, "save_post_progress", crash_on_media)
+    run(ctx, conn)
+    monkeypatch.setattr(db, "save_post_progress", real)
+    first = by_channel(conn)["instagram"].caption
+    assert first and graph.media[0]["caption"] == first
+
+    rendered = pipeline.deal_caption_text
+    monkeypatch.setattr(pipeline, "deal_caption_text",
+                        lambda ctx_, view: rendered(ctx_, view) + "\n\n#novahashtag")
+    db.save_post_progress(conn, by_channel(conn)["instagram"].id, container_id=None)
+    done, _ = run(ctx, conn, utc(2026, 12, 1, 11))
+    assert done == [(deal_id, "instagram", "published")]
+    assert [m["kind"] for m in graph.media] == ["carousel", "story"]       # one carousel only
+    assert by_channel(conn)["instagram"].caption == first
 
 
 def test_a_story_failure_never_reposts_the_carousel(ctx, graph):
@@ -339,7 +444,7 @@ def test_a_story_failure_never_reposts_the_carousel(ctx, graph):
     assert (post.status, post.story_status, post.story_attempts) == ("published", "pending", 1)
     assert post.story_note == ("InstagramError: Erro da API do Instagram: An unknown error "
                                "occurred (código 1, HTTP 500)")
-    assert len(pending_events(ctx)) == 1
+    assert len(published_decisions(ctx)) == 1
 
     del graph.errors[("POST", "story")]
     graph.calls.clear()
@@ -484,16 +589,17 @@ def test_a_stored_token_is_refreshed_in_turn_while_the_secret_stays_old(ctx, gra
     graph.refresh = {"access_token": "IGAAtest-refreshed-3", "expires_in": 5184000}
     later = DUE + timedelta(days=51)                 # the first refreshed token has 9 days left
     graph.token_log.clear()
-    instagram.ensure_token(TOKEN, conn=conn, store=ctx.object_store, http=httpx.Client(),
-                           login="instagram", version="v23.0", refresh_days=10, now=later,
-                           log=lambda line: None)
+
+    def ensure():
+        return instagram.ensure_token(TOKEN, ctx.config.instagram, conn=conn,
+                                      store=ctx.object_store, http=httpx.Client(), now=later,
+                                      log=lambda line: None)
+    ensure()
     assert graph.token_log == [("refresh", first)]
     stored = instagram.stored_token(ctx.object_store)
     assert stored["token"] == "IGAAtest-refreshed-3"
     assert stored["replaces"] == [instagram.fingerprint(TOKEN), instagram.fingerprint(first)]
-    token, problem = instagram.ensure_token(
-        TOKEN, conn=conn, store=ctx.object_store, http=httpx.Client(), login="instagram",
-        version="v23.0", refresh_days=10, now=later, log=lambda line: None)
+    token, problem = ensure()
     assert (token, problem) == ("IGAAtest-refreshed-3", None)
     assert token_meta(conn)["secret_outdated"]
 
@@ -533,6 +639,41 @@ def test_facebook_login_uses_graph_facebook_com_and_never_refreshes(ctx, graph):
     assert graph.calls == [] and "refresh" not in facebook.kinds()
     assert facebook.calls[0][2] == {"fields": "quota_usage,config"}
     assert [m["kind"] for m in facebook.media] == ["carousel", "story"]
+
+
+def test_a_refused_token_on_any_call_waits_and_tells_miguel_until_meta_accepts_it(
+        ctx, graph, monkeypatch):
+    """Facebook Login never refreshes (it needs a Page token that doesn't expire): when Meta
+    answers 190 anyway, here to the story, nothing counts as a failure, the post or story
+    waits and `queue list` and the run log say why; the next accepted call clears it."""
+    ctx.config.instagram.login = "facebook"
+    conn, deal_id = setup(ctx, graph)
+    facebook = FakeGraph()
+    graph.router.route(host="graph.facebook.com").mock(side_effect=facebook)
+    facebook.errors[("POST", "story")] = (
+        400, {"error": {"message": "Session has expired", "code": 190, "error_subcode": 463}})
+    done, lines = run(ctx, conn)
+    assert done == [(deal_id, "instagram", "published")]          # the carousel went out
+    post = by_channel(conn)["instagram"]
+    assert (post.story_status, post.story_attempts) == ("pending", 0)
+    assert post.story_note.startswith("Token do Instagram inválido ou expirado (Session has "
+                                      "expired (código 190/463, HTTP 400))")
+    assert any(line.startswith("Instagram: Token do Instagram inválido") for line in lines)
+    assert "Token do Instagram inválido ou expirado" in cli(ctx, monkeypatch, "queue", "list")
+
+    del facebook.errors[("POST", "story")]
+    second = second_deal(ctx, conn)
+    db.set_deal_output_path(conn, second, db.get_deal(conn, deal_id)[0].output_path)  # slides
+    from test_posting import approve_event
+    approve_event(ctx.object_store, second, checked=utc(2026, 12, 1, 10))
+    pipeline.apply_review_events(ctx, conn, now=utc(2026, 12, 1, 10))
+    db.record_recheck(conn, second, valid=True, latest_price=58, reason="continua",
+                      at=utc(2026, 12, 1, 13))
+    done, _ = run(ctx, conn, utc(2026, 12, 1, 13))
+    assert (second, "instagram", "published") in done
+    stories = {p.deal_id: p.story_status for p in db.posts(conn) if p.channel == "instagram"}
+    assert stories == {deal_id: "published", second: "published"}
+    assert "Token do Instagram inválido" not in cli(ctx, monkeypatch, "queue", "list")
 
 
 def test_instagram_token_prints_the_stored_token_on_the_pc_only(ctx, graph, monkeypatch):

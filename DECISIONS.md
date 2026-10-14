@@ -1650,57 +1650,86 @@ so nothing has to be hosted.
 - **API: Instagram API with Instagram Login** (`graph.instagram.com`): no Facebook Page needed,
   the token belongs to the professional account, permissions `instagram_business_basic` (list
   the account's posts, for the duplicate check) and `instagram_business_content_publish`. The
-  host comes from one map (`instagram.HOSTS`, keyed by config `instagram.login`) and the version
-  from `instagram.api_version` (`v23.0`), so Facebook Login (`graph.facebook.com`, the account
-  linked to a Page) is `login: facebook`: same endpoints and ids, and no refresh (a Page token
-  from a long-lived user token does not expire). Secrets `INSTAGRAM_ACCESS_TOKEN`,
+  host comes from one map (`config.GRAPH_HOSTS`, read through `InstagramConfig.host`, keyed by
+  `instagram.login`) and the version from `instagram.api_version` (`v23.0`); `Graph(http, api,
+  token)` and `ensure_token(secret, api, …)` take the config itself, not loose host/version/
+  refresh parameters. Facebook Login (`graph.facebook.com`, the account linked to a Page) is
+  `login: facebook`: same endpoints and ids, and **no refresh**, so it needs a Page token that
+  never expires (from a long-lived user token; the runbook says how); a 190 from Meta there is
+  handled like any refused token (below). Secrets `INSTAGRAM_ACCESS_TOKEN`,
   `INSTAGRAM_ACCOUNT_ID` (`Secrets`, optional; `.env.example`, the workflow's env, `test_workflow`
   checks every `Secrets` field comes from Actions secrets). `posting.publishers.instagram:
-  instagram` in config; without both secrets the channel gets the dry run and its log says why
-  ("Instagram em dry run: faltam …"). Setup for Miguel: `docs/runbooks/instagram.md` (pt-PT).
+  instagram` in config. **Without both secrets the channel is `instagram.Paused`**: due posts
+  wait ("À espera do token: faltam …", no attempt counted, shown by `queue list` and the run
+  log), expiry and rejection still cancel them. Not the dry run: that settles the post
+  `published`, and the promotion would have lost its Instagram slot for good (code review).
+  Setup for Miguel: `docs/runbooks/instagram.md` (pt-PT).
 - **Publisher protocol (posting.py), extended:** `publish` may raise `PublishWait` (stays queued,
   **no attempt counted**, the reason in `last_error`) or `PublishCancel` (cancelled with the
-  reason); any other exception is a failure counted against D32's `max_attempts`. `Published`
-  gained `marks_published` (`run_publish` then writes a `published` event, D26) and `story` (a
-  story follows). The factory moved to `pipeline.publishers_for` (it needs the database and the
-  object store for the token); `posting.publishers` is gone.
+  reason); any other exception is a failure counted against D32's `max_attempts`.
+  `posting.attempt` turns a call into data (result / wait / cancel / error) so the post and the
+  story ladders in `run_publish` read the same. `Published` gained `marks_published` (`run_publish`
+  then calls `pipeline.mark_published`, the same writer as `deal published`, with actor
+  `posting.publisher_actor(name)` = `instagram-publisher`: review event v1's `actor` is free text,
+  so its schema is unchanged) and `story` (a story follows, `posting.StoryPublisher`, a
+  runtime-checkable Protocol with `publish_story`). Story states are `posting.StoryStatus`
+  (`pending`, `published`, `skipped`; the SQL CHECK is tested against it, like `CHANNELS`). The
+  factory moved to `pipeline.publishers_for` (it needs the database and the object store for the
+  token); `posting.publishers` is gone.
 - **Flow** (`instagram.InstagramPublisher`, called by `run_publish` after D32's verdict, so only
-  a due post whose price was verified within 6 h): (1) HEAD every JPEG URL
-  (`site.base_url` + `deal_jpeg_paths`, no redirect followed): any non-200 → wait ("As imagens
-  ainda não estão no site …: espera pelo próximo deploy"), which is the normal case when an
+  a due post whose price was verified within 6 h): (0) the caption: the one stored on the row at
+  the first attempt (`posting_queue.caption`), else the rendered one, stored now; (1) HEAD every
+  JPEG URL (`website.public_jpeg_urls` = `site.base_url` + `deal_jpeg_paths`; redirects followed,
+  but the final URL must be https and answer 200, `instagram.image_problem`): otherwise wait ("As
+  imagens ainda não estão no site …: espera pelo próximo deploy"), the normal case when an
   approval's slot comes before the full path deployed (the publish step runs before the path
-  decision); (2) `content_publishing_limit`: fewer than 2 left (carousel + story) → wait;
-  (3) the account's 25 latest posts: one whose caption matches (line by line, blank lines and
+  decision). **Bounded:** more than `instagram.images_wait_hours` (24) after the slot, each such
+  run is a failure ("As imagens continuam sem estar no site mais de 24 h depois da hora
+  marcada …"), so `max_attempts` cancels a post whose images never arrive (a broken deploy);
+  (2) `content_publishing_limit`: fewer than 2 left (carousel + story) → wait; (3) the account's
+  25 latest posts: one whose caption matches the stored caption (line by line, blank lines and
   outer spaces ignored) is this carousel already published by a run that died before recording
-  it → adopted, never posted again; (4) one container per slide (`is_carousel_item`, at most
-  10; a single slide is a plain image post), the CAROUSEL container with the caption from
-  `deal_caption_text`; (5) status polled (`status_code`) right away and after 2, 3, 5, 10, 15,
-  25 s (~1 min, injected sleeper): FINISHED → on; ERROR/EXPIRED → the container is forgotten and
-  it is a failure (a new one next time); still IN_PROGRESS → wait, the container kept for the
-  next run; (6) `media_publish`; (7) the permalink (failing to read it leaves the URL empty, the
-  post is out). Then `run_publish` writes the `published` event (actor `instagram-publisher`,
-  `post_url` = permalink; a write failure is logged, never fails a post that is out), settles
+  it → adopted, never posted again; (4) one container per slide (`is_carousel_item`, at most 10;
+  a single slide is a plain image post), **every child polled to FINISHED** (together, same
+  backoff; one in ERROR/EXPIRED is a failure and the next attempt makes new children; still in
+  progress → wait), then the CAROUSEL container with the caption; (5) its status polled
+  (`status_code`) right away and after 2, 3, 5, 10, 15, 25 s (~1 min, injected sleeper):
+  FINISHED → on; ERROR/EXPIRED → the container is forgotten and it is a failure (a new one next
+  time); still IN_PROGRESS → wait, the container kept for the next run; (6) `media_publish`;
+  (7) the permalink (failing to read it leaves the URL empty, the post is out). The resume of a
+  kept container (`_reuse`: PUBLISHED / broken / go on) and its finish (`_finish`: poll,
+  `media_publish`, record) are one code path for the carousel and the story. Then `run_publish`
+  writes the `published` decision (`post_url` = permalink; without R2 it is applied at once, with
+  R2 by the next run; a failure to write it is logged, never fails a post that is out), settles
   the row `published` (publisher `instagram`, `result_url`) and marks its story pending.
 - **Story**, right after in the same run (`pipeline._run_stories`, every run for pending
   stories): a STORIES container of the cover JPEG (limit: 1 left), polled and published the same
   way. Its failure never touches the carousel: `story_attempts` count up to `max_attempts`, then
   `skipped`; `posting.story_verdict` (pure) skips it once the promotion expired or was rejected
   or 6 h (`max_check_age_hours`) passed since the carousel, since the cover shows a price.
-- **Idempotency, schema v11** (`SCHEMA_VERSION` 11; `schema.sql`; migration 11 = seven `ALTER
+- **Idempotency, schema v11** (`SCHEMA_VERSION` 11; `schema.sql`; migration 11 = eight `ALTER
   TABLE posting_queue ADD COLUMN`; the upgrade tested from the real v5/v7 schemas and from a v10
-  database with a queued row): `container_id`, `media_id`, `story_status` (`pending` |
-  `published` | `skipped`, CHECK), `story_container_id`, `story_media_id`, `story_attempts`,
-  `story_note`. Each id is committed the moment Meta returns it (`db.save_post_progress`); a
-  retry resumes from it (a stored `media_id` skips straight to the permalink; a stored container
-  is reused unless ERROR/EXPIRED; a container that says PUBLISHED but whose post is not among the
-  latest is cancelled with "confirma no Instagram", never republished). The caption check covers
-  the case the database can't: a job killed after `media_publish` and before the push (D21), whose
-  ids never reached R2.
-- **Errors** (`instagram.classify`, Meta's error reference): code 190/102 (token) → wait, meta
-  `instagram.token.problem` (shown by `queue list`); 4, 17, 32, 613, 80002 and subcode 2207042
-  (rate and publishing limits) → wait; 10 and 200–299 (permissions) → wait with the runbook;
-  subcodes 2207004/2207005/2207009/2207023/2207028 (image too large, format, aspect ratio, media
-  type, carousel size) → cancel with a pt-PT reason; anything else (5xx, transient, unknown) →
+  database with a queued row): `container_id`, `media_id`, `story_status` (`StoryStatus`,
+  CHECK), `story_container_id`, `story_media_id`, `story_attempts`, `story_note`, `caption`
+  (added to v11 in code review; v11 never reached a released database). Each id is committed
+  the moment Meta returns it (`db.save_post_progress`); a retry resumes from it (a stored
+  `media_id` skips straight to the permalink; a stored container is reused unless
+  ERROR/EXPIRED; a container that says PUBLISHED but whose post is not among the latest is
+  cancelled with "confirma no Instagram", never republished). The caption check covers the case
+  the database can't: a job killed after `media_publish` and before the push (D21), whose ids
+  never reached R2. It compares the **first attempt's caption**, kept on the row, so a caption
+  that renders differently later (a new photo credit, a hashtag) can't make a retry miss the
+  carousel and post a second one (tested); the carousel itself is posted with that caption too.
+  Only a killed job loses that stored caption with the rest; then the freshly rendered caption
+  is compared, which is the same unless the text changed in between.
+- **Errors** (`instagram.classify`, Meta's error reference): code 190/102 (token) **on any call**
+  (container, status, publish, story, limit, refresh; with either login) → wait, no attempt
+  counted, a pt-PT line in the run log and meta `instagram.token.problem` shown by `queue list`
+  until a later call gets through (`instagram.token_state`, cleared by a successful post or
+  refresh, or by a new secret); 4, 17, 32, 613, 80002 and subcode 2207042 (rate and publishing
+  limits) → wait; 10 and 200–299 (permissions) → wait with the runbook; subcodes
+  2207004/2207005/2207009/2207023/2207028 (image too large, format, aspect ratio, media type,
+  carousel size) → cancel with a pt-PT reason; anything else (5xx, transient, unknown) →
   failure, retried. The list is to be checked against the first real errors. Messages never
   carry the token: `Graph` sends it as the `access_token` parameter and replaces it in any
   error text; transport errors are reported by type only (their text can hold the URL).

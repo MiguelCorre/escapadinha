@@ -30,7 +30,7 @@ from escapadinha.storage.objects import LockHeld
 from escapadinha.storage.s3 import STORE_ERRORS
 
 app =typer.Typer(help="Travel deals from Portugal: collect → detect → render → post (Instagram "
-                       "when its secrets are set, else a dry run).",
+                       "via the Graph API once its secrets are set; Telegram a dry run).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",

@@ -8,13 +8,27 @@ publicar confirma o preço (como até aqui), que as imagens JPEG já estão no s
 da API não foi atingido. Depois do carrossel escreve a decisão "publicado" (com o link do post),
 que a execução seguinte aplica: a página da promoção passa a ter o link para o Instagram.
 
-Enquanto faltar `INSTAGRAM_ACCESS_TOKEN` ou `INSTAGRAM_ACCOUNT_ID`, o Instagram continua em
-**dry run**: o registo da execução diz *"Instagram em dry run: faltam INSTAGRAM_ACCESS_TOKEN
-e/ou INSTAGRAM_ACCOUNT_ID"* e mostra o que seria publicado, sem publicar nada.
+Enquanto faltar `INSTAGRAM_ACCESS_TOKEN` ou `INSTAGRAM_ACCOUNT_ID`, nada é publicado no
+Instagram e as publicações que chegam à hora **ficam à espera** (não se perdem nem contam como
+falhas): o registo da execução e o `queue list` dizem *"À espera do token: faltam
+INSTAGRAM_ACCESS_TOKEN e/ou INSTAGRAM_ACCOUNT_ID"*. Uma promoção que expire ou seja rejeitada
+entretanto cancela a sua publicação, como sempre. Mal os secrets estejam postos, a execução
+seguinte publica a que estiver à espera (uma por execução).
 
 Usamos a **Instagram API com login do Instagram** (`graph.instagram.com`): não precisa de Página
-do Facebook. Se a conta estiver ligada a uma Página e preferires o login do Facebook, diz-me:
-é só `instagram.login: facebook` no `config.yaml` (e um token de Página, que não expira).
+do Facebook, e o pipeline renova o token sozinho (secção 6).
+
+**Login do Facebook (só se a conta estiver ligada a uma Página e o preferires):** muda para
+`instagram.login: facebook` no `config.yaml`. Neste caso o pipeline **não renova o token**, por
+isso o `INSTAGRAM_ACCESS_TOKEN` tem de ser um **token de Página que nunca expira**: gera um token
+de utilizador de longa duração (Graph API Explorer → a tua app → permissões
+`instagram_basic`, `instagram_content_publish`, `pages_show_list`, `pages_read_engagement` →
+*Generate Access Token* → no *Access Token Debugger* carrega em *Extend Access Token*) e, com
+ele, pede o token da Página (`/me/accounts` no Graph API Explorer → `access_token` da Página).
+Confirma no *Access Token Debugger* que diz **Expires: Never**. O `INSTAGRAM_ACCOUNT_ID` é o
+`instagram_business_account` dessa Página. Se mesmo assim a Meta recusar o token (por exemplo
+mudaste a palavra-passe do Facebook), nada é publicado, as publicações esperam e o `queue list`
+diz *"Token do Instagram inválido ou expirado"*: gera outro como acima.
 
 ## 1. A conta do Instagram
 
@@ -60,8 +74,10 @@ do Facebook. Se a conta estiver ligada a uma Página e preferires o login do Fac
 - [ ] No GitHub: repositório → **Settings** → **Secrets and variables** → **Actions** → **New
       repository secret**, um para cada: `INSTAGRAM_ACCESS_TOKEN` e `INSTAGRAM_ACCOUNT_ID`
       (o workflow já os passa ao pipeline).
-- [ ] O `config.yaml` já tem `posting.publishers.instagram: instagram`. Para voltar ao dry run
-      sem apagar os secrets, muda para `dry-run`.
+- [ ] O `config.yaml` já tem `posting.publishers.instagram: instagram`. (Com `dry-run` o
+      pipeline só escreve no registo o que publicaria e dá a publicação como feita: essa
+      promoção já não sai no Instagram. Para pausar, é melhor tirar os secrets: as publicações
+      esperam.)
 
 ## 5. Primeiro post real (teste)
 
@@ -108,6 +124,10 @@ Para atualizar:
   conta deixou de ser testadora da app.
 - *"Limite de publicações do Instagram: … nas últimas 24 h"*: a Meta limita as publicações
   feitas pela API por dia; o post espera pela execução seguinte.
+- *"As imagens ainda não estão no site"*: normal logo a seguir a uma aprovação (o deploy vem a
+  seguir). Se ao fim de 24 horas (`instagram.images_wait_hours`) continuarem sem aparecer, cada
+  execução conta uma falha e ao fim de 5 a publicação é cancelada com o motivo: vê se o deploy
+  do site está a falhar.
 - *"O Instagram recusou as imagens: …"*: a publicação é cancelada com o motivo (por exemplo
   formato ou proporção); diz-me, é um problema das imagens.
 - Outro erro da API: o post fica na fila e é tentado nas execuções seguintes; ao fim de 5
