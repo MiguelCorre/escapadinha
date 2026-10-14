@@ -105,6 +105,19 @@
   --pn-photo-ink: #FFFDF8;
   --pn-photo-scrim: #16140F;
   --pn-photo-scrim-text-alpha: 0.7;
+  --pn-dark-bg: #16140F;
+  --pn-dark-surface: #201D17;
+  --pn-dark-ink: #EEE7D8;
+  --pn-dark-muted: #B3A994;
+  --pn-dark-accent: #F0936B;
+  --pn-dark-on-accent: #16140F;
+  --pn-dark-rule: #3D372C;
+  --pn-dark-success: #93C98C;
+  --pn-dark-success-bg: #1D2A1B;
+  --pn-dark-warning: #E3B65C;
+  --pn-dark-warning-bg: #2D2514;
+  --pn-dark-expired: #F4A3AE;
+  --pn-dark-expired-bg: #331A1D;
 }
 
 @media (prefers-color-scheme: dark) {

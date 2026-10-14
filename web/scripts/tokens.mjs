@@ -1,7 +1,9 @@
-// Generate src/styles/tokens.css (Tailwind v4 @theme + --pn-* palette variables) from the design
-// system's machine-readable tokens, docs/design/tokens.json (itself generated from
-// src/escapadinha/renderer/tokens.py). Run `npm run tokens` after the tokens change; a vitest test
-// and tests/test_web_tokens.py fail while the CSS is stale.
+// Generate src/styles/tokens.css (Tailwind v4 @theme + --pn-* palette variables) and
+// src/lib/tokens.ts (the same tokens as data, for code that can't use the CSS: the review
+// Function's page, theme-color metas, the OG image) from the design system's machine-readable
+// tokens, docs/design/tokens.json (itself generated from src/escapadinha/renderer/tokens.py).
+// Run `npm run tokens` after the tokens change; vitest and tests/test_web_tokens.py fail while
+// either file is stale.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -9,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const WEB_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SOURCE = resolve(WEB_DIR, "../docs/design/tokens.json");
 export const OUT = resolve(WEB_DIR, "src/styles/tokens.css");
+export const OUT_TS = resolve(WEB_DIR, "src/lib/tokens.ts");
 
 const kebab = (s) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
@@ -39,6 +42,9 @@ export function renderTokensCss(tokens) {
   theme.push("  --container-page: 70rem;", "  --container-measure: 68ch;");
 
   const photo = Object.entries(tokens.photo).map(([k, v]) => `  --pn-photo-${kebab(k)}: ${v};`).join("\n");
+  // The dark palette under fixed names too, for surfaces that are dark in both schemes (the
+  // placeholder behind a photo that hasn't loaded).
+  const dark = Object.entries(tokens.themes.dark).map(([k, v]) => `  --pn-dark-${k}: ${v};`).join("\n");
   return [
     "/* Generated from docs/design/tokens.json by web/scripts/tokens.mjs (`npm run tokens`).",
     "   Do not edit by hand. Tailwind classes point at the --pn-* variables, so one class works in",
@@ -50,6 +56,7 @@ export function renderTokensCss(tokens) {
     ":root {",
     palette(tokens.themes.light, "  "),
     photo,
+    dark,
     "}",
     "",
     "@media (prefers-color-scheme: dark) {",
@@ -65,7 +72,22 @@ export function renderTokensCss(tokens) {
   ].join("\n");
 }
 
+/** tokens.json -> the TypeScript text of src/lib/tokens.ts (deterministic, no imports, so the
+ * review Function bundles it without node_modules). */
+export function renderTokensTs(tokens) {
+  const { ["$schema-note"]: _note, ...data } = tokens;
+  return [
+    "// Generated from docs/design/tokens.json by web/scripts/tokens.mjs (`npm run tokens`).",
+    "// Do not edit by hand. The design tokens as data, for code that can't use the CSS variables",
+    "// (src/styles/tokens.css): the review Function's page, theme-color metas, the OG image.",
+    `export const TOKENS = ${JSON.stringify(data, null, 2)} as const;`,
+    "",
+  ].join("\n");
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  writeFileSync(OUT, renderTokensCss(JSON.parse(readFileSync(SOURCE, "utf8"))));
-  console.log(`wrote ${OUT}`);
+  const tokens = JSON.parse(readFileSync(SOURCE, "utf8"));
+  writeFileSync(OUT, renderTokensCss(tokens));
+  writeFileSync(OUT_TS, renderTokensTs(tokens));
+  console.log(`wrote ${OUT} and ${OUT_TS}`);
 }

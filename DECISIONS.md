@@ -764,9 +764,15 @@ so nothing has to be hosted.
   (`--color-*: initial`, …) so no framework default leaks through, then maps every token
   (`--color-accent: var(--pn-accent)`, `--text-price-xl` with its line height, tracking and
   weight, `--spacing-lg`, `--radius-sm`, `--shadow-focus`), plus the light/dark `--pn-*`
-  palettes (`prefers-color-scheme` and `data-theme`). A vitest test fails while the file is stale;
-  `tests/test_web_tokens.py` compares it value by value with `tokens.json`, so a change to
-  `renderer/tokens.py` fails `uv run pytest` until `npm run tokens` is run.
+  palettes (`prefers-color-scheme` and `data-theme`), plus the dark palette under fixed
+  `--pn-dark-*` names for surfaces that stay dark in both schemes (the `.photo-placeholder`
+  gradient behind a slide or thumbnail, dark `rule` to `photo.scrim`). The same script writes
+  `src/lib/tokens.ts` (`TOKENS`, the JSON as a dependency-free module) for code that can't use CSS
+  variables: theme-color metas, the OG image, the logo's recolouring, the review page (D29). A
+  vitest test fails while either file is stale; `tests/test_web_tokens.py` compares both value by
+  value with `tokens.json`, so a change to `renderer/tokens.py` fails `uv run pytest` until
+  `npm run tokens` is run. `web/test/colours.test.ts` fails on any raw hex / `rgb()` / `hsl()`
+  colour in `web/src/` (templates, `global.css`, modules) outside those two generated files.
 - **Fonts through Astro's Fonts API** (local provider, files from `assets/fonts/`): family and
   fallback stacks come from `tokens.json` in `astro.config.ts`; Astro adds metric-matched
   fallbacks (`size-adjust`), so swapping in the web font barely moves the page (CLS 0.13 → 0.015

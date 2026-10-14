@@ -17,7 +17,7 @@ const thumb = promotion.images?.thumb ?? null;
 const arrival = airportLabel(view);
 ---
 <article data-deal={view.id} class="relative grid grid-cols-[6.5rem_1fr] border-t-[3px] border-double border-ink bg-surface sm:flex sm:flex-col">
-  <div class="aspect-[4/5] self-start bg-gradient-to-b from-[#3D372C] to-[#16140F]">
+  <div class="aspect-[4/5] self-start photo-placeholder">
     {thumb && (
       <img src={thumb} alt="" width="540" height="675" loading={eager ? "eager" : "lazy"}
         decoding="async" class="h-full w-full object-cover" />

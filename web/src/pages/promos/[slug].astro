@@ -56,7 +56,7 @@ const description = view.live
           {slides.map((src, i) => (
             <img src={src} alt={`Imagem ${i + 1} de ${slides.length} da promoção ${view.headline}`}
               width="1080" height="1350" loading={i === 0 ? "eager" : "lazy"} decoding="async"
-              class="aspect-[4/5] w-full snap-start bg-gradient-to-b from-[#3D372C] to-[#16140F] object-cover" />
+              class="aspect-[4/5] w-full snap-start photo-placeholder object-cover" />
           ))}
         </div>
       </div>

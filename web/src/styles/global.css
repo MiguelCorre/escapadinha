@@ -48,4 +48,7 @@
   .notice-expired { @apply border-expired bg-expired-bg pr-md; }
   .notice-warning { @apply border-warning bg-warning-bg pr-md; }
   .price-sign { font-size: 0.4em; vertical-align: 0.9em; margin-left: 0.08em; }
+  /* Behind a photo or slide until it loads (or in a fixture build, D28): dark in both schemes,
+     like the photo it stands for (design system §5). */
+  .photo-placeholder { background-image: linear-gradient(to bottom, var(--pn-dark-rule), var(--pn-photo-scrim)); }
 }

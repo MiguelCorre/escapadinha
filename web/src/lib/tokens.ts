@@ -1,0 +1,206 @@
+// Generated from docs/design/tokens.json by web/scripts/tokens.mjs (`npm run tokens`).
+// Do not edit by hand. The design tokens as data, for code that can't use the CSS variables
+// (src/styles/tokens.css): the review Function's page, theme-color metas, the OG image.
+export const TOKENS = {
+  "themes": {
+    "light": {
+      "bg": "#F5F0E6",
+      "surface": "#FFFDF8",
+      "ink": "#1E1B16",
+      "muted": "#5F574B",
+      "accent": "#A23E1C",
+      "on-accent": "#FFFFFF",
+      "rule": "#D3C8B4",
+      "success": "#2F6830",
+      "success-bg": "#E4EEDC",
+      "warning": "#835400",
+      "warning-bg": "#F6EACB",
+      "expired": "#8F1D33",
+      "expired-bg": "#F7E1DF"
+    },
+    "dark": {
+      "bg": "#16140F",
+      "surface": "#201D17",
+      "ink": "#EEE7D8",
+      "muted": "#B3A994",
+      "accent": "#F0936B",
+      "on-accent": "#16140F",
+      "rule": "#3D372C",
+      "success": "#93C98C",
+      "success-bg": "#1D2A1B",
+      "warning": "#E3B65C",
+      "warning-bg": "#2D2514",
+      "expired": "#F4A3AE",
+      "expired-bg": "#331A1D"
+    }
+  },
+  "photo": {
+    "ink": "#FFFDF8",
+    "scrim": "#16140F",
+    "scrimTextAlpha": 0.7
+  },
+  "colors": {
+    "bg": "var(--pn-bg)",
+    "surface": "var(--pn-surface)",
+    "ink": "var(--pn-ink)",
+    "muted": "var(--pn-muted)",
+    "accent": "var(--pn-accent)",
+    "on-accent": "var(--pn-on-accent)",
+    "rule": "var(--pn-rule)",
+    "success": "var(--pn-success)",
+    "success-bg": "var(--pn-success-bg)",
+    "warning": "var(--pn-warning)",
+    "warning-bg": "var(--pn-warning-bg)",
+    "expired": "var(--pn-expired)",
+    "expired-bg": "var(--pn-expired-bg)"
+  },
+  "fontFamily": {
+    "display": [
+      "Fraunces",
+      "Iowan Old Style",
+      "Georgia",
+      "serif"
+    ],
+    "text": [
+      "Source Serif 4",
+      "Georgia",
+      "Times New Roman",
+      "serif"
+    ]
+  },
+  "fontSize": {
+    "display-xl": [
+      "4.5rem",
+      {
+        "lineHeight": "1",
+        "letterSpacing": "-0.01em",
+        "fontWeight": "500"
+      }
+    ],
+    "display": [
+      "3.5rem",
+      {
+        "lineHeight": "1.05",
+        "letterSpacing": "-0.005em",
+        "fontWeight": "500"
+      }
+    ],
+    "headline": [
+      "2.25rem",
+      {
+        "lineHeight": "1.1",
+        "letterSpacing": "0",
+        "fontWeight": "600"
+      }
+    ],
+    "title": [
+      "1.5rem",
+      {
+        "lineHeight": "1.2",
+        "letterSpacing": "0",
+        "fontWeight": "600"
+      }
+    ],
+    "price-xl": [
+      "4rem",
+      {
+        "lineHeight": "1",
+        "letterSpacing": "-0.02em",
+        "fontWeight": "600"
+      }
+    ],
+    "price": [
+      "2.5rem",
+      {
+        "lineHeight": "1",
+        "letterSpacing": "-0.01em",
+        "fontWeight": "600"
+      }
+    ],
+    "lead": [
+      "1.25rem",
+      {
+        "lineHeight": "1.55",
+        "letterSpacing": "0",
+        "fontWeight": "400"
+      }
+    ],
+    "body": [
+      "1.125rem",
+      {
+        "lineHeight": "1.6",
+        "letterSpacing": "0",
+        "fontWeight": "400"
+      }
+    ],
+    "small": [
+      "0.9375rem",
+      {
+        "lineHeight": "1.5",
+        "letterSpacing": "0",
+        "fontWeight": "400"
+      }
+    ],
+    "label": [
+      "0.8125rem",
+      {
+        "lineHeight": "1.3",
+        "letterSpacing": "0.14em",
+        "fontWeight": "600"
+      }
+    ],
+    "caption": [
+      "0.8125rem",
+      {
+        "lineHeight": "1.4",
+        "letterSpacing": "0",
+        "fontWeight": "400"
+      }
+    ]
+  },
+  "spacing": {
+    "2xs": "0.25rem",
+    "xs": "0.5rem",
+    "sm": "0.75rem",
+    "md": "1rem",
+    "lg": "1.5rem",
+    "xl": "2rem",
+    "2xl": "3rem",
+    "3xl": "4rem",
+    "4xl": "6rem"
+  },
+  "borderRadius": {
+    "none": "0",
+    "sm": "2px",
+    "md": "4px",
+    "full": "9999px"
+  },
+  "boxShadow": {
+    "none": "none",
+    "card": "0 1px 0 rgba(30, 27, 22, 0.06), 0 10px 28px -14px rgba(30, 27, 22, 0.28)",
+    "lifted": "0 2px 0 rgba(30, 27, 22, 0.08), 0 28px 60px -24px rgba(22, 20, 15, 0.6)",
+    "focus": "0 0 0 3px var(--pn-accent)"
+  },
+  "slides": {
+    "width": 1080,
+    "height": 1350,
+    "fontSize": {
+      "display-xl": "132px",
+      "display": "96px",
+      "headline": "64px",
+      "title": "52px",
+      "price-xl": "232px",
+      "price": "120px",
+      "lead": "44px",
+      "body": "40px",
+      "small": "30px",
+      "label": "28px",
+      "caption": "28px"
+    },
+    "spacing": {
+      "gutter": "72px",
+      "card-pad": "52px",
+      "stack": "28px"
+    }
+  }
+} as const;

@@ -8,6 +8,7 @@ import "../styles/global.css";
 import Logo from "../components/Logo.astro";
 import { lisbonTimestamp } from "../lib/format";
 import { BRAND } from "../lib/brand";
+import { TOKENS } from "../lib/tokens";
 
 interface Props {
   title: string;
@@ -42,8 +43,8 @@ const headRefs = Object.fromEntries(Object.entries(refs).map(([k, v]) => [`data-
   {path && <meta property="og:url" content={`${base}${path}`} />}
   <meta property="og:image" content={og} />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="theme-color" content="#F5F0E6" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#16140F" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content={TOKENS.themes.light.bg} media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content={TOKENS.themes.dark.bg} media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <Font cssVariable="--pn-font-display" />
   <Font cssVariable="--pn-font-text" />
