@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { contentPath, isVisible, itinerarySchema, tipSchema } from "../src/lib/content";
 import { itineraryFor } from "../src/lib/itinerary";
+import { tipsFor } from "../src/lib/related";
 
 const SOURCE = { title: "Turismo de Paris", url: "https://www.parisjetaime.com/" };
 const ITINERARY = {
@@ -101,5 +102,17 @@ describe("itinerary for a destination", () => {
   it("prefers the reviewed one over a draft (dev server), and refuses two reviewed ones", () => {
     expect(itineraryFor("PAR", [entry("rascunho", "PAR", false), entry("paris", "PAR")])!.path).toBe("/roteiros/paris/");
     expect(() => itineraryFor("PAR", [entry("a", "PAR"), entry("b", "PAR")])).toThrow(/PAR/);
+  });
+});
+
+describe("tips for a destination (story 36)", () => {
+  const tip = (id: string, destinations: string[], last_checked?: string) =>
+    ({ id, data: { title: `Dica ${id}`, description: `Sobre ${id}`, destinations, last_checked } });
+
+  it("are the tips naming the city, most recently checked first", () => {
+    const entries = [tip("bagagem", ["PAR", "LON"], "2026-09-01"), tip("metro", ["PAR"], "2026-10-01"), tip("roma", ["ROM"])];
+    expect(tipsFor("PAR", entries).map((t) => t.path)).toEqual(["/dicas/metro/", "/dicas/bagagem/"]);
+    expect(tipsFor("PAR", entries)[0]).toEqual({ path: "/dicas/metro/", title: "Dica metro", description: "Sobre metro" });
+    expect(tipsFor("BCN", entries)).toEqual([]);
   });
 });

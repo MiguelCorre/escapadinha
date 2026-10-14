@@ -1280,7 +1280,8 @@ so nothing has to be hosted.
   fields (kicker, CTA, caption, hashtags) stay in the YAML, which still feeds the carousel
   renderer (`render guide`) and the Jinja site until #23 retires them.
 - **Fixture content:** `web/test/fixtures/content/` holds a reviewed test itinerary for Paris
-  (`paris-em-3-dias`, PAR is in the fixtures), a reviewed test tip (`dica-de-teste`, two sources)
+  (`paris-em-3-dias`, PAR is in the fixtures), a reviewed test tip (`dica-de-teste`, two sources,
+  about PAR)
   and a draft itinerary for Barcelona, all `fixture: true`, saying in their text that they are test
   content, with example.com sources. They make the fixture build (and Lighthouse) exercise the
   pages; a build from real data never includes them. `content-pages.test.ts` checks: pages and
@@ -1294,5 +1295,10 @@ so nothing has to be hosted.
   `web/lighthouserc.json`. Local run 2026-10-14 (fixture build, mobile, median of 3): itinerary,
   tip and `/roteiros/` 0.95 / 1 / 1 / 1 (performance / accessibility / best practices / SEO), home
   with the new section 0.94 / 1 / 1 / 1.
-- **Not done here:** related tips on destination hubs (story 36: tips carry `destinations` for it),
-  a nav link, JSON-LD and the sitemap, affiliate blocks (#18), the drafts themselves (#19).
+- **Related tips on destination hubs (story 36, review fix):** a hub lists the reviewed tips whose
+  `destinations` front matter names its city code ("Dicas para Paris", most recently checked first,
+  `src/lib/related.ts` `tipsFor` over the gated `tips()`, `RelatedTips.astro`); nothing is rendered
+  when there are none. The test tip now has `destinations: [PAR]`: `/destinos/paris/` links it,
+  Barcelona's and Madeira's hubs show no section.
+- **Not done here:** a nav link, JSON-LD and the sitemap, affiliate blocks (#18), the drafts
+  themselves (#19).

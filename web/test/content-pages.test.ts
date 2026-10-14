@@ -70,6 +70,20 @@ describe("itinerary links (D30's hook)", () => {
   });
 });
 
+describe("related tips on destination hubs (story 36)", () => {
+  it("lists the reviewed tips whose destinations name the city", () => {
+    const section = page("/destinos/paris/").querySelector("[data-related-tips]")!;
+    expect(text(section.querySelector("h2")!)).toBe("Dicas para Paris");
+    expect(section.querySelectorAll("a").map((a) => a.getAttribute("href"))).toEqual([TIP]);
+  });
+
+  it("renders nothing where no tip is about the city", () => {
+    for (const path of ["/destinos/barcelona/", "/destinos/madeira/"]) {
+      expect(page(path).querySelector("[data-related-tips]"), path).toBeNull();
+    }
+  });
+});
+
 describe("home page", () => {
   it("links the latest itineraries and tips", () => {
     const home = page("/");

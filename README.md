@@ -509,7 +509,8 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   destination from that airport by kind, with the cheapest price found now. `/destinos/<destino>/`:
   every Portuguese origin with a route there, its cheapest price and best months (lowest typical
   lows). Index pages `/partidas/` and `/destinos/` (nav "Destinos"). Hubs and route pages link the
-  city's reviewed itinerary when there is one (`src/lib/itinerary.ts`, `ItineraryLink.astro`).
+  city's reviewed itinerary when there is one (`src/lib/itinerary.ts`, `ItineraryLink.astro`);
+  hubs also list the reviewed tips whose `destinations` name the city (`src/lib/related.ts`).
 - **Itineraries and tips (D33):** MDX files in `web/src/content/itineraries/` and
   `web/src/content/tips/`; the file name is the slug, the page is `/roteiros/<slug>/` or
   `/dicas/<slug>/`, listed on `/roteiros/` and `/dicas/` and (the latest three of each) on the home

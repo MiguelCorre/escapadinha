@@ -58,7 +58,7 @@ export const tipSchema = z.object({
   ...common,
   /** What the tip is about, e.g. "voos", "bagagem". */
   topic: z.string().regex(SLUG),
-  /** City codes the tip is about, if any (destination hubs may list them later). */
+  /** City codes the tip is about, if any: those destination hubs list it (src/lib/related.ts). */
   destinations: z.array(cityCode).default([]),
 }).superRefine(gate);
 

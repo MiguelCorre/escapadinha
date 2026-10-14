@@ -187,7 +187,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `web/`: the Astro site (D28): `src/pages/` (home, `promos/`, `voos/` route pages, `partidas/`
   origin pages, `destinos/` hubs, D30; `roteiros/`, `dicas/` D33), view logic in `src/lib/`
   (`promotion.ts`, `routes.ts`, `low-prices.ts`, `format.ts` + `dates.ts`, `cta.ts`, `content.ts` +
-  `itinerary.ts`),
+  `itinerary.ts` + `related.ts`),
   `src/content.config.ts` + `src/collections.ts` (MDX collections + review gate), tests in
   `web/test/` (fixture build, `scale.test.ts` full-size synthetic build, traceability, internal
   links, `content-pages.test.ts`)
