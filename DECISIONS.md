@@ -1622,8 +1622,13 @@ so nothing has to be hosted.
   `/voos/lisboa-londres/` 0.93/1/1/1, origin `/partidas/lisboa/` 0.93/1/1/1, hub
   `/destinos/londres/` 0.93/1/1/1, explorer 0.92/**0.96**/1/1, ponte
   `/pontes/1-dezembro-2026/porto/` 0.95/1/1/1; CLS 0 everywhere, FCP 2.4–2.7 s. The explorer's
-  0.96 is `target-size`: with six origins its ponte links sit too close (the fixtures have
-  three); a web package fix, not the cutover's. No promotion page could be measured (none in the
+  0.96 was `target-size`: with six origins its ponte links wrapped onto two rows with no gap
+  (the fixtures have three). **Fixed (code review, 2026-10-14):** each origin link is an
+  `inline-flex` target of at least 24 × 24 px (`min-h-6 min-w-6`) and wrapped rows get
+  `gap-y-xs` (WCAG 2.5.8; a test checks the classes); re-measured on a fresh real-data build
+  (same copy of the database, 627 pages): home 0.95, route 0.93, origin 0.93, hub 0.93,
+  explorer 0.92, ponte 0.95 performance, and **1 / 1 / 1 accessibility / best practices / SEO on
+  all six** (assertion: accessibility = 1); the fixture `npm run lhci` (12 URLs) passes too. No promotion page could be measured (none in the
   real data); the fixture runs of D28/D34 cover them, and the slide-strip CLS flake noted in D28
   is to be checked on the first real promotion.
 - **Phase 2 (not here):** after a week live with `site crawl --sitemap <the old sitemap>`

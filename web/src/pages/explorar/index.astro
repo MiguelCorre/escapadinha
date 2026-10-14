@@ -76,8 +76,10 @@ const origins = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o]))
           <li class="border-t border-rule pt-sm">
             <p class="font-semibold">{p.name}</p>
             <p class="text-small text-muted">{dateRange(p.days_off.first, p.days_off.last)}</p>
-            <p class="mt-2xs flex flex-wrap gap-x-md text-small">
-              {p.origins.map((o) => <a href={o.path} aria-label={ponteTitle(p.name, origins[o.iata] ?? { name: o.iata })}>{origins[o.iata]?.name ?? o.iata}</a>)}
+            {/* Each origin link is a target of at least 24 × 24 px, with room between rows when
+                they wrap (WCAG 2.5.8; six origins wrap on a phone). */}
+            <p class="mt-2xs flex flex-wrap gap-x-md gap-y-xs text-small">
+              {p.origins.map((o) => <a class="inline-flex min-h-6 min-w-6 items-center" href={o.path} aria-label={ponteTitle(p.name, origins[o.iata] ?? { name: o.iata })}>{origins[o.iata]?.name ?? o.iata}</a>)}
             </p>
           </li>
         ))}

@@ -100,6 +100,14 @@ describe("explorer page", () => {
     expect(porto.getAttribute("aria-label")).toBe("Ponte de 1 de dezembro desde o Porto");
   });
 
+  it("gives every ponte link a 24 px target with a gap between wrapped rows (WCAG 2.5.8)", () => {
+    // Lighthouse's target-size failed on the real data (six origins wrap on a phone).
+    for (const a of doc().querySelectorAll("#pontes a")) {
+      expect(a.classList.contains("min-h-6") && a.classList.contains("min-w-6"), a.toString()).toBe(true);
+      expect(a.parentNode?.classList.contains("gap-y-xs")).toBe(true);
+    }
+  });
+
   it("is in the navigation and indexable", () => {
     expect(page("/").querySelector('nav a[href="/explorar/"]')).not.toBeNull();
     expect(doc().querySelector('meta[name="robots"]')).toBeNull();
