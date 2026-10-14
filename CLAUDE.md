@@ -116,7 +116,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
   full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
   `run_path.fingerprint`, or a routine run won't publish it: the exported contract is (component
-  `site_data`, minus `run_path._shown`'s per-run fields: never render one of those on a page), and
+  `site_data`, minus the per-run fields `site_data.PER_RUN` lists and `site_data.shown_digest`
+  drops: never render one of those on a page; a new field that changes every run must be
+  classified there, `test_every_field_a_new_run_changes_is_classified_per_run` fails otherwise), and
   so are the web package's sources (`run_path.web_source_files`).
 - Public deals, page slugs and image paths come from one place (`website.is_public`,
   `public_deal_rows`, `promo_slug`, `route_slug`, `origin_slug`, `destination_slugs`,

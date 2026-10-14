@@ -12,7 +12,7 @@ the `meta` table at the end of every successful full path:
   render, review decisions, expiries; a deal that isn't public yet isn't in the site data);
 - site data: the website data contract exactly as the Astro site would be built from it
   (D35), computed in memory without creating partner links (`site_data.build_export`), minus
-  the run's bookkeeping the site never shows (`_shown`);
+  the run's bookkeeping the site never shows (`site_data.PER_RUN`, `site_data.shown_digest`);
 - routes: key, status and Portuguese name of every route (pages appear or get renamed);
 - day: the Lisbon date, so typical lows, past pontes and "Atualizado a" are at most a day old;
 - code: the package, config.yaml, content/ (rules, holidays, guides), the web package's sources
@@ -97,27 +97,10 @@ def _code_files(ctx: Context) -> list[Path]:
     return files + ([config] if config.is_file() else [])
 
 
-def _shown(rel: str, doc: dict) -> dict:
-    """An export document without what changes on every run but no page shows: generated_at
-    and the run id (meta, low-price files: the footer's time follows the day component), each
-    route's observation count, and its last-seen time beyond the day (a dormant route page
-    shows the date)."""
-    doc = dict(doc)
-    if rel == "meta.json" or rel.startswith("low-prices/"):
-        doc.pop("generated_at", None)
-        doc.pop("run", None)
-    if rel == "routes.json":
-        doc["routes"] = [{**r, "counts": {k: v for k, v in r["counts"].items() if k != "observations"},
-                          "last_observed_at": (r["last_observed_at"] or "")[:10]}
-                         for r in doc["routes"]]
-    return doc
-
-
 def site_data_digest(ctx: Context, conn: sqlite3.Connection, now: datetime) -> str:
     """The site data as the next build would see it (stored partner links only, nothing
-    written), minus the run's bookkeeping (`_shown`)."""
-    export = site_data.build_export(ctx, conn, now, new_links=False)
-    return _digest({rel: _shown(rel, doc) for rel, doc in export.files.items()})
+    written), minus the run's bookkeeping (`site_data.PER_RUN`, `shown_digest`)."""
+    return site_data.shown_digest(site_data.build_export(ctx, conn, now, new_links=False))
 
 
 def fingerprint(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, str]:

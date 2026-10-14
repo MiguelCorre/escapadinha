@@ -383,8 +383,9 @@ def test_what_the_exported_data_shows_decides_the_path_not_the_run_bookkeeping(c
 
 
 def test_the_site_never_shows_what_the_fingerprint_leaves_out():
-    """`run_path._shown` drops the run id, routes' observation counts and their last-seen time
-    beyond the day: a page that started showing one would not be refreshed by a routine run."""
+    """`site_data.PER_RUN` (left out of the fingerprint by `shown_digest`) lists the run id,
+    routes' observation counts and their last-seen time beyond the day: a page that started
+    showing one would not be refreshed by a routine run."""
     import re
     for path in (REPO / "web" / "src").rglob("*"):
         if path.suffix not in (".astro", ".ts") or path.name == "contract.ts":

@@ -1533,10 +1533,13 @@ so nothing has to be hosted.
   component (the Jinja route pages' five) is replaced by **`site_data`**: the whole contract as
   the next build would read it, computed in memory at decide time with `site_data.build_export(...,
   new_links=False)` (stored links only, nothing written; ~0.1 s on the real data), minus what
-  changes on every run but no page shows (`run_path._shown`: `generated_at` and the run id in
-  `meta.json` and the low-price files, each route's observation count, its last-seen time beyond
-  the day, which only a dormant route page shows as a date; a test fails if a page starts
-  reading one of those). The **code** component adds the web package's sources (`web/src`
+  changes on every run but no page shows: `generated_at` and the run id in `meta.json` and the
+  low-price files, each route's observation count, its last-seen time beyond the day, which only
+  a dormant route page shows as a date (a test fails if a page starts reading one of those).
+  They are listed in `site_data.PER_RUN` and dropped by `site_data.shown_digest`, next to the
+  export that writes them, so a new per-run field is classified where it is defined (code
+  review: they were in `run_path._shown`, far from the fields); a test exports twice with the
+  same offers, one run apart, and fails on any difference `PER_RUN` doesn't list. The **code** component adds the web package's sources (`web/src`
   without `web/src/data`, `web/public`, `web/functions`, `astro.config.ts`, `package.json`,
   `package-lock.json`) and what the build reads from outside `web/` (`assets/logo-light.svg`,
   `assets/fonts/*.woff2`), so a reviewed article, a template or a dependency change takes the
@@ -1548,7 +1551,7 @@ so nothing has to be hosted.
   the old `low_prices` component in 1: about half of the runs will take the full path (+ npm ci
   from cache, ~8 s astro build, a deploy of the changed files) instead of about one a day.
   That's still within the Actions budget (D25: ~720 of 2000 min/month for the fast paths); if it
-  isn't, the knob is `_shown` (e.g. leave the calendar to the daily refresh), not the build.
+  isn't, the knob is `site_data.shown` (e.g. leave the calendar to the daily refresh), not the build.
   Rejected: hashing `web/src/data` after the previous export (a runner has none, CI keeps no
   files) and comparing built sites (that is the cost the fast path avoids).
 - **CI:** `actions/setup-node` with `cache: npm` keyed on `web/package-lock.json`, so the full

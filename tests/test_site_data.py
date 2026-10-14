@@ -803,6 +803,50 @@ def test_without_a_known_marker_only_the_project_is_checked(ctx, monkeypatch):  
     assert ctx.search_widget() == ctx.config.site.search_widget
 
 
+def _differences(a, b, path: str = "") -> set[str]:
+    """Paths ('routes[].counts.observations') where two export documents differ."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set().union(*(_differences(a.get(k), b.get(k), f"{path}.{k}" if path else k)
+                             for k in a.keys() | b.keys()))
+    if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        return set().union(*(_differences(x, y, f"{path}[]") for x, y in zip(a, b)))
+    return set() if a == b else {path}
+
+
+def test_every_field_a_new_run_changes_is_classified_per_run(ctx):  # noqa: F811
+    """Two exports with the same offers, one collection run apart: the only differences are
+    the fields `site_data.PER_RUN` lists, and `shown_digest` (the full path's fingerprint, D35)
+    ignores them. A new field that changes every run fails here until it is classified there
+    (or made stable), so a routine run never takes the full path for bookkeeping."""
+    from test_web_build import store_offer
+    conn = pipeline.open_db(ctx)
+    seed_history(conn, days=25, price=100)
+    departure = date.today() + timedelta(days=40)
+    store_offer(conn, 70, departure)
+    first = site_data.build_export(ctx, conn, db.utcnow(), new_links=False)
+    store_offer(conn, 70, departure)                             # the same offer seen again
+    second = site_data.build_export(ctx, conn, db.utcnow() + timedelta(seconds=1), new_links=False)
+    assert first.files.keys() == second.files.keys()
+    assert any(f["rows"] for rel, f in first.files.items() if rel.startswith("low-prices/"))
+    unclassified, seen = [], set()
+    for rel in first.files:
+        pattern = "low-prices/*" if rel.startswith("low-prices/") else rel
+        per_run = site_data.PER_RUN.get(pattern, ())
+        for path in _differences(first.files[rel], second.files[rel]):
+            match = next((p for p in per_run if path == p or path.startswith((f"{p}.", f"{p}[]"))),
+                         None)
+            if match is None:
+                unclassified.append(f"{rel}: {path}")
+            seen.add(f"{pattern}: {match}")
+    assert unclassified == [], "classify these in site_data.PER_RUN (or make them stable)"
+    assert {"meta.json: generated_at", "meta.json: run", "low-prices/*: run"} <= seen
+    assert site_data.shown_digest(first) == site_data.shown_digest(second)
+    # Every PER_RUN file exists in the export (a renamed file would silently stop matching).
+    for pattern in site_data.PER_RUN:
+        assert any(rel == pattern or (pattern.endswith("/*") and rel.startswith(pattern[:-1]))
+                   for rel in first.files), pattern
+
+
 def test_analytics_token_is_a_plain_token():
     from pydantic import ValidationError
     from escapadinha.config import SiteConfig
