@@ -207,10 +207,12 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 - `site.data_dir: output/site-data/v1` (where `export site-data` writes; `web/src/data` once the
   Astro package exists), `site.max_low_prices_per_origin: 1500` (row cap per low-price file) and
   `site.expired_promotions_days: 30` (expired promotions stay in the export this long).
-- `site.search_widget: null` (D34): the Aviasales search form's script `src` from Travelpayouts'
+- `site.search_widget` (D34): the Aviasales search form's script `src` from Travelpayouts'
   widget constructor (https, a Travelpayouts widget host, the website's Project as `trs=` and,
-  when `TRAVELPAYOUTS_MARKER` is set, our marker as `shmarker=`: validated); set it by following
-  [docs/runbooks/search-widget.md](docs/runbooks/search-widget.md). `site.analytics_token: null`:
+  when `TRAVELPAYOUTS_MARKER` is set, our marker as `shmarker=`: validated); set since
+  2026-10-15 (pt, EUR, aviasales.pt, website Project) by following
+  [docs/runbooks/search-widget.md](docs/runbooks/search-widget.md). Test configs reset it to null
+  (they use other Projects). `site.analytics_token: null`:
   Cloudflare Web Analytics runs in the zone's automatic setup, so no beacon token (it would count
   visits twice). Both go to the website contract's `meta.json` (null in fixtures).
 - `affiliate.programmes` (D37): the affiliate blocks' programmes, `esim` (Yesim,
