@@ -1647,3 +1647,88 @@ so nothing has to be hosted.
   path (which the approval itself triggers, D26) builds and deploys its JPEGs; the publisher
   never posts before they answer (below). ~5 slides × ~250 KB per promotion: well inside Pages'
   limits.
+- **API: Instagram API with Instagram Login** (`graph.instagram.com`): no Facebook Page needed,
+  the token belongs to the professional account, permissions `instagram_business_basic` (list
+  the account's posts, for the duplicate check) and `instagram_business_content_publish`. The
+  host comes from one map (`instagram.HOSTS`, keyed by config `instagram.login`) and the version
+  from `instagram.api_version` (`v23.0`), so Facebook Login (`graph.facebook.com`, the account
+  linked to a Page) is `login: facebook`: same endpoints and ids, and no refresh (a Page token
+  from a long-lived user token does not expire). Secrets `INSTAGRAM_ACCESS_TOKEN`,
+  `INSTAGRAM_ACCOUNT_ID` (`Secrets`, optional; `.env.example`, the workflow's env, `test_workflow`
+  checks every `Secrets` field comes from Actions secrets). `posting.publishers.instagram:
+  instagram` in config; without both secrets the channel gets the dry run and its log says why
+  ("Instagram em dry run: faltam …"). Setup for Miguel: `docs/runbooks/instagram.md` (pt-PT).
+- **Publisher protocol (posting.py), extended:** `publish` may raise `PublishWait` (stays queued,
+  **no attempt counted**, the reason in `last_error`) or `PublishCancel` (cancelled with the
+  reason); any other exception is a failure counted against D32's `max_attempts`. `Published`
+  gained `marks_published` (`run_publish` then writes a `published` event, D26) and `story` (a
+  story follows). The factory moved to `pipeline.publishers_for` (it needs the database and the
+  object store for the token); `posting.publishers` is gone.
+- **Flow** (`instagram.InstagramPublisher`, called by `run_publish` after D32's verdict, so only
+  a due post whose price was verified within 6 h): (1) HEAD every JPEG URL
+  (`site.base_url` + `deal_jpeg_paths`, no redirect followed): any non-200 → wait ("As imagens
+  ainda não estão no site …: espera pelo próximo deploy"), which is the normal case when an
+  approval's slot comes before the full path deployed (the publish step runs before the path
+  decision); (2) `content_publishing_limit`: fewer than 2 left (carousel + story) → wait;
+  (3) the account's 25 latest posts: one whose caption matches (line by line, blank lines and
+  outer spaces ignored) is this carousel already published by a run that died before recording
+  it → adopted, never posted again; (4) one container per slide (`is_carousel_item`, at most
+  10; a single slide is a plain image post), the CAROUSEL container with the caption from
+  `deal_caption_text`; (5) status polled (`status_code`) right away and after 2, 3, 5, 10, 15,
+  25 s (~1 min, injected sleeper): FINISHED → on; ERROR/EXPIRED → the container is forgotten and
+  it is a failure (a new one next time); still IN_PROGRESS → wait, the container kept for the
+  next run; (6) `media_publish`; (7) the permalink (failing to read it leaves the URL empty, the
+  post is out). Then `run_publish` writes the `published` event (actor `instagram-publisher`,
+  `post_url` = permalink; a write failure is logged, never fails a post that is out), settles
+  the row `published` (publisher `instagram`, `result_url`) and marks its story pending.
+- **Story**, right after in the same run (`pipeline._run_stories`, every run for pending
+  stories): a STORIES container of the cover JPEG (limit: 1 left), polled and published the same
+  way. Its failure never touches the carousel: `story_attempts` count up to `max_attempts`, then
+  `skipped`; `posting.story_verdict` (pure) skips it once the promotion expired or was rejected
+  or 6 h (`max_check_age_hours`) passed since the carousel, since the cover shows a price.
+- **Idempotency, schema v11** (`SCHEMA_VERSION` 11; `schema.sql`; migration 11 = seven `ALTER
+  TABLE posting_queue ADD COLUMN`; the upgrade tested from the real v5/v7 schemas and from a v10
+  database with a queued row): `container_id`, `media_id`, `story_status` (`pending` |
+  `published` | `skipped`, CHECK), `story_container_id`, `story_media_id`, `story_attempts`,
+  `story_note`. Each id is committed the moment Meta returns it (`db.save_post_progress`); a
+  retry resumes from it (a stored `media_id` skips straight to the permalink; a stored container
+  is reused unless ERROR/EXPIRED; a container that says PUBLISHED but whose post is not among the
+  latest is cancelled with "confirma no Instagram", never republished). The caption check covers
+  the case the database can't: a job killed after `media_publish` and before the push (D21), whose
+  ids never reached R2.
+- **Errors** (`instagram.classify`, Meta's error reference): code 190/102 (token) → wait, meta
+  `instagram.token.problem` (shown by `queue list`); 4, 17, 32, 613, 80002 and subcode 2207042
+  (rate and publishing limits) → wait; 10 and 200–299 (permissions) → wait with the runbook;
+  subcodes 2207004/2207005/2207009/2207023/2207028 (image too large, format, aspect ratio, media
+  type, carousel size) → cancel with a pt-PT reason; anything else (5xx, transient, unknown) →
+  failure, retried. The list is to be checked against the first real errors. Messages never
+  carry the token: `Graph` sends it as the `access_token` parameter and replaces it in any
+  error text; transport errors are reported by type only (their text can hold the URL).
+- **Token refresh** (`instagram.ensure_token`, every run with the secrets, before publishing, so
+  a quiet week can't let it lapse): long-lived tokens last 60 days and can be refreshed once at
+  least 24 h old (`GET graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token`,
+  answering `access_token` + `expires_in`). Meta `instagram.token` keeps the token's fingerprint
+  (sha256, 12 hex), `first_seen`, `expires_at` (from the refresh answer), `refreshed_at`,
+  `secret_outdated`, `problem`, never the token. Refresh when fewer than `instagram.refresh_days`
+  (10) remain; a token of unknown expiry (a new secret: Instagram Login has no debug endpoint
+  without the app secret) is refreshed once a day old, which tells its expiry. An expiry in the
+  past → nothing posted (`instagram.Paused`: every due post waits), "O token do Instagram expirou
+  a …". **Where the new token goes:** CI can't write GitHub secrets, so a new token string is
+  written to the object store at `private/instagram/token.json` (R2 with keys, else
+  `data/objects/`; never the database, which has daily backups, nor a log) with the
+  fingerprints it replaces; **later runs use it** while the secret is still one it replaced, so
+  publishing never stops because the secret is stale, and refresh it again in turn. Miguel is
+  told in the run log and by `queue list` ("Token do Instagram renovado a …: atualiza o secret
+  INSTAGRAM_ACCESS_TOKEN …"); `escapadinha instagram token` prints it on the PC (refused when
+  `CI` or `GITHUB_ACTIONS` is set); once the secret matches, the notice goes. Rejected: printing
+  the token in the run (Actions logs are kept), a GitHub token able to write secrets (a far
+  wider credential than the problem needs), the database (backed up daily, copied to the PC).
+- **Site:** `promotions.json` gained `post_url` (additive in v1, optional in the schema so older
+  exports validate; only an `https://(www.)instagram.com/` URL, the publisher's permalink or one
+  given by hand with `deal published --url`, else null). The promotion page shows **Ver no
+  Instagram** with it (`[data-post-link]`; tested on the configured fixture build, which marks
+  the live promotion published with a fake URL). The committed fixtures got `"post_url": null` by
+  hand instead of `export fixtures`: regenerating from today's database would replace every
+  fixture value the web tests pin (the real data moved since), for a field that is null there.
+- **Not done here:** the first real post, which needs Miguel's token (runbook §5); the issue
+  stays open until he confirms it.

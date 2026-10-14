@@ -270,6 +270,28 @@ def test_promotions_live_and_expired_after_approval(exported):
                                                                            s.expired_deal]
 
 
+@pytest.mark.parametrize("post_url, shown", [
+    ("https://www.instagram.com/p/C1234/", "https://www.instagram.com/p/C1234/"),
+    ("https://instagram.com/p/C1234/", "https://instagram.com/p/C1234/"),
+    ("https://t.me/pontonomada/12", None),           # given by hand: not an Instagram post
+    (None, None),
+])
+def test_a_published_promotion_carries_its_instagram_post(exported, tmp_path, post_url, shown):
+    """D36: the publisher's permalink reaches the deal through the published event; the page
+    links it. Approved promotions have none yet."""
+    ctx, conn, s, out, _ = exported
+    assert {p["post_url"] for p in read(out, "promotions.json")["promotions"]} == {None}
+    conn.execute("UPDATE deals SET status = 'published', published_at = reviewed_at, "
+                 "post_url = ? WHERE id = ?", (post_url, s.live_deal))
+    conn.commit()
+    again = tmp_path / "again"
+    site_data.export_site_data(ctx, conn, again, new_links=False)
+    promos = {p["id"]: p for p in read(again, "promotions.json")["promotions"]}
+    assert promos[s.live_deal]["status"] == "published"
+    assert promos[s.live_deal]["post_url"] == shown and promos[s.expired_deal]["post_url"] is None
+    assert validation_errors(again) == []
+
+
 def test_expired_promotions_leave_the_export_after_the_configured_window(exported):
     """`site.expired_promotions_days` (default 30) after it expired; live ones always stay."""
     ctx, conn, s, _, _ = exported

@@ -138,6 +138,8 @@ export interface Promotion {
   published_at: string | null;
   checked_at: string;
   booking_link: string | null;
+  /** Its Instagram post once published (D36); absent in exports before the field existed. */
+  post_url?: string | null;
   expired: { reason: string | null; latest: { obs: number; price: number } | null } | null;
   images: { slides: string[]; thumb: string | null; og: string | null } | null;
 }

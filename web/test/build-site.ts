@@ -2,7 +2,8 @@
 // into a temporary folder; the HTML tests read it through inject("distDir"). Then, one after the
 // other (two astro builds of one project must not run at once: they share .astro/), the same
 // fixtures with the third-party settings filled in with fake values (D34: analytics token and
-// search widget), read through inject("configuredDistDir").
+// search widget) and the live promotion published on Instagram with a fake post URL (D36), read
+// through inject("configuredDistDir").
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,6 +17,8 @@ const FIXTURES = "../contract/site/v1/fixtures";
 /** Clearly fake values for the configured build: never a real token or widget. */
 export const FAKE_ANALYTICS_TOKEN = "fakeTestToken0000000000000000000";
 export const FAKE_SEARCH_WIDGET = "https://tp.media/content?fake=test-only&promo_id=0";
+/** The live promotion published on Instagram (D36): its post link on the page. */
+export const FAKE_POST_URL = "https://www.instagram.com/p/fake-test-only/";
 
 function build(dataDir: string, outDir: string) {
   const result = spawnSync(
@@ -40,6 +43,11 @@ export default function setup(project: TestProject) {
   writeFileSync(join(configuredData, "meta.json"), JSON.stringify({
     ...meta, analytics_token: FAKE_ANALYTICS_TOKEN, search_widget: FAKE_SEARCH_WIDGET,
   }));
+  const promotions = JSON.parse(readFileSync(join(configuredData, "promotions.json"), "utf8"));
+  for (const p of promotions.promotions) {
+    if (p.live) Object.assign(p, { status: "published", post_url: FAKE_POST_URL });
+  }
+  writeFileSync(join(configuredData, "promotions.json"), JSON.stringify(promotions));
   build(configuredData, configuredDist);
   project.provide("configuredDistDir", configuredDist);
 

@@ -141,6 +141,14 @@ class Post:
     result_url: str | None = None      # the post's URL, when the publisher returns one
     reason: str | None = None          # why it was cancelled (pt-PT)
     settled_at: datetime | None = None
+    # Instagram publisher progress (D36): what was already done, so a retry never posts twice.
+    container_id: str | None = None    # carousel container created, not published yet
+    media_id: str | None = None        # the published carousel
+    story_status: str | None = None    # None | pending | published | skipped
+    story_container_id: str | None = None
+    story_media_id: str | None = None
+    story_attempts: int = 0
+    story_note: str | None = None      # last story error, why it waits or was skipped (pt-PT)
 
 
 @dataclass(frozen=True)

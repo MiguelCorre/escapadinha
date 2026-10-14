@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Travel-deals pipeline for the Portuguese market: collect → detect → render. Approved promotions are queued for posting; the publishers are a
-dry run until #21/#24 (D32).
+Travel-deals pipeline for the Portuguese market: collect → detect → render. Approved promotions are queued for posting (D32): Instagram
+through the Graph API when its secrets are set (D36), Telegram a dry run until #21.
 See README.md for usage and DECISIONS.md for rationale and the roadmap. Vocabulary: GLOSSARY.md.
 v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in docs/agents/.
 
@@ -9,6 +9,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list`,
+  `instagram token`,
   `site build|preview|setup|deploy|crawl|build-jinja`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
@@ -147,9 +148,19 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). Channels are named only in
   `posting.CHANNELS` (the SQL CHECK is tested against it). A post goes out only from
   `pipeline.run_publish`, after re-verification; expired/rejected promotions cancel their posts.
-  Publishers implement `posting.Publisher` and never change a review status (a real one writes a
-  `published` event). Post texts: the caption (Instagram) and `captions.whatsapp_text` (stored
-  partner link + `DISCLOSURE`), never a hand-built link.
+  Publishers implement `posting.Publisher` and never change a review status (a real one returns
+  `Published(marks_published=True)` and `run_publish` writes the `published` event); they signal
+  `PublishWait` (no attempt counted) / `PublishCancel` / any other error (retried). Post texts: the
+  caption (Instagram) and `captions.whatsapp_text` (stored partner link + `DISCLOSURE`), never a
+  hand-built link.
+- Instagram publisher (D36, `instagram.py`): the Graph host and version only from
+  `instagram.HOSTS[config.instagram.login]` + `api_version`; images only the public JPEGs of
+  `website.deal_jpeg_paths` (HEAD 200 first, else wait); store every container/media id with
+  `db.save_post_progress` as soon as Meta returns it and check the account's latest posts by
+  caption before creating a carousel: a retry must never post twice; a story never reposts its
+  carousel. The token never reaches a log, an error message (`Graph` redacts it), the database
+  or CI output: a refreshed one lives only at `instagram.TOKEN_KEY` in the object store, meta
+  `instagram.token` holds its fingerprint and expiry. HTTP in tests: respx only, no real call.
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with
   `affiliate.project_for("instagram"|"website")`; never read `project_id` directly (D19).
@@ -197,8 +208,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `assets/fonts/` (OFL WOFF2), logos `assets/logo-light.svg` / `logo-dark.svg`.
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`, `whatsapp.txt.j2`
 - `src/escapadinha/posting.py`: posting queue rules (`CHANNELS`, slots, `verdict` →
-  `VerdictAction`) + publishers (`DryRunPublisher`); DB wiring in `pipeline.run_publish`
-  (`PostResult.action`: `PostAction`), the queue read with `db.posts`
+  `VerdictAction`, `story_verdict`) + the publisher protocol (`Published`, `PublishWait`,
+  `PublishCancel`, `DryRunPublisher`); DB wiring in `pipeline.run_publish` (`publishers_for`,
+  `PostResult.action`: `PostAction`, stories in `_run_stories`), the queue read with `db.posts`
+- `src/escapadinha/instagram.py`: `Graph` (calls, token redacted), `classify` (Graph error →
+  wait/cancel/retry), `InstagramPublisher` (carousel, story, limit, HEAD check, polling),
+  `Paused`, `ensure_token` (refresh, stored token), `notices`; runbook `docs/runbooks/instagram.md`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: `astro.py` (`site build`: npm ci stamp, `astro_build`, `finish`),
   `routing.py` (`plan`/`write`: `_redirects` only to built pages, chains collapsed, fails over
@@ -230,7 +245,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `build-site.ts`, `scale.test.ts` full-size synthetic build, traceability, internal links,
   `content-pages.test.ts`, `seo.test.ts` + `jsonld.ts`, `seo-configured.test.ts`)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`,
-  `search-widget.md`)
+  `search-widget.md`, `instagram.md`)
 - `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
   validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a
   promotion), `cta.ts` (booking button + disclosure); `src/layouts/Base.astro`, `src/components/`,

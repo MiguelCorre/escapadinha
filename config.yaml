@@ -158,8 +158,16 @@ posting:
   max_check_age_hours: 6      # not rechecked (or approved) this recently: the post waits
   max_attempts: 5             # publisher errors before a post is cancelled
   publishers:
-    instagram: dry-run
+    instagram: instagram      # dry run while INSTAGRAM_ACCESS_TOKEN / INSTAGRAM_ACCOUNT_ID are unset (D36)
     telegram: dry-run
+
+# Instagram publisher (D36, docs/runbooks/instagram.md). login: instagram = Instagram API with
+# Instagram Login (graph.instagram.com, no Facebook Page; the token is refreshed when fewer than
+# refresh_days remain); facebook = Facebook Login (graph.facebook.com, account linked to a Page).
+instagram:
+  login: instagram
+  api_version: v23.0
+  refresh_days: 10
 
 origins_pt:
   LIS: Lisboa

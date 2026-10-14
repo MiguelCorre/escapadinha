@@ -123,17 +123,50 @@ def test_upgrade_from_real_old_schemas_adds_the_posting_queue(ctx, fixture, vers
     old.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 11
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     assert _queue_shape(conn) == _queue_shape(fresh)
     assert ("ix_posting_due", 0) in _queue_shape(conn)[1]
-    assert "checked_at" in [c[0] for c in _queue_shape(conn)[0]]
+    columns = [c[0] for c in _queue_shape(conn)[0]]
+    assert "checked_at" in columns
+    # v11 (D36): the Instagram publisher's progress per row.
+    assert columns[-7:] == ["container_id", "media_id", "story_status", "story_container_id",
+                            "story_media_id", "story_attempts", "story_note"]
     for c in (conn, fresh):
         c.execute("PRAGMA foreign_keys = OFF")          # only the channel CHECK can refuse it
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             c.execute("INSERT INTO posting_queue (deal_id, channel, due_at, created_at) "
                       "VALUES (1, 'whatsapp', 'x', 'x')")
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            c.execute("INSERT INTO posting_queue (deal_id, channel, due_at, created_at, "
+                      "story_status) VALUES (1, 'instagram', 'x', 'x', 'maybe')")
+
+
+def test_upgrade_from_v10_keeps_queued_posts_and_adds_the_progress_columns(ctx):
+    """The real database is v10 (D32): its queued rows survive the ALTERs with empty progress."""
+    import sqlite3
+    from pathlib import Path
+    ctx.db_path.parent.mkdir(parents=True, exist_ok=True)
+    old = sqlite3.connect(ctx.db_path)
+    old.executescript((Path(__file__).parent / "fixtures" / "schema_v7.sql").read_text("utf-8"))
+    old.execute("PRAGMA user_version = 7")
+    old.commit()
+    old.close()
+    conn = db.connect(ctx.db_path)
+    for version in (8, 9, 10):                          # what a v10 database went through
+        for step in db.MIGRATIONS[version]:
+            conn.execute(step)
+    conn.execute("PRAGMA user_version = 10")
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("INSERT INTO posting_queue (deal_id, channel, due_at, created_at, attempts) "
+                 "VALUES (1, 'instagram', '2026-12-01T09:00:00+00:00', "
+                 "'2026-12-01T07:00:00+00:00', 2)")
+    conn.commit()
+    db.init(conn)
+    [post] = db.posts(conn)
+    assert (post.status, post.attempts, post.media_id, post.story_status, post.story_attempts) \
+        == ("queued", 2, None, None, 0)
 
 
 def test_the_channel_check_in_sql_is_posting_channels():

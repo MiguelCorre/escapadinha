@@ -7,7 +7,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, inject, it } from "vitest";
 import { parse } from "node-html-parser";
-import { FAKE_ANALYTICS_TOKEN as FAKE_TOKEN, FAKE_SEARCH_WIDGET as FAKE_WIDGET } from "./build-site";
+import {
+  FAKE_ANALYTICS_TOKEN as FAKE_TOKEN, FAKE_POST_URL, FAKE_SEARCH_WIDGET as FAKE_WIDGET,
+} from "./build-site";
 import { SEARCH_BUTTON } from "../src/lib/search-widget";
 import { builtPagesIn, pageSource, text } from "./html";
 
@@ -78,5 +80,21 @@ describe("with a search widget", () => {
       expect(source.includes("tp.media"), path).toBe(false);
       expect(source.includes("data-search-widget"), path).toBe(false);
     }
+  });
+});
+
+describe("a promotion published on Instagram (D36)", () => {
+  it("links its post, once, next to its booking button", () => {
+    const page = doc("/promos/8-lisboa-madeira/");
+    const links = page.querySelectorAll("[data-post-link] a");
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([FAKE_POST_URL]);
+    expect(text(links[0])).toBe("Ver no Instagram");
+    expect(page.querySelectorAll('a[rel~="sponsored"]')).toHaveLength(1);
+  });
+
+  it("an unpublished or expired promotion has no post link", () => {
+    const plain = parse(pageSource("/promos/8-lisboa-madeira/", inject("distDir")), { comment: false });
+    expect(plain.querySelectorAll("[data-post-link]")).toHaveLength(0);
+    expect(doc("/promos/3-lisboa-paris/").querySelectorAll("[data-post-link]")).toHaveLength(0);
   });
 });

@@ -7,7 +7,8 @@ time (`Post.checked_at`). Every run, after `detect` and before the path decision
 run's recheck), `pipeline.run_publish` asks `verdict` what to do with each queued post: a
 promotion that expired or was rejected cancels it; a due post goes out only if the price was
 verified (the last recheck, else the approval's live check) within `posting.max_check_age_hours`.
-Publishers are pluggable (`Publisher`); `DryRunPublisher` only logs what would be posted.
+Publishers are pluggable (`Publisher`); `DryRunPublisher` only logs what would be posted, the
+Instagram publisher (`instagram.py`, D36) posts a carousel and then a story (`story_verdict`).
 
 The rules here are pure (no I/O, no clock): `now` is passed in.
 """
@@ -123,6 +124,22 @@ def verdict(post: Post, deal: Deal, *, now: datetime, max_check_age: timedelta) 
                                        "recolha que o confirme.")
 
 
+def story_verdict(post: Post, deal: Deal, *, now: datetime, max_check_age: timedelta) -> Verdict:
+    """What the run does with the pending story of a published Instagram post (D36): it shows
+    the cover slide, a price, so it goes out only while the carousel's verification still
+    holds (`max_check_age` after the carousel went out) and the promotion did not expire or
+    get rejected since; otherwise it is skipped with the reason, never retried forever."""
+    skip = VerdictAction.CANCEL
+    if deal.status == "expired":
+        return Verdict(skip, "A promoção expirou: a story já não sai.")
+    if deal.status == "rejected":
+        return Verdict(skip, "A promoção foi rejeitada: a story já não sai.")
+    if post.settled_at is not None and now - post.settled_at > max_check_age:
+        hours = i18n_pt.number(max_check_age.total_seconds() / 3600)
+        return Verdict(skip, f"A story não saiu nas {hours} h a seguir ao carrossel: já não sai.")
+    return Verdict(VerdictAction.PUBLISH)
+
+
 # --- publishers ----------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -141,10 +158,27 @@ class Message:
 @dataclass(frozen=True)
 class Published:
     url: str | None = None  # the post's URL, when the channel gives one
+    # The promotion is now out on its main channel: the run writes a `published` review event
+    # (D26), which the next run applies; a publisher never changes a status itself (D36).
+    marks_published: bool = False
+    story: bool = False     # a story follows (`Publisher.publish_story`), retried on its own
+
+
+class PublishWait(Exception):
+    """Not now, through no fault of the post (images not deployed yet, API limit, token):
+    it stays queued and no attempt is counted. `str(exc)` says why (pt-PT)."""
+
+
+class PublishCancel(Exception):
+    """The post can never go out as it is (e.g. Meta refuses the media): it is cancelled with
+    `str(exc)` as the reason (pt-PT)."""
 
 
 class Publisher(Protocol):
-    """Posts a message to one channel; raises on failure (the run retries it later)."""
+    """Posts a message to one channel. Raises `PublishWait` to wait without counting an attempt,
+    `PublishCancel` to cancel, anything else on a failure the run retries (D32's max_attempts).
+    A publisher whose `publish` returns `Published(story=True)` also has
+    `publish_story(post, deal) -> str | None`, with the same exceptions."""
 
     name: str
 
@@ -152,24 +186,22 @@ class Publisher(Protocol):
 
 
 class DryRunPublisher:
-    """Posts nothing (no network): logs what would be posted."""
+    """Posts nothing (no network): logs what would be posted (after `note`, why it is a dry run
+    when a real publisher was configured but can't be used)."""
 
     name = "dry-run"
 
-    def __init__(self, log: Callable[[str], None]):
+    def __init__(self, log: Callable[[str], None], note: str | None = None):
         self.log = log
+        self.note = note
 
     def publish(self, message: Message) -> Published:
         post = message.post
+        if self.note:
+            self.log(self.note)
         self.log(f"[dry-run] {CHANNEL_PT[post.channel]} · deal {post.deal_id} · "
                  f"{message.headline} · {message.price} · agendada para "
                  f"{i18n_pt.lisbon_timestamp(post.due_at)}")
         for line in message.text.rstrip().splitlines():
             self.log(f"    {line}")
         return Published(None)
-
-
-def publishers(names: dict[str, str], log: Callable[[str], None]) -> dict[str, Publisher]:
-    """channel -> publisher, from `posting.publishers` in config."""
-    known: dict[str, Callable[[], Publisher]] = {"dry-run": lambda: DryRunPublisher(log)}
-    return {channel: known[name]() for channel, name in names.items()}

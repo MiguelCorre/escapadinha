@@ -21,7 +21,7 @@
     },
     "actor": {
       "type": "string", "minLength": 1,
-      "description": "Who decided: 'cli:<user>@<host>', 'review-page:<user>@<host>' or the Access e-mail."
+      "description": "Who decided: 'cli:<user>@<host>', 'review-page:<user>@<host>', the Access e-mail, or 'instagram-publisher' (a published event the pipeline writes after its Instagram post went out, D36)."
     },
     "note": {"type": ["string", "null"], "description": "Free text from the reviewer (approve, reject)."},
     "post_url": {
