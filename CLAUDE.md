@@ -56,7 +56,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   promotion. Third-party scripts only from the contract's `meta`: the Cloudflare beacon only with
   `analytics_token` (null: the zone's automatic setup measures at the edge), the Aviasales search
   form only with `search_widget` (from Travelpayouts' widget constructor, never hand-built; route
-  and destination pages only, loaded lazily by `src/lib/search-widget.ts`). Fixtures keep both
+  and destination pages only, loaded by `src/lib/search-widget.ts` only when the visitor presses
+  its button: never on scroll or view, the privacy page promises it). Fixtures keep both
   null. The site sets no cookies (no `document.cookie`, no Set-Cookie).
 - The review Function (D29, `web/functions/`, TypeScript) is a writer of pending review events
   only: it never changes a status (the applier does, D26). Every request must pass

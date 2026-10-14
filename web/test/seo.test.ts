@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import { eur } from "../src/lib/format";
+import { SEARCH_BUTTON } from "../src/lib/search-widget";
 import { builtPages, distDir, page, text } from "./html";
 import { jsonLd, jsonLdErrors } from "./jsonld";
 import { traceableAmounts } from "./trace";
@@ -212,6 +213,9 @@ describe("About and Privacy pages", () => {
     expect(body).toContain("Travelpayouts");
     expect(body).toContain("Aviasales");
     expect(body).toMatch(/só depois de (clicares|carregares)/);
+    // The search form loads on the button only (src/lib/search-widget.ts), as this page says.
+    expect(body).toContain(`só é carregada quando carregas no botão "${SEARCH_BUTTON}"`);
+    expect(body).not.toMatch(/quando chegas a essa parte/);
     expect(page("/privacidade/").querySelector('main a[href="https://www.instagram.com/ondestaanocas/"]')).not.toBeNull();
   });
 

@@ -1344,11 +1344,17 @@ so nothing has to be hosted.
   same list in the schema's pattern (a test compares them) accept only an https URL on one of them,
   with no quote, space or angle bracket. `SearchWidget.astro` renders, on route and destination
   pages only, a "Pesquisar outras datas" section near the end of the page: a line saying these
-  are the partner's live prices (ours are prices travellers found), an empty box with the src in
-  `data-src` (22 rem reserved, so nothing moves when it fills), the site disclosure, and the
-  loader. `src/lib/search-widget.ts` adds the `<script async>` inside the box when it comes within
-  300 px of the viewport (IntersectionObserver), or on the first scroll, tap or key press in a
-  browser without it; never before, and once. The component and its script render nothing when
+  are the partner's live prices (ours are prices travellers found), a box with the src in
+  `data-src` holding a **"Pesquisar voos no Aviasales" button** (`.btn`, the design system's one
+  button) and an empty slot, a line saying the form only appears after the button is pressed and
+  that the partner may then set cookies (linking to the privacy page), the site disclosure, and
+  the loader. `src/lib/search-widget.ts` adds the `<script async>` inside the slot **only when the
+  visitor presses the button** (once; the slot then reserves 22 rem and takes the focus, the
+  button hides); nothing else (load, scroll, hover, focus) loads it, so no partner request and no
+  partner cookie happens before an explicit action, which is what the privacy page says.
+  Superseded (code review, 2026-10-14): loading it when the box came within 300 px of the viewport
+  (IntersectionObserver, or the first scroll/tap/key press): the privacy page promised cookies only
+  after a click or a search, and a scroll is neither. The component and its script render nothing when
   the src is null (Astro renders a component's script only where the template renders it; the
   fixture build has no trace of either, tested), and never on the home page, promotion pages or
   any other page. Miguel's steps (Tools → Widgets → Search form → Aviasales, Project "Pontonomada"
@@ -1360,7 +1366,8 @@ so nothing has to be hosted.
   and it is the only Function: public pages never go through one). The privacy page says so,
   describes the cookieless analytics (aggregate, no personal data, hence no consent banner) and
   that Travelpayouts/Aviasales may set their own cookies only after a click on a booking link or
-  in the search form.
+  on the search button: the page quotes the button's text from `search-widget.ts`
+  (`SEARCH_BUTTON`), so the two can't drift (tested).
 - **Head tags:** canonical = contract `base_url` + the page path (as before); `og:type` `article`
   on itineraries and tips, `website` elsewhere; `og:image:alt` (the promotion's headline or the
   logo card, never a price); `twitter:title`, `twitter:description`, `twitter:image` equal to the
@@ -1428,10 +1435,12 @@ so nothing has to be hosted.
   the global setup, after the first: astro builds of one project can't run at once, they share
   `.astro/`; fixtures with `analytics_token` `fakeTestToken0000…` and `search_widget`
   `https://tp.media/content?fake=test-only&promo_id=0`: beacon on every page with the token,
-  widget box on route and hub pages only, empty, src only in `data-src`, loader and disclosure
-  present, absent from everything else), `search-widget.test.ts` (the loader with a fake
-  IntersectionObserver: nothing appended before intersection, one script after, none twice;
-  interaction fallback), the JSON-LD traceability case, and Python: the export carries the three
+  widget box on route and hub pages only, a `button.btn` with the partner's name and an empty
+  slot, the partner's URL once and only in `data-src` (no script, iframe, img or link to a partner
+  host), a click-only loader (no IntersectionObserver or scroll listener), the disclosure and the
+  cookie note present, absent from everything else), `search-widget.test.ts` (the loader on a
+  fake DOM: no element created and no script appended before the click, only a click listener,
+  one script after it, none on a second click, focus moved to the slot), the JSON-LD traceability case, and Python: the export carries the three
   fields, fixtures never carry the token or the widget, the config refuses an http, foreign-host
   or quote-carrying widget URL and a non-alphanumeric token, the schema accepts the same hosts.
 - **Lighthouse:** `/privacidade/` and `/sobre/` added to `web/lighthouserc.json` (12 URLs).

@@ -7,6 +7,7 @@ import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
 import { BRAND } from "../../lib/brand";
 import { CTA_TEXT } from "../../lib/cta";
+import { SEARCH_BUTTON } from "../../lib/search-widget";
 import { instagramUrl } from "../../lib/structured-data";
 
 const handle = data.meta.instagram_handle;
@@ -28,7 +29,7 @@ const instagram = instagramUrl(handle);
     <p>Usamos o Cloudflare Web Analytics para saber quantas pessoas visitam cada página. Não usa cookies nem guarda nada no teu navegador, não cria um perfil teu e não te segue de um site para outro. Só vemos totais agregados, como o número de visitas por página, o país e o site de onde vieram. Não recolhemos dados pessoais, por isso não te pedimos consentimento nem mostramos um aviso de cookies.</p>
 
     <h2>Links de afiliado e pesquisa de voos</h2>
-    <p>Quando clicas em "{CTA_TEXT}", passas pela Travelpayouts e segues para o site parceiro (Aviasales). Nas páginas das rotas e dos destinos pode haver também uma pesquisa de voos do Aviasales, que só é carregada quando chegas a essa parte da página. A Travelpayouts e o Aviasales podem usar cookies próprios só depois de clicares num link de reserva ou de usares essa pesquisa, para registar que vieste daqui e atribuir a comissão de uma eventual reserva. O que fazem com os teus dados é regido pelas políticas de privacidade deles.</p>
+    <p>Quando clicas em "{CTA_TEXT}", passas pela Travelpayouts e segues para o site parceiro (Aviasales). Nas páginas das rotas e dos destinos pode haver também uma pesquisa de voos do Aviasales, que só é carregada quando carregas no botão "{SEARCH_BUTTON}": até lá, o site não pede nada ao parceiro. A Travelpayouts e o Aviasales podem usar cookies próprios só depois de clicares num link de reserva ou nesse botão, para registar que vieste daqui e atribuir a comissão de uma eventual reserva. O que fazem com os teus dados é regido pelas políticas de privacidade deles.</p>
 
     {instagram && (
       <>

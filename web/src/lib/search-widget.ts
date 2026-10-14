@@ -1,46 +1,40 @@
-// Lazy loader for the partner's search form (D34). The page carries only the script's src (from
-// Travelpayouts' widget constructor, config site.search_widget) in data-src on an empty box; the
-// <script> is added inside that box when it comes within ROOT_MARGIN of the viewport, or, in a
-// browser without IntersectionObserver, on the visitor's first scroll, tap or key press. Never
-// before: the partner's script (and any cookie it sets) stays off a page nobody scrolls down.
+// Loader for the partner's search form (D34). The page carries only the script's src (from
+// Travelpayouts' widget constructor, config site.search_widget) in data-src, and a button. The
+// partner's <script> is added only when the visitor presses that button: nothing from the
+// partner (script, request, cookie) reaches a page before that explicit action, which is what
+// the privacy page promises. Scrolling, hovering or focusing loads nothing.
 
-export const ROOT_MARGIN = "300px 0px";
-const INTERACTIONS = ["scroll", "pointerdown", "keydown"] as const;
+/** The button's text; the privacy page quotes it. */
+export const SEARCH_BUTTON = "Pesquisar voos no Aviasales";
+export const BUTTON = "[data-search-widget-load]";
+export const SLOT = "[data-search-widget-slot]";
 
 interface LoaderEnv {
   document: Pick<Document, "createElement">;
-  IntersectionObserver?: typeof IntersectionObserver;
-  addEventListener: (type: string, fn: () => void, options?: AddEventListenerOptions) => void;
-  removeEventListener: (type: string, fn: () => void) => void;
 }
 
-type Box = Pick<Element, "getAttribute" | "setAttribute" | "appendChild">;
+type Button = Pick<HTMLButtonElement, "addEventListener" | "hidden">;
+type Slot = Pick<HTMLElement, "appendChild" | "setAttribute" | "focus">;
+type Box = Pick<Element, "getAttribute" | "querySelector">;
 
 export function mountSearchWidget(box: Box, env: LoaderEnv = window): void {
   const src = box.getAttribute("data-src");
-  if (!src) return;
-  let observer: IntersectionObserver | null = null;
+  const button = box.querySelector(BUTTON) as Button | null;
+  const slot = box.querySelector(SLOT) as Slot | null;
+  if (!src || !button || !slot) return;
   let loaded = false;
-  const load = () => {
+  button.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    observer?.disconnect();
-    for (const type of INTERACTIONS) env.removeEventListener(type, load);
     const script = env.document.createElement("script");
     script.src = src;
     script.async = true;
     script.charset = "utf-8";
-    box.appendChild(script);
-    box.setAttribute("data-loaded", "true");
-  };
-  if (env.IntersectionObserver) {
-    observer = new env.IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) load();
-    }, { rootMargin: ROOT_MARGIN });
-    observer.observe(box as Element);
-  } else {
-    for (const type of INTERACTIONS) env.addEventListener(type, load, { once: true, passive: true });
-  }
+    slot.setAttribute("data-loaded", "true");
+    slot.appendChild(script);
+    button.hidden = true;
+    slot.focus();             // keyboard users land where the form appears, not on <body>
+  });
 }
 
 /** Every search widget box on the page. */

@@ -550,8 +550,9 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   destination, itinerary and tip pages. Checked twice: `npm run typecheck` against the schema.org
   vocabulary (`schema-dts`), `web/test/seo.test.ts` with a JSON Schema per type (`test/jsonld.ts`).
 - **Search widget and analytics (D34):** with `meta.search_widget` (config `site.search_widget`)
-  route and destination pages get "Pesquisar outras datas": an empty box whose script
-  (`src/lib/search-widget.ts`) is added only when it nears the viewport; never on the home page or
+  route and destination pages get "Pesquisar outras datas": a "Pesquisar voos no Aviasales"
+  button; the partner's script (`src/lib/search-widget.ts`) is added only when the visitor presses
+  it (nothing from the partner loads before, as the privacy page says); never on the home page or
   promotions; nothing at all while unset (the fixture build). With `meta.analytics_token` every
   page gets Cloudflare's beacon script; null now (automatic setup at the edge). The site sets no
   cookies (a test fails on `document.cookie` in the build or the sources).
