@@ -1,6 +1,7 @@
-# The web package on pull requests (DECISIONS D28): vitest builds the site from the committed
+# The web package on pull requests (DECISIONS D28, D29): vitest builds the site from the committed
 # contract fixtures and checks the HTML (traceability, noindex on expired promotions, pt-PT lint,
-# tokens up to date), then Lighthouse CI runs on the fixture build with the mobile settings and
+# tokens up to date) and tests the review Function in web/functions (Access JWT, events, dispatch,
+# the live check on the cases shared with the pipeline), then Lighthouse CI runs on the fixture build with the mobile settings and
 # fails below 0.9 on performance, accessibility and SEO for each page type. No secrets, no deploy.
 name: Web
 

@@ -263,8 +263,8 @@ Status flow: `new → rendered → approved → published`. `rejected` and `expi
 
 ### Review decisions are events (D26)
 
-Approve, reject and published never change the database directly. The page, the CLI and (soon)
-the review Function on Cloudflare each write one **review event** to the object store
+Approve, reject and published never change the database directly. The page, the CLI and the
+review Function on Cloudflare (on the phone, below) each write one **review event** to the object store
 (`review/events/pending/<time>-<id>.json`, shape in `contract/review/v1/event.schema.json`), and
 the pipeline applies them:
 
@@ -291,6 +291,40 @@ price, dates, discount, caption, slide links, the live-check query and last rech
 pending decisions, the latest outcomes and the review rules (`review_rules.approve_max_age_hours`,
 so a review UI can warn before an approval gets too old). Slides of deals still under review are copied to
 `review/slides/<id>/` as WebP (they aren't on the public site yet).
+
+### Review on the phone: https://pontonomada.pt/review (DECISIONS D29)
+
+The same queue, in Portuguese, served by a Cloudflare Pages Function from `review/snapshot.json`.
+Open **https://pontonomada.pt/review**, sign in with the e-mail code from Cloudflare Access (only
+Miguel's e-mail is allowed), and for each candidate you see the slides (swipe), price, dates,
+airline, discount, found and verified times (Lisbon time), the affiliate link, the caption and
+the WhatsApp text (when the snapshot has it) with copy buttons.
+
+- **Verificar preço** asks Travelpayouts now, with the same query and rule as the pipeline
+  (`pipeline.price_now`); it stores nothing.
+- **Aprovar** runs that check first: a moved price refuses the approval with the reason and writes
+  nothing. **Rejeitar** (optional note) and **Marcar como publicado** (optional post link) need
+  no check.
+- Each decision is one event in `review/events/pending/` (actor = your Access e-mail), then one
+  `repository_dispatch` (`review-decision`) starts the pipeline, which applies it within minutes.
+  If GitHub can't be reached the page says *a decisão ficou guardada; aplica-se no próximo run*:
+  the event is kept and the next scheduled run (≤ 2 h) applies it.
+- The page shows when the snapshot was made (and warns when it's over 3 h old), pending decisions
+  (a deal with one accepts no other) and recent refusals with their reason. An approval applied
+  more than 24 h after its check is refused, as everywhere (D26).
+
+Setup (done once by Miguel, in the dashboards): an Access application on `pontonomada.pt/review`;
+on the Pages project (Production) the variables `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, the secrets
+`GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, *Contents: read and write*) and
+`TRAVELPAYOUTS_TOKEN`, and the R2 binding `STORE` to the pipeline's bucket. The Function checks the
+Access token itself (signature, audience, issuer, expiry), because `ondestaanocas.pages.dev` is not
+behind Access. The step-by-step test from the phone (pt-PT) is
+[`docs/runbooks/review-phone.md`](docs/runbooks/review-phone.md).
+
+The code is in `web/functions/` (TypeScript, no npm dependencies) and is tested with the web
+package (`cd web && npm test`). It ships with every `site deploy`: wrangler runs in a temporary
+folder holding `functions/` and the `web/src/lib/` modules they import, and the deploy hash (and
+the run's code fingerprint) include those files, so a Function change redeploys.
 
 ## Public website
 
@@ -601,7 +635,7 @@ collect → recheck → detect → **full path only when needed** → push → u
   gh workflow run pipeline.yml                # like the schedule: the run decides fast or full
   gh workflow run pipeline.yml -f full=true   # full path
   gh run watch                                # follow the run that just started
-  gh api repos/MiguelCorre/escapadinha/dispatches -f event_type=full-run   # what the review Function will send
+  gh api repos/MiguelCorre/escapadinha/dispatches -f event_type=full-run   # like the review Function's review-decision
   ```
   `repository_dispatch` events of type `review-decision` or `full-run` always take the full path.
 
@@ -689,7 +723,14 @@ uv run pytest -m "not browser"
   when a schema gains a price field the checker doesn't know), and tests the size budget.
 - `test_web_tokens.py` fails when `web/src/styles/tokens.css` no longer matches
   `docs/design/tokens.json` (run `npm run tokens` in `web/`).
-- The web package has its own tests: `cd web && npm test` (see "The new site").
+- The web package has its own tests: `cd web && npm test` (see "The new site"), including the
+  review Function's (`web/test/review/`: Access token checks, events validated against
+  `contract/review/v1/event.schema.json`, the dispatch, the page).
+- `test_live_check_cases.py` and `web/test/review/live-check.test.ts` run the same cases
+  (`contract/review/v1/fixtures/live-check-cases.json`) through the pipeline's live check and the
+  Function's port: both must agree.
+- `test_review_function_deploy.py`: `site deploy` uploads the Function with the site, a Function
+  change redeploys and takes the full path.
 
 ## Data sources and terms
 

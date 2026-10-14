@@ -13,7 +13,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 - Web package (`cd web`): `npm ci`, `npm test` (vitest builds from the fixtures), `npm run
   build:fixtures` / `dev:fixtures`, `npm run build` (reads `SITE_DATA_DIR`), `npm run lhci`,
-  `npm run tokens`.
+  `npm run tokens`. `npx vitest run test/review` runs only the review Function's tests.
 
 ## Rules
 - **Never fabricate prices.** Observations come only from API payloads. No seed/demo data
@@ -31,7 +31,18 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `labels.disclosure.site`), expired promotions `noindex` without a button, pt-PT formats from
   `src/lib/format.ts`, copy passes `web/test/pt-lint.test.ts`. Styles use only the generated
   tokens (`src/styles/tokens.css`, `npm run tokens`; `tests/test_web_tokens.py` catches drift).
-  `web/functions/` is reserved for the review Function (#9).
+- The review Function (D29, `web/functions/`, TypeScript) is a writer of pending review events
+  only: it never changes a status (the applier does, D26). Every request must pass
+  `access.verifyAccess` (RS256 Access JWT: signature against the team's certs, `aud` =
+  `ACCESS_AUD`, `iss`, `exp`; the pages.dev host is not behind Access, so the header's presence
+  proves nothing). Keep `handler.handle(request, env, deps)` pure (clock, fetch, UUIDs, key cache
+  injected) and tested in `web/test/review/` on the in-memory bucket. Its live check is a port of
+  `pipeline.price_now` + `recheck.recheck`: change both sides together and keep
+  `contract/review/v1/fixtures/live-check-cases.json` passing on both (`tests/test_live_check_cases.py`,
+  `web/test/review/live-check.test.ts`). Function sources import only relative modules under
+  `web/functions/` or `web/src/lib/` (no npm packages: wrangler bundles them without
+  `node_modules`); `website/deploy.py` stages exactly those files, and both the deploy hash and
+  `run_path._code_files` include them.
 - The website data contract is versioned: change `contract/site/v1/*.schema.json` together with
   `site_data.py`, keep changes additive within v1 (a breaking change is `v2/`), and regenerate the
   committed fixtures with `escapadinha export fixtures` (read-only DB copy, anonymous links and
@@ -117,7 +128,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,
   `pending`, `apply_pending`); `review_snapshot.py`: `review/snapshot.json` + `review/slides/`;
   `web.py` + `templates/review.html.j2`: the local review page
-- `contract/review/v1/`: JSON Schemas of review events and the snapshot (the review Function's contract)
+- `contract/review/v1/`: JSON Schemas of review events and the snapshot (the review Function's contract);
+  `fixtures/live-check-cases.json`: live-check cases shared by the pipeline and the Function
 - `src/escapadinha/renderer/templates/`: `base.html.j2` (tokens, fonts, scrims, components, fitText),
   `_ui.html.j2` (masthead, price block, dots, credit) + `deal/`, `guide/`
 - `docs/design/`: `design-system.md` (the visual contract) + `tokens.json`, generated from
@@ -126,7 +138,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: static site builder (`build_site`; route pages list low prices),
-  `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler), `templates/`; shared with
+  `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler; stages `web/functions` via
+  `function_files`, `deploy_hash`), `templates/`; shared with
   the export: `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
   `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
@@ -136,5 +149,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   promotion), `cta.ts` (booking button + disclosure); `src/layouts/Base.astro`, `src/components/`,
   `src/pages/` (`index`, `promos/[slug]`, `404`, `og-default.png`); `scripts/tokens.mjs`;
   `test/` (vitest); `lighthouserc.json`; CI in `.github/workflows/web.yml`
+- `web/functions/review/index.ts` + `[[path]].ts`: Pages routes `/review` and `/review/*`, both
+  `serve` from `web/functions/_lib/review/`: `handler.ts` (routing, decisions), `access.ts` (JWT),
+  `live-check.ts` (port of the recheck), `rules.ts` (port of `review.check_decision`),
+  `events.ts` (event keys, pending, dispatch), `page.ts` (the queue HTML), `serve.ts` (runtime deps)
 - `src/escapadinha/design_directions/`: M2 visual directions (`build_directions` → `output/directions/`);
   palettes + fonts in `directions.py` (contrast computed by `contrast.py`), read-only data in `data.py`

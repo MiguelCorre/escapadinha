@@ -60,3 +60,16 @@ def test_uv_and_the_browser_download_are_cached():
     assert uses["astral-sh/setup-uv"]["with"]["enable-cache"] is True
     assert "ms-playwright" in uses["actions/cache"]["with"]["path"]
     assert job["env"]["ESCAPADINHA_INSTALL_BROWSER"] == "1"
+
+
+def test_the_deploy_can_bundle_the_review_function_on_a_fresh_runner():
+    """wrangler (npx, Node 22) bundles web/functions itself: the job checks out the whole repo
+    and needs no npm ci, because the Function imports no npm package (D29)."""
+    from escapadinha.website import deploy as site_deploy
+    [job] = load()["jobs"].values()
+    uses = {s.get("uses", "").split("@")[0]: s for s in job["steps"]}
+    assert int(uses["actions/setup-node"]["with"]["node-version"]) >= 22
+    assert "sparse-checkout" not in (uses["actions/checkout"].get("with") or {})
+    assert not any("npm ci" in s.get("run", "") for s in job["steps"])
+    repo_web = WORKFLOW.parent.parent.parent / "web"
+    assert site_deploy.function_files(repo_web)      # raises on a package import

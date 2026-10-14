@@ -1,5 +1,6 @@
 // pt-PT lint (spec #1, story 50): the site's own copy, in the templates (src/**/*.astro) and the
-// copy modules (src/lib/*.ts), must not use Brazilian Portuguese words or spellings, nor leave
+// copy modules (src/lib/*.ts), and the review Function's pages and messages (functions/**/*.ts,
+// #9), must not use Brazilian Portuguese words or spellings, nor leave
 // English UI text behind. Comments are skipped (they are written in English for developers).
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -10,6 +11,7 @@ import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import { builtPages, page } from "./html";
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
+const FUNCTIONS = resolve(SRC, "../functions");
 
 /** Brazilian words and spellings -> the pt-PT word (case-insensitive, whole words). */
 const BRAZILIAN: Record<string, string> = {
@@ -68,7 +70,8 @@ describe("pt-PT lint", () => {
   });
 
   it("passes over every template and copy module", () => {
-    const files = sources(SRC);
+    const files = [...sources(SRC), ...sources(FUNCTIONS)];
+    expect(files.some((f) => f.startsWith(FUNCTIONS))).toBe(true);
     expect(files.some((f) => f.endsWith(".astro"))).toBe(true);
     const problems = files.flatMap((f) =>
       ptViolations(readFileSync(f, "utf8")).map((v) => `${relative(SRC, f)}: ${v}`));

@@ -819,3 +819,85 @@ so nothing has to be hosted.
 - **Not yet (later tickets):** route, origin and destination pages, explorer, sitemap, JSON-LD,
   analytics beacon, `_redirects`/`_headers`, About/Privacy pages (the footer links none of them
   yet), deploy and the `run` integration (#14–#16, #23).
+
+## D29: Review queue on Pages Functions behind Access (2026-10-14, #9)
+- **What:** the review queue Miguel uses on his phone is a Cloudflare Pages Function in the web
+  package (`web/functions/`, TypeScript) deployed with the site to the Pages project
+  `ondestaanocas`, at **https://pontonomada.pt/review**. It reads the snapshot (D26), serves the
+  queue slides, runs the live check, writes review events and fires one `repository_dispatch`
+  per decision. It is a writer of pending events only: statuses still change only in the
+  pipeline's applier (D26).
+- **Routes**, all under `/review` so the one Access application covers them:
+  `GET /review` (server-rendered page), `GET /review/slides/<id>/slide_NN.webp` (streams the WebP
+  copy from `STORE`; only that key pattern), `POST /review/check` `{deal_id}` (live check, writes
+  nothing), `POST /review/decision` `{type, deal_id, note?, post_url?}`. Two route files
+  (`review/index.ts`, `review/[[path]].ts`) call the same `serve`; library code lives in
+  `functions/_lib/review/` and exports no `onRequest*`, so it is never a route (a test checks).
+  Decisions are JSON POSTs with a same-origin check (`Origin` must match; a cross-site form can't
+  send `application/json`), the Access cookie being the only credential.
+- **JWT verification in the Function, not just Access in front:** Access protects
+  `pontonomada.pt/review`, but the production `ondestaanocas.pages.dev` host is only redirected by
+  a Bulk Redirect, not protected, so a request could reach the Function without passing Access and
+  with a forged `Cf-Access-Jwt-Assertion`. Every request therefore verifies the token: RS256 only
+  (no `alg: none`, no HS256), signature against `https://<ACCESS_TEAM_DOMAIN>/cdn-cgi/access/certs`
+  (keys cached per isolate for an hour; an unknown `kid` refetches at most once a minute, so
+  forged kids can't hammer the endpoint), `aud` containing `ACCESS_AUD`, `iss` =
+  `https://<ACCESS_TEAM_DOMAIN>`, `exp` in the future, `nbf` (60 s skew), and an `email` claim,
+  which becomes the event's `actor`. Missing settings fail closed. Refusals are 403 in pt-PT.
+  WebCrypto only; the clock, fetch, UUIDs and the key cache are injected, so vitest signs tokens
+  with a generated RSA key.
+- **Handler seam:** `handler.handle(request, env, deps)` is pure; the tests (`web/test/review/`)
+  drive it with an in-memory R2 stub (paginated listing), a fake fetch for the certs,
+  Travelpayouts and GitHub, and validate every written event against
+  `contract/review/v1/event.schema.json` with ajv. They assert exactly one dispatch per decision,
+  none when the event can't be stored, and the pt-PT message when GitHub fails.
+- **Events** have the Python writer's shape and key (`review/events/pending/<YYYYMMDDTHHMMSSZ>-<uuid
+  v4>.json`, `created_at` to the second with `Z`, empty note → null, `post_url` only on
+  `published`, `live_check` only on `approve`). Before writing, the Function applies the same
+  pre-checks as `pipeline._decidable` against the snapshot: the transition table and the
+  affiliate-link and post-URL rules (`rules.ts`, a port of `review.check_decision` with the same
+  pt-PT messages) and "one pending decision per deal". Pending = the snapshot's `pending_events`
+  plus objects under `pending/` whose name is not older than the snapshot's `generated_at`: an
+  older object missing from the snapshot was already applied by the run that made it (D26 keeps it
+  pending until the next run), so it must not block, e.g., marking a just-approved deal
+  published. The applier re-checks everything anyway.
+- **Dispatch:** after the event is stored, one `POST /repos/<GITHUB_REPOSITORY or
+  MiguelCorre/escapadinha>/dispatches` with `event_type: review-decision` and `{event_id,
+  deal_id, type}` (the workflow ignores the payload: a dispatch run applies every pending event
+  and takes the full path, D25). No retry: a failure is reported ("a decisão ficou guardada;
+  aplica-se no próximo run") and the event stays for the next scheduled run, so it is never lost
+  or written twice. GitHub keeps at most one queued run per concurrency group, which is fine: any
+  run applies all pending events.
+- **Live check port:** `live-check.ts` reimplements `travelpayouts.parse_response` (local dates
+  from the link, `search_date`, nights range, positive numeric price) and `recheck.recheck` (rule
+  check, same trip, first cheapest, price rose, freshness by found date else fetch day, same pt-PT
+  reasons and `eur` text with a plain space) on the snapshot's `live_check.query` and `.rules`;
+  the token goes in `X-Access-Token`. The shared cases in
+  `contract/review/v1/fixtures/live-check-cases.json` run through both (`tests/
+  test_live_check_cases.py`, `web/test/review/live-check.test.ts`). Two known differences: the
+  snapshot carries `direct`, not the deal's transfer counts, so on a route allowing N ≥ 1 stops a
+  non-direct deal is assumed within the limit (it passed detection; the run's recheck uses the real
+  counts and expires it otherwise); and no retries on 429/5xx (the pipeline waits up to a minute;
+  on the phone Miguel taps again).
+- **Page:** pt-PT, one column (max 680 px, 16 px gutters, checked at 375 px with no horizontal
+  scroll), slides in a swipeable strip, 44 px buttons, `noindex` (meta and `X-Robots-Tag`),
+  `Cache-Control: no-store` (slides `private, max-age=600`). Same information and copy as the local
+  page plus the WhatsApp text and caption with copy buttons, the snapshot time (warning past 3 h),
+  pending decisions, recent outcomes and the 24 h approval rule from `review_rules`. pt-PT formats
+  come from `web/src/lib/format.ts`; the pt-PT lint test now scans `web/functions/` too.
+- **Deploy wiring:** wrangler compiles `<cwd>/functions` during `pages deploy`, and the deploy ran
+  with cwd = `site/`, so Functions were never uploaded. `website/deploy.py` now stages a temporary
+  folder with `functions/` and the `web/src/lib/` modules they import (`function_files`: transitive
+  relative imports; a bare package import or a missing file is a `DeployError`), runs wrangler
+  there with the site's absolute path, and deletes it. The staging folder holds nothing else, so
+  wrangler still never scans the repository (D15), and no `npm ci` is needed on the runner
+  (wrangler bundles TypeScript itself; Node 22 is already set up). Rejected: running wrangler from
+  `web/` (its `package.json` invites framework auto-detection, the D15 failure) and building a
+  `_worker.js` into `site/` (advanced mode, a second wrangler step). The deploy hash
+  (`deploy_hash`) adds those files (line endings normalised) to the site's content hash, and
+  `run_path._code_files` includes them, so a Function change takes the full path and redeploys.
+  The first deploy after this change uploads once more, as the hash's meaning changed.
+- **Bindings** (Pages project, Production, set by Miguel): `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`,
+  secrets `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, Contents read/write) and
+  `TRAVELPAYOUTS_TOKEN`, R2 binding `STORE`. Preview deployments sit behind a separate Access app.
+- **Verification on the phone** is a manual step for Miguel: `docs/runbooks/review-phone.md`.
