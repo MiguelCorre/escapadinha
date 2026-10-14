@@ -440,7 +440,7 @@ npm run dev:fixtures       # http://localhost:4321 on the fixtures
 npm run build              # → web/dist from SITE_DATA_DIR (default web/src/data, git-ignored):
                            #   needs exported data first, see below; fails without it on purpose
 npm run lhci               # Lighthouse CI on web/dist (mobile, ≥ 0.9 perf/a11y/SEO)
-npm run tokens             # regenerate src/styles/tokens.css after docs/design/tokens.json changes
+npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.ts after docs/design/tokens.json changes
 ```
 
 - **Which build:** on a fresh checkout (and in CI) the build to run is `npm run build:fixtures`;
@@ -465,7 +465,9 @@ npm run tokens             # regenerate src/styles/tokens.css after docs/design/
   "12/10/2026 às 22:17" Lisbon time); `web/test/pt-lint.test.ts` fails on Brazilian words
   ("você", "celular", "equipe", …) or English UI text in the templates.
 - **Design:** `src/styles/tokens.css` is generated from `docs/design/tokens.json` and replaces
-  Tailwind's default colours, fonts, sizes, radii and shadows; fonts come from `assets/fonts/`
+  Tailwind's default colours, fonts, sizes, radii and shadows (`src/lib/tokens.ts` is the same data
+  for code: theme-color, the OG image, the review page; no other colour is allowed, a test checks
+  it); fonts come from `assets/fonts/`
   through Astro's Fonts API (metric-matched fallbacks), the logo from `assets/logo-light.svg`.
 - **CI:** `.github/workflows/web.yml` runs on pull requests touching `web/`, `contract/`, the
   tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, Lighthouse CI (reports kept as an
@@ -696,7 +698,7 @@ spacing, components (price block, card, tag, notice, …), photo treatment and t
   Tailwind-ready copy for the website. After changing a token, regenerate it:
   `uv run python -c "from escapadinha.renderer import tokens; tokens.write_json()"` (a test fails
   if it is stale or a colour pair drops below WCAG AA), then `npm run tokens` in `web/` for the
-  Astro site's Tailwind theme (`test_web_tokens.py` fails until you do).
+  Astro site's Tailwind theme and `TOKENS` module (`test_web_tokens.py` fails until you do).
 - **Fonts:** Fraunces (headlines, prices) and Source Serif 4 (text), SIL OFL 1.1, self-hosted as
   WOFF2 in `assets/fonts/` with their licences. The slides inline them, so rendering works offline.
 - **Logo (provisional):** `assets/logo-light.svg` (on paper) and `assets/logo-dark.svg` (on photos
@@ -729,14 +731,19 @@ uv run pytest -m "not browser"
 - `test_site_data.py` validates the JSON export and the committed fixtures against
   `contract/site/v1/*.schema.json`, traces every price in the export the same way (a guard fails
   when a schema gains a price field the checker doesn't know), and tests the size budget.
-- `test_web_tokens.py` fails when `web/src/styles/tokens.css` no longer matches
-  `docs/design/tokens.json` (run `npm run tokens` in `web/`).
+- `test_web_tokens.py` fails when `web/src/styles/tokens.css` or `web/src/lib/tokens.ts` no longer
+  matches `docs/design/tokens.json` (run `npm run tokens` in `web/`).
 - The web package has its own tests: `cd web && npm test` (see "The new site"), including the
   review Function's (`web/test/review/`: Access token checks, events validated against
   `contract/review/v1/event.schema.json`, the dispatch, the page).
 - `test_live_check_cases.py` and `web/test/review/live-check.test.ts` run the same cases
   (`contract/review/v1/fixtures/live-check-cases.json`) through the pipeline's live check and the
-  Function's port: both must agree.
+  Function's port: both must agree, on prices, stop counts and the pt-PT reason shown when the
+  provider fails (rate limit, HTTP error, error payload, no answer, no token).
+- `test_review_rules_cases.py` and `web/test/review/rules.test.ts` check `review.py`'s tables and
+  `check_decision` and the Function's `rules.ts` against `contract/review/v1/fixtures/review-rules.json`.
+- `web/test/colours.test.ts` fails on a raw colour (hex, `rgb()`, `hsl()`) in `web/src/` or
+  `web/functions/` outside the generated `tokens.css` / `tokens.ts`.
 - `test_review_function_deploy.py`: `site deploy` uploads the Function with the site, a Function
   change redeploys and takes the full path.
 
