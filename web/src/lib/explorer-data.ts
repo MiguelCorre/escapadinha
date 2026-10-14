@@ -22,18 +22,21 @@ export function dataFile(iata: string): string {
   return `/explorar/dados/${iata}.json`;
 }
 
-/** Names of the destinations and arrival airports one origin's rows mention. */
+/** Names of the destinations and arrival airports one origin's rows mention, and the route
+ * pages (D30) the results link to. */
 export function placesFor(data: SiteData, iata: string): Places {
   const rows = data.lowPrices[iata]?.rows ?? [];
   const cities: Record<string, string> = {};
   const airports: Places["airports"] = {};
+  const paths: Record<string, string> = {};
   for (const r of rows) {
     const route = data.routes.routes.find((x) => x.key === `${iata}-${r[1]}`);
     cities[r[1]] = route?.city ?? data.destinations.destinations.find((d) => d.code === r[1])?.city ?? r[1];
+    if (route) paths[r[1]] = route.path;
     const label = r[9] ? data.labels.airports[r[9]] : undefined;
     if (r[9] && label) airports[r[9]] = label;
   }
-  return { origin: iata, cities, airports };
+  return { origin: iata, cities, airports, paths };
 }
 
 export function originFile(data: SiteData, iata: string): OriginFile {

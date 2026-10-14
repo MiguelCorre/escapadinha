@@ -517,6 +517,7 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   direct only, weekends only (out Friday/Saturday, back Sunday/Monday), pontes. It fetches an
   origin's low prices only when picked, from `/explorar/dados/<ORIGIN>.json` (the contract's rows
   plus the names they need). Server and island share `src/lib/explorer.ts` (rules and result HTML).
+  Each result's headline links to its route page (the contract's route `path`).
 - **Pontes** `/pontes/<feriado>-<ano>/<origem>/` (paths from `pontes.json`): one page per upcoming
   long weekend and origin with the low prices whose departure and return fit the window and span
   the holiday; `noindex` while there are none. The calendar is `content/holidays.yaml` (national

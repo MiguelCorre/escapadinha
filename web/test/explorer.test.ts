@@ -119,6 +119,14 @@ describe("resultsHtml", () => {
     expect(resultsHtml(run({}), places)).toContain("Londres &lt;&amp;&gt;");
   });
 
+  it("links the headline to the route page when the contract gives its path (D30)", () => {
+    const linked = parse(resultsHtml(run({}), { ...places, paths: { PAR: "/voos/lisboa-paris/" } }));
+    const a = linked.querySelector('li[data-route="LIS-PAR"] h3 a')!;
+    expect(a.getAttribute("href")).toBe("/voos/lisboa-paris/");
+    expect(a.textContent).toBe("Paris (Beauvais)");
+    expect(linked.querySelector('li[data-route="LIS-BCN"] h3 a')).toBeNull();   // no path: no link
+  });
+
   it("shows no booking link for a row without one", () => {
     const rows = [row(9, "BCN", 50, "2026-11-27", "2026-11-29", 0, null)];
     const doc = parse(resultsHtml(explore(rows, NO_FILTERS, PONTES), places));

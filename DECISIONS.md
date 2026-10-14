@@ -1081,6 +1081,10 @@ so nothing has to be hosted.
   on its typical low, the found date, the arrival airport and the tracked link; the site
   disclosure and the CTA note sit once above the list in its `[data-cta]` block. No framework:
   one list and a form don't need one. Filters live in the form only (no URL state yet).
+- **Results link to route pages** (after merging #14): each result's headline links to its
+  route page `/voos/<origem>-<destino>/`, the contract's route `path` carried in the per-origin
+  files' `places.paths` (no link when a row's route is missing). Origin page and ponte pages share
+  one slug function (`website.origin_slug`): `/partidas/porto/` and `/pontes/<feriado>/porto/`.
 - **Ponte pages** `/pontes/.../...` per ponte × origin (60 with six origins): holiday, days off,
   bridge day, window, the optional-holiday warning for Carnaval, the matching low prices, the
   other origins' pages and the legal source; `noindex` while nothing matches. No fixture trip

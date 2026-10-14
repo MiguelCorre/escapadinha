@@ -101,6 +101,8 @@ export interface Places {
   origin: string;
   cities: Record<string, string>;
   airports: Record<string, { name: string; remote: boolean }>;
+  /** Destination code -> its route page, the contract's `path` (D30); no link without one. */
+  paths?: Record<string, string>;
 }
 
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -126,9 +128,10 @@ function item({ row, more }: ExploreResult, places: Places): string {
   const { amount, currency } = eurParts(price);
   const below = typical > price ? discountParts(1 - price / typical).text : null;
   const route = `${places.origin}-${dest}`;
+  const path = places.paths?.[dest];
   return [
     `<li data-route="${esc(route)}" class="flex flex-col gap-xs border-t-[3px] border-double border-ink bg-surface p-md">`,
-    `<h3 class="font-display text-title">${esc(headline)}</h3>`,
+    `<h3 class="font-display text-title">${path ? `<a class="text-ink no-underline hover:underline" href="${esc(path)}">${esc(headline)}</a>` : esc(headline)}</h3>`,
     `<div class="flex flex-wrap items-end gap-x-md gap-y-xs">`,
     `<p data-obs="${esc(obs)}" class="font-display num text-price text-ink">${esc(amount)}<span class="price-sign"> ${currency}</span></p>`,
     below ? `<p class="pb-2xs"><span class="tag tag-success num">${esc(below)}</span></p>` : "",

@@ -59,6 +59,9 @@ describe("explorer page", () => {
     const porto = JSON.parse(readFileSync(join(distDir(), "explorar", "dados", "OPO.json"), "utf8"));
     expect(porto.places.cities).toEqual({ PAR: "Paris" });
     expect(porto.places.airports).toEqual({ BVA: { name: "Beauvais", remote: true } });
+    // Each result links to its route page (D30), at the path the contract gives.
+    const opoPar = data.routes.routes.find((r) => r.key === "OPO-PAR")!;
+    expect(porto.places.paths).toEqual({ PAR: opoPar.path });
   });
 
   it("keeps the island small", () => {
