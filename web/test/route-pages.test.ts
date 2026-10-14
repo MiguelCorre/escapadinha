@@ -91,7 +91,8 @@ describe("route page with a live promotion and low prices", () => {
     const li = doc().querySelector('[data-low-prices] li[data-obs="7222"]')!;
     const body = text(li);
     expect(body).toContain("60 €");
-    expect(body).toContain("Encontrado a 13/10/2026");
+    expect(body).toContain("Encontrado por um viajante a 13/10/2026");
+    expect(body).toContain("Mínimo habitual em outubro: 102 €");
     expect(body).toContain("visto por nós a 13/10/2026 às 18:16");      // 17:16Z
     expect(text(li.querySelector('[data-route="LIS-FNC"]')!)).toBe("102 €");
     const link = li.querySelector('a[rel~="sponsored"]')!;

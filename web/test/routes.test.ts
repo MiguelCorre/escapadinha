@@ -113,11 +113,13 @@ describe("routeLowPrices", () => {
     expect(lows.map((l) => l.obs)).toEqual([5, 6, 3, 1, 2]);
     const first = lows[0];
     expect(first).toMatchObject({
-      price: "84 €", discount: "−16%", typicalLow: "100 €", month: "novembro",
+      route: "LIS-PAR", path: "/voos/lisboa-paris/",
+      discount: "−16%", typicalLow: "100 €", month: "novembro",
       dates: "dom, 1 nov → seg, 30 nov", nights: "29 noites", airline: "Ryanair", stops: "voos diretos",
       airport: "Beauvais (BVA)", remote: true, foundOn: "12/10/2026", fetchedAt: "13/10/2026 às 10:00",   // 09:00Z, Lisbon summer time
-      link: "https://example.com/parceiro/site-low-5",
+      link: { href: "https://example.com/parceiro/site-low-5", text: "Ver voo e reservar", rel: "sponsored nofollow noopener" },
     });
+    expect(first.price.text).toBe("84 €");
   });
 });
 

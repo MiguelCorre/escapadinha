@@ -4,8 +4,10 @@
 // Every price keeps the id it traces to (obs, or the route key for typical lows), so the
 // templates can put data-obs / data-route on the element that shows it (D2).
 import type { CalendarDay, Kind, LowPriceRow, Route, SiteData } from "./contract";
-import { daysBetween, daysInMonth, weekday } from "./dates";
-import { count, discountPercent, eur, lisbonTimestamp, monthName, monthYear, nights, numericDate, shortDate } from "./format";
+import { daysInMonth, weekday } from "./dates";
+import { placesFor } from "./explorer-data";
+import { count, eur, monthYear, shortDate } from "./format";
+import { lowPriceView, type LowPriceView } from "./low-prices";
 
 /** At most this many low prices on a route page (biggest discounts, shown by departure date), as
  * on the Jinja route page (D24, `site.low_prices_per_route`); the explorer shows all of them. */
@@ -98,29 +100,6 @@ export function calendarMonths(route: Route): CalendarMonth[] {
   });
 }
 
-export interface LowPriceView {
-  obs: number;
-  route: string;
-  price: string;
-  discount: string;           // "−32%"
-  typicalLow: string;         // the departure month's typical low (data-route)
-  month: string;              // "novembro"
-  dates: string;              // "sáb, 14 nov → ter, 17 nov"
-  nights: string;
-  airline: string | null;
-  stops: string | null;       // "voos diretos", "1 escala"; null when unknown
-  airport: string | null;     // "Beauvais (BVA)"
-  remote: boolean;
-  foundOn: string | null;     // the traveller's found date
-  fetchedAt: string;          // ours, Lisbon time
-  link: string | null;
-}
-
-function stopsText(n: number | null): string | null {
-  if (n == null) return null;
-  return n === 0 ? "voos diretos" : count(n, "escala", "escalas");
-}
-
 /** The route's low prices from its origin's file: the biggest discounts (at most `limit`), shown
  * by departure date; a live promotion's own offer (`promoted` obs ids) is shown above them. */
 export function routeLowPrices(data: SiteData, route: Route, promoted: Set<number>,
@@ -128,27 +107,13 @@ export function routeLowPrices(data: SiteData, route: Route, promoted: Set<numbe
   const rows = (data.lowPrices[route.origin]?.rows ?? [])
     .filter((r) => r[1] === route.destination && !promoted.has(r[0]));
   const off = (r: LowPriceRow) => (r[10] - r[2]) / r[10];
-  return rows
+  const picked = rows
     .sort((a, b) => off(b) - off(a) || a[2] - b[2] || a[0] - b[0])
-    .slice(0, limit)
+    .slice(0, limit);
+  const places = placesFor(data, route.origin, picked);
+  return picked
     .sort((a, b) => a[3].localeCompare(b[3]) || a[4].localeCompare(b[4]) || a[0] - b[0])
-    .map((r) => {
-      const [obs, , price, dep, ret, found, fetched, airline, stops, airport, typical, link] = r;
-      const known = airport ? data.labels.airports[airport] : undefined;
-      return {
-        obs, route: route.key, price: eur(price),
-        discount: discountPercent(Math.round(off(r) * 100)),
-        typicalLow: eur(typical), month: monthName(dep),
-        dates: `${shortDate(dep)} → ${shortDate(ret)}`, nights: nights(daysBetween(dep, ret)),
-        airline: airline ? data.labels.airlines[airline] ?? airline : null,
-        stops: stopsText(stops),
-        airport: airport ? (known ? `${known.name} (${airport})` : airport) : null,
-        remote: known?.remote ?? false,
-        foundOn: found ? numericDate(found) : null,
-        fetchedAt: lisbonTimestamp(fetched),
-        link,
-      };
-    });
+    .map((row) => lowPriceView({ row, more: 0 }, places));
 }
 
 export interface OriginGroup {

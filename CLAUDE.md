@@ -31,8 +31,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `web/src/data`, git-ignored; tests and Lighthouse CI use `contract/site/v1/fixtures`) and
   validates it against the schemas at build time; never import Python output any other way.
   Same rules as the Jinja site: every price element carries `data-obs`/`data-deal`/`data-route`
-  (`web/test/traceability.test.ts`), booking buttons only via `src/lib/cta.ts` (live + link, with
-  `labels.disclosure.site`), expired promotions `noindex` without a button, pt-PT formats (every month/weekday
+  (`web/test/traceability.test.ts`), booking buttons only via `src/lib/cta.ts` (live + https link,
+  with `labels.disclosure.site`), low-price rows only via `src/lib/low-prices.ts` (route pages,
+  explorer, ponte pages and the island share it; no link yet → `NO_LINK_NOTE`), expired promotions `noindex` without a button, pt-PT formats (every month/weekday
   word, price, date and trip text) only from `src/lib/format.ts` and day arithmetic only from
   `src/lib/dates.ts` (`web/test/format.test.ts` fails on month or weekday names elsewhere), copy passes `web/test/pt-lint.test.ts`. Styles use only the generated
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
@@ -178,7 +179,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
 - `web/`: the Astro site (D28): `src/pages/` (home, `promos/`, `voos/` route pages, `partidas/`
   origin pages, `destinos/` hubs, D30; `roteiros/`, `dicas/` D33), view logic in `src/lib/`
-  (`promotion.ts`, `routes.ts`, `format.ts`, `cta.ts`, `content.ts` + `itinerary.ts`),
+  (`promotion.ts`, `routes.ts`, `low-prices.ts`, `format.ts` + `dates.ts`, `cta.ts`, `content.ts` +
+  `itinerary.ts`),
   `src/content.config.ts` + `src/collections.ts` (MDX collections + review gate), tests in
   `web/test/` (fixture build, `scale.test.ts` full-size synthetic build, traceability, internal
   links, `content-pages.test.ts`)

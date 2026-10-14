@@ -95,6 +95,7 @@ describe("resultsHtml", () => {
     origin: "LIS",
     cities: { BCN: "Barcelona", PAR: "Paris", FNC: "Madeira", LON: "Londres <&>" },
     airports: { BVA: { name: "Beauvais", remote: true }, BCN: { name: "El Prat", remote: false } },
+    airlines: { FR: "Ryanair" },
   };
   const html = () => parse(resultsHtml(run({}), places));
 
@@ -102,16 +103,20 @@ describe("resultsHtml", () => {
     const item = html().querySelector('[data-obs="3"]')!.closest("li")!;
     expect(item.getAttribute("data-route")).toBe("LIS-PAR");
     expect(item.querySelector('[data-obs="3"]')!.textContent.replace(/\s+/g, " ")).toBe("70 €");
-    expect(item.querySelector("p[data-route]")!.textContent.replace(/\s+/g, " ")).toContain("80 €");
+    expect(item.querySelector("span[data-route]")!.getAttribute("data-route")).toBe("LIS-PAR");
+    expect(item.querySelector("span[data-route]")!.textContent.replace(/\s+/g, " ")).toBe("80 €");
   });
 
   it("names the arrival airport (remote ones in the headline) and when the price was found", () => {
     const item = html().querySelector('li[data-route="LIS-PAR"]')!;
     expect(item.querySelector("h3")!.textContent).toBe("Paris (Beauvais)");
     expect(item.textContent).toContain("Chegada: Beauvais (BVA)");
-    expect(item.textContent).toContain("Encontrado por um viajante a 11/10/2026");
+    expect(item.textContent).toContain("Encontrado por um viajante a 11/10/2026 · visto por nós a 13/10/2026 às 18:16");
     expect(item.textContent).toContain("sáb, 28 nov → ter, 1 dez");
-    expect(item.textContent).toContain("1 escala");
+    expect(item.textContent).toContain("Ryanair · 1 escala");
+    expect(item.textContent.replace(/\s+/g, " ")).toContain("Mínimo habitual em novembro: 80 €");
+    const direct = html().querySelector('li[data-route="LIS-FNC"]')!;
+    expect(direct.textContent).toContain("Ryanair · voos diretos");
   });
 
   it("links to the tracked partner link, sponsored, and escapes text", () => {
@@ -128,10 +133,17 @@ describe("resultsHtml", () => {
     expect(linked.querySelector('li[data-route="LIS-BCN"] h3 a')).toBeNull();   // no path: no link
   });
 
-  it("shows no booking link for a row without one", () => {
+  it("says the booking link is coming for a row without one (link budget, D24)", () => {
     const rows = [row(9, "BCN", 50, "2026-11-27", "2026-11-29", 0, null)];
     const doc = parse(resultsHtml(explore(rows, NO_FILTERS, PONTES), places));
     expect(doc.querySelectorAll("a")).toHaveLength(0);
     expect(doc.querySelector('[data-obs="9"]')).not.toBeNull();
+    expect(doc.querySelector("[data-no-link]")!.textContent).toBe("Ligação de reserva disponível em breve.");
+    expect(doc.textContent).toContain("Encontrado por um viajante a 11/10/2026");
+  });
+
+  it("refuses a booking link that is not https (cta.ts)", () => {
+    const rows = [row(9, "BCN", 50, "2026-11-27", "2026-11-29", 0, "http://example.com/x")];
+    expect(() => resultsHtml(explore(rows, NO_FILTERS, PONTES), places)).toThrow(/not https/);
   });
 });

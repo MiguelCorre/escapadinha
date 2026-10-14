@@ -3,9 +3,11 @@
 // browser-safe: no Node modules, no fetch. Input rows are low-prices/<ORIGIN>.json rows as the
 // contract gives them; every result keeps its row, so its price stays traced to `obs` (D2).
 import type { LowPriceRow, Ponte } from "./contract";
-import { CTA_REL, CTA_TEXT } from "./cta";
 import { daysBetween, weekday } from "./dates";
-import { count, discountParts, eur, eurParts, monthName, numericDate, shortDate } from "./format";
+import { count } from "./format";
+import { lowPricesHtml, type LowPriceItem, type Places } from "./low-prices";
+
+export type { Places } from "./low-prices";
 
 export interface Filters {
   maxPrice: number | null;     // euros, inclusive
@@ -25,10 +27,7 @@ export const NO_FILTERS: Filters = {
 export type PonteWindow = Pick<Ponte, "holiday" | "window">;
 
 /** One destination: its cheapest matching row and how many other matching dates it has. */
-export interface ExploreResult {
-  row: LowPriceRow;
-  more: number;
-}
+export type ExploreResult = LowPriceItem;
 
 /** Weekend rule: out on Friday or Saturday, back on the Sunday or Monday after. */
 export function isWeekendTrip(dep: string, ret: string): boolean {
@@ -81,57 +80,6 @@ function cheaper(a: LowPriceRow, b: LowPriceRow): boolean {
 
 // --- HTML of the results -------------------------------------------------------------------
 
-/** What a result needs besides its row: names of the origin's destinations and airports. */
-export interface Places {
-  origin: string;
-  cities: Record<string, string>;
-  airports: Record<string, { name: string; remote: boolean }>;
-  /** Destination code -> its route page, the contract's `path` (D30); no link without one. */
-  paths?: Record<string, string>;
-}
-
-const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-
-export function esc(value: string | number): string {
-  return String(value).replace(/[&<>"']/g, (c) => ESC[c]);
-}
-
-function stopsText(stops: number | null): string | null {
-  if (stops == null) return null;
-  return stops === 0 ? "direto" : count(stops, "escala", "escalas");
-}
-
-function item({ row, more }: ExploreResult, places: Places): string {
-  const [obs, dest, price, dep, ret, found, , , stops, airport, typical, link] = row;
-  const city = places.cities[dest] ?? dest;
-  const known = airport ? places.airports[airport] : undefined;
-  const remote = known?.remote ?? false;
-  const headline = remote ? `${city} (${known!.name})` : city;
-  const arrival = airport ? (known ? `${known.name} (${airport})` : airport) : null;
-  const n = daysBetween(dep, ret);
-  const meta = [count(n, "noite", "noites"), stopsText(stops)].filter(Boolean).join(" · ");
-  const { amount, currency } = eurParts(price);
-  const below = typical > price ? discountParts(1 - price / typical).text : null;
-  const route = `${places.origin}-${dest}`;
-  const path = places.paths?.[dest];
-  return [
-    `<li data-route="${esc(route)}" class="flex flex-col gap-xs border-t-[3px] border-double border-ink bg-surface p-md">`,
-    `<h3 class="font-display text-title">${path ? `<a class="text-ink no-underline hover:underline" href="${esc(path)}">${esc(headline)}</a>` : esc(headline)}</h3>`,
-    `<div class="flex flex-wrap items-end gap-x-md gap-y-xs">`,
-    `<p data-obs="${esc(obs)}" class="font-display num text-price text-ink">${esc(amount)}<span class="price-sign"> ${currency}</span></p>`,
-    below ? `<p class="pb-2xs"><span class="tag tag-success num">${esc(below)}</span></p>` : "",
-    `</div>`,
-    `<p class="text-small text-muted">ida e volta, por pessoa</p>`,
-    `<p class="font-semibold num">${esc(shortDate(dep))} → ${esc(shortDate(ret))} <span class="font-normal text-muted">· ${esc(meta)}</span></p>`,
-    arrival ? `<p class="text-small text-muted">Chegada: ${esc(arrival)}${remote ? ' <span class="tag tag-warning">longe do centro</span>' : ""}</p>` : "",
-    found ? `<p class="text-small text-muted">Encontrado por um viajante a <span class="num font-semibold text-ink">${esc(numericDate(found))}</span></p>` : "",
-    `<p data-route="${esc(route)}" class="text-small text-muted">Habitual em ${esc(monthName(dep))}: <span class="num">${esc(eur(typical))}</span></p>`,
-    more ? `<p class="text-small text-muted">Mais ${esc(count(more, "data", "datas"))} com preço baixo</p>` : "",
-    link ? `<a class="btn mt-xs self-start" href="${esc(link)}" rel="${CTA_REL}" target="_blank">${CTA_TEXT} →</a>` : "",
-    `</li>`,
-  ].join("");
-}
-
 /** The line above the list: "Partida: Lisboa · 2 destinos, do mais barato para o mais caro." */
 export function statusText(n: number, originName: string): string {
   if (n === 0) {
@@ -140,7 +88,8 @@ export function statusText(n: number, originName: string): string {
   return `Partida: ${originName} · ${count(n, "destino", "destinos")}, do mais barato para o mais caro.`;
 }
 
-/** The <li> items of a result list (the page wraps them in its <ul>). */
+/** The <li> items of a result list (the page wraps them in its <ul>): the shared low-price row
+ * (low-prices.ts) with each destination as its headline. */
 export function resultsHtml(results: ExploreResult[], places: Places): string {
-  return results.map((r) => item(r, places)).join("");
+  return lowPricesHtml(results, places, { headline: true });
 }

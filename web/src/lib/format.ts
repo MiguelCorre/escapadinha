@@ -160,3 +160,10 @@ export function count(n: number, singular: string, plural: string): string {
 export function nights(n: number): string {
   return count(n, "noite", "noites");
 }
+
+/** A trip's stops (the most in either direction): 0 -> "voos diretos", 1 -> "1 escala"; unknown
+ * (null) -> null, so the page says nothing rather than guessing. */
+export function stopsText(stops: number | null): string | null {
+  if (stops == null) return null;
+  return stops === 0 ? "voos diretos" : count(stops, "escala", "escalas");
+}

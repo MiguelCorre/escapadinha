@@ -488,7 +488,8 @@ so nothing has to be hosted.
   (#7) keeps no files (D21: `data/site_links.json` isn't synced yet). Each build converts at most
   `site.max_new_links_per_build` (300 = 30 requests, ≤ 900 enforced so one build stays under the
   per-minute limit), biggest discounts first; the rest and failures wait for the next build and are
-  shown meanwhile without a button. Since D27 the cap is one budget per collection run, shared by
+  shown meanwhile without a button (on the Astro site with the note "Ligação de reserva
+  disponível em breve.", `cta.NO_LINK_NOTE`, next to the found-on date). Since D27 the cap is one budget per collection run, shared by
   the site data export and the site build (meta `site.link_budget`, see D27). Rows older than 30 days are pruned (their offers left the
   freshness window long before). On a copy of the real database (2026-10-13, baselines still
   warming up after discovery): 7 low prices on 360 route pages, 0 promotion candidates.
@@ -989,8 +990,9 @@ so nothing has to be hosted.
   "mais barato agora" (`cheapest`), live promotions (cards), recent **low prices** (the biggest
   `LOW_PRICES_PER_ROUTE` = 5 discounts by departure date, a live promotion's own offer left out,
   as on the Jinja page: each with `data-obs`, the discount, the typical low it was measured against
-  under `data-route`, dates, airline, stops, arrival airport with the remote tag, "Encontrado a"
-  found date and "visto por nós a" first fetch, and its own partner link from the contract with
+  under `data-route`, dates, airline, stops, arrival airport with the remote tag, "Encontrado por
+  um viajante a" found date and "visto por nós a" first fetch (the explorer's row, D31), and its
+  own partner link from the contract with
   `rel="sponsored nofollow noopener"`; the site disclosure sits under the list inside the same
   `data-cta` block), the **calendar** (Monday-first month grids, each priced day `data-obs`, the
   month's cheapest marked), the **typical low per month** with the plain average as context and
@@ -1087,6 +1089,22 @@ so nothing has to be hosted.
   on its typical low, the found date, the arrival airport and the tracked link; the site
   disclosure and the CTA note sit once above the list in its `[data-cta]` block. No framework:
   one list and a form don't need one. Filters live in the form only (no URL state yet).
+- **One low-price row everywhere (review fix):** the explorer, the ponte pages, the island and
+  the route pages draw a low price with the same function, `src/lib/low-prices.ts`
+  (`lowPriceView` + `lowPriceHtml`; the explorer adds the destination as headline and "+N
+  datas"): price (`data-obs`), discount, dates and nights, airline and stops ("voos diretos",
+  `format.stopsText`), arrival airport (remote tag), "Mínimo habitual em <mês>" (`data-route`),
+  "Encontrado por um viajante a <found date> · visto por nós a <first fetch>" and the button by
+  the `cta.ts` rule (`bookingLink`: the contract's link, https only, `CTA_TEXT`/`CTA_REL`; the
+  site disclosure and `CTA_NOTE` once per list). The route pages had their own wording ("Ver
+  voo", "Encontrado a", no https check); a test compares a row on `/explorar/` with the same
+  offer on its route page. The per-origin files carry airline names too (`places.airlines`), and
+  `originFile` runs every row's link through the https rule at build time, so the island never
+  meets a link the server would refuse. Island: 6.6 KB (3.2 KB gzipped).
+- **A row without a stored partner link** (D24: links are created a few hundred per collection
+  run, the rest wait for the next run) shows everything else, found-on date included, and "Ligação
+  de reserva disponível em breve." (`cta.NO_LINK_NOTE`) where the button would be, on route pages,
+  the explorer and the ponte pages alike.
 - **Results link to route pages** (after merging #14): each result's headline links to its
   route page `/voos/<origem>-<destino>/`, the contract's route `path` carried in the per-origin
   files' `places.paths` (no link when a row's route is missing). Origin page and ponte pages share

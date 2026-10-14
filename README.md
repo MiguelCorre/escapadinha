@@ -545,7 +545,10 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
 - **Links:** `web/test/pages.test.ts` fails on any internal link (`a`, `link`, `img`) that doesn't
   resolve to a built page or file; every route page is linked from its origin page and its hub.
 - **Booking links** come from the contract as given (never built here); `src/lib/cta.ts` shows a
-  button only for a live price with a link, always with `labels.disclosure.site` next to it.
+  button only for a live price with an https link, always with `labels.disclosure.site` next to it.
+  Low prices (route pages, explorer, ponte pages, the island) are drawn by one function,
+  `src/lib/low-prices.ts`; a row whose partner link is not created yet (per-run link budget) says
+  "Ligação de reserva disponível em breve." instead of a button.
 - **pt-PT:** formats only in `src/lib/format.ts`, day arithmetic (weekday, nights, Lisbon day of
   an instant) only in `src/lib/dates.ts` (mirrors `i18n_pt.py`: "49,50 €", "sex, 6 nov",
   "12/10/2026 às 22:17" Lisbon time); `web/test/pt-lint.test.ts` fails on Brazilian words

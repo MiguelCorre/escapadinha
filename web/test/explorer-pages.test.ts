@@ -18,8 +18,8 @@ describe("explorer page", () => {
   it("server-renders Lisboa's destinations at their cheapest, by price, without JavaScript", () => {
     const items = doc().querySelectorAll("#explorer-results > li");
     expect(items.map((li) => li.getAttribute("data-route"))).toEqual(["LIS-BCN", "LIS-FNC"]);
-    expect(text(items[0].querySelector('[data-obs="4667"]')!)).toBe("51 €");
-    expect(text(items[1].querySelector('[data-obs="7222"]')!)).toBe("60 €");
+    expect(text(items[0].querySelector('[data-obs="4667"]')!)).toBe("51 €");
+    expect(text(items[1].querySelector('[data-obs="7222"]')!)).toBe("60 €");
     expect(text(items[1])).toContain("Mais 2 datas com preço baixo");
     expect(text(items[0])).toContain("Encontrado por um viajante a 13/10/2026");
     expect(text(doc().querySelector("#explorer-status")!))
@@ -62,6 +62,17 @@ describe("explorer page", () => {
     // Each result links to its route page (D30), at the path the contract gives.
     const opoPar = data.routes.routes.find((r) => r.key === "OPO-PAR")!;
     expect(porto.places.paths).toEqual({ PAR: opoPar.path });
+  });
+
+  it("draws a low price exactly like the route page does (one shared row, low-prices.ts)", () => {
+    const explorer = doc().querySelector('#explorer-results li[data-obs="7222"]')!;
+    const route = page("/voos/lisboa-madeira/").querySelector('[data-low-prices] li[data-obs="7222"]')!;
+    const body = (li: typeof explorer) => li.childNodes
+      .filter((n) => !["h3"].includes((n as typeof li).rawTagName) && !text(n as typeof li).startsWith("Mais "))
+      .map((n) => text(n as typeof li)).join(" | ");
+    expect(body(explorer)).toBe(body(route));
+    expect(body(route)).toContain("Encontrado por um viajante a 13/10/2026 · visto por nós a");
+    expect(body(route)).toContain("Ver voo e reservar →");
   });
 
   it("keeps the island small", () => {

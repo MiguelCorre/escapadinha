@@ -1,12 +1,13 @@
 ---
-// A route's low prices (D24): automatic, not reviewed. Each one is an observation (data-obs) with
-// its discount against the departure month's typical low (data-route), dates, airline, arrival
-// airport, the traveller's found date and our first sight, and its own tracked partner link
-// (src/lib/cta.ts rules: the contract's link as given, rel sponsored) with the site disclosure
-// under the list. No link in the contract: no button.
+// A route's low prices (D24): automatic, not reviewed. The rows are the shared low-price view
+// (src/lib/low-prices.ts, the same as the explorer's): the price (data-obs), its discount against
+// the departure month's typical low (data-route), dates, airline and stops, arrival airport, the
+// traveller's found date and our first sight, and the booking button by the src/lib/cta.ts rule
+// (or the note that the link comes with a later run); the site disclosure and the CTA note sit
+// once under the list, inside the same [data-cta] block.
 import type { Labels } from "../lib/contract";
-import { CTA_REL } from "../lib/cta";
-import type { LowPriceView } from "../lib/routes";
+import { CTA_NOTE } from "../lib/cta";
+import { lowPriceHtml, type LowPriceView } from "../lib/low-prices";
 
 interface Props {
   lows: LowPriceView[];
@@ -17,25 +18,6 @@ interface Props {
 const { lows, routeKey, labels } = Astro.props;
 ---
 <div data-low-prices data-cta data-route={routeKey} class="mt-md">
-  <ul class="grid max-w-measure gap-sm">
-    {lows.map((l) => (
-      <li data-obs={l.obs} class="flex flex-wrap items-center justify-between gap-sm border-t-2 border-ink bg-surface p-md">
-        <div class="flex min-w-0 flex-col gap-2xs">
-          <p><span class="num font-display text-title">{l.price}</span> <span class="tag tag-success num">{l.discount}</span> <span class="text-small text-muted">vs. habitual</span></p>
-          <p class="num font-semibold">{l.dates} <span class="font-normal text-muted">· {l.nights}</span></p>
-          <p class="text-small text-muted">
-            {[l.airline, l.stops].filter(Boolean).join(" · ")}
-            {l.airport && <>{(l.airline || l.stops) ? " · " : ""}Chegada: {l.airport}</>}
-            {l.remote && <> <span class="tag tag-warning">longe do centro</span></>}
-          </p>
-          <p class="text-small text-muted">Mínimo habitual em {l.month}: <span data-route={l.route} class="num">{l.typicalLow}</span></p>
-          <p class="text-small text-muted">{l.foundOn && <>Encontrado a <span class="num font-semibold text-ink">{l.foundOn}</span> · </>}visto por nós a <span class="num">{l.fetchedAt}</span></p>
-        </div>
-        {l.link
-          ? <a class="btn" href={l.link} rel={CTA_REL} target="_blank">Ver voo →</a>
-          : <span class="text-small text-muted">Link de reserva indisponível de momento</span>}
-      </li>
-    ))}
-  </ul>
-  <p class="notice mt-sm max-w-measure text-muted">{labels.disclosure.site} Os links abrem o site parceiro (Aviasales) em euros; o preço pode já ter mudado, confirma-o antes de pagar.</p>
+  <ul class="grid gap-xl sm:grid-cols-2 lg:grid-cols-3" set:html={lows.map((l) => lowPriceHtml(l, { headline: false })).join("")} />
+  <p class="notice mt-md max-w-measure text-muted">{labels.disclosure.site} {CTA_NOTE}</p>
 </div>
