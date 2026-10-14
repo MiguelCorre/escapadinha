@@ -3,7 +3,8 @@
 // (traveller) kept apart from our check (D10, D11).
 import type { Offer, Promotion, SiteData } from "./contract";
 import {
-  dateRange, discount, eur, lisbonTimestamp, monthName, nights, numericDate, shortDate,
+  dateRange, discountParts, eur, eurParts, lisbonTimestamp, monthName, nights, numericDate, shortDate,
+  type DiscountParts, type EurParts,
 } from "./format";
 
 export interface Place {
@@ -56,8 +57,10 @@ export interface PromotionView extends Place {
   obs: number;
   path: string;
   live: boolean;
-  price: string;              // "86 €"
-  discount: string | null;    // "−44%" (median rule only: no "% below" claim without a typical low)
+  price: EurParts;            // {amount: "86", currency: "€", text: "86 €"}
+  /** {sign: "−", value: "44%", text: "−44%"}; median rule only (no "% below" claim without a
+   * typical low). */
+  discount: DiscountParts | null;
   typicalLow: string | null;  // "153,50 €"
   month: string;              // "dezembro" (departure month the typical low is about)
   dates: string;              // "qua, 9 dez → sex, 11 dez"
@@ -66,8 +69,7 @@ export interface PromotionView extends Place {
   airline: string | null;
   stops: string | null;
   foundOn: string | null;     // "12/10/2026": when a traveller found the price
-  fetchedAt: string;          // when our collection first saw it, Lisbon time
-  checkedAt: string;          // last recheck, Lisbon time ("verificado a")
+  checkedAt: string;          // ours: last recheck, else first fetch, Lisbon time ("verificado a")
   expiredReason: string | null;
   expiredObs: number | null;  // the observation behind the price in the reason
 }
@@ -80,8 +82,8 @@ export function promotionView(data: SiteData, p: Promotion): PromotionView {
     obs: o.obs,
     path: p.path,
     live: p.live,
-    price: eur(o.price),
-    discount: p.rule === "median" && p.discount_pct != null ? discount(p.discount_pct) : null,
+    price: eurParts(o.price),
+    discount: p.rule === "median" && p.discount_pct != null ? discountParts(p.discount_pct) : null,
     typicalLow: p.typical_low != null ? eur(p.typical_low) : null,
     month: monthName(o.departure),
     dates: `${shortDate(o.departure)} → ${shortDate(o.return)}`,
@@ -90,7 +92,6 @@ export function promotionView(data: SiteData, p: Promotion): PromotionView {
     airline: o.airline ? data.labels.airlines[o.airline] ?? o.airline : null,
     stops: stops(o),
     foundOn: o.found_date ? numericDate(o.found_date) : null,
-    fetchedAt: lisbonTimestamp(o.fetched_at),
     checkedAt: lisbonTimestamp(p.checked_at),
     expiredReason: p.expired?.reason ?? null,
     expiredObs: p.expired?.latest?.obs ?? null,

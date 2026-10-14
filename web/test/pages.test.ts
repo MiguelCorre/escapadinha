@@ -80,7 +80,10 @@ describe("live promotion page", () => {
   it("shows price, discount, dates and who found the price when", () => {
     const body = text(doc().querySelector("main")!);
     expect(text(doc().querySelector('main [data-obs="2792"]')!)).toBe("86 €");
+    expect(text(doc().querySelector('main [data-obs="2792"] .price-sign')!)).toBe("€");   // raised sign
     expect(body).toContain("−44%");
+    expect(doc().querySelector('meta[name="description"]')!.getAttribute("content"))
+      .toMatch(/ida e volta, 44% abaixo do habitual em dezembro/);
     expect(body).toContain("abaixo do habitual");
     expect(body).toContain("qua, 9 dez → sex, 11 dez · 2 noites");
     expect(body).toContain("Encontrado por um viajante a 12/10/2026");

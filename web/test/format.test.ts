@@ -4,10 +4,15 @@ import { describe, expect, it } from "vitest";
 import {
   dateRange,
   discount,
+  discountParts,
+  discountPercent,
   eur,
+  eurParts,
+  eurPlain,
   lisbonTimestamp,
   nights,
   numericDate,
+  numericDayMonth,
   shortDate,
 } from "../src/lib/format";
 
@@ -50,5 +55,17 @@ describe("pt-PT formats", () => {
   it("prints a discount with a true minus sign", () => {
     expect(discount(0.4397)).toBe("−44%");
     expect(discount(0.322)).toBe("−32%");
+    expect(discountPercent(44)).toBe("−44%");
+  });
+
+  it("gives prices and discounts in parts, so components never parse the text", () => {
+    expect(eurParts(49.5)).toEqual({ amount: "49,50", currency: "€", text: `49,50${NBSP}€` });
+    expect(eurParts(86)).toEqual({ amount: "86", currency: "€", text: eur(86) });
+    expect(discountParts(0.4397)).toEqual({ sign: "−", value: "44%", text: "−44%" });
+  });
+
+  it("prints the recheck's plain-space price and day/month like the pipeline", () => {
+    expect(eurPlain(49.5)).toBe("49,50 €");
+    expect(numericDayMonth("2026-10-05")).toBe("05/10");
   });
 });

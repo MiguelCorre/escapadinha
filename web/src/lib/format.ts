@@ -12,15 +12,56 @@ export const WEEKDAYS_SHORT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 const NBSP = " ";
 const MINUS = "−";
 
+/** A price in parts, so a component can style the sign without parsing the text. */
+export interface EurParts {
+  amount: string;     // "49,50"
+  currency: string;   // "€"
+  text: string;       // "49,50 €" (no-break space)
+}
+
+/** 49.5 -> {amount: "49,50", currency: "€", text: "49,50 €"}. */
+export function eurParts(amount: number): EurParts {
+  const digits = Number.isInteger(amount) ? String(amount) : amount.toFixed(2).replace(".", ",");
+  return { amount: digits, currency: "€", text: `${digits}${NBSP}€` };
+}
+
 /** 49 -> "49 €", 49.5 -> "49,50 €", 1299 -> "1299 €" (no-break space before the sign). */
 export function eur(amount: number): string {
-  const text = Number.isInteger(amount) ? String(amount) : amount.toFixed(2).replace(".", ",");
-  return `${text}${NBSP}€`;
+  return eurParts(amount).text;
+}
+
+/** i18n_pt.eur with a plain space ("58 €"), as the pipeline writes the recheck's reasons. */
+export function eurPlain(amount: number): string {
+  const { amount: digits, currency } = eurParts(amount);
+  return `${digits} ${currency}`;
+}
+
+/** A discount in parts: the true minus sign and the percentage. */
+export interface DiscountParts {
+  sign: string;       // "−"
+  value: string;      // "44%"
+  text: string;       // "−44%"
+}
+
+/** A whole percentage below the usual price: 44 -> {sign: "−", value: "44%", text: "−44%"}. */
+function percentParts(pct: number): DiscountParts {
+  const value = `${pct}%`;
+  return { sign: MINUS, value, text: `${MINUS}${value}` };
+}
+
+/** 0.4397 -> parts of "−44%" (rounded like the slides). */
+export function discountParts(fraction: number): DiscountParts {
+  return percentParts(Math.round(fraction * 100));
 }
 
 /** 0.4397 -> "−44%" (true minus sign, rounded like the slides). */
 export function discount(fraction: number): string {
-  return `${MINUS}${Math.round(fraction * 100)}%`;
+  return discountParts(fraction).text;
+}
+
+/** A whole percentage below the usual price: 44 -> "−44%". */
+export function discountPercent(pct: number): string {
+  return percentParts(pct).text;
 }
 
 function parts(iso: string): { y: number; m: number; d: number; weekday: number } {
@@ -39,6 +80,12 @@ export function shortDate(iso: string): string {
 export function numericDate(iso: string): string {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
+}
+
+/** "2026-10-05" -> "05/10" (Python's `%d/%m`, as the recheck's reasons print it). */
+export function numericDayMonth(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${d}/${m}`;
 }
 
 /** "2026-11-06" -> "6 de novembro". */

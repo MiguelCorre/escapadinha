@@ -10,7 +10,7 @@
 //   on a route allowing N >= 1 stops a non-direct deal is assumed within the limit (it passed
 //   detection under the route's rules; the run's own recheck uses the real counts);
 // - no retries on 429/5xx (the pipeline waits up to a minute): the reviewer just tries again.
-import { eur } from "../../../src/lib/format";
+import { eurPlain, numericDayMonth } from "../../../src/lib/format";
 import type { LiveCheck, Rules } from "./types";
 
 export const API_URL = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates";
@@ -42,9 +42,6 @@ export interface Recheck {
 }
 
 const DAY_MS = 86_400_000;
-
-/** i18n_pt.eur with a plain space, as the pipeline writes reasons ("continua a 58 €"). */
-const eurText = (amount: number) => eur(amount).replace(/ /g, " ");
 
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const dayMs = (isoDate: string) => Date.parse(`${isoDate}T00:00:00Z`);
@@ -161,18 +158,17 @@ export function recheckPayload(deal: CheckTarget, payload: unknown, now: Date): 
   // min(): the first of the cheapest, like Python's.
   const best = sameTrip.reduce((a, b) => (b.price < a.price ? b : a));
   if (best.price > deal.price_eur) {
-    return { valid: false, price_eur: best.price, reason: `o preço subiu para ${eurText(best.price)}` };
+    return { valid: false, price_eur: best.price, reason: `o preço subiu para ${eurPlain(best.price)}` };
   }
   // detector.is_fresh: the day it was found (else the day we fetched it) within the window.
   const today = iso(now.getTime());
   const since = iso(dayMs(today) - rules.max_offer_age_days * DAY_MS);
   const seen = best.found_date ?? today;
   if (seen < since) {
-    const [, m, d] = seen.split("-");
     return { valid: false, price_eur: best.price,
-      reason: `o preço foi visto pela última vez a ${d}/${m}, há mais de ${rules.max_offer_age_days} dias` };
+      reason: `o preço foi visto pela última vez a ${numericDayMonth(seen)}, há mais de ${rules.max_offer_age_days} dias` };
   }
-  return { valid: true, price_eur: best.price, reason: `continua a ${eurText(best.price)}` };
+  return { valid: true, price_eur: best.price, reason: `continua a ${eurPlain(best.price)}` };
 }
 
 /** UTC to the second with a Z (db.utc_iso), what the contracts carry. */

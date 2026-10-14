@@ -31,11 +31,11 @@ const arrival = airportLabel(view);
 const slides = promotion.images?.slides ?? [];
 
 const title = view.live
-  ? `${view.headline} por ${view.price} ida e volta · ${BRAND}`
+  ? `${view.headline} por ${view.price.text} ida e volta · ${BRAND}`
   : `Expirada: ${view.headline}, ${view.datesProse} · ${BRAND}`;
 const description = view.live
-  ? `${view.headline}, ${view.datesProse} (${view.nights}), ${view.price} ida e volta`
-    + (view.discount ? `, ${view.discount.slice(1)} abaixo do habitual em ${view.month}` : "")
+  ? `${view.headline}, ${view.datesProse} (${view.nights}), ${view.price.text} ida e volta`
+    + (view.discount ? `, ${view.discount.value} abaixo do habitual em ${view.month}` : "")
     + (view.foundOn ? `. Encontrado por um viajante a ${view.foundOn}.` : ".")
   : `Promoção expirada: ${view.headline}, ${view.datesProse}. Fica como registo, sem ligação de reserva.`;
 ---

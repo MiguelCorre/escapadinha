@@ -789,8 +789,13 @@ so nothing has to be hosted.
   the cutover's deploy step can refuse it.
 - **Shared modules for #14+:** `src/lib/format.ts` (pt-PT: "49,50 €" with a no-break space,
   "sex, 6 nov", "6 a 9 de novembro", "12/10/2026 às 22:17" in Europe/Lisbon via `Intl` time zone
-  data, month/weekday words equal to `labels.json`, tested), `src/lib/promotion.ts` (the
-  promotion view, like `presentation.DealView`: remote arrival airport in the headline),
+  data, month/weekday words equal to `labels.json`, tested; prices and discounts also come in
+  parts, `eurParts` / `discountParts`, so a component styles the raised "€" or drops the minus
+  sign without parsing a formatted string; every pt-PT string the review Function builds comes
+  from here too), `src/lib/promotion.ts` (the
+  promotion view, like `presentation.DealView`: remote arrival airport in the headline; it
+  carries the traveller's found date and our `checked_at` ("verificado a": last recheck, else
+  first fetch), the two times the page shows, and no field nobody renders),
   `src/lib/cta.ts` + `BookingCta.astro` (a button only when the price is live and the contract
   has a link, `rel="sponsored nofollow noopener"`, `labels.disclosure.site` next to it, never a
   hand-built link). The site uses the contract's **site** disclosure next to buttons (its

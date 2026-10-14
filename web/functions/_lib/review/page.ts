@@ -3,7 +3,7 @@
 // one column, slides in a swipeable strip, big buttons. A small script posts the decisions as
 // JSON to /review/decision and /review/check and shows the answer in the card.
 import { BRAND } from "../../../src/lib/brand";
-import { eur, lisbonTimestamp } from "../../../src/lib/format";
+import { discountPercent, eur, lisbonTimestamp } from "../../../src/lib/format";
 import { TOKENS } from "../../../src/lib/tokens";
 import { DECISION_PT } from "./rules";
 import type { Outcome, ReviewEvent, Snapshot, SnapshotDeal } from "./types";
@@ -31,7 +31,7 @@ function slides(d: SnapshotDeal): string {
 function dealLine(d: SnapshotDeal): string {
   if (d.rule === "median" && d.discount_pct) {
     const typical = d.typical_low_eur === null ? "" : ` ${eur(d.typical_low_eur)}`;
-    return `−${d.discount_pct}% vs. mínimo habitual${typical} (${d.baseline_days} dias)`;
+    return `${discountPercent(d.discount_pct)} vs. mínimo habitual${typical} (${d.baseline_days} dias)`;
   }
   return d.rule === "price_cap" ? "abaixo do teto de preço da rota" : "";
 }
