@@ -1605,9 +1605,12 @@ so nothing has to be hosted.
   promotion that expired 40 days ago (its Jinja page stayed; the contract dropped it) and a
   reviewed Jinja guide, and crawls every page, sitemap URL and `_redirects` source of the old
   site: all resolve (skipped when `web/node_modules` is missing). On the real data the live
-  sitemap's 363 URLs resolve on the real-data build (below). Rejected: committing a snapshot of
-  the live sitemap (the Jinja build from the same database is the same list and stays honest as
-  the data changes).
+  sitemap's 363 URLs resolve on the real-data build (below). During the phase-2 week a daily
+  Actions workflow (`crawl.yml`, 07:30 UTC) runs `site crawl` on the live site against the Jinja
+  sitemap saved before the cutover (`docs/cutover/jinja-sitemap-2026-10-14.xml`); it goes with
+  the Jinja code. The tests keep building the Jinja sitemap from the same database (it follows the
+  data); the committed snapshot is for the live crawl only: it is the exact list search engines had
+  on the day of the switch, and the daily job needs no database.
 - **Real-data check (2026-10-14, a read-only copy of the database after run 33, nothing
   deployed):** export (no new links) 360 routes, 6 origins, 156 destinations, 0 promotions (none
   approved yet), 7 low prices. `site build`: **627 HTML pages** (360 route, 157 destination hubs

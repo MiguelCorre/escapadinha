@@ -1,0 +1,29 @@
+# Daily crawl of the old Jinja site's URLs on the live site during the cutover week (#23 phase 2,
+# D35). A failed run means an old URL no longer answers 200 or a 301 to a 200: GitHub e-mails the
+# repository owner. Delete this workflow together with the Jinja code (phase 2).
+name: crawl
+
+on:
+  schedule:
+    - cron: "30 7 * * *"   # 07:30 UTC every day
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --frozen --no-dev
+
+      - name: Crawl the old sitemap on pontonomada.pt
+        run: uv run escapadinha site crawl --sitemap docs/cutover/jinja-sitemap-2026-10-14.xml
