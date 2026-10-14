@@ -786,7 +786,13 @@ so nothing has to be hosted.
   every file named in `meta.json` and validates it with **ajv 8.20.0** (draft 2020-12, the
   committed schemas, `allErrors`) before any page renders; a mismatch or a missing directory
   stops the build with the file and field. A fixture build marks `<html data-fixture="true">` so
-  the cutover's deploy step can refuse it.
+  the cutover's deploy step can refuse it. **Two builds, on purpose:** `npm run build:fixtures` is
+  the build on a fresh checkout and in CI (and what `npm test` builds); plain `npm run build` is
+  the build from real data and fails while `web/src/data` is empty (no `meta.json`), telling you
+  to run `escapadinha export site-data --out web/src/data` (or to use the fixture build). The
+  guard stays: a build that silently fell back to the fixtures could be deployed as the site.
+  So #13's acceptance "`npm test` and `npm run build` green" reads as `npm test` and
+  `npm run build:fixtures` green on a checkout, and `npm run build` green after an export.
 - **Shared modules for #14+:** `src/lib/format.ts` (pt-PT: "49,50 €" with a no-break space,
   "sex, 6 nov", "6 a 9 de novembro", "12/10/2026 às 22:17" in Europe/Lisbon via `Intl` time zone
   data, month/weekday words equal to `labels.json`, tested; prices and discounts also come in

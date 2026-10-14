@@ -13,7 +13,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 - Web package (`cd web`): `npm ci`, `npm run typecheck` (strict tsc: `tsconfig.functions.json`
   without Node types, `tsconfig.typecheck.json` for `src/lib` + tests), `npm test` (vitest builds from the fixtures), `npm run
-  build:fixtures` / `dev:fixtures`, `npm run build` (reads `SITE_DATA_DIR`), `npm run lhci`,
+  build:fixtures` / `dev:fixtures` (the build on a checkout), `npm run build` (reads
+  `SITE_DATA_DIR`, default `web/src/data`; fails on purpose until `escapadinha export site-data
+  --out web/src/data` fills it), `npm run lhci`,
   `npm run tokens`. `npx vitest run test/review` runs only the review Function's tests.
 
 ## Rules

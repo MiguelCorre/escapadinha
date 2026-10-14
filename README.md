@@ -435,13 +435,20 @@ cd web
 npm ci                     # Node 22+ (CI uses 22)
 npm run typecheck          # tsc, strict: functions/ without Node types, then src/lib + test
 npm test                   # vitest: builds the site from the fixtures and checks the HTML
-npm run build:fixtures     # → web/dist from contract/site/v1/fixtures
+npm run build:fixtures     # → web/dist from contract/site/v1/fixtures (test data, never deployed)
 npm run dev:fixtures       # http://localhost:4321 on the fixtures
-npm run build              # → web/dist from SITE_DATA_DIR (default web/src/data, git-ignored)
+npm run build              # → web/dist from SITE_DATA_DIR (default web/src/data, git-ignored):
+                           #   needs exported data first, see below; fails without it on purpose
 npm run lhci               # Lighthouse CI on web/dist (mobile, ≥ 0.9 perf/a11y/SEO)
 npm run tokens             # regenerate src/styles/tokens.css after docs/design/tokens.json changes
 ```
 
+- **Which build:** on a fresh checkout (and in CI) the build to run is `npm run build:fixtures`;
+  `npm test` builds the same way. Plain `npm run build` is the build from real data: it reads
+  `web/src/data` (or `SITE_DATA_DIR`) and **fails on purpose** while that folder is empty, so a
+  site is never built from nothing or silently from the fixtures. To fill it, export the data from
+  the repository root: `uv run escapadinha export site-data --out web/src/data`, then
+  `cd web && npm run build`.
 - **Data:** `SITE_DATA_DIR` (relative to `web/`) names the contract directory; without it the
   build reads `web/src/data` and stops with a clear message when it is missing. Every file is
   validated against `contract/site/v1/*.schema.json` (ajv) before any page renders; a mismatch
