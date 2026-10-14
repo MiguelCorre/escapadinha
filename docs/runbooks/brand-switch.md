@@ -184,7 +184,7 @@ a programas, por isso tem de ser já o domínio final.
 
 ## 9. Instagram: mudar o nome e novo Projeto Travelpayouts
 
-Quando quiseres (pode ser noutro dia). Os slides e as legendas usam `brand.handle`.
+Quando quiseres (pode ser noutro dia; issue #27). Os slides e as legendas usam `brand.handle`.
 
 - [ ] App do Instagram → **Perfil** → **Editar perfil** → **Nome de utilizador** → `pontonomada`
       → ✓. Em **Nome**, escreve `Ponto Nómada`.

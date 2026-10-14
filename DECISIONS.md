@@ -270,7 +270,8 @@ so nothing has to be hosted.
   `pontonomada.pt`). Website Travelpayouts Project (step 8) the same evening: "Pontonomada" **585209**
   for `https://pontonomada.pt`; Aviasales was available to it right away (no separate join). Route pages'
   low-price buttons now carry links created for 585209 (`partner_links`), checked on the live site.
-  Left in #22: the Instagram rename with its own Project (step 9).
+  #22 closed on 2026-10-14 with steps 1–8 done. Miguel keeps `@ondestaanocas` for now; the rename with
+  its own Project (step 9) moved to #27, so `brand.handle` and `affiliate.projects.instagram` (584711) stay.
 
 ## D20: Visual direction A "Caderno de Viagem" (2026-10-13, #11)
 - **Decided by Miguel (2026-10-13): direction A, as is** (no mix, no further notes). Three
