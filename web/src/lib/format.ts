@@ -1,6 +1,9 @@
 // pt-PT formatting for the site, mirroring src/escapadinha/i18n_pt.py (no OS locale, no Intl
 // month names: the words are ours). Dates in the contract are ISO strings; instants are UTC and
 // shown in Europe/Lisbon time. The month and weekday words equal labels.json (a test checks it).
+// Every pt-PT word for a date, a price or a trip comes from here: pages and components never
+// spell out month or weekday names themselves. Day arithmetic is dates.ts's.
+import { weekday } from "./dates";
 
 export const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
   "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -8,6 +11,9 @@ export const MONTHS_SHORT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "a
   "nov", "dez"];
 /** Monday first, like Python's date.weekday(). */
 export const WEEKDAYS_SHORT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
+/** Monday first: the full names ("segunda-feira"), e.g. for a calendar column's `abbr`. */
+export const WEEKDAYS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira",
+  "sábado", "domingo"];
 
 const NBSP = " ";
 const MINUS = "−";
@@ -66,8 +72,7 @@ export function discountPercent(pct: number): string {
 
 function parts(iso: string): { y: number; m: number; d: number; weekday: number } {
   const [y, m, d] = iso.split("-").map(Number);
-  const js = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday
-  return { y, m, d, weekday: (js + 6) % 7 };
+  return { y, m, d, weekday: weekday(iso) };
 }
 
 /** "2026-11-06" -> "sex, 6 nov". */
@@ -114,13 +119,14 @@ export function dateRange(start: string, end: string): string {
   return `${dayMonth(start)} a ${dayMonth(end)}`;
 }
 
-/** Monday first. */
-const WEEKDAYS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira",
-  "sábado", "domingo"];
-
 /** "2026-11-30" -> "segunda-feira, 30 de novembro". */
 export function longDate(iso: string): string {
   return `${WEEKDAYS[parts(iso).weekday]}, ${dayMonth(iso)}`;
+}
+
+/** "2026-12-01" -> "terça-feira, 1 de dezembro de 2026". */
+export function longDateYear(iso: string): string {
+  return `${longDate(iso)} de ${parts(iso).y}`;
 }
 
 /** "2026-10" -> "outubro de 2026". */

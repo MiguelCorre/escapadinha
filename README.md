@@ -546,7 +546,8 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   resolve to a built page or file; every route page is linked from its origin page and its hub.
 - **Booking links** come from the contract as given (never built here); `src/lib/cta.ts` shows a
   button only for a live price with a link, always with `labels.disclosure.site` next to it.
-- **pt-PT:** formats in `src/lib/format.ts` (mirrors `i18n_pt.py`: "49,50 €", "sex, 6 nov",
+- **pt-PT:** formats only in `src/lib/format.ts`, day arithmetic (weekday, nights, Lisbon day of
+  an instant) only in `src/lib/dates.ts` (mirrors `i18n_pt.py`: "49,50 €", "sex, 6 nov",
   "12/10/2026 às 22:17" Lisbon time); `web/test/pt-lint.test.ts` fails on Brazilian words
   ("você", "celular", "equipe", …) or English UI text in the templates, and on every itinerary and
   tip (drafts too) also on euro amounts, decimal points ("3.5 km"), ISO or English dates,

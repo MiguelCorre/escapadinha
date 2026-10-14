@@ -4,6 +4,7 @@
 // contract gives them; every result keeps its row, so its price stays traced to `obs` (D2).
 import type { LowPriceRow, Ponte } from "./contract";
 import { CTA_REL, CTA_TEXT } from "./cta";
+import { daysBetween, weekday } from "./dates";
 import { count, discountParts, eur, eurParts, monthName, numericDate, shortDate } from "./format";
 
 export interface Filters {
@@ -29,27 +30,11 @@ export interface ExploreResult {
   more: number;
 }
 
-const DAY_MS = 86_400_000;
-
-function day(iso: string): number {
-  const [y, m, d] = iso.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
-}
-
-/** Monday = 0 ... Sunday = 6 (as format.ts and Python). */
-function weekday(iso: string): number {
-  return (new Date(day(iso)).getUTCDay() + 6) % 7;
-}
-
-export function tripNights(dep: string, ret: string): number {
-  return Math.round((day(ret) - day(dep)) / DAY_MS);
-}
-
 /** Weekend rule: out on Friday or Saturday, back on the Sunday or Monday after. */
 export function isWeekendTrip(dep: string, ret: string): boolean {
   const out = weekday(dep);
   const back = weekday(ret);
-  const n = tripNights(dep, ret);
+  const n = daysBetween(dep, ret);
   return (out === 4 || out === 5) && (back === 6 || back === 0) && n >= 1 && n <= 3;
 }
 
@@ -62,7 +47,7 @@ export function fitsPonte(dep: string, ret: string, p: PonteWindow): boolean {
 
 function matches(r: LowPriceRow, f: Filters, ponte: PonteWindow | null | undefined): boolean {
   const [, , price, dep, ret, , , , stops] = r;
-  const n = tripNights(dep, ret);
+  const n = daysBetween(dep, ret);
   if (f.maxPrice != null && price > f.maxPrice) return false;
   if (f.month && !dep.startsWith(`${f.month}-`)) return false;
   if (f.minNights != null && n < f.minNights) return false;
@@ -123,7 +108,7 @@ function item({ row, more }: ExploreResult, places: Places): string {
   const remote = known?.remote ?? false;
   const headline = remote ? `${city} (${known!.name})` : city;
   const arrival = airport ? (known ? `${known.name} (${airport})` : airport) : null;
-  const n = tripNights(dep, ret);
+  const n = daysBetween(dep, ret);
   const meta = [count(n, "noite", "noites"), stopsText(stops)].filter(Boolean).join(" · ");
   const { amount, currency } = eurParts(price);
   const below = typical > price ? discountParts(1 - price / typical).text : null;

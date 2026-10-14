@@ -1010,6 +1010,12 @@ so nothing has to be hosted.
 - **Itinerary hook for #17:** `src/lib/itinerary.ts` (`itineraryFor(code)`, always null now) and
   `ItineraryLink.astro` on route pages and hubs; #17 swaps the body for a lookup in its reviewed
   content collection, the pages stay as they are. The live search widget is #16.
+- **One place for pt-PT words and day arithmetic (review fix):** month and weekday names, "terça-feira,
+  1 de dezembro de 2026" (`longDateYear`), month labels (`monthYear`) and the calendar's column
+  names come from `src/lib/format.ts`; weekday, nights between two days, days in a month and the
+  Lisbon day of an instant from `src/lib/dates.ts`, shared by the route pages, the explorer, the
+  island and the ponte pages. A test fails on a month or weekday name spelled out anywhere else
+  in `web/src/`.
 - **Tests:** `web/test/routes.test.ts` (the view logic in `src/lib/routes.ts` on hand-made
   routes: month rows, best months, calendar weeks, low-price selection, groups, rules text),
   `route-pages.test.ts` (the fixture build: every contract path built, every route page linked from

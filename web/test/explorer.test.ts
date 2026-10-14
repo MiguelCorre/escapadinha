@@ -6,8 +6,9 @@ import { describe, expect, it } from "vitest";
 import { parse } from "node-html-parser";
 import type { LowPriceRow, Ponte } from "../src/lib/contract";
 import {
-  NO_FILTERS, explore, fitsPonte, isWeekendTrip, resultsHtml, tripNights, type Filters, type Places,
+  NO_FILTERS, explore, fitsPonte, isWeekendTrip, resultsHtml, type Filters, type Places,
 } from "../src/lib/explorer";
+import { daysBetween } from "../src/lib/dates";
 
 const DEZ_1: Pick<Ponte, "holiday" | "window"> = {
   holiday: { date: "2026-12-01", name: "Restauração da Independência", optional: false },
@@ -61,8 +62,8 @@ describe("ponte window: inside the travel window and over the holiday", () => {
 
 describe("explore", () => {
   it("counts nights between the dates", () => {
-    expect(tripNights("2026-10-31", "2026-11-03")).toBe(3);
-    expect(tripNights("2027-03-26", "2027-03-29")).toBe(3);     // over the clock change
+    expect(daysBetween("2026-10-31", "2026-11-03")).toBe(3);
+    expect(daysBetween("2027-03-26", "2027-03-29")).toBe(3);     // over the clock change
   });
 
   it("lists each destination once, at its cheapest, sorted by price", () => {

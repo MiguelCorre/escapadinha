@@ -32,8 +32,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   validates it against the schemas at build time; never import Python output any other way.
   Same rules as the Jinja site: every price element carries `data-obs`/`data-deal`/`data-route`
   (`web/test/traceability.test.ts`), booking buttons only via `src/lib/cta.ts` (live + link, with
-  `labels.disclosure.site`), expired promotions `noindex` without a button, pt-PT formats from
-  `src/lib/format.ts`, copy passes `web/test/pt-lint.test.ts`. Styles use only the generated
+  `labels.disclosure.site`), expired promotions `noindex` without a button, pt-PT formats (every month/weekday
+  word, price, date and trip text) only from `src/lib/format.ts` and day arithmetic only from
+  `src/lib/dates.ts` (`web/test/format.test.ts` fails on month or weekday names elsewhere), copy passes `web/test/pt-lint.test.ts`. Styles use only the generated
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
   `tests/test_web_tokens.py` catches drift); `web/test/colours.test.ts` fails on any raw hex or
   rgb()/hsl() colour elsewhere in `web/src/` or `web/functions/`.

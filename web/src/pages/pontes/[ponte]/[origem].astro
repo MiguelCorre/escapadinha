@@ -11,7 +11,7 @@ import type { Ponte } from "../../../lib/contract";
 import { BRAND } from "../../../lib/brand";
 import { NO_FILTERS, explore } from "../../../lib/explorer";
 import { placesFor } from "../../../lib/explorer-data";
-import { dateRange, dayMonth, longDate } from "../../../lib/format";
+import { dateRange, dayMonth, longDate, longDateYear } from "../../../lib/format";
 
 export const getStaticPaths = (() =>
   data.pontes.pontes.flatMap((ponte) => ponte.origins.map((origin) => {
@@ -31,7 +31,6 @@ const results = explore(rows, { ...NO_FILTERS, ponte: ponte.slug }, [ponte]);
 const names = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o.name]));
 const others = ponte.origins.filter((o) => o.iata !== origin.iata);
 const { start, end } = ponte.window;
-const holidayYear = ponte.holiday.date.slice(0, 4);
 ---
 <Base
   title={`${origin.title} · ${BRAND}`}
@@ -42,7 +41,7 @@ const holidayYear = ponte.holiday.date.slice(0, 4);
   <section class="max-w-measure">
     <p class="label text-accent">Pontes e feriados</p>
     <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-none font-medium">{origin.title}</h1>
-    <p class="mt-md text-lead">{ponte.holiday.name}: {longDate(ponte.holiday.date)} de {holidayYear}.</p>
+    <p class="mt-md text-lead">{ponte.holiday.name}: {longDateYear(ponte.holiday.date)}.</p>
     <p class="mt-xs text-muted">
       Dias livres: {dateRange(ponte.days_off.first, ponte.days_off.last)}{ponte.bridge ? <>, tirando a ponte na {longDate(ponte.bridge)}</> : null}.
       Mostramos voos com partida a partir de {dayMonth(start)} e regresso até {dayMonth(end)}.

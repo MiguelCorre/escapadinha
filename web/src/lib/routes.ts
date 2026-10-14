@@ -4,7 +4,8 @@
 // Every price keeps the id it traces to (obs, or the route key for typical lows), so the
 // templates can put data-obs / data-route on the element that shows it (D2).
 import type { CalendarDay, Kind, LowPriceRow, Route, SiteData } from "./contract";
-import { count, discountPercent, eur, lisbonTimestamp, monthName, MONTHS, nights, numericDate, shortDate } from "./format";
+import { daysBetween, daysInMonth, weekday } from "./dates";
+import { count, discountPercent, eur, lisbonTimestamp, monthName, monthYear, nights, numericDate, shortDate } from "./format";
 
 /** At most this many low prices on a route page (biggest discounts, shown by departure date), as
  * on the Jinja route page (D24, `site.low_prices_per_route`); the explorer shows all of them. */
@@ -13,12 +14,6 @@ export const LOW_PRICES_PER_ROUTE = 5;
 export const BEST_MONTHS = 3;
 /** Order of the groups on an origin page. */
 export const KIND_ORDER: Kind[] = ["europe", "domestic", "long_haul"];
-
-/** "2026-11" -> "novembro de 2026". */
-export function monthLabel(month: string): string {
-  const [y, m] = month.split("-");
-  return `${MONTHS[Number(m) - 1]} de ${y}`;
-}
 
 export interface MonthRow {
   month: string;
@@ -32,7 +27,7 @@ export interface MonthRow {
 export function monthRows(route: Route, minDays: number): MonthRow[] {
   return route.months.map((m) => ({
     month: m.month,
-    label: monthLabel(m.month),
+    label: monthYear(m.month),
     typicalLow: m.typical_low != null ? eur(m.typical_low) : null,
     average: m.average != null ? eur(m.average) : null,
     days: m.typical_low != null ? count(m.days, "dia", "dias") : `${m.days} de ${count(minDays, "dia", "dias")}`,
@@ -51,7 +46,7 @@ export function bestMonths(route: Route, limit = BEST_MONTHS): BestMonth[] {
     .filter((m) => m.typical_low != null)
     .sort((a, b) => a.typical_low! - b.typical_low! || a.month.localeCompare(b.month))
     .slice(0, limit)
-    .map((m) => ({ month: m.month, label: monthLabel(m.month), typicalLow: eur(m.typical_low!) }));
+    .map((m) => ({ month: m.month, label: monthYear(m.month), typicalLow: eur(m.typical_low!) }));
 }
 
 export interface CalendarCell {
@@ -72,15 +67,6 @@ export interface CalendarMonth {
   weeks: (CalendarCell | null)[][];
 }
 
-function daysIn(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
-}
-
-/** Monday = 0, like format.ts. */
-function weekday(year: number, month: number, day: number): number {
-  return (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
-}
-
 /** The route's calendar (cheapest fresh offer per departure day) as month grids. */
 export function calendarMonths(route: Route): CalendarMonth[] {
   const byMonth = new Map<string, CalendarDay[]>();
@@ -93,8 +79,8 @@ export function calendarMonths(route: Route): CalendarMonth[] {
     const [y, m] = month.split("-").map(Number);
     const low = Math.min(...days.map((d) => d.price));
     const byDate = new Map(days.map((d) => [d.dep, d]));
-    const cells: (CalendarCell | null)[] = Array(weekday(y, m, 1)).fill(null);
-    for (let day = 1; day <= daysIn(y, m); day++) {
+    const cells: (CalendarCell | null)[] = Array(weekday(`${month}-01`)).fill(null);
+    for (let day = 1; day <= daysInMonth(y, m); day++) {
       const date = `${month}-${String(day).padStart(2, "0")}`;
       const found = byDate.get(date);
       cells.push({
@@ -108,7 +94,7 @@ export function calendarMonths(route: Route): CalendarMonth[] {
     while (cells.length % 7) cells.push(null);
     const weeks = [];
     for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
-    return { month, label: monthLabel(month), weeks };
+    return { month, label: monthYear(month), weeks };
   });
 }
 
@@ -128,10 +114,6 @@ export interface LowPriceView {
   foundOn: string | null;     // the traveller's found date
   fetchedAt: string;          // ours, Lisbon time
   link: string | null;
-}
-
-function daysBetween(a: string, b: string): number {
-  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 }
 
 function stopsText(n: number | null): string | null {

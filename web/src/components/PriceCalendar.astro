@@ -3,7 +3,7 @@
 // month, each day with the cheapest fresh offer departing then (routes.json `calendar`), the
 // month's lowest marked. Every price cell carries its observation (data-obs, D2).
 import type { Route } from "../lib/contract";
-import { WEEKDAYS_SHORT } from "../lib/format";
+import { WEEKDAYS, WEEKDAYS_SHORT } from "../lib/format";
 import { calendarMonths } from "../lib/routes";
 
 interface Props {
@@ -12,7 +12,6 @@ interface Props {
 
 const { route } = Astro.props;
 const months = calendarMonths(route);
-const WEEKDAYS = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
 ---
 <div data-calendar data-route={route.key} class="mt-md grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
   {months.map((m) => (
