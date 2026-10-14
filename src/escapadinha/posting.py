@@ -7,7 +7,8 @@ time (`Post.checked_at`). Every run, after `detect` and before the path decision
 run's recheck), `pipeline.run_publish` asks `verdict` what to do with each queued post: a
 promotion that expired or was rejected cancels it; a due post goes out only if the price was
 verified (the last recheck, else the approval's live check) within `posting.max_check_age_hours`.
-Publishers are pluggable (`Publisher`); `DryRunPublisher` only logs what would be posted.
+Publishers are pluggable (`Publisher`); `DryRunPublisher` only logs what would be posted, the
+Instagram publisher (`instagram.py`, D36) posts a carousel and then a story (`story_verdict`).
 
 The rules here are pure (no I/O, no clock): `now` is passed in.
 """
@@ -18,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from escapadinha import i18n_pt
 from escapadinha.i18n_pt import LISBON
@@ -85,6 +86,15 @@ class PostAction(StrEnum):
     FAILED = "failed"       # publisher error, retried next run
 
 
+class StoryStatus(StrEnum):
+    """The story that follows a published Instagram carousel (`posting_queue.story_status`, D36;
+    the SQL CHECK is tested against it). NULL in the table: no story for this post."""
+
+    PENDING = "pending"         # the carousel is out, the story not yet
+    PUBLISHED = "published"
+    SKIPPED = "skipped"         # will not go out (reason in story_note)
+
+
 @dataclass(frozen=True)
 class Verdict:
     action: VerdictAction
@@ -123,6 +133,22 @@ def verdict(post: Post, deal: Deal, *, now: datetime, max_check_age: timedelta) 
                                        "recolha que o confirme.")
 
 
+def story_verdict(post: Post, deal: Deal, *, now: datetime, max_check_age: timedelta) -> Verdict:
+    """What the run does with the pending story of a published Instagram post (D36): it shows
+    the cover slide, a price, so it goes out only while the carousel's verification still
+    holds (`max_check_age` after the carousel went out) and the promotion did not expire or
+    get rejected since; otherwise it is skipped with the reason, never retried forever."""
+    skip = VerdictAction.CANCEL
+    if deal.status == "expired":
+        return Verdict(skip, "A promoção expirou: a story já não sai.")
+    if deal.status == "rejected":
+        return Verdict(skip, "A promoção foi rejeitada: a story já não sai.")
+    if post.settled_at is not None and now - post.settled_at > max_check_age:
+        hours = i18n_pt.number(max_check_age.total_seconds() / 3600)
+        return Verdict(skip, f"A story não saiu nas {hours} h a seguir ao carrossel: já não sai.")
+    return Verdict(VerdictAction.PUBLISH)
+
+
 # --- publishers ----------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -141,18 +167,72 @@ class Message:
 @dataclass(frozen=True)
 class Published:
     url: str | None = None  # the post's URL, when the channel gives one
+    # The promotion is now out on its main channel: the run writes a `published` review event
+    # (D26), which the next run applies; a publisher never changes a status itself (D36).
+    marks_published: bool = False
+    story: bool = False     # a story follows (`Publisher.publish_story`), retried on its own
 
 
+@dataclass(frozen=True)
+class Attempt:
+    """What one publisher call came to (`attempt`): its result, or why it waits, is cancelled
+    or failed (pt-PT; a failure is `Type: message`)."""
+
+    result: object = None
+    wait: str | None = None
+    cancel: str | None = None
+    error: str | None = None
+
+
+def attempt(call: Callable[[], object]) -> Attempt:
+    """Run a publisher call; its signals (`PublishWait`, `PublishCancel`, any other error, which
+    never stops the run) as data, so the post and the story ladders read the same."""
+    try:
+        return Attempt(result=call())
+    except PublishWait as wait:
+        return Attempt(wait=str(wait))
+    except PublishCancel as cancel:
+        return Attempt(cancel=str(cancel))
+    except Exception as exc:
+        return Attempt(error=f"{type(exc).__name__}: {exc}")
+
+
+class PublishWait(Exception):
+    """Not now, through no fault of the post (images not deployed yet, API limit, token):
+    it stays queued and no attempt is counted. `str(exc)` says why (pt-PT)."""
+
+
+class PublishCancel(Exception):
+    """The post can never go out as it is (e.g. Meta refuses the media): it is cancelled with
+    `str(exc)` as the reason (pt-PT)."""
+
+
+@runtime_checkable
 class Publisher(Protocol):
-    """Posts a message to one channel; raises on failure (the run retries it later)."""
+    """Posts a message to one channel. Raises `PublishWait` to wait without counting an attempt,
+    `PublishCancel` to cancel, anything else on a failure the run retries (D32's max_attempts)."""
 
     name: str
 
     def publish(self, message: Message) -> Published: ...
 
 
+@runtime_checkable
+class StoryPublisher(Publisher, Protocol):
+    """A publisher whose `publish` can return `Published(story=True)`: the story is posted
+    afterwards on its own (its media id, None when out but unknown), same exceptions."""
+
+    def publish_story(self, post: Post, deal: Deal) -> str | None: ...
+
+
+def publisher_actor(name: str) -> str:
+    """The actor of the `published` decision a real publisher's post writes: 'instagram-publisher'."""
+    return f"{name}-publisher"
+
+
 class DryRunPublisher:
-    """Posts nothing (no network): logs what would be posted."""
+    """Posts nothing (no network): logs what would be posted. Only for a channel configured as
+    `dry-run`; a real publisher that can't post (no secrets) waits instead (D36)."""
 
     name = "dry-run"
 
@@ -167,9 +247,3 @@ class DryRunPublisher:
         for line in message.text.rstrip().splitlines():
             self.log(f"    {line}")
         return Published(None)
-
-
-def publishers(names: dict[str, str], log: Callable[[str], None]) -> dict[str, Publisher]:
-    """channel -> publisher, from `posting.publishers` in config."""
-    known: dict[str, Callable[[], Publisher]] = {"dry-run": lambda: DryRunPublisher(log)}
-    return {channel: known[name]() for channel, name in names.items()}

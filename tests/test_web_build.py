@@ -209,8 +209,27 @@ def test_the_build_reads_the_export_and_adds_the_promotion_images(ctx, npm):
         assert (web / "dist" / path.lstrip("/")).is_file(), path
     assert promo["id"] == deal_id
     assert summary.pages["promos"] == 1 and summary.pages["voos"] == 10
-    assert summary.images == 5 and summary.missing_images == []
+    assert summary.images == 8 and summary.missing_images == []
     assert summary.size_bytes > 0
+
+
+@respx.mock
+def test_the_build_adds_jpeg_slides_for_instagram_next_to_the_webp_ones(ctx, npm):
+    """Instagram takes JPEG only (D36): every slide also goes out as slide_NN.jpg, at the
+    slide's own size (the renderer's 1080 × 1350; 108 × 135 here), at the public paths
+    `website.deal_jpeg_paths` names (what the publisher hands to Meta)."""
+    from PIL import Image
+    from escapadinha.website import deal_jpeg_paths
+    web = web_package(ctx.root)
+    conn = pipeline.open_db(ctx)
+    deal_id = approved_deal(ctx, conn)
+    site_data.export_site_data(ctx, conn, site_data.default_dir(ctx), new_links=False)
+    astro.build(ctx, conn)
+    paths = deal_jpeg_paths(ctx, db.get_deal(conn, deal_id)[0])
+    assert paths == [f"/img/promos/{deal_id}/slide_0{n}.jpg" for n in (1, 2, 3)]
+    for path in paths:
+        with Image.open(web / "dist" / path.lstrip("/")) as im:
+            assert im.format == "JPEG" and im.mode == "RGB" and im.size == (108, 135)
 
 
 def test_the_build_needs_the_export_first(ctx, npm):

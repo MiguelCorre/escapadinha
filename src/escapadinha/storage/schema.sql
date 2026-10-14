@@ -136,6 +136,15 @@ CREATE TABLE IF NOT EXISTS posting_queue (
     result_url TEXT,                         -- the post's URL, when the publisher has one
     reason     TEXT,                         -- why it was cancelled (pt-PT)
     settled_at TEXT,                         -- published / cancelled at
+    -- Instagram publisher progress (D36, v11), so a retry never posts twice:
+    container_id       TEXT,                 -- carousel container created, not published yet
+    media_id           TEXT,                 -- the published carousel's media id
+    story_status       TEXT CHECK (story_status IN ('pending', 'published', 'skipped')),
+    story_container_id TEXT,                 -- story container created, not published yet
+    story_media_id     TEXT,                 -- the published story's media id
+    story_attempts     INTEGER NOT NULL DEFAULT 0,   -- story errors so far
+    story_note         TEXT,                 -- last story error, why it waits or was skipped (pt-PT)
+    caption            TEXT,                 -- the caption of the first attempt, reused by retries
     UNIQUE (deal_id, channel)
 );
 

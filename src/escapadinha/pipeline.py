@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
@@ -517,50 +518,158 @@ def _message(ctx: Context, conn: sqlite3.Connection, post: Post, deal: Deal,
                            view.price, text, deal.affiliate_url)
 
 
+def publishers_for(ctx: Context, conn: sqlite3.Connection, http: httpx.Client, *,
+                   now: datetime, log: Callable[[str], None],
+                   sleep: Callable[[float], None]) -> dict[str, posting.Publisher]:
+    """channel -> publisher, from `posting.publishers` in config. `instagram` needs both
+    INSTAGRAM_* secrets and a usable token (refreshed here when due, every run, so a quiet week
+    never lets it expire); without them the channel is `Paused`: its due posts wait, never
+    settled by a dry run, so no slot is lost (D36)."""
+    from escapadinha import instagram
+    from escapadinha.website import public_jpeg_urls      # imports this module
+    out: dict[str, posting.Publisher] = {}
+    for channel, name in ctx.config.posting.publishers.items():
+        if name != "instagram":
+            out[channel] = posting.DryRunPublisher(log)
+            continue
+        secrets, api = ctx.secrets, ctx.config.instagram
+        if not secrets.instagram_configured:
+            out[channel] = instagram.Paused(
+                "À espera do token: faltam INSTAGRAM_ACCESS_TOKEN e/ou INSTAGRAM_ACCOUNT_ID "
+                f"(.env ou secrets do GitHub, {instagram.RUNBOOK}).")
+            continue
+        try:
+            token, problem = instagram.ensure_token(
+                secrets.instagram_access_token.strip(), api, conn=conn, store=ctx.object_store,
+                http=http, now=now, log=log)
+        except Exception as exc:                # e.g. the store unreachable: never stops the run
+            token, problem = None, (f"Não foi possível ler ou guardar o token do Instagram "
+                                    f"({type(exc).__name__}); as publicações esperam.")
+        if token is None:
+            log(f"Instagram: {problem}")
+            out[channel] = instagram.Paused(problem)
+            continue
+        out[channel] = instagram.InstagramPublisher(
+            instagram.Graph(http, api, token), secrets.instagram_account_id.strip(),
+            image_urls=lambda deal: public_jpeg_urls(ctx, deal),
+            check_image=lambda url: instagram.image_problem(http, url),
+            save=lambda post_id, **fields: db.save_post_progress(conn, post_id, **fields),
+            now=now, images_wait=timedelta(hours=api.images_wait_hours), sleep=sleep, log=log,
+            token_state=lambda problem: instagram.token_state(conn, problem))
+    return out
+
+
+def _run_stories(ctx: Context, conn: sqlite3.Connection, publishers: dict[str, posting.Publisher],
+                 now: datetime, log: Callable[[str], None]) -> None:
+    """Pending stories of published carousels (D36): skipped once `posting.story_verdict` says
+    so or after `posting.max_attempts` errors; a wait counts nothing. Never touches the post."""
+    cfg = ctx.config.posting
+    max_check_age = timedelta(hours=cfg.max_check_age_hours)
+    Story = posting.StoryStatus
+    for post in db.posts(conn, "published"):
+        publisher = publishers.get(post.channel)
+        if post.story_status != Story.PENDING or not isinstance(publisher, posting.StoryPublisher):
+            continue
+        deal, _ = db.get_deal(conn, post.deal_id)
+        what = f"Story Instagram deal {post.deal_id}"
+        verdict = posting.story_verdict(post, deal, now=now, max_check_age=max_check_age)
+        if verdict.action is posting.VerdictAction.CANCEL:
+            db.save_post_progress(conn, post.id, story_status=Story.SKIPPED,
+                                  story_note=verdict.reason)
+            log(f"{what}: não sai ({verdict.reason})")
+            continue
+        done = posting.attempt(lambda: publisher.publish_story(post, deal))
+        if done.wait:
+            db.save_post_progress(conn, post.id, story_note=done.wait)
+            log(f"{what}: à espera ({done.wait})")
+        elif done.cancel:
+            db.save_post_progress(conn, post.id, story_status=Story.SKIPPED,
+                                  story_note=done.cancel)
+            log(f"{what}: não sai ({done.cancel})")
+        elif done.error:
+            attempts = db.story_fails(conn, post.id, done.error)
+            if attempts >= cfg.max_attempts:
+                db.save_post_progress(conn, post.id, story_status=Story.SKIPPED,
+                                      story_note=f"A story falhou {attempts} vezes: {done.error}")
+                log(f"{what}: não sai (falhou {attempts} vezes: {done.error})")
+            else:
+                log(f"{what}: falhou ({done.error}), nova tentativa na próxima execução")
+        else:
+            db.save_post_progress(conn, post.id, story_status=Story.PUBLISHED,
+                                  story_media_id=done.result, story_note=None)
+            log(f"{what}: publicada")
+
+
 def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None, *,
                 log: Callable[[str], None] = print,
-                publishers: dict[str, posting.Publisher] | None = None) -> list[PostResult]:
+                publishers: dict[str, posting.Publisher] | None = None,
+                sleep: Callable[[float], None] = time.sleep) -> list[PostResult]:
     """Every run, after `detect` and before `run_path.decide` (fast and full path, so after this
     run's recheck): cancel queued posts whose promotion can no longer go out, then publish the
     due ones whose price was verified recently (`posting.verdict`, D32). At most one Instagram
     post per run, so a backlog never goes out in a burst. A publisher error leaves the post
-    queued; `posting.max_attempts` errors cancel it."""
+    queued; `posting.max_attempts` errors cancel it; a `PublishWait` (images not deployed yet,
+    API limit, token, no secrets) waits without counting one. A real Instagram post writes a
+    `published` decision and leaves its story pending, posted right after (`_run_stories`, D36)."""
     now = now or db.utcnow()
     cfg = ctx.config.posting
-    publishers = publishers or posting.publishers(cfg.publishers, log)
-    max_check_age = timedelta(hours=cfg.max_check_age_hours)
-    results, instagram_done = [], False
-    for post in db.posts(conn, "queued"):
-        deal, obs = db.get_deal(conn, post.deal_id)
-        verdict = posting.verdict(post, deal, now=now, max_check_age=max_check_age)
-        if verdict.action is posting.VerdictAction.CANCEL:
-            db.settle_post(conn, post.id, "cancelled", at=now, reason=verdict.reason)
-            action, reason = posting.PostAction.CANCELLED, verdict.reason
-        elif (verdict.action is posting.VerdictAction.LATER
-              or (post.channel == "instagram" and instagram_done)):
-            continue
-        elif verdict.action is posting.VerdictAction.WAIT:
-            db.post_waits(conn, post.id, verdict.reason, failed=False)
-            action, reason = posting.PostAction.WAITING, verdict.reason
-        else:
-            publisher = publishers[post.channel]
-            try:
-                published = publisher.publish(_message(ctx, conn, post, deal, obs))
-            except Exception as exc:          # a channel being down never stops the run
-                error = f"{type(exc).__name__}: {exc}"
-                attempts = db.post_waits(conn, post.id, error, failed=True)
-                action, reason = posting.PostAction.FAILED, error
-                if attempts >= cfg.max_attempts:
-                    reason = f"O publicador falhou {attempts} vezes: {error}"
-                    db.settle_post(conn, post.id, "cancelled", at=now, reason=reason)
-                    action = posting.PostAction.CANCELLED
+    with httpx.Client(timeout=30) as http:
+        publishers = publishers or publishers_for(ctx, conn, http, now=now, log=log, sleep=sleep)
+        max_check_age = timedelta(hours=cfg.max_check_age_hours)
+        results, instagram_done = [], False
+        for post in db.posts(conn, "queued"):
+            deal, obs = db.get_deal(conn, post.deal_id)
+            verdict = posting.verdict(post, deal, now=now, max_check_age=max_check_age)
+            if verdict.action is posting.VerdictAction.CANCEL:
+                db.settle_post(conn, post.id, "cancelled", at=now, reason=verdict.reason)
+                action, reason = posting.PostAction.CANCELLED, verdict.reason
+            elif (verdict.action is posting.VerdictAction.LATER
+                  or (post.channel == "instagram" and instagram_done)):
+                continue
+            elif verdict.action is posting.VerdictAction.WAIT:
+                db.post_waits(conn, post.id, verdict.reason, failed=False)
+                action, reason = posting.PostAction.WAITING, verdict.reason
             else:
-                db.settle_post(conn, post.id, "published", at=now, publisher=publisher.name,
-                               result_url=published.url)
-                action, reason = posting.PostAction.PUBLISHED, None
-                instagram_done = instagram_done or post.channel == "instagram"
-        results.append(PostResult(db.get_post(conn, post.id), action, reason))
+                action, reason = _publish_one(ctx, conn, publishers[post.channel], post, deal,
+                                              obs, now, log)
+                instagram_done = instagram_done or (post.channel == "instagram" and action
+                                                    is posting.PostAction.PUBLISHED)
+            results.append(PostResult(db.get_post(conn, post.id), action, reason))
+        _run_stories(ctx, conn, publishers, now, log)
     return results
+
+
+def _publish_one(ctx: Context, conn: sqlite3.Connection, publisher: posting.Publisher,
+                 post: Post, deal: Deal, obs: Observation, now: datetime,
+                 log: Callable[[str], None]) -> tuple[posting.PostAction, str | None]:
+    cfg = ctx.config.posting
+    done = posting.attempt(lambda: publisher.publish(_message(ctx, conn, post, deal, obs)))
+    if done.wait:
+        db.post_waits(conn, post.id, done.wait, failed=False)
+        return posting.PostAction.WAITING, done.wait
+    if done.cancel:
+        db.settle_post(conn, post.id, "cancelled", at=now, reason=done.cancel)
+        return posting.PostAction.CANCELLED, done.cancel
+    if done.error:                    # a channel being down never stops the run
+        attempts = db.post_waits(conn, post.id, done.error, failed=True)
+        if attempts >= cfg.max_attempts:
+            reason = f"O publicador falhou {attempts} vezes: {done.error}"
+            db.settle_post(conn, post.id, "cancelled", at=now, reason=reason)
+            return posting.PostAction.CANCELLED, reason
+        return posting.PostAction.FAILED, done.error
+    published: posting.Published = done.result
+    if published.marks_published:     # the promotion is out: a `published` decision (D26)
+        try:
+            mark_published(ctx, conn, deal.id, published.url,
+                           actor=posting.publisher_actor(publisher.name), now=now)
+        except Exception as exc:      # it is out: failing to record that never fails the post
+            log(f"Deal {deal.id}: publicado, mas a decisão 'publicado' não foi escrita "
+                f"({type(exc).__name__}: {exc}); marca-o com `escapadinha deal published`.")
+    db.settle_post(conn, post.id, "published", at=now, publisher=publisher.name,
+                   result_url=published.url)
+    if published.story:
+        db.save_post_progress(conn, post.id, story_status=posting.StoryStatus.PENDING)
+    return posting.PostAction.PUBLISHED, None
 
 
 def export_review_snapshot(ctx: Context, conn: sqlite3.Connection,

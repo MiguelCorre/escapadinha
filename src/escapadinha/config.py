@@ -37,6 +37,13 @@ class Secrets(BaseSettings):
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     r2_bucket: str = ""
+    # Instagram publisher (D36), optional: without both, due Instagram posts wait.
+    instagram_access_token: str = ""  # long-lived token (Instagram Login), docs/runbooks/instagram.md
+    instagram_account_id: str = ""    # the professional account's Instagram user id
+
+    @property
+    def instagram_configured(self) -> bool:
+        return bool(self.instagram_access_token.strip() and self.instagram_account_id.strip())
 
     @property
     def r2_configured(self) -> bool:
@@ -340,7 +347,34 @@ class ReviewConfig(BaseModel):
     approve_max_age_hours: float = Field(24, gt=0)
 
 
-PublisherName = Literal["dry-run"]
+PublisherName = Literal["dry-run", "instagram"]
+
+
+# The Graph API host per login flow (D36): the only place it is written.
+GRAPH_HOSTS = {"instagram": "https://graph.instagram.com", "facebook": "https://graph.facebook.com"}
+
+
+class InstagramConfig(BaseModel):
+    """The Instagram publisher's Graph API (D36). `login: instagram` is the Instagram API with
+    Instagram Login (graph.instagram.com, no Facebook Page; its long-lived token is refreshed
+    when fewer than `refresh_days` remain); `facebook` is the Facebook Login variant
+    (graph.facebook.com, the account linked to a Page; it needs a Page token that never
+    expires, so no refresh). The endpoints are the same; only the host and the token handling
+    change. `images_wait_hours`: how long after its slot a post may wait for its JPEGs to be
+    live on the site before each further wait counts as a failed attempt."""
+    login: Literal["instagram", "facebook"] = "instagram"
+    api_version: str = Field("v23.0", pattern=r"^v\d+\.\d+$")
+    refresh_days: int = Field(10, ge=1, le=59)
+    images_wait_hours: float = Field(24, gt=0)
+
+    @property
+    def host(self) -> str:
+        return GRAPH_HOSTS[self.login]
+
+    @property
+    def refreshes(self) -> bool:
+        """Only Instagram Login tokens expire (60 days) and can be refreshed."""
+        return self.login == "instagram"
 
 
 class PostingConfig(BaseModel):
@@ -352,7 +386,8 @@ class PostingConfig(BaseModel):
     # otherwise it waits for a run whose recheck covers it.
     max_check_age_hours: float = Field(6, gt=0)
     max_attempts: int = Field(5, ge=1)       # a publisher error this often cancels the post
-    # channel (posting.CHANNELS) -> publisher; a channel left out gets the dry run.
+    # channel (posting.CHANNELS) -> publisher; a channel left out gets the dry run. `instagram`
+    # (instagram channel only) makes due posts wait while the INSTAGRAM_* secrets are unset.
     publishers: dict[str, PublisherName] = {channel: "dry-run" for channel in POST_CHANNELS}
 
     @field_validator("instagram_slots")
@@ -376,6 +411,10 @@ class PostingConfig(BaseModel):
         if unknown:
             raise ValueError(f"posting.publishers: unknown channel(s) {unknown}, "
                              f"use {list(POST_CHANNELS)}")
+        wrong = sorted(c for c, name in v.items() if name == "instagram" and c != "instagram")
+        if wrong:
+            raise ValueError(f"posting.publishers: the instagram publisher only posts to the "
+                             f"instagram channel, not {wrong}")
         return {**{channel: "dry-run" for channel in POST_CHANNELS}, **v}
 
     @property
@@ -387,6 +426,7 @@ class AppConfig(BaseModel):
     brand: Brand = Brand()
     review: ReviewConfig = ReviewConfig()
     posting: PostingConfig = PostingConfig()
+    instagram: InstagramConfig = InstagramConfig()
     collector: CollectorConfig = CollectorConfig()
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()

@@ -150,16 +150,25 @@ review:
 
 # Posting queue (DECISIONS D32): approving a promotion queues an Instagram post at the next free
 # daily slot (Lisbon time, at most max_per_day a day) and a Telegram post at once; every run
-# publishes the due ones right after the recheck. Publishers: dry-run (logs only) until the
-# Instagram (#24) and Telegram (#21) publishers exist.
+# publishes the due ones right after the recheck. Publishers: instagram (Graph API, D36) and
+# dry-run (logs only) for Telegram until #21.
 posting:
   instagram_slots: ["09:00", "13:00", "19:00"]
   max_per_day: 3
   max_check_age_hours: 6      # not rechecked (or approved) this recently: the post waits
   max_attempts: 5             # publisher errors before a post is cancelled
   publishers:
-    instagram: dry-run
+    instagram: instagram      # due posts wait while INSTAGRAM_ACCESS_TOKEN / INSTAGRAM_ACCOUNT_ID are unset (D36)
     telegram: dry-run
+
+# Instagram publisher (D36, docs/runbooks/instagram.md). login: instagram = Instagram API with
+# Instagram Login (graph.instagram.com, no Facebook Page; the token is refreshed when fewer than
+# refresh_days remain); facebook = Facebook Login (graph.facebook.com, account linked to a Page).
+instagram:
+  login: instagram
+  api_version: v23.0
+  refresh_days: 10
+  images_wait_hours: 24       # JPEGs still not on the site this long after the slot: each wait counts as a failure
 
 origins_pt:
   LIS: Lisboa

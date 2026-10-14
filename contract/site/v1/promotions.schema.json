@@ -30,6 +30,7 @@
           "published_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]},
           "checked_at": {"$ref": "defs.schema.json#/$defs/timestamp", "description": "Last recheck (or first fetch): \"verificado a\"."},
           "booking_link": {"$ref": "defs.schema.json#/$defs/link", "description": "Website Project link (sub_id site-deal-<id>); always null when not live."},
+          "post_url": {"type": ["string", "null"], "pattern": "^https://(www\\.)?instagram\\.com/", "description": "The promotion's Instagram post (deals.post_url, from the published event: the Instagram publisher's permalink or a URL given by hand), null when not published there. Added in v1 (D36): an older export may lack it."},
           "expired": {
             "type": ["object", "null"],
             "additionalProperties": false,

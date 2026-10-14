@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
@@ -51,7 +52,10 @@ HOLIDAYS_SOURCE = ("Código do Trabalho, art. 234.º (feriados obrigatórios) e 
                    "(Terça-Feira de Carnaval, facultativo), na redação da Lei n.º 8/2016")
 LOW_COLS = ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops",
             "airport", "typical", "link"]
-ROW_BUDGET_BYTES = 160        # average bytes per low-price row (D27); tested
+# A promotion's post link on the site (D36): only an Instagram post (the publisher's permalink or
+# one given by hand with `deal published --url`); anything else stays off the page.
+INSTAGRAM_POST = re.compile(r"^https://(www\.)?instagram\.com/")
+ROW_BUDGET_BYTES = 160       # average bytes per low-price row (D27); tested
 FIXTURE_LINK = "https://example.com/parceiro/"   # fixtures never hold a real partner link
 FIXTURE_PHOTOGRAPHER = "Fotógrafo de exemplo"     # nor a person's name
 
@@ -489,6 +493,7 @@ def _promotion(ctx: Context, conn: sqlite3.Connection, d: Deal, o: Observation, 
         "published_at": db.utc_iso(d.published_at),
         "checked_at": db.utc_iso(d.last_checked_at or o.fetched_at),
         "booking_link": link if live else None,
+        "post_url": d.post_url if d.post_url and INSTAGRAM_POST.match(d.post_url) else None,
         "expired": None if live else {"reason": d.expired_reason,
                                       "latest": _latest_seen(conn, d, o)},
         "images": None if images is None else dict(zip(("slides", "thumb", "og"), images)),

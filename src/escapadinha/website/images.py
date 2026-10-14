@@ -1,7 +1,9 @@
 """A promotion's images on the website, from its rendered slides (PNG, 1080 wide):
-`slide_NN.webp` per slide, `thumb.webp` (540 wide) and `og.jpg` (Open Graph) from the cover.
-The paths are the ones the contract names (`website.deal_image_paths`); the Astro build
-(`website.astro`, D35) and the legacy Jinja build both write them with this function."""
+`slide_NN.webp` per slide (what the pages show), `slide_NN.jpg` per slide (what Instagram
+fetches: its API takes JPEG only, D36), `thumb.webp` (540 wide) and `og.jpg` (Open Graph) from
+the cover. The paths are the ones the contract names (`website.deal_image_paths`) and the
+publisher uses (`website.deal_jpeg_paths`); the Astro build (`website.astro`, D35) and the
+legacy Jinja build both write them with this function."""
 
 from __future__ import annotations
 
@@ -16,8 +18,10 @@ def write_promo_images(folder: Path, out: Path) -> list[str]:
     written = []
     for png in sorted(folder.glob("slide_*.png")):
         with Image.open(png) as im:
-            im.convert("RGB").save(out / f"{png.stem}.webp", "WEBP", quality=80, method=6)
-        written.append(f"{png.stem}.webp")
+            rgb = im.convert("RGB")
+            rgb.save(out / f"{png.stem}.webp", "WEBP", quality=80, method=6)
+            rgb.save(out / f"{png.stem}.jpg", "JPEG", quality=90, optimize=True, progressive=True)
+        written += [f"{png.stem}.webp", f"{png.stem}.jpg"]
     cover = folder / "slide_01.png"
     if cover.exists():
         with Image.open(cover) as im:

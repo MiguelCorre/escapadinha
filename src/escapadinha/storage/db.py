@@ -11,7 +11,7 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo, Post
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -101,6 +101,16 @@ MIGRATIONS = {
     # Posting queue (D32): Instagram slots and Telegram posts queued by approvals.
     10: [POSTING_QUEUE_TABLE,
          "CREATE INDEX IF NOT EXISTS ix_posting_due ON posting_queue (status, due_at)"],
+    # Instagram publisher (D36): progress per queue row, so a retry never posts twice.
+    11: ["ALTER TABLE posting_queue ADD COLUMN container_id TEXT",
+         "ALTER TABLE posting_queue ADD COLUMN media_id TEXT",
+         "ALTER TABLE posting_queue ADD COLUMN story_status TEXT "
+         "CHECK (story_status IN ('pending', 'published', 'skipped'))",
+         "ALTER TABLE posting_queue ADD COLUMN story_container_id TEXT",
+         "ALTER TABLE posting_queue ADD COLUMN story_media_id TEXT",
+         "ALTER TABLE posting_queue ADD COLUMN story_attempts INTEGER NOT NULL DEFAULT 0",
+         "ALTER TABLE posting_queue ADD COLUMN story_note TEXT",
+         "ALTER TABLE posting_queue ADD COLUMN caption TEXT"],
 }
 
 
@@ -498,8 +508,13 @@ def _row_to_post(row: sqlite3.Row) -> Post:
         id=row["id"], deal_id=row["deal_id"], channel=row["channel"],
         due_at=datetime.fromisoformat(row["due_at"]), status=row["status"],
         created_at=datetime.fromisoformat(row["created_at"]), event_id=row["event_id"],
-        checked_at=_dt(row["checked_at"]), attempts=row["attempts"], last_error=row["last_error"], publisher=row["publisher"],
-        result_url=row["result_url"], reason=row["reason"], settled_at=_dt(row["settled_at"]))
+        checked_at=_dt(row["checked_at"]), attempts=row["attempts"], last_error=row["last_error"],
+        publisher=row["publisher"], result_url=row["result_url"], reason=row["reason"],
+        settled_at=_dt(row["settled_at"]), container_id=row["container_id"],
+        media_id=row["media_id"], story_status=row["story_status"],
+        story_container_id=row["story_container_id"], story_media_id=row["story_media_id"],
+        story_attempts=row["story_attempts"], story_note=row["story_note"],
+        caption=row["caption"])
 
 
 def posts(conn: sqlite3.Connection, *statuses: str) -> list[Post]:
@@ -539,6 +554,31 @@ def post_waits(conn: sqlite3.Connection, post_id: int, why: str, *, failed: bool
     conn.commit()
     return conn.execute("SELECT attempts FROM posting_queue WHERE id = ?",
                         (post_id,)).fetchone()["attempts"]
+
+
+# What a publisher records while it works (Instagram, D36): set as soon as known and committed
+# at once, so a retry after a crash or a timeout resumes instead of posting twice.
+POST_PROGRESS = ("container_id", "media_id", "story_status", "story_container_id",
+                 "story_media_id", "story_note", "caption")
+
+
+def save_post_progress(conn: sqlite3.Connection, post_id: int, **fields: str | None) -> None:
+    unknown = set(fields) - set(POST_PROGRESS)
+    if unknown:
+        raise ValueError(f"not a progress column: {sorted(unknown)}")
+    if fields:
+        sets = ", ".join(f"{name} = ?" for name in fields)
+        conn.execute(f"UPDATE posting_queue SET {sets} WHERE id = ?", (*fields.values(), post_id))
+        conn.commit()
+
+
+def story_fails(conn: sqlite3.Connection, post_id: int, why: str) -> int:
+    """A story error: one more story attempt, `why` kept. Returns the story attempts so far."""
+    conn.execute("UPDATE posting_queue SET story_note = ?, story_attempts = story_attempts + 1 "
+                 "WHERE id = ?", (why, post_id))
+    conn.commit()
+    return conn.execute("SELECT story_attempts FROM posting_queue WHERE id = ?",
+                        (post_id,)).fetchone()["story_attempts"]
 
 
 # --- photos -------------------------------------------------------------------

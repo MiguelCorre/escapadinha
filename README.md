@@ -5,8 +5,9 @@ flight prices for every direct route from Lisbon, Porto, Faro, Madeira, Ponta De
 Terceira (discovered automatically) plus ~20 long-haul destinations, keeps a price history, lists low prices on the website and flags promotions well below each
 route's own historical median, and renders Instagram carousel slides (1080×1350 PNG) with
 pt-PT captions into `./output/<date>/` **for manual review.** Approved promotions go into a
-posting queue (Instagram daily slots, Telegram at once); the publishers are a dry run for now:
-they log what they would post (D32).
+posting queue (Instagram daily slots, Telegram at once, D32). Instagram posts go out through the
+Graph API as a carousel plus a story once its secrets are set (D36); until then due Instagram
+posts wait (they keep their slot). Telegram uses a dry-run publisher that logs what it would post.
 
 **Integrity rule:** every price shown comes from a stored API observation (`price_observations`)
 with its source, first `fetched_at` timestamp and the day a traveller found it (`found_date`).
@@ -45,7 +46,8 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
 | `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) and the WhatsApp text |
-| `posting.py` | Posting queue rules (D32): pure daily-slot allocation, re-verification verdict, publishers (dry run) |
+| `posting.py` | Posting queue rules (D32): pure daily-slot allocation, re-verification verdict, the publisher protocol (dry run) |
+| `instagram.py` | Instagram publisher (D36): Graph API carousel + story, error mapping, token refresh |
 | `pipeline.py` | Wires the DB to each step; `cli.py` exposes them |
 | `site_data.py` | Website data contract v1: JSON export for the Astro site + fixtures (`contract/site/v1/`) |
 | `website/` | `astro.py` (`site build`: npm, astro build, images), `routing.py` (`_redirects`/`_headers`), `deploy.py` (wrangler); the legacy Jinja site until #23 phase 2 |
@@ -69,6 +71,7 @@ Keys (`.env`, never committed):
 | `TRAVELPAYOUTS_MARKER` | Your partner marker (numeric). Appended to Aviasales links as `marker=` |
 | `PIXABAY_API_KEY` | pixabay.com/api/docs: free key, shown on that page once you're logged in |
 | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Optional. Cloudflare → R2 → *Manage R2 API Tokens* (Object Read & Write on the bucket only). All four set = database and archives in R2 (see [Database in R2](#database-in-cloudflare-r2-decisions-d21)); any missing = everything stays under `data/` |
+| `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_ACCOUNT_ID` | Optional. The Meta app's long-lived token (Instagram Login) and the professional account's id: [docs/runbooks/instagram.md](docs/runbooks/instagram.md). Both set = Instagram posts go out for real (see [Instagram](#instagram-decisions-d36)); either missing = due Instagram posts wait ("À espera do token") |
 
 In the Travelpayouts dashboard, join the **Aviasales** program and check under its
 traffic rules that **Instagram/social media** traffic is allowed before posting.
@@ -90,7 +93,8 @@ uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
 uv run escapadinha export site-data        # website data contract v1 (JSON) → web/src/data
 uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → publish due posts, then render → export → site build (Astro) → deploy only if something changed → review snapshot
-uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled
+uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled; Instagram token notices
+uv run escapadinha instagram token         # PC only: the Instagram token the pipeline renewed, to copy into the secret (D36)
 uv run escapadinha run --full              # the same, always with render → export → site build → deploy
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
 uv run escapadinha store pull              # R2 only: bucket database → data/escapadinha.db
@@ -177,7 +181,13 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 - `posting` (D32): `instagram_slots` (Lisbon time, default `09:00`, `13:00`, `19:00`),
   `max_per_day` (3 Instagram posts per Lisbon day), `max_check_age_hours` (6: a due post waits
   until a recheck or the approval verified the price this recently), `max_attempts` (5 publisher
-  errors cancel a post) and `publishers` per channel (`dry-run` for now).
+  errors cancel a post) and `publishers` per channel (`instagram: instagram`, whose due posts
+  wait while its secrets are unset; `telegram: dry-run`; `instagram: dry-run` only logs).
+- `instagram` (D36): `login` (`instagram`: Instagram API with Instagram Login on
+  graph.instagram.com, the default; `facebook`: graph.facebook.com for an account linked to a
+  Page, with a Page token that never expires: no refresh), `api_version` (`v23.0`),
+  `refresh_days` (10: the token is renewed when fewer days remain), `images_wait_hours` (24:
+  JPEGs still not on the site this long after the slot make each further wait a failed attempt).
 - `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
 - `origins_article`: the article a name takes in a sentence (`OPO: o` → "desde o Porto", `FNC: a`,
   `TER: a`; unlisted origins take none), exported in `origins.json` for the site's titles.
@@ -262,7 +272,9 @@ found/checked dates and the last recheck.
   and nothing is written: the next collection's recheck expires the deal. A deal without an
   affiliate link can't be approved.
 - **Rejeitar** (optional note) and **Marcar como publicado** (optional post URL) record the decision.
-  Publishing to Instagram is still manual (the posting queue below runs as a dry run).
+  With the Instagram secrets set, the pipeline posts approved promotions itself and writes this
+  decision for you ([Instagram](#instagram-decisions-d36)); mark by hand only what you posted
+  yourself.
 - Approved deals show the **WhatsApp text** with a copy button (also on the phone page).
 - Approved deals keep being rechecked every 2 h. If the price moves before you post, the deal
   expires and the page tells you.
@@ -327,15 +339,58 @@ its recheck, and on the fast path too), publishes the posts that are due:
 - at most one Instagram post per run, so a backlog never goes out in a burst;
 - a publisher error keeps the post queued and retries next run; after 5 errors it is cancelled.
 
-For now both channels use the **dry-run publisher**: the run log shows what would be posted
-(`[dry-run] Telegram · deal 12 · Lisboa → Londres · 58 € · agendada para ...` and the full
-text) and nothing leaves the machine. The Instagram (#24) and Telegram (#21) publishers plug in
-through `posting.publishers`.
+Telegram (until #21) uses the **dry-run publisher**: the run log shows what would be posted
+(`[dry-run] Telegram · deal 12 · Lisboa → Londres · 58 € · agendada para ...` and the full text)
+and nothing leaves the machine. Publishers plug in through `posting.publishers`. Instagram
+(`instagram: instagram`) without its secrets is not a dry run: its due posts **wait** ("À espera
+do token: …", no attempt counted), so no promotion loses its Instagram slot before the token is
+set; an expiry or a rejection still cancels them as usual.
 
 ```bash
 uv run escapadinha queue list         # 2 publicações agendadas: Instagram deal 12 ... 01/12/2026 às 09:00 · agendada
-uv run escapadinha queue list --all   # also published (dry-run) and cancelled posts, with the reason
+uv run escapadinha queue list --all   # also published and cancelled posts: publisher, post link, story, reason
 ```
+
+### Instagram (DECISIONS D36)
+
+With `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_ACCOUNT_ID` set (`.env` and Actions secrets; setup
+in [docs/runbooks/instagram.md](docs/runbooks/instagram.md)), a due Instagram post goes out
+through the Graph API (Instagram API with Instagram Login, `graph.instagram.com`):
+
+1. the promotion's JPEG slides on the site (`https://pontonomada.pt/img/promos/<id>/slide_NN.jpg`,
+   written by `site build` next to the WebP ones) must answer 200 to a HEAD (redirects followed,
+   https only); right after an approval the slot can come before the full path deployed them,
+   and the post *waits* (no attempt counted) for up to `instagram.images_wait_hours` (24) after
+   its slot; after that each run counts a failed attempt, so 5 of them cancel it with the reason;
+2. the API's publishing limit (`content_publishing_limit`) must leave room for the carousel and
+   its story, else it waits;
+3. a **carousel**: one container per slide, each polled until Meta has processed it, then the
+   carousel with the caption, polled the same way (about a minute at most; longer: the next run
+   continues with the same carousel container), published, its permalink fetched;
+4. a `published` decision with that permalink (`pipeline.mark_published`, actor
+   `instagram-publisher`; review event v1 takes any actor text): applied at once without R2 keys,
+   by the next run with them; the promotion's page then links the post (**Ver no Instagram**);
+5. a **story** with the cover slide. If it fails, the carousel stays published and only the
+   story is retried, for up to 6 h after the carousel (then *não sai*).
+
+Nothing is ever posted twice: every container and media id is stored on the queue row as soon as
+Meta returns it, the caption is stored at the first attempt and reused by every retry, and
+before creating a carousel the publisher looks for one with that caption among the account's
+latest posts (a run that died right after publishing). Graph errors: an invalid or expired token
+(code 190, on any call, also with Facebook Login), rate or publishing limits and missing
+permissions **wait**; media Meta refuses for good **cancels** the post with the reason; anything
+else is a failure, retried up to `posting.max_attempts` (5).
+
+**The token** lasts 60 days. When fewer than `instagram.refresh_days` (10) remain (or, for a new
+token whose expiry is unknown, once it is a day old), the run renews it. GitHub secrets can't be
+written from a run, so the new token is kept in the object store (`private/instagram/token.json`,
+never in the database or a log) and later runs use it; the run log and `queue list` say
+*"Token do Instagram renovado a …: atualiza o secret INSTAGRAM_ACCESS_TOKEN"*. To update it:
+`uv run escapadinha instagram token` on the PC (refused on CI) prints it; paste it into the
+`INSTAGRAM_ACCESS_TOKEN` secret (GitHub → Settings → Secrets and variables → Actions) and `.env`.
+An expired or refused token posts nothing: due posts wait and the run log and `queue list` say
+why, until Meta accepts a token again. With `login: facebook` nothing is refreshed: use a Page
+token that never expires (runbook).
 
 Every approved promotion also gets a short **WhatsApp text** (pt-PT: destination and arrival
 airport, price, dates, when the price was found and when we checked it, the affiliate link and the
@@ -416,6 +471,8 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
 - **Images:** `site build` converts each promotion's rendered slides into
   `web/dist/img/promos/<id>/` (`slide_NN.webp` 1080 px, `thumb.webp` 540 px, `og.jpg`), the paths
   `promotions.json` names; on a CI runner the slides come from the object store (each once).
+  Each slide is also written as `slide_NN.jpg` (not in the contract, no page shows it): the
+  Instagram publisher hands those public URLs to Meta, whose API takes JPEG only (D36).
 - **`site build`** (`website/astro.py`) runs `npm ci` only when `web/node_modules` is missing or
   was installed from another `package-lock.json` or by another Node version, platform or
   architecture (a stamp in node_modules), then `npm run build` with `SITE_DATA_DIR`
@@ -805,8 +862,10 @@ collect → recheck → detect → publish due posts (D32) → **full path only 
 - **Secrets:** repo → *Settings* → *Secrets and variables* → *Actions* → *New repository
   secret*, one per `.env` key: `TRAVELPAYOUTS_TOKEN`, `TRAVELPAYOUTS_MARKER`, `PIXABAY_API_KEY`,
   `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`,
-  `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`. They reach the run as environment variables (there is no
-  `.env` on the runner); GitHub masks them in logs and the workflow never prints them.
+  `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, and optionally `INSTAGRAM_ACCESS_TOKEN`,
+  `INSTAGRAM_ACCOUNT_ID` (unset: due Instagram posts wait, D36). They reach the run as
+  environment variables (there is no `.env` on the runner); GitHub masks them in logs and the
+  workflow never prints them.
 
 **Run it by hand:**
 - Web: *Actions* → *Pipeline* → *Run workflow* (tick *Full path* to render, build and deploy
@@ -935,6 +994,19 @@ uv run pytest -m "not browser"
   queueing on an applied approval, the publish step (dry run, expiry/rejection cancels, waiting
   for a recheck, publisher errors, one Instagram post per run), `queue list` and the run order.
   The WhatsApp text is checked in `test_captions.py` and by the traceability test.
+- `test_instagram.py` (D36): the Instagram publisher through `run_publish` with the Graph API and
+  the site's HEAD answers mocked by respx (a fake Graph that keeps containers and media):
+  carousel then story, status polling of children and carousel (IN_PROGRESS → FINISHED with
+  backoff, still in progress → wait and resume, ERROR → retried with new containers), the
+  publishing limit, images not yet deployed → wait, behind an https redirect → live, an http one
+  → not, still missing a day after the slot → failures until cancelled, a crash between publish
+  and recording → adopted by caption (the first attempt's, even if the rendered text changed),
+  never reposted, story failure and the story window, error mapping (cancel/wait/retry), invalid,
+  refused (190 on any call, Facebook Login) and expired tokens, refresh (< 10 days → refreshed,
+  ≥ 10 → not; unknown expiry → after a day; a stored token refreshed in turn), the stored token
+  and its notice, Facebook Login's host, missing secrets → wait (not a dry run), the `published`
+  decision, `instagram token`. The schema v11 upgrade and the story-status CHECK are in
+  `test_posting.py`.
 
 ## Data sources and terms
 

@@ -29,7 +29,8 @@ from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LockHeld
 from escapadinha.storage.s3 import STORE_ERRORS
 
-app =typer.Typer(help="Travel deals from Portugal: collect → detect → render (posting: dry run).",
+app =typer.Typer(help="Travel deals from Portugal: collect → detect → render → post (Instagram "
+                       "via the Graph API once its secrets are set; Telegram a dry run).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
@@ -57,6 +58,9 @@ app.add_typer(export_app, name="export")
 queue_app = typer.Typer(help="Posting queue (D32): Instagram slots and Telegram posts after approval.",
                         no_args_is_help=True)
 app.add_typer(queue_app, name="queue")
+instagram_app = typer.Typer(help="Instagram publisher (D36): the refreshed token.",
+                            no_args_is_help=True)
+app.add_typer(instagram_app, name="instagram")
 
 console = Console()
 
@@ -684,7 +688,11 @@ def export_review_snapshot() -> None:
 @queue_app.command("list")
 def queue_list(show_all: Annotated[bool, typer.Option("--all", help="Also published and cancelled posts")] = False) -> None:
     """Upcoming posts (Lisbon time), and why a due one waits."""
+    from escapadinha import instagram
+
     ctx, conn = _ctx()
+    for notice in instagram.notices(conn):      # the token: refreshed, invalid, valid until
+        console.print(f"[yellow]![/] {escape(notice)}")
     queued = db.posts(conn, "queued")
     shown = db.posts(conn) if show_all else queued
     if not queued:
@@ -701,10 +709,42 @@ def queue_list(show_all: Annotated[bool, typer.Option("--all", help="Also publis
             state += f": {post.reason}"
         elif post.status == "queued" and post.last_error:
             state += f": {post.last_error}"
+        if post.story_status:                    # Instagram (D36): the story after the carousel
+            story = {"pending": "por publicar", "published": "publicada",
+                     "skipped": "não sai"}[post.story_status]
+            state += f" · story {story}" + (f": {post.story_note}" if post.story_note
+                                            and post.story_status != "published" else "")
+        if post.result_url:
+            state += f" · {post.result_url}"
         state = escape(state)
         console.print(f"  {posting.CHANNEL_PT[post.channel]:<9} deal {post.deal_id} "
                       f"{view.origin_city} → {view.destination_headline} {view.price} "
                       f"{pt.lisbon_timestamp(post.due_at)} · {state}")
+
+
+@instagram_app.command("token")
+def instagram_token() -> None:
+    """Print the Instagram token the pipeline refreshed (D36), to copy into the
+    INSTAGRAM_ACCESS_TOKEN secret (GitHub) and .env. On this PC only: refused on CI, where
+    the log would keep it."""
+    from escapadinha import instagram
+
+    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+        console.print("[red]Recusado:[/] o token só é mostrado no teu PC, nunca no CI.")
+        raise typer.Exit(1)
+    ctx = Context()
+    stored = instagram.stored_token(ctx.object_store)
+    if stored is None:
+        where = "no bucket" if ctx.remote_store else "em data/objects/"
+        console.print(f"Nenhum token renovado {where}: o secret INSTAGRAM_ACCESS_TOKEN é o atual.")
+        raise typer.Exit(1)
+    expires = datetime.fromisoformat(stored["expires_at"])
+    current = instagram.fingerprint(ctx.secrets.instagram_access_token.strip()) == stored["fingerprint"]
+    console.print(f"Token renovado a {pt.lisbon_timestamp(datetime.fromisoformat(stored['refreshed_at']))}, "
+                  f"válido até {pt.lisbon_timestamp(expires)}"
+                  + (" (o .env já o tem)." if current else ": copia-o para o secret "
+                     "INSTAGRAM_ACCESS_TOKEN no GitHub e para o .env (README §Instagram)."))
+    console.print(stored["token"], markup=False, highlight=False, soft_wrap=True)
 
 
 def publish_due() -> None:

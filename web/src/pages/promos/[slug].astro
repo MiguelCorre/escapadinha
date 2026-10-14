@@ -116,6 +116,12 @@ const trip = promotionLd(data, promotion, view, description);
       <p class="mt-xs text-small text-muted">O preço habitual é o mínimo típico da rota para o mês de partida. As horas são de Lisboa.</p>
 
       {cta && <BookingCta cta={cta} />}
+
+      {promotion.post_url && (
+        <p class="mt-lg" data-post-link>
+          <a href={promotion.post_url} rel="noopener" class="font-semibold underline">Ver no Instagram</a>
+        </p>
+      )}
     </div>
   </article>
 </Base>
