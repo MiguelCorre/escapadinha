@@ -4,6 +4,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { fixtureImages, placeholderSvg } from "../src/lib/fixture-images";
+import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import { builtPages, distDir, page, text } from "./html";
 
 const BASE = "https://ondestaanocas.pages.dev";
@@ -33,11 +35,21 @@ describe("built pages", () => {
     }
   });
 
+  it("have stand-in promotion images (fixture build only), so Lighthouse measures the LCP image", () => {
+    const data = loadSiteData(FIXTURES_DIR);
+    const paths = data.promotions.promotions.flatMap((p) => [p.images!.thumb!, p.images!.og!, ...p.images!.slides]);
+    expect(paths.length).toBeGreaterThan(0);
+    for (const src of paths) expect(existsSync(join(distDir(), src)), src).toBe(true);
+    expect(fixtureImages({ ...data, meta: { ...data.meta, fixture: false } })).toEqual([]);
+    const slide = fixtureImages(data).find((i) => i.name === "slide_01")!;
+    expect([slide.width, slide.height]).toEqual([1080, 1350]);
+    expect(placeholderSvg(slide)).toContain('width="1080" height="1350"');
+  });
+
   it("only link to pages and files that exist", () => {
     for (const path of builtPages()) {
       for (const a of page(path).querySelectorAll("a[href^='/'], link[href^='/'], img[src^='/']")) {
         const target = (a.getAttribute("href") ?? a.getAttribute("src"))!.split("#")[0];
-        if (target.startsWith("/img/promos/")) continue; // slides come with the pipeline's output
         const file = target.endsWith("/") ? join(target, "index.html") : target;
         expect(existsSync(join(distDir(), file)), `${path} links to ${target}`).toBe(true);
       }

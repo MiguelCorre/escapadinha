@@ -820,8 +820,12 @@ so nothing has to be hosted.
 - **OG images:** a promotion page uses its rendered `images.og` (the pipeline's `og.jpg`); other
   pages a branded default `og-default.png` (1200×630) rendered at build time with sharp from the
   logo's outlined paths on paper, so no font is needed and the M6 logo swap updates it.
-  Promotion slides and thumbnails are contract paths only: a fixture build has no image files
-  (they 404; the link test skips `/img/promos/`), the cutover must bring them (D27 open question).
+  Promotion slides and thumbnails are contract paths only; the cutover must bring the real files
+  (D27 open question). So that Lighthouse measures pages with their images, a **fixture build
+  only** (`meta.fixture`) draws stand-ins at those paths (`src/lib/fixture-images.ts`, two
+  endpoints under `src/pages/img/promos/[id]/`: the `.photo-placeholder` gradient at the slide,
+  thumbnail and OG sizes, generated with sharp, so no binary is committed); a build from real data
+  gets no such route. The link test now checks `/img/promos/` too.
 - **Lighthouse CI:** `.github/workflows/web.yml` on pull requests touching `web/`, `contract/`,
   the tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, then `@lhci/cli@0.15.1`
   (run with `npx`, not a dependency: its old transitive dependencies carry audit warnings)
