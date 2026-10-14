@@ -1,5 +1,5 @@
 {
-  "description": "Shared cases of the approval live check (D26, D29): a snapshot deal, the provider payload of its route-month (prices_for_dates) and the expected result. tests/test_live_check_cases.py runs them through the pipeline (travelpayouts.parse_response + recheck.recheck), web/test/review/live-check.test.ts through the review Function's port; both must agree. 'direct' stands for the deal's transfer counts, the only thing the snapshot says about them: true = 0 and 0, false = 1 and 1, null = unknown.",
+  "description": "Shared cases of the approval live check (D26, D29): a snapshot deal, the provider payload of its route-month (prices_for_dates) and the expected result. tests/test_live_check_cases.py runs them through the pipeline (travelpayouts.parse_response + recheck.recheck), web/test/review/live-check.test.ts through the review Function's port; both must agree. A deal with 'transfers' and 'return_transfers' (the snapshot's stop counts, null = unknown) is judged on them; a deal without them is an older snapshot that only says 'direct', which stands for the counts: true = 0 and 0, false = 1 and 1, null = unknown.",
   "defaults": {
     "now": "2026-10-14T09:30:00Z",
     "deal": {
@@ -101,6 +101,34 @@
       "items": [{"destination": "NYC", "price": 415, "transfers": 1, "return_transfers": 1, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=13102026"},
                 {"destination": "NYC", "price": 380, "transfers": 2, "return_transfers": 1, "departure_at": "2026-12-02T06:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
       "expected": {"valid": true, "price_eur": 415, "reason": "continua a 415 €"}
+    },
+    {
+      "name": "long-haul: the deal's own stop counts are within the limit",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": false, "transfers": 1, "return_transfers": 0, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": 1, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 410, "transfers": 1, "return_transfers": 0, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": true, "price_eur": 410, "reason": "continua a 410 €"}
+    },
+    {
+      "name": "long-haul: two stops on the way out break a one-stop limit (not just 'not direct')",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": false, "transfers": 2, "return_transfers": 0, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": 1, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 410, "transfers": 1, "return_transfers": 1, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": false, "price_eur": null, "reason": "tem mais de 1 escala(s) num dos sentidos (regra max_transfers)"}
+    },
+    {
+      "name": "long-haul: a deal with unknown stop counts never passes a limit",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": null, "transfers": null, "return_transfers": null, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": 1, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 410, "transfers": 1, "return_transfers": 1, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": false, "price_eur": null, "reason": "tem mais de 1 escala(s) num dos sentidos (regra max_transfers)"}
+    },
+    {
+      "name": "no stop limit: any counts pass",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": false, "transfers": 3, "return_transfers": 2, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": null, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 399, "transfers": 2, "return_transfers": 2, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": true, "price_eur": 399, "reason": "continua a 399 €"}
     },
     {
       "name": "long-haul deal on a route now limited to direct flights both ways",

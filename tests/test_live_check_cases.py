@@ -31,7 +31,9 @@ def run(case: dict):
     r = deal["rules"]
     rules = RouteRules(direct_only=r["direct_only"], max_transfers=r["max_transfers"],
                        min_nights=r["min_nights"], max_nights=r["max_nights"])
-    transfers, return_transfers = TRANSFERS[deal["direct"]]
+    # The snapshot's stop counts when the case has them, else what `direct` stands for.
+    transfers, return_transfers = ((deal["transfers"], deal["return_transfers"])
+                                   if "transfers" in deal else TRANSFERS[deal["direct"]])
     deal_obs = Observation(
         source="travelpayouts", origin=deal["origin"], destination=deal["destination"],
         origin_airport=None, destination_airport=None,

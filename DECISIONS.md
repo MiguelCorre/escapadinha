@@ -897,11 +897,12 @@ so nothing has to be hosted.
   rate limited, HTTP error with its status, error in the payload, no answer, no token; the
   technical text stays in the run's error or on `CheckError.detail`); the `failures` cases in the
   same file drive a real request on each side. The Function's other messages (GitHub dispatch,
-  storing the event) are pt-PT the same way. Two known differences: the
-  snapshot carries `direct`, not the deal's transfer counts, so on a route allowing N ≥ 1 stops a
-  non-direct deal is assumed within the limit (it passed detection; the run's recheck uses the real
-  counts and expires it otherwise); and no retries on 429/5xx (the pipeline waits up to a minute;
-  on the phone Miguel taps again).
+  storing the event) are pt-PT the same way. The deal's own stop limit uses its observation's
+  counts, which the snapshot carries since this ticket (`transfers` / `return_transfers`, optional
+  fields added within v1, exported by `review_snapshot.py`), exactly like `RouteRules.allows`
+  (unknown counts never pass a limit); only a snapshot made before them falls back to `direct`
+  (a non-direct deal counts as one stop each way). Shared cases cover both. One known difference:
+  no retries on 429/5xx (the pipeline waits up to a minute; on the phone Miguel taps again).
 - **Page:** pt-PT, one column (max 680 px, 16 px gutters, checked at 375 px with no horizontal
   scroll), slides in a swipeable strip, 44 px buttons, `noindex` (meta and `X-Robots-Tag`),
   `Cache-Control: no-store` (slides `private, max-age=600`). Same information and copy as the local

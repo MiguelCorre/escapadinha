@@ -76,6 +76,9 @@ export interface SnapshotDeal {
   nights: string;
   airline: string | null;
   direct: boolean | null;
+  /** Stops each way (null: unknown); absent from snapshots made before they were added. */
+  transfers?: number | null;
+  return_transfers?: number | null;
   rule: string;
   discount_pct: number | null;
   typical_low_eur: number | null;

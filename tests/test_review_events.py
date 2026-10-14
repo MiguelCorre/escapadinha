@@ -306,6 +306,9 @@ def test_snapshot_follows_a_deal_from_queue_to_published(remote):
     assert lc["query"]["origin"] == "LIS" and lc["query"]["destination"] == "LON"
     assert lc["query"]["departure_at"] == d["departure_date"][:7]
     assert lc["rules"]["direct_only"] is True and lc["last_checked_at"] is None
+    # The observation's stop counts, for the Function's stop limit (D29).
+    obs = db.get_deal(conn, deal_id)[1]
+    assert (d["transfers"], d["return_transfers"]) == (obs.transfers, obs.return_transfers) == (0, 0)
     [p] = snap["pending_events"]
     assert p == approval.event.to_json()
 

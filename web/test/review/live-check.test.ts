@@ -12,6 +12,8 @@ function target(c: any) {
   const d = { ...CASES.defaults.deal, ...(c.deal ?? {}) };
   return {
     price_eur: d.price_eur, departure_date: d.departure_date, return_date: d.return_date, direct: d.direct,
+    // Only when the case has them: a deal without them is an older snapshot (`direct` only).
+    ...("transfers" in d ? { transfers: d.transfers, return_transfers: d.return_transfers } : {}),
     live_check: { query: {}, rules: d.rules },
   };
 }

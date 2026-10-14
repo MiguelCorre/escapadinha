@@ -5,11 +5,10 @@
 // only thing ported here is the parsing and the rule. The shared cases in
 // contract/review/v1/fixtures/live-check-cases.json run against both sides.
 //
-// Known differences, both documented in DECISIONS D29:
-// - the snapshot doesn't carry the deal's transfer counts, only `direct` (true: none either way);
-//   on a route allowing N >= 1 stops a non-direct deal is assumed within the limit (it passed
-//   detection under the route's rules; the run's own recheck uses the real counts);
-// - no retries on 429/5xx (the pipeline waits up to a minute): the reviewer just tries again.
+// The deal's own stop counts come from the snapshot (`transfers` / `return_transfers`); only a
+// snapshot made before they were added falls back to `direct` (see dealAllowed).
+// Known difference, documented in DECISIONS D29: no retries on 429/5xx (the pipeline waits up
+// to a minute): the reviewer just tries again.
 // A provider failure reads the same on both sides (`checkFailure` / `pipeline.check_failure`).
 import { eurPlain, numericDayMonth } from "../../../src/lib/format";
 import type { LiveCheck, Rules } from "./types";
@@ -55,6 +54,8 @@ export interface CheckTarget {
   departure_date: string;
   return_date: string;
   direct: boolean | null;
+  transfers?: number | null;            // absent in snapshots made before they were exported
+  return_transfers?: number | null;
   live_check: { query: Record<string, string | number>; rules: Rules };
 }
 
@@ -148,8 +149,11 @@ function parseResponse(payload: any, minNights: number, maxNights: number): Offe
   return offers;
 }
 
-/** models.RouteRules.allows for a provider offer. */
-function allows(rules: Rules, o: Offer): boolean {
+type Trip = Pick<Offer, "departure" | "return" | "transfers" | "return_transfers">;
+
+/** models.RouteRules.allows: within the nights range and the stop limit. Unknown transfer
+ * counts never pass a limit. */
+function allows(rules: Rules, o: Trip): boolean {
   const nights = nightsBetween(o.departure, o.return);
   if (nights < rules.min_nights || nights > rules.max_nights) return false;
   const limit = rules.direct_only ? 0 : rules.max_transfers;
@@ -157,14 +161,17 @@ function allows(rules: Rules, o: Offer): boolean {
   return o.transfers !== null && o.return_transfers !== null && o.transfers <= limit && o.return_transfers <= limit;
 }
 
-/** RouteRules.allows for the deal itself, from what the snapshot knows (`direct`). */
+/** RouteRules.allows for the deal itself, on its observation's stop counts. A snapshot made
+ * before it carried them only says `direct`: then a non-direct deal is assumed within a limit
+ * of one or more stops (it passed detection; the run's recheck uses the real counts). */
 function dealAllowed(rules: Rules, deal: CheckTarget): boolean {
-  const nights = nightsBetween(deal.departure_date, deal.return_date);
-  if (nights < rules.min_nights || nights > rules.max_nights) return false;
-  const limit = rules.direct_only ? 0 : rules.max_transfers;
-  if (limit === null) return true;
-  if (deal.direct === null) return false;       // unknown counts never pass a limit
-  return deal.direct || limit >= 1;             // not direct: at least one stop somewhere
+  const trip = { departure: deal.departure_date, return: deal.return_date };
+  if (deal.transfers !== undefined && deal.return_transfers !== undefined) {
+    return allows(rules, { ...trip, transfers: deal.transfers, return_transfers: deal.return_transfers });
+  }
+  if (deal.direct === null) return allows(rules, { ...trip, transfers: null, return_transfers: null });
+  const assumed = deal.direct ? 0 : 1;          // not direct: at least one stop somewhere
+  return allows(rules, { ...trip, transfers: assumed, return_transfers: assumed });
 }
 
 /** recheck._rule_broken */
