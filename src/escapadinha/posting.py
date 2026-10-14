@@ -24,6 +24,7 @@ from escapadinha import i18n_pt
 from escapadinha.i18n_pt import LISBON
 from escapadinha.models import Deal, Observation, Post
 from escapadinha.review import STATUS_PT
+from escapadinha.storage.db import OPEN_STATUSES      # the statuses a run rechecks
 
 # The channels a promotion is queued on: the one list (config validation and defaults, the queue
 # planner; the SQL CHECK in schema.sql/db.py is tested against it).
@@ -95,7 +96,8 @@ def verdict(post: Post, deal: Deal, *, now: datetime, max_check_age: timedelta) 
     the post whether or not it is due. A due post goes out only if the price was verified within
     `max_check_age`: the last recheck (`deal.last_checked_at`) or else the approval's live check
     (`post.checked_at`, the event's `live_check.checked_at`, which can be earlier than the
-    approval itself). Unverified, it waits for a recheck."""
+    approval itself). Unverified, it waits for a recheck while the promotion is still rechecked;
+    one marked published is not rechecked any more, so its post is cancelled instead (D32)."""
     cancel = VerdictAction.CANCEL
     if deal.status == "expired":
         why = f": {deal.expired_reason}" if deal.expired_reason else ""
@@ -114,6 +116,9 @@ def verdict(post: Post, deal: Deal, *, now: datetime, max_check_age: timedelta) 
     if verified is not None and now - verified <= max_check_age:
         return Verdict(VerdictAction.PUBLISH)
     hours = i18n_pt.number(max_check_age.total_seconds() / 3600)
+    if deal.status not in OPEN_STATUSES:        # never rechecked again: waiting would be forever
+        return Verdict(cancel, f"A promoção foi marcada como publicada e já não é verificada: o "
+                               f"preço confirmado tem mais de {hours} h.")
     return Verdict(VerdictAction.WAIT, f"Preço verificado há mais de {hours} h: espera por uma "
                                        "recolha que o confirme.")
 

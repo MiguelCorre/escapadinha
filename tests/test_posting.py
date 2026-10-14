@@ -403,6 +403,42 @@ def test_a_promotion_marked_published_by_hand_keeps_telegram_but_not_the_instagr
         "A promoção já foi marcada como publicada no Instagram."
 
 
+def mark_published(ctx, conn, deal_id, at):
+    approve_event(ctx.object_store, deal_id, checked=at, type="published",
+                  post_url="https://www.instagram.com/p/x/")
+    pipeline.apply_review_events(ctx, conn, now=at)
+
+
+@respx.mock
+def test_a_published_promotions_queued_post_is_cancelled_once_its_check_is_too_old(ctx):
+    """Published promotions are not rechecked any more (only db.OPEN_STATUSES are), so a queued
+    Telegram post that missed its 6 h (e.g. the runs failed meanwhile) would wait forever: it
+    is cancelled with the reason instead (D32)."""
+    conn = pipeline.open_db(ctx)
+    deal_id = approved(ctx, conn)                    # live check 06:30, applied 07:00
+    mark_published(ctx, conn, deal_id, utc(2026, 12, 1, 7, 10))
+    done, lines = publish(ctx, conn, utc(2026, 12, 1, 12, 31))
+    assert sorted(done) == [(deal_id, "instagram", "cancelled"), (deal_id, "telegram", "cancelled")]
+    assert not any("[dry-run]" in line for line in lines)
+    assert by_channel(conn)["telegram"].reason == (
+        "A promoção foi marcada como publicada e já não é verificada: o preço confirmado tem "
+        "mais de 6 h.")
+    assert publish(ctx, conn, utc(2026, 12, 2, 9))[0] == []            # nothing left waiting
+
+
+@respx.mock
+def test_a_published_promotions_post_still_goes_out_within_the_window(ctx):
+    """Within 6 h of the last verification (here a recheck made while it was approved, later
+    than the live check) the queued Telegram post of a published promotion goes out."""
+    conn = pipeline.open_db(ctx)
+    deal_id = approved(ctx, conn)
+    db.record_recheck(conn, deal_id, valid=True, latest_price=58, reason="continua",
+                      at=utc(2026, 12, 1, 10))
+    mark_published(ctx, conn, deal_id, utc(2026, 12, 1, 10, 30))
+    done, _ = publish(ctx, conn, utc(2026, 12, 1, 15, 59))           # 5 h 59 after the recheck
+    assert sorted(done) == [(deal_id, "instagram", "cancelled"), (deal_id, "telegram", "published")]
+
+
 @respx.mock
 def test_a_due_post_waits_until_a_recent_recheck_verified_the_price(ctx):
     conn = pipeline.open_db(ctx)                      # approved at 06:30, max_check_age 6 h

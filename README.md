@@ -310,7 +310,8 @@ its recheck, and on the fast path too), publishes the posts that are due:
 
 - a promotion that **expired** or was **rejected** cancels its queued posts, due or not, with the
   reason (*cancelada: A promoção expirou: o preço subiu para 80 €.*); one you marked published by
-  hand cancels its Instagram post (Telegram still goes);
+  hand cancels its Instagram post (Telegram still goes if its price was verified in the last 6 h;
+  published promotions aren't rechecked, so after that it is cancelled rather than waiting);
 - a due post goes out only if the price was verified (the run's recheck, else the live check you
   ran before approving: its time, not the approval's) in the last 6 h; otherwise it waits for a
   run that verifies it;

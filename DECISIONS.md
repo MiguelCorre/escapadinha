@@ -1165,6 +1165,14 @@ so nothing has to be hosted.
   collection had no prices for the route). At most one Instagram post per run, so a backlog
   after failed runs goes out two hours apart. A run whose collection failed exits before this
   step: nothing is posted without a recheck.
+- **A published promotion is not rechecked any more** (only `db.OPEN_STATUSES` are), so a post
+  that waits for a recheck would wait forever (review fix). When Miguel marks a promotion
+  published, its Instagram post is cancelled as before; a post on another channel (Telegram)
+  still goes out if the last verification (a recheck made while it was approved, else the
+  approval's live check) is within the 6 h, and once that window has passed it is **cancelled**
+  with "A promoção foi marcada como publicada e já não é verificada: o preço confirmado tem mais
+  de 6 h." instead of waiting. `posting.verdict` applies this to any status the run no longer
+  rechecks; tested on both sides of the window.
 - **Publishers** are pluggable (`posting.Publisher`: `name`, `publish(Message) -> Published(url)`,
   raises on failure). `Message` carries the post, deal, observation, headline, price, the text
   (Instagram: the caption from `deal_caption_text`; Telegram: the WhatsApp text) and the stored
