@@ -206,7 +206,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `node.py` (finds npm/npx/node, `run` with the full path's one deadline, `web_dir`/`dist_dir`,
   `BuildError`; light, so the CLI imports it at the top),
   `crawl.py` (`site crawl`: a sitemap against a build or the live site),
-  `images.py` (promotion WebP/thumb/OG), `redirects.py` (rules), `deploy.py` (wrangler in `web/`,
+  `images.py` (promotion WebP/thumb/OG + JPEG slides for Instagram, D36), `redirects.py` (rules), `deploy.py` (wrangler in `web/`,
   `function_files`, `deploy_hash`, fixture refusal); `__init__.py` shares with the export
   `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`, ... **Legacy until #23
   phase 2:** `SiteBuilder`/`build_site` + `templates/` (the Jinja site, `site build-jinja`, never

@@ -416,6 +416,8 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
 - **Images:** `site build` converts each promotion's rendered slides into
   `web/dist/img/promos/<id>/` (`slide_NN.webp` 1080 px, `thumb.webp` 540 px, `og.jpg`), the paths
   `promotions.json` names; on a CI runner the slides come from the object store (each once).
+  Each slide is also written as `slide_NN.jpg` (not in the contract, no page shows it): the
+  Instagram publisher hands those public URLs to Meta, whose API takes JPEG only (D36).
 - **`site build`** (`website/astro.py`) runs `npm ci` only when `web/node_modules` is missing or
   was installed from another `package-lock.json` or by another Node version, platform or
   architecture (a stamp in node_modules), then `npm run build` with `SITE_DATA_DIR`

@@ -1636,3 +1636,14 @@ so nothing has to be hosted.
   tests; keep the slug helpers (move them out of `website/__init__.py`), `images.py`,
   `routing.py`, `redirects.py`, `deploy.py`, `crawl.py`. Keep a copy of today's sitemap
   (`web/dist/sitemap.xml` of the first deploy, or the Jinja one) for that week's crawls.
+
+## D36: Instagram publisher (2026-10-14, #24)
+- **Media: JPEG slides on the public site.** Meta's content publishing API fetches images by URL
+  and takes JPEG only, so `site build` writes every slide twice into `web/dist/img/promos/<id>/`:
+  `slide_NN.webp` (what the pages show, D35) and `slide_NN.jpg` (quality 90, progressive, the
+  slide's own 1080 × 1350). The JPEG paths come from `website.deal_jpeg_paths` (next to
+  `deal_image_paths`, the one place for image paths); they are not in the contract, since no page
+  shows them. Approved promotions are public (`website.is_public`), so an approval's next full
+  path (which the approval itself triggers, D26) builds and deploys its JPEGs; the publisher
+  never posts before they answer (below). ~5 slides × ~250 KB per promotion: well inside Pages'
+  limits.

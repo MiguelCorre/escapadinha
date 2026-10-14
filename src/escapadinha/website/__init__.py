@@ -138,6 +138,15 @@ def deal_image_paths(ctx: Context, deal: Deal) -> tuple[list[str], str | None, s
     return slides, f"{base}/thumb.webp" if cover else None, f"{base}/og.jpg" if cover else None
 
 
+def deal_jpeg_paths(ctx: Context, deal: Deal) -> list[str]:
+    """Site paths of a rendered deal's JPEG slides (`/img/promos/<id>/slide_NN.jpg`), in slide
+    order, [] before rendering: the carousel and story images the Instagram publisher hands to
+    Meta, which takes JPEG only (D36). Not in the contract: no page shows them."""
+    base = f"/img/{promo_image_dir(deal.id)}"
+    return [f"{base}/{name.removesuffix('.png')}.jpg"
+            for name in pipeline.deal_slide_names(ctx, deal)]
+
+
 @dataclass
 class SiteDeal:
     deal: Deal

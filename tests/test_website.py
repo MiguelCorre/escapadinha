@@ -86,6 +86,7 @@ def test_approved_deal_is_published_with_tracked_link(ctx):
     assert f"/promos/{deal_id}-lisboa-londres/" in html(ctx, "sitemap.xml")
     img = ctx.site_dir / "img" / "promos" / str(deal_id)
     assert {p.name for p in img.iterdir()} == {"slide_01.webp", "slide_02.webp", "slide_03.webp",
+                                                "slide_01.jpg", "slide_02.jpg", "slide_03.jpg",
                                                 "thumb.webp", "og.jpg"}
     assert 'property="og:image"' in page
     assert not internal_links_resolve(ctx.site_dir)
