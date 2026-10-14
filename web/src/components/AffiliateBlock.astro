@@ -1,0 +1,26 @@
+---
+// One affiliate block (D37) where the author placed it in an itinerary or a tip: the programme's
+// copy with the brand, the tracked link from affiliates.json (never built here, cta.partnerLink) and
+// the block disclosure (labels.json disclosure.affiliate), always together. src/lib/affiliates.ts decides whether there is a block at all;
+// without one this renders nothing and the build log says why. The article comes from its page
+// (Astro.locals.article), since MDX gives a component no other way to know where it is.
+import data from "virtual:site-data";
+import { affiliateBlock } from "../lib/affiliates";
+import type { Programme } from "../lib/contract";
+
+interface Props {
+  programme: Programme;
+}
+
+const result = affiliateBlock(data, Astro.locals.article, Astro.props.programme);
+if ("warning" in result) console.warn(`[affiliates] ${result.warning}`);
+const block = "block" in result ? result.block : null;
+---
+{block && (
+  <aside data-affiliate={block.programme} class="border-t-2 border-rule bg-surface p-md">
+    <p class="label text-accent">{block.title}</p>
+    <p class="mt-xs">{block.text}</p>
+    <p class="mt-sm"><a href={block.href} rel={block.rel} target="_blank" class="font-semibold">{block.cta} →</a></p>
+    <p class="mt-xs text-small text-muted">{block.disclosure}</p>
+  </aside>
+)}

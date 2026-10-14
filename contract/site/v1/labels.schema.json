@@ -40,7 +40,8 @@
       "required": ["site", "post"],
       "properties": {
         "site": {"type": "string", "description": "Next to every booking button."},
-        "post": {"type": "string", "description": "Captions and CTA slides (presentation.DISCLOSURE)."}
+        "post": {"type": "string", "description": "Captions and CTA slides (presentation.DISCLOSURE)."},
+        "affiliate": {"type": "string", "description": "Added in v1 (D37): in every affiliate block of an itinerary or tip (presentation.BLOCK_DISCLOSURE); absent in older exports."}
       }
     }
   }

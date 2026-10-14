@@ -1,0 +1,97 @@
+{
+  "description": "The review gate and the affiliate front matter of itineraries and tips (D33, D37), as the site (src/lib/content.ts: zod schemas + isVisible + articleKey, front matter parsed by Astro's YAML parser) and the pipeline (src/escapadinha/articles.py: which articles get affiliate links) must both read them. Checked by web/test/content.test.ts and tests/test_affiliate_blocks.py. Each case is one MDX file's front matter (YAML text). error: the front matter is refused (the site build fails, the export raises), for the fields the pipeline reads (reviewed, fixture, affiliates); otherwise the case is valid for the site's schema. published: whether the entry is built from real data (site) and from fixture data (fixture_site). key: how affiliates.json names the article. affiliates: the programmes it lists.",
+  "cases": [
+    {
+      "name": "a reviewed itinerary with two blocks",
+      "kind": "itineraries", "slug": "roma-em-3-dias",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\nlast_checked: 2026-10-14\nsources:\n  - title: Fonte\n    url: https://example.com/fonte\naffiliates: [esim, activities]\nreviewed: true",
+      "error": false, "published": {"site": true, "fixture_site": true},
+      "key": "itineraries/roma-em-3-dias", "affiliates": ["esim", "activities"]
+    },
+    {
+      "name": "a reviewed tip with one block",
+      "kind": "tips", "slug": "internet-em-viagem",
+      "front_matter": "title: Internet em viagem\ndescription: Uma dica.\ntopic: esim\nlast_checked: 2026-10-14\nsources:\n  - title: Fonte\n    url: https://example.com/fonte\naffiliates:\n  - insurance\nreviewed: true",
+      "error": false, "published": {"site": true, "fixture_site": true},
+      "key": "tips/internet-em-viagem", "affiliates": ["insurance"]
+    },
+    {
+      "name": "a reviewed itinerary without blocks",
+      "kind": "itineraries", "slug": "porto-em-2-dias",
+      "front_matter": "title: Porto em 2 dias\ndescription: Um roteiro.\ndestination: OPO\ndays: 2\nlast_checked: 2026-10-14\nsources:\n  - title: Fonte\n    url: https://example.com/fonte\nreviewed: true",
+      "error": false, "published": {"site": true, "fixture_site": true},
+      "key": "itineraries/porto-em-2-dias", "affiliates": []
+    },
+    {
+      "name": "YAML's capitalised True is a boolean for both parsers",
+      "kind": "itineraries", "slug": "roma-maiusculas",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\nlast_checked: 2026-10-14\nsources:\n  - title: Fonte\n    url: https://example.com/fonte\nreviewed: True",
+      "error": false, "published": {"site": true, "fixture_site": true},
+      "key": "itineraries/roma-maiusculas", "affiliates": []
+    },
+    {
+      "name": "a draft",
+      "kind": "itineraries", "slug": "rascunho",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\naffiliates: [esim]\nreviewed: false",
+      "error": false, "published": {"site": false, "fixture_site": false},
+      "key": "itineraries/rascunho", "affiliates": ["esim"]
+    },
+    {
+      "name": "no reviewed key: a draft",
+      "kind": "tips", "slug": "sem-revisao",
+      "front_matter": "title: Uma dica\ndescription: Uma dica.\ntopic: voos",
+      "error": false, "published": {"site": false, "fixture_site": false},
+      "key": "tips/sem-revisao", "affiliates": []
+    },
+    {
+      "name": "a reviewed test-only entry: fixture data only",
+      "kind": "itineraries", "slug": "teste",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\nlast_checked: 2026-10-14\nsources:\n  - title: Fonte\n    url: https://example.com/fonte\naffiliates: [esim]\nreviewed: true\nfixture: true",
+      "error": false, "published": {"site": false, "fixture_site": true},
+      "key": "itineraries/teste", "affiliates": ["esim"]
+    },
+    {
+      "name": "a test-only draft",
+      "kind": "itineraries", "slug": "teste-rascunho",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\nreviewed: false\nfixture: true",
+      "error": false, "published": {"site": false, "fixture_site": false},
+      "key": "itineraries/teste-rascunho", "affiliates": []
+    },
+    {
+      "name": "reviewed: yes is not a boolean (YAML 1.2, as Astro reads it)",
+      "kind": "itineraries", "slug": "sim",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\nlast_checked: 2026-10-14\nsources:\n  - title: Fonte\n    url: https://example.com/fonte\nreviewed: yes",
+      "error": true
+    },
+    {
+      "name": "reviewed as a string",
+      "kind": "itineraries", "slug": "texto",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\nlast_checked: 2026-10-14\nsources:\n  - title: Fonte\n    url: https://example.com/fonte\nreviewed: \"true\"",
+      "error": true
+    },
+    {
+      "name": "fixture: on is not a boolean",
+      "kind": "itineraries", "slug": "ligado",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\nreviewed: false\nfixture: on",
+      "error": true
+    },
+    {
+      "name": "an unknown programme",
+      "kind": "itineraries", "slug": "hoteis",
+      "front_matter": "title: Roma em 3 dias\ndescription: Um roteiro.\ndestination: ROM\ndays: 3\naffiliates: [esim, hotels]\nreviewed: false",
+      "error": true
+    },
+    {
+      "name": "an empty affiliates key is null, not a list",
+      "kind": "tips", "slug": "vazio",
+      "front_matter": "title: Uma dica\ndescription: Uma dica.\ntopic: voos\naffiliates:",
+      "error": true
+    },
+    {
+      "name": "affiliates not a list",
+      "kind": "tips", "slug": "lista",
+      "front_matter": "title: Uma dica\ndescription: Uma dica.\ntopic: voos\naffiliates: esim",
+      "error": true
+    }
+  ]
+}

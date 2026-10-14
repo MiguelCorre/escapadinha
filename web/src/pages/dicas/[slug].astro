@@ -7,9 +7,10 @@ import siteData from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import ContentArticle from "../../components/ContentArticle.astro";
+import { MDX_COMPONENTS } from "../../components/mdx-components";
 import { tips } from "../../collections";
 import { BRAND } from "../../lib/brand";
-import { contentPath } from "../../lib/content";
+import { articleKey, contentPath } from "../../lib/content";
 import { articleLd } from "../../lib/structured-data";
 
 export const getStaticPaths = (async () => {
@@ -19,6 +20,8 @@ export const getStaticPaths = (async () => {
 const { entry } = Astro.props;
 const { data } = entry;
 const { Content } = await render(entry);
+// The affiliate blocks in the body find their links by the article (D37).
+Astro.locals.article = { key: articleKey("tips", entry.id), affiliates: data.affiliates };
 const path = contentPath("tips", entry.id);
 const article = data.reviewed
   ? articleLd(siteData, { title: data.title, description: data.description, path, lastChecked: data.last_checked })
@@ -35,7 +38,7 @@ const article = data.reviewed
   <div class="mb-lg"><Breadcrumbs crumbs={[{ name: "Dicas", path: "/dicas/" }, { name: data.title, path }]} /></div>
   <ContentArticle kicker="Dica" title={data.title} description={data.description} reviewed={data.reviewed}
     lastChecked={data.last_checked} sources={data.sources}>
-    <Content />
+    <Content components={MDX_COMPONENTS} />
   </ContentArticle>
   <p class="mt-2xl"><a href="/dicas/">Todas as dicas</a></p>
 </Base>

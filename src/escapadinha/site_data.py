@@ -12,12 +12,13 @@ matches them, from the same database queries and detector rules as the Jinja sit
     promotions.json      approved deals, live and recently expired (paths, images, links)
     low-prices/XXX.json  one origin's low prices at date level, compact rows (explorer)
     pontes.json          the Portuguese long weekends of the holiday calendar (D31), page paths
+    affiliates.json      affiliate blocks (D37): configured programmes, links per article
 
 Values are raw (ISO dates, UTC timestamps, euros as numbers); pt-PT formatting stays on
 the site, from `labels.json`. Every price sits next to what it traces to: an observation
 id, a route key (typical lows, recomputable from stored observations) or a deal id (D2).
 Booking links only come from the partner links API (`pipeline.low_price_links`,
-`pipeline.website_links`); the export never builds a URL itself.
+`pipeline.website_links`, `pipeline.article_links`); the export never builds a URL itself.
 
 Files are deterministic (sorted keys and rows, one array element per line, no other
 whitespace): stable diffs, gzip-friendly. `generate_fixtures` derives the committed
@@ -35,19 +36,19 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from escapadinha import detector, i18n_pt, pipeline, pontes, routes
-from escapadinha.config import Context
+from escapadinha import articles, detector, i18n_pt, pipeline, pontes, routes
+from escapadinha.config import PROGRAMMES, Context
 from escapadinha.models import Deal, Observation, Route
-from escapadinha.presentation import DISCLOSURE, SITE_DISCLOSURE
+from escapadinha.presentation import BLOCK_DISCLOSURE, DISCLOSURE, SITE_DISCLOSURE
 from escapadinha.storage import db
 from escapadinha.website import (
-    DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, origin_slug,
-    ponte_path, promo_slug, public_deal_rows, redirects, route_slug,
+    DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, node,
+    origin_slug, ponte_path, promo_slug, public_deal_rows, redirects, route_slug,
 )
 
 VERSION = 1
 TOP_FILES = ("meta.json", "labels.json", "origins.json", "routes.json", "destinations.json",
-             "promotions.json", "pontes.json")
+             "promotions.json", "pontes.json", "affiliates.json")
 HOLIDAYS_SOURCE = ("Código do Trabalho, art. 234.º (feriados obrigatórios) e art. 235.º "
                    "(Terça-Feira de Carnaval, facultativo), na redação da Lei n.º 8/2016")
 LOW_COLS = ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops",
@@ -273,6 +274,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
                      for lp in sorted(kept.get(code, []), key=_row_order)]}
     files["labels.json"] = _labels()
     files["pontes.json"] = _pontes(ctx, origin_codes)
+    files["affiliates.json"] = _affiliates(ctx, conn, new_links, fixture)
     files["meta.json"] = _meta(ctx, conn, now, run_id, fixture, origin_codes, files)
     return Export(files)
 
@@ -526,7 +528,7 @@ def _labels() -> dict:
         "kinds": dict(i18n_pt.ROUTE_KIND), "route_status": dict(i18n_pt.ROUTE_STATUS),
         "months": list(i18n_pt.MONTHS), "months_short": list(i18n_pt.MONTHS_SHORT),
         "weekdays_short": list(i18n_pt.WEEKDAYS_SHORT),
-        "disclosure": {"site": SITE_DISCLOSURE, "post": DISCLOSURE},
+        "disclosure": {"site": SITE_DISCLOSURE, "post": DISCLOSURE, "affiliate": BLOCK_DISCLOSURE},
     }
 
 
@@ -545,6 +547,26 @@ def _pontes(ctx: Context, origin_codes: list[str]) -> dict:
                         for code in origin_codes],
         })
     return {"version": VERSION, "source": HOLIDAYS_SOURCE, "pontes": items}
+
+
+def _affiliates(ctx: Context, conn: sqlite3.Connection, new_links: bool, fixture: bool) -> dict:
+    """The affiliate blocks' data (D37): every programme (its brand, null while not configured)
+    and a tracked link per (published article, configured programme it lists). Fixture data
+    gets the test-only articles too, and a placeholder per link instead of a stored one."""
+    aff = ctx.config.affiliate
+    published = articles.published(node.web_dir(ctx), fixture=fixture)
+    if fixture:
+        links = {pair: f"{FIXTURE_LINK}{a.sub_id}"
+                 for pair, (a, _) in pipeline.block_targets(ctx, published).items()}
+    else:
+        links = pipeline.article_links(ctx, conn, published, create=new_links)
+    return {
+        "version": VERSION,
+        "programmes": {p: ({"brand": c.brand} if (c := aff.programme(p)) else None)
+                       for p in PROGRAMMES},
+        "links": [{"article": key, "programme": p, "url": url}
+                  for (key, p), url in sorted(links.items())],
+    }
 
 
 def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | None,
@@ -569,6 +591,7 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
         "files": {"origins": "origins.json", "routes": "routes.json",
                   "destinations": "destinations.json", "promotions": "promotions.json",
                   "labels": "labels.json", "pontes": "pontes.json",
+                  "affiliates": "affiliates.json",
                   "low_prices": {c: f"low-prices/{c}.json" for c in origin_codes}},
         "counts": {"origins": len(origin_codes),
                    "routes": len(files["routes.json"]["routes"]),

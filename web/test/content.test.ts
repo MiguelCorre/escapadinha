@@ -1,7 +1,13 @@
 // Itineraries and tips (#17, D33): the front matter schemas, the review gate and the itinerary
 // lookup behind ItineraryLink, on hand-made entries. The built pages are in content-pages.test.ts.
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseFrontmatter } from "@astrojs/internal-helpers/frontmatter";
 import { describe, expect, it } from "vitest";
-import { contentPath, isVisible, itinerarySchema, tipSchema } from "../src/lib/content";
+import {
+  articleKey, contentPath, isVisible, itinerarySchema, tipSchema, type ContentKind,
+} from "../src/lib/content";
 import { itineraryFor } from "../src/lib/itinerary";
 import { tipsFor } from "../src/lib/related";
 
@@ -104,6 +110,39 @@ describe("itinerary for a destination", () => {
     expect(() => itineraryFor("PAR", [entry("a", "PAR"), entry("b", "PAR")])).toThrow(/PAR/);
   });
 });
+
+describe("shared gate cases (test/fixtures/content-gate-cases.json, D37)", () => {
+  // The same cases are checked against the pipeline's reader (src/escapadinha/articles.py):
+  // which articles get affiliate links must be exactly the ones the site builds.
+  const { cases } = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)),
+    "fixtures/content-gate-cases.json"), "utf8")) as { cases: GateCase[] };
+  const schemas = { itineraries: itinerarySchema, tips: tipSchema };
+
+  it.each(cases.map((c) => [c.name, c] as const))("%s", (_, c) => {
+    // Astro's own front matter parser (the content loader's), so YAML reads the same way.
+    const { frontmatter } = parseFrontmatter(`---\n${c.front_matter}\n---\n`);
+    const parsed = schemas[c.kind].safeParse(frontmatter);
+    expect(!parsed.success, parsed.error?.message).toBe(c.error);
+    if (!parsed.success) return;
+    expect({
+      site: isVisible(parsed.data, { dev: false, fixtureBuild: false }),
+      fixture_site: isVisible(parsed.data, { dev: false, fixtureBuild: true }),
+    }).toEqual(c.published);
+    expect(articleKey(c.kind, c.slug)).toBe(c.key);
+    expect(parsed.data.affiliates).toEqual(c.affiliates);
+  });
+});
+
+interface GateCase {
+  name: string;
+  kind: ContentKind;
+  slug: string;
+  front_matter: string;
+  error: boolean;
+  published?: { site: boolean; fixture_site: boolean };
+  key?: string;
+  affiliates?: string[];
+}
 
 describe("tips for a destination (story 36)", () => {
   const tip = (id: string, destinations: string[], last_checked?: string) =>

@@ -103,7 +103,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `storage/sync.py` (backup-API snapshot under the run lock), never the live file (D21).
 - CI keeps no files between runs (D21, D25). Anything a run needs from an earlier run lives in the
   database (`meta`: `site.paths` (+ `site.paths.pending` between build and deploy), `site.links`,
-  `site.deployed`, `site.link_budget`, the run-path fingerprint) or goes
+  `site.deployed`, `site.link_budget`, `site.article_links`, the run-path fingerprint) or goes
   through a `storage.mirror.Mirror` (`pipeline.photo_files` / `output_files`): upload when made,
   `file`/`folder` to read (downloads when missing). Never read `output/` or `assets/photos/`
   directly; use `pipeline.deal_folder` / `guide_folder` (pass `files=` the glob you read, e.g.
@@ -173,6 +173,21 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   Low prices' links go through `pipeline.low_price_links` (created once, stored in
   `partner_links`, capped per collection run, export + build together, by
   `site.max_new_links_per_build`).
+- Affiliate blocks (D37: `<EsimBlock />`, `<InsuranceBlock />`, `<ActivitiesBlock />` in MDX): the
+  programme → brand/page map lives only in config `affiliate.programmes` (`ProgrammeConfig`; a new
+  programme is a config change, never code). Which (article, programme) pairs get a link is
+  `pipeline.block_targets` only; links only via `pipeline.article_links` (website Project, sub_id
+  `roteiro-<slug>`/`dica-<slug>`, meta `site.article_links`, pruned to the current pairs and
+  Project on every write), exported in `affiliates.json`. `articles.py` reads the front matter
+  exactly as the site does (zod + Astro's YAML): change either side together with
+  `web/test/fixtures/content-gate-cases.json` (`tests/test_affiliate_blocks.py`,
+  `web/test/content.test.ts`); the article key is `content.articleKey` / `Article.key`. On the
+  site only through `src/lib/affiliates.ts` (`affiliateBlock`, link via `cta.partnerLink`) and
+  `AffiliateBlock.astro`, always with `labels.disclosure.affiliate`; a programme not configured
+  or a missing link renders nothing and warns, a block not listed in front matter fails the
+  build. Every Astro build is `astro build --force` (`npm run build`,
+  `build:fixtures`, `test/build-site.ts`): Astro's content cache ignores schema changes in
+  `src/lib/content.ts`.
 - Domain moves go through `site.base_url` + `site.legacy_hosts` and the Bulk Redirect in
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
   key in `website/routing.current_pages` (`deal:`, `route:`, `origin:`, `destination:`) so renamed
@@ -242,11 +257,14 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   the article from config `origins_article` (`origins.json` `article`), never a map in code
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
   `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
+- `src/escapadinha/articles.py`: the MDX articles' front matter as the pipeline sees it
+  (`published`: the review gate; `Article.key`, `sub_id`) for the affiliate blocks (D37)
 - `web/`: the Astro site (D28): `src/pages/` (home, `promos/`, `voos/` route pages, `partidas/`
   origin pages, `destinos/` hubs, D30; `roteiros/`, `dicas/` D33; `sobre/`, `privacidade/`,
   `robots.txt` D34), view logic in `src/lib/`
   (`promotion.ts`, `routes.ts`, `low-prices.ts`, `format.ts` + `dates.ts`, `cta.ts`, `content.ts` +
-  `itinerary.ts` + `related.ts`; SEO D34: `structured-data.ts`, `sitemap.ts` (Astro integration),
+  `itinerary.ts` + `related.ts`, `affiliates.ts` (blocks D37, components in
+  `src/components/mdx-components.ts`); SEO D34: `structured-data.ts`, `sitemap.ts` (Astro integration),
   `search-widget.ts`),
   `src/content.config.ts` + `src/collections.ts` (MDX collections + review gate), tests in
   `web/test/` (fixture build + a configured build with fake analytics/widget values in

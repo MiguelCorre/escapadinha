@@ -232,6 +232,18 @@ def test_the_build_adds_jpeg_slides_for_instagram_next_to_the_webp_ones(ctx, npm
             assert im.format == "JPEG" and im.mode == "RGB" and im.size == (108, 135)
 
 
+def test_every_astro_build_clears_the_content_cache():
+    """Astro's content cache (node_modules/.astro/data-store.json) is dropped only when the text of
+    src/content.config.ts changes: after a front matter schema change in src/lib/content.ts, cached
+    entries came back without the new field (D37). So every build runs `astro build --force`: the
+    pipeline's `npm run build`, `build:fixtures`, and the web tests' builds."""
+    web = REPO / "web"
+    scripts = json.loads((web / "package.json").read_text("utf-8"))["scripts"]
+    assert scripts["build"] == "astro build --force"
+    assert scripts["build:fixtures"].endswith("astro build --force")
+    assert '"build", "--force"' in (web / "test" / "build-site.ts").read_text("utf-8")
+
+
 def test_the_build_needs_the_export_first(ctx, npm):
     web_package(ctx.root)
     conn = pipeline.open_db(ctx)

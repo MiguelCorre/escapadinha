@@ -14,6 +14,9 @@ DISCLOSURE = ("Publicidade · Este post contém links de afiliado: se reservares
 # The disclosure next to low prices' booking links on route pages (D24).
 SITE_DISCLOSURE = ("Publicidade: os botões de reserva são links de afiliado. Se reservares através "
                    "deles, podemos receber uma comissão, sem custo extra para ti.")
+# The disclosure in every affiliate block of an itinerary or tip (eSIM, insurance, activities, D37).
+BLOCK_DISCLOSURE = ("Publicidade: esta ligação é um link de afiliado. Se comprares através dela, "
+                    "podemos receber uma comissão, sem custo extra para ti.")
 
 
 def booking_url(deep_link: str | None, booking_base: str) -> str | None:

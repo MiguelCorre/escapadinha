@@ -3,7 +3,10 @@
 // other (two astro builds of one project must not run at once: they share .astro/), the same
 // fixtures with the third-party settings filled in with fake values (D34: analytics token and
 // search widget) and the live promotion published on Instagram with a fake post URL (D36), read
-// through inject("configuredDistDir").
+// through inject("configuredDistDir"). The configured build also connects an insurance programme
+// (fake brand and link, D37), so the block that renders nothing on the fixtures renders there, and
+// drops the activities link (configured, link not created yet: nothing rendered, a warning). Both
+// builds' output is kept for the tests of their warnings (inject("buildLog"), "configuredBuildLog").
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,21 +22,26 @@ export const FAKE_ANALYTICS_TOKEN = "fakeTestToken0000000000000000000";
 export const FAKE_SEARCH_WIDGET = "https://tp.media/content?fake=test-only&promo_id=0";
 /** The live promotion published on Instagram (D36): its post link on the page. */
 export const FAKE_POST_URL = "https://www.instagram.com/p/fake-test-only/";
+/** An insurance programme connected in the configured build (D37). */
+export const FAKE_INSURANCE_BRAND = "Seguradora de Teste";
+export const FAKE_INSURANCE_LINK = "https://example.com/parceiro/seguro-de-teste";
 
-function build(dataDir: string, outDir: string) {
+function build(dataDir: string, outDir: string): string {
   const result = spawnSync(
     process.execPath,
-    [join(WEB_DIR, "node_modules/astro/bin/astro.mjs"), "build", "--outDir", outDir],
+    // --force: Astro's content cache ignores front matter schema changes (D37).
+    [join(WEB_DIR, "node_modules/astro/bin/astro.mjs"), "build", "--force", "--outDir", outDir],
     { cwd: WEB_DIR, encoding: "utf8", env: { ...process.env, SITE_DATA_DIR: dataDir, ASTRO_TELEMETRY_DISABLED: "1" } },
   );
   if (result.status !== 0) {
     throw new Error(`astro build failed:\n${result.stdout}\n${result.stderr}`);
   }
+  return `${result.stdout}\n${result.stderr}`;
 }
 
 export default function setup(project: TestProject) {
   const distDir = mkdtempSync(join(tmpdir(), "pn-web-dist-"));
-  build(FIXTURES, distDir);
+  project.provide("buildLog", build(FIXTURES, distDir));
   project.provide("distDir", distDir);
 
   const configuredData = mkdtempSync(join(tmpdir(), "pn-configured-data-"));
@@ -48,7 +56,12 @@ export default function setup(project: TestProject) {
     if (p.live) Object.assign(p, { status: "published", post_url: FAKE_POST_URL });
   }
   writeFileSync(join(configuredData, "promotions.json"), JSON.stringify(promotions));
-  build(configuredData, configuredDist);
+  const affiliates = JSON.parse(readFileSync(join(configuredData, "affiliates.json"), "utf8"));
+  affiliates.programmes.insurance = { brand: FAKE_INSURANCE_BRAND };
+  affiliates.links = affiliates.links.filter((l: { programme: string }) => l.programme !== "activities");
+  affiliates.links.push({ article: "itineraries/paris-em-3-dias", programme: "insurance", url: FAKE_INSURANCE_LINK });
+  writeFileSync(join(configuredData, "affiliates.json"), JSON.stringify(affiliates));
+  project.provide("configuredBuildLog", build(configuredData, configuredDist));
   project.provide("configuredDistDir", configuredDist);
 
   return () => {
@@ -60,5 +73,7 @@ declare module "vitest" {
   export interface ProvidedContext {
     distDir: string;
     configuredDistDir: string;
+    buildLog: string;
+    configuredBuildLog: string;
   }
 }

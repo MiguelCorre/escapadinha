@@ -426,7 +426,8 @@ def _export_site_data(out: Path | None, new_links: bool):
     console.print(f"Site data written to [bold]{out}[/]: {counts['routes']} routes, "
                   f"{counts['origins']} origins, {counts['destinations']} destinations, "
                   f"{counts['promotions_live']} live + {counts['promotions_expired']} expired "
-                  f"promotions, {counts['low_prices']} low prices")
+                  f"promotions, {counts['low_prices']} low prices, "
+                  f"{len(export.files['affiliates.json']['links'])} affiliate block links")
     return export
 
 

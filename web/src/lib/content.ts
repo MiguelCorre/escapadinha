@@ -8,6 +8,7 @@
 // only from fixture data, never from a real export. No prices in content (D33): the pt-PT lint
 // refuses euro amounts, prices come from the data contract with their observation.
 import { z } from "astro/zod";
+import { PROGRAMMES } from "./affiliates";
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -38,6 +39,9 @@ const common = {
   fixture: z.boolean().default(false),
   /** The old Jinja site's path of this content (e.g. /guias/<slug>/), for the cutover's 301. */
   legacy_path: z.string().regex(/^\/[a-z0-9/-]+\/$/).optional(),
+  /** The affiliate blocks the body places (D37): the pipeline creates one tracked link per
+   * programme listed here, and a block of a programme not listed stops the build. */
+  affiliates: z.array(z.enum(PROGRAMMES)).default([]),
 };
 
 /** Reviewed content states when its facts were checked and where they come from. */
@@ -85,6 +89,12 @@ const SECTIONS: Record<ContentKind, string> = { itineraries: "roteiros", tips: "
 export function contentPath(kind: ContentKind, id: string): string {
   if (!SLUG.test(id)) throw new Error(`${kind}/${id}: the file name must be a slug (a-z, 0-9, hyphens)`);
   return `/${SECTIONS[kind]}/${id}/`;
+}
+
+/** How affiliates.json names an entry (D37): "<collection>/<file name>", like the pipeline's
+ * `articles.Article.key` (test/fixtures/content-gate-cases.json checks both). */
+export function articleKey(kind: ContentKind, id: string): string {
+  return `${kind}/${id}`;
 }
 
 /** Listing order: most recently checked first, then by title (pt collation). */

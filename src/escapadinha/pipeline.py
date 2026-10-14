@@ -14,6 +14,7 @@ import httpx
 
 from escapadinha import archive, detector, discovery, i18n_pt, posting, review_events, routes
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
+from escapadinha.articles import Article
 from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
 from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.base import Fetched, departure_months
@@ -871,6 +872,18 @@ def _partner_links(ctx: Context, channel: str, items: list[tuple[int, Observatio
     yields (None, reason), never a hand-built URL.
     """
     base = ctx.config.collector.booking_base
+    made = _tracked_links(ctx, channel, [(booking_url(o.deep_link, base), f"{sub_prefix}-{key}")
+                                         for key, o in items])
+    return {key: made[booking_url(o.deep_link, base)] for key, o in items}
+
+
+def _tracked_links(ctx: Context, channel: str, pairs: list[tuple[str, str]]
+                   ) -> dict[str, tuple[str | None, str | None]]:
+    """(brand url, sub_id) pairs -> url -> (partner_url, error), from `channel`'s Project.
+
+    Always through `PartnerLinksClient`; a failure yields (None, reason), never a hand-built
+    URL. Results are keyed by url, so one call must not ask for the same url twice.
+    """
     project_id = ctx.config.affiliate.project_for(channel)
     if project_id is None:
         results, failure = {}, f"affiliate.projects.{channel} is not set in config.yaml"
@@ -879,15 +892,14 @@ def _partner_links(ctx: Context, channel: str, items: list[tuple[int, Observatio
             client = PartnerLinksClient(ctx.secrets.travelpayouts_token,
                                         marker=ctx.secrets.travelpayouts_marker,
                                         project_id=project_id, shorten=ctx.config.affiliate.shorten)
-            results = client.create([(booking_url(o.deep_link, base), f"{sub_prefix}-{key}")
-                                     for key, o in items])
+            results = client.create(pairs)
             failure = None
         except (AffiliateError, httpx.HTTPError) as exc:
             results, failure = {}, str(exc)
     out = {}
-    for key, o in items:
-        link = results.get(booking_url(o.deep_link, base))
-        out[key] = (link.partner_url if link else None, (link.error if link else failure) or None)
+    for url, _ in pairs:
+        link = results.get(url)
+        out[url] = (link.partner_url if link else None, (link.error if link else failure) or None)
     return out
 
 
@@ -951,6 +963,60 @@ def website_links(ctx: Context, conn: sqlite3.Connection, pairs: list[tuple[Deal
     if create and value != db.get_meta(conn, SITE_LINKS):   # new links, or the old file merged in
         db.set_meta(conn, SITE_LINKS, value)
     return {d.id: known.get(str(d.id), {}).get("url") or d.affiliate_url for d, _ in pairs}
+
+
+ARTICLE_LINKS = "site.article_links"   # meta: website Project -> "<programme>:<article>" -> link (D37)
+
+
+def block_targets(ctx: Context, published: list[Article]) -> dict[tuple[str, str], tuple[Article, str]]:
+    """What gets an affiliate block link (D37): (article key, programme) -> (article, brand page)
+    for every programme a published article lists that config.yaml configures. The page is
+    `ProgrammeConfig.target`: the article's city page when config has one, else the brand's site."""
+    aff = ctx.config.affiliate
+    return {(a.key, name): (a, programme.target(a.destination))
+            for a in published for name in a.affiliates
+            if (programme := aff.programme(name)) is not None}
+
+
+def article_links(ctx: Context, conn: sqlite3.Connection, published: list[Article],
+                  create: bool = True) -> dict[tuple[str, str], str]:
+    """Tracked link per `block_targets` pair of the published articles: (key, programme) ->
+    partner link.
+
+    Each link is created once through `PartnerLinksClient` for the website's Project, for the
+    brand page with the article's sub_id (`roteiro-<slug>`, `dica-<slug>`), and stored in the
+    database (meta `site.article_links`, D25: a CI runner keeps no files). A new page (config
+    changed) gets a new link; failures are kept with their reason and retried by the next call
+    that creates (the export of the next full path). Writing also forgets every other entry: of
+    articles no longer published, programmes no longer listed or configured, other Projects. One
+    API request per article (its programmes are different brands, and the client keys results
+    by url). `create=False` only reads the stored links.
+    """
+    targets = block_targets(ctx, published)
+    project = ctx.config.affiliate.project_for("website")
+    if project is None:
+        return {}
+    known = db.get_meta_json(conn, ARTICLE_LINKS).get(str(project), {})
+
+    def stored(key: str, programme: str) -> str | None:
+        entry = known.get(f"{programme}:{key}", {})
+        return entry.get("url") if entry.get("target") == targets[key, programme][1] else None
+
+    if create:
+        todo: dict[str, list[tuple[str, Article, str]]] = {}
+        for (key, programme), (article, target) in targets.items():
+            if not stored(key, programme):
+                todo.setdefault(key, []).append((programme, article, target))
+        for key, items in sorted(todo.items()):
+            made = _tracked_links(ctx, "website", [(t, a.sub_id) for _, a, t in items])
+            for programme, _, target in items:
+                url, error = made[target]
+                known[f"{programme}:{key}"] = {"target": target, "url": url, "error": error}
+        kept = {f"{p}:{key}": known[f"{p}:{key}"] for key, p in targets if f"{p}:{key}" in known}
+        value = json.dumps({str(project): kept} if kept else {}, sort_keys=True)
+        if value != (db.get_meta(conn, ARTICLE_LINKS) or "{}"):
+            db.set_meta(conn, ARTICLE_LINKS, value)
+    return {(key, p): url for key, p in targets if (url := stored(key, p))}
 
 
 LINK_RETENTION = timedelta(days=30)   # partner_links rows older than this are pruned

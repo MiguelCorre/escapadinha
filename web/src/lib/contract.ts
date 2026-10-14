@@ -36,6 +36,7 @@ export interface Meta {
   files: {
     origins: string; routes: string; destinations: string; promotions: string; labels: string;
     pontes?: string;
+    affiliates?: string;
     low_prices: Record<string, string>;
   };
   counts: Record<string, number>;
@@ -50,7 +51,8 @@ export interface Labels {
   months: string[];
   months_short: string[];
   weekdays_short: string[];
-  disclosure: { site: string; post: string };
+  /** affiliate: in every affiliate block (D37); absent in older exports. */
+  disclosure: { site: string; post: string; affiliate?: string };
 }
 
 export interface Origin {
@@ -179,6 +181,18 @@ export interface Pontes {
   pontes: Ponte[];
 }
 
+/** The affiliate blocks of itineraries and tips (D37). */
+export type Programme = "esim" | "insurance" | "activities";
+
+/** affiliates.json (D37): each block programme's brand (null: not configured) and one tracked link
+ * per (published article, configured programme its front matter lists). */
+export interface Affiliates {
+  version: 1;
+  programmes: Record<Programme, { brand: string } | null>;
+  /** article = "<collection>/<entry id>", e.g. "itineraries/paris-em-3-dias". */
+  links: { article: string; programme: Programme; url: string }[];
+}
+
 export interface SiteData {
   meta: Meta;
   labels: Labels;
@@ -189,4 +203,6 @@ export interface SiteData {
   lowPrices: Record<string, LowPrices>;
   /** Empty when the export predates pontes.json. */
   pontes: Pontes;
+  /** No programme configured and no links when the export predates affiliates.json. */
+  affiliates: Affiliates;
 }
