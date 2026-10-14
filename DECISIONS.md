@@ -1764,3 +1764,79 @@ so nothing has to be hosted.
   fixture value the web tests pin (the real data moved since), for a field that is null there.
 - **Not done here:** the first real post, which needs Miguel's token (runbook §5); the issue
   stays open until he confirms it.
+
+## D37: Affiliate blocks for eSIM, insurance and activities (2026-10-14, #18)
+- **Programmes** (checked 2026-10-14 in Travelpayouts, website Project 585209, already
+  connected, no application needed): **eSIM = Yesim** (`https://yesim.tech`, 18 %, 90-day
+  cookie, web and app purchases tracked; Airalo pays 12 % and tracks mobile web only, while most
+  eSIMs are bought in the app); **activities = Tiqets** (`https://tiqets.com`, 3.5–8 %, 30 days,
+  strong on European museums and attractions; Klook is Asia-focused); **insurance = none**: EKTA,
+  the only connected insurance programme, stopped bookings on 2026-10-08 and is disabled on
+  2026-10-14, and the alternatives Travelpayouts suggests (VisitorsCoverage, Insubuy) are for the
+  US market. The insurance block ships unconfigured.
+- **Configuration, never code:** `affiliate.programmes` in config.yaml maps each block programme
+  (`esim`, `insurance`, `activities`: `config.PROGRAMMES`, the only names in code, since each is a
+  component with its own copy) to `ProgrammeConfig`: `brand` (named in the copy), `url` (the
+  brand's own https page; a `marker=` URL is refused at load, D19) and optional `destinations`
+  (city code → a deeper page on the brand's site, for an itinerary of that city; empty today: the
+  partner links API converts any page of a connected brand, but no city page was chosen, and
+  guessing Tiqets' city URLs, which carry ids, would be inventing them). `null` = not configured.
+  Connecting insurance later is a config change only: brand + url, and the next run's
+  fingerprint (config.yaml is in it) takes the full path.
+- **Which articles get links:** the MDX front matter lists the blocks the body uses,
+  `affiliates: [esim, activities]` (zod enum in `content.ts`; the spec's "affiliate blocks" field
+  of the itinerary template). The pipeline reads only that front matter (`articles.py`, YAML,
+  `published` = the D33 gate: `reviewed: true`, test-only entries only for fixture data) and
+  never parses the body: a body block whose programme the front matter does not list **fails the
+  build** (`affiliateBlock` throws), so the two can't silently disagree in the direction that
+  loses a link. Listed but unused costs one stored link, nothing else. Drafts get no link (the
+  site never builds them; in the dev server their blocks render nothing and warn).
+- **Links:** `pipeline.article_links` creates one per (programme, article) through
+  `PartnerLinksClient` for the **website** Project (falls back like D19), url = the programme's
+  page for the article, **sub_id per article** (`roteiro-<slug>`, `dica-<slug>`: the dashboard
+  shows what each article earns; the brand already tells the programmes apart). Stored in meta
+  `site.article_links` (Project → `<programme>:<collection>/<slug>` → target, url, error), like
+  D25's `site.links`: CI keeps no files, and `partner_links` is keyed by observation (with a
+  foreign key and a 30-day prune), which an article is not. Not pruned (a handful per article).
+  Each link remembers the page it was made for, so a new page in config gets a new link.
+  **One API request per article**: `PartnerLinksClient.create` keys results by url, so two
+  articles' links for the same brand page can't share a request (their sub_ids differ); an
+  article's own programmes are different brands. No per-run budget like D24's low prices: links
+  are created once, for hand-written articles (tens, not thousands). A failure is stored with its
+  reason, left out of the export and retried on the next export (`create=False` reads only, as
+  in the fingerprint's `site_data_digest`). `_partner_links` now delegates to the shared
+  `_tracked_links(ctx, channel, [(url, sub_id)])`.
+- **Contract:** new file `affiliates.json` (additive in v1, like D31's pontes:
+  `meta.files.affiliates` optional, the loader defaults to no programmes and no links):
+  `disclosure` (`presentation.BLOCK_DISCLOSURE`, "Publicidade: esta ligação é um link de
+  afiliado. Se comprares através dela, podemos receber uma comissão, sem custo extra para ti.":
+  the site's disclosure speaks of booking buttons, a block is not one), `programmes` (all three,
+  `{brand}` or null) and `links` (`{article, programme, url}`, sorted). No prices; nothing
+  per-run, so `shown_digest` (the full path's fingerprint) covers it unchanged. Fixture data links
+  each test-only and reviewed article to `https://example.com/parceiro/<sub_id>` without reading
+  stored links. The committed fixtures got `affiliates.json` and `meta.files.affiliates` **by
+  hand** (D36's reason: regenerating would move every pinned value); `test_affiliate_blocks.py`
+  checks the committed file equals what `build_export(fixture=True)` writes for the repo's config
+  and fixture content.
+- **Site:** `<EsimBlock />`, `<InsuranceBlock />`, `<ActivitiesBlock />` (thin wrappers of
+  `AffiliateBlock.astro`), passed by the itinerary and tip pages to `<Content components>`
+  (`src/components/mdx-components.ts`), so authors write the tag without an import. MDX gives a
+  component no way to know its article, so the page sets `Astro.locals.article` (`{key,
+  affiliates}`; Astro shares one `locals` object across a page's render) before rendering the
+  body; a block outside an article fails the build. `src/lib/affiliates.ts` `affiliateBlock`
+  decides: programme not configured or no link yet → no block and a `console.warn` in the build
+  log (`[affiliates] itineraries/x: insurance block not shown: no programme configured …`);
+  otherwise the pt-PT copy (`BLOCK_COPY`, brand from the contract; feminine article, "da Yesim",
+  "na Tiqets", as brands are in pt-PT), the link as given (https checked), `rel="sponsored
+  nofollow noopener"`, `target="_blank"`, and the disclosure, always in the same `<aside
+  data-affiliate>` (tokens only). The test itinerary uses all three blocks; the fixture build
+  shows eSIM and activities and no insurance, with the warning (the build log is now handed to
+  the tests); the configured build gives insurance a fake brand and link and shows it.
+- **Astro content cache:** `node_modules/.astro/data-store.json` is invalidated only when the text
+  of `src/content.config.ts` changes, not `src/lib/content.ts` (found here: entries cached before
+  `affiliates` existed came back without it). `content.config.ts` now carries a schema line that
+  a front matter change bumps (CLAUDE.md).
+- **Not done here:** an insurance programme (none usable for Portuguese residents yet); city
+  pages in `destinations` (Miguel can add them, after checking the brand's URL); block usages in
+  real articles: there is no itinerary draft in `web/src/content/itineraries/` yet (#19 writes
+  them, with the blocks where they fit).

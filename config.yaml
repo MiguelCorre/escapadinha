@@ -117,6 +117,19 @@ affiliate:
     instagram: 584711         # https://www.instagram.com/ondestaanocas/
     website: 585209           # https://pontonomada.pt (project "Pontonomada", 2026-10-13)
   shorten: true
+  # Affiliate blocks in itineraries and tips (D37): programme -> the brand the block names and the
+  # page the partner links API turns into a tracked link (website Project, sub_id per article).
+  # Only programmes the website Project is connected to in Travelpayouts. null: not configured (the
+  # block renders nothing and the site build warns). Optional `destinations: {PAR: <https page>}`
+  # gives an itinerary of that city a deeper page on the brand's site.
+  programmes:
+    esim:                     # Yesim: 18 %, 90-day cookie, web + app tracked (2026-10-14, #18)
+      brand: Yesim
+      url: https://yesim.tech
+    activities:               # Tiqets: museums and attractions in Europe, web + app (2026-10-14)
+      brand: Tiqets
+      url: https://tiqets.com
+    insurance: null           # none usable: EKTA closed (2026-10-14); waiting for one for PT residents
 
 # Public website (static, rebuilt every run, deployed to Cloudflare Pages when it changed).
 # Domain switch: docs/runbooks/brand-switch.md (DECISIONS D19).

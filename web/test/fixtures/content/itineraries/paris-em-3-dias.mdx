@@ -1,5 +1,6 @@
 ---
 # Test-only content (D33): built only from fixture data, never deployed. Not a real itinerary.
+# Uses the three affiliate blocks (D37); the fixtures connect eSIM and activities, not insurance.
 title: Paris em 3 dias (roteiro de teste)
 description: Roteiro de teste para as páginas do site. Não é conteúdo publicado.
 destination: PAR
@@ -9,11 +10,14 @@ last_checked: 2026-10-14
 sources:
   - title: Fonte de teste (exemplo)
     url: https://example.com/fonte-oficial
+affiliates: [esim, insurance, activities]
 reviewed: true
 fixture: true
 ---
 
 Este roteiro existe só para testar o site: é construído a partir dos dados de teste e nunca é publicado.
+
+<EsimBlock />
 
 ## Dia 1
 
@@ -22,6 +26,10 @@ Chegada e um primeiro passeio a pé pelo centro.
 ## Dia 2
 
 Um museu de manhã e um jardim à tarde.
+
+<ActivitiesBlock />
+
+<InsuranceBlock />
 
 ## Dia 3
 

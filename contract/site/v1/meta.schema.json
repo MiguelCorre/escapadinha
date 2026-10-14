@@ -59,6 +59,7 @@
         "promotions": {"const": "promotions.json"},
         "labels": {"const": "labels.json"},
         "pontes": {"const": "pontes.json", "description": "Added in v1 (D31); absent in older exports."},
+        "affiliates": {"const": "affiliates.json", "description": "Added in v1 (D37); absent in older exports."},
         "low_prices": {
           "type": "object",
           "description": "Origin airport -> its low-price file (one per origin, loaded lazily by the explorer).",

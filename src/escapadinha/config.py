@@ -306,6 +306,49 @@ Channel = Literal["instagram", "website"]
 CHANNELS: tuple[str, ...] = ("instagram", "website")
 
 
+# The affiliate blocks content authors can place in itineraries and tips (D37). Which brand
+# each one links to is config (`affiliate.programmes`), never code.
+Programme = Literal["esim", "insurance", "activities"]
+PROGRAMMES: tuple[str, ...] = ("esim", "insurance", "activities")
+
+
+class ProgrammeConfig(BaseModel):
+    """A Travelpayouts programme the website Project is connected to (D37): the brand named in
+    the block and the brand page the partner links API turns into a tracked link."""
+    brand: str = Field(min_length=1)
+    url: str                                   # the brand's site, e.g. https://yesim.tech
+    # Optional deeper page per destination city code (an itinerary's `destination`), e.g. the
+    # brand's landing page for that city; the brand's site otherwise.
+    destinations: dict[str, str] = {}
+
+    @field_validator("url")
+    @classmethod
+    def _https(cls, v: str) -> str:
+        return _brand_url(v)
+
+    @field_validator("destinations")
+    @classmethod
+    def _pages(cls, v: dict[str, str]) -> dict[str, str]:
+        for code, url in v.items():
+            if not (len(code) == 3 and code.isalpha() and code.isupper()):
+                raise ValueError(f"destination {code!r} must be a city code such as PAR")
+            _brand_url(url)
+        return v
+
+    def target(self, destination: str | None) -> str:
+        """The brand page an article about `destination` links to."""
+        return self.destinations.get(destination or "", self.url)
+
+
+def _brand_url(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.netloc or any(c.isspace() for c in url):
+        raise ValueError(f"must be an https URL: {url!r}")
+    if "marker" in parse_qs(parts.query):
+        raise ValueError(f"must be the brand's own page, never a hand-built marker= link: {url!r}")
+    return url
+
+
 class AffiliateConfig(BaseModel):
     """Travelpayouts Projects ("trs"), one per traffic source, each subscribed to Aviasales.
 
@@ -315,6 +358,24 @@ class AffiliateConfig(BaseModel):
     project_id: int | None = None              # legacy single Project (treated as Instagram)
     projects: dict[str, int | None] = {}       # {instagram: 584711, website: null}
     shorten: bool = True
+    # Affiliate blocks (D37): programme -> brand and page; null or absent = not configured (the
+    # block renders nothing and the site build warns).
+    programmes: dict[str, ProgrammeConfig | None] = {}
+
+    @field_validator("programmes")
+    @classmethod
+    def _known_programmes(cls, v: dict) -> dict:
+        unknown = sorted(set(v) - set(PROGRAMMES))
+        if unknown:
+            raise ValueError(f"affiliate.programmes: unknown programme(s) {unknown}, "
+                             f"use {list(PROGRAMMES)}")
+        return v
+
+    def programme(self, name: str) -> ProgrammeConfig | None:
+        """A block's programme, or None while it is not configured."""
+        if name not in PROGRAMMES:
+            raise ValueError(f"unknown programme {name!r}")
+        return self.programmes.get(name)
 
     @field_validator("projects")
     @classmethod

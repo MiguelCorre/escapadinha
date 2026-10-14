@@ -8,6 +8,7 @@ import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import ContentArticle from "../../components/ContentArticle.astro";
+import { MDX_COMPONENTS } from "../../components/mdx-components";
 import { itineraries } from "../../collections";
 import { BRAND } from "../../lib/brand";
 import { contentPath } from "../../lib/content";
@@ -21,6 +22,8 @@ export const getStaticPaths = (async () => {
 const { entry } = Astro.props;
 const it = entry.data;
 const { Content } = await render(entry);
+// The affiliate blocks in the body find their links by the article (D37).
+Astro.locals.article = { key: `itineraries/${entry.id}`, affiliates: it.affiliates };
 const hub = data.destinations.destinations.find((d) => d.code === it.destination);
 const path = contentPath("itineraries", entry.id);
 // Article (D34): by Ponto Nómada, modified when its facts were last checked; none for a draft.
@@ -48,7 +51,7 @@ const article = it.reviewed
         <div><dt class="label text-muted">Voos</dt><dd><a href={hub.path}>Como chegar a {hub.city} desde Portugal</a></dd></div>
       )}
     </dl>
-    <Content />
+    <Content components={MDX_COMPONENTS} />
   </ContentArticle>
   <p class="mt-2xl"><a href="/roteiros/">Todos os roteiros</a></p>
 </Base>
