@@ -131,6 +131,7 @@ function card(d) {
     actions = `<input data-note="${d.id}" placeholder="Link do post no Instagram (opcional)" aria-label="Link do post">`
       + btn("check", "Verificar preço agora") + btn("published", "Marcar como publicado", "primary") + btn("reject", "Rejeitar", "danger");
   }
+  if (d.whatsapp_text) actions += btn("copy-whatsapp", "Copiar texto do WhatsApp");
   if (d.caption) actions += btn("copy-caption", "Copiar legenda");
   if (d.affiliate_url) actions += btn("copy-link", "Copiar link");
 
@@ -153,6 +154,7 @@ function card(d) {
         ${row("Publicado", d.published_at ? esc(d.published_at) + (d.post_url ? ` · <a href="${esc(d.post_url)}" target="_blank" rel="noopener">ver post</a>` : "") : "")}
         ${row("Pasta", d.output_path ? `<code>${esc(d.output_path)}</code>` : "")}
       </dl>
+      ${d.whatsapp_text ? `<details><summary>Texto para o WhatsApp</summary><pre class="caption">${esc(d.whatsapp_text)}</pre></details>` : ""}
       ${d.caption ? `<details><summary>Legenda</summary><pre class="caption">${esc(d.caption)}</pre></details>` : ""}
       <div class="actions">${actions}</div>
     </div>
@@ -172,6 +174,7 @@ async function load() {
 
 async function act(action, id, button) {
   const d = current.find(x => x.id === id);
+  if (action === "copy-whatsapp") { await navigator.clipboard.writeText(d.whatsapp_text); return say(id, "ok", "Texto do WhatsApp copiado."); }
   if (action === "copy-caption") { await navigator.clipboard.writeText(d.caption); return say(id, "ok", "Legenda copiada."); }
   if (action === "copy-link") { await navigator.clipboard.writeText(d.affiliate_url); return say(id, "ok", "Link copiado."); }
   const input = document.querySelector(`[data-note="${id}"]`);

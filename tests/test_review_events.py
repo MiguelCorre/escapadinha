@@ -10,6 +10,7 @@ import pytest
 import respx
 
 from escapadinha import pipeline
+from escapadinha.presentation import DISCLOSURE
 from escapadinha.review import ReviewError
 from escapadinha.storage import db
 from test_pipeline import ctx, mock_api, mock_links  # noqa: F401
@@ -318,6 +319,11 @@ def test_snapshot_follows_a_deal_from_queue_to_published(remote):
     assert snap["queue"] == [] and snap["pending_events"] == []
     [d] = snap["approved"]
     assert d["page_url"] == f"{base}/promos/{deal_id}-lisboa-londres/"
+    # Approved: the WhatsApp text to paste, with the deal's stored partner link (D32).
+    deal = db.get_deal(conn, deal_id)[0]
+    assert d["whatsapp_text"].startswith("✈️ Lisboa → Londres desde 58 € ida e volta")
+    assert f"👉 {deal.affiliate_url}" in d["whatsapp_text"]
+    assert DISCLOSURE in d["whatsapp_text"]
     assert [s["url"] for s in d["slides"]] == [f"{base}/img/promos/{deal_id}/slide_0{n}.webp"
                                                for n in (1, 2, 3)]
     [o] = snap["recent_outcomes"]
@@ -329,6 +335,7 @@ def test_snapshot_follows_a_deal_from_queue_to_published(remote):
     validate("snapshot", snap)
     [d] = snap["published"]
     assert d["post_url"] == "https://www.instagram.com/p/x/" and d["published_at"]
+    assert DISCLOSURE in d["whatsapp_text"]
     assert store.list("review/slides/") == []          # no longer reviewable: store copies go
 
 

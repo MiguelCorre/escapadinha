@@ -1,0 +1,11 @@
+✈️ {{ v.origin_city }} → {{ v.destination_headline }} desde {{ v.price }} ida e volta
+📅 {{ v.dates }} · {{ v.nights }}
+{% for line in detail_lines %}
+{{ line }}
+{% endfor %}
+
+{% if v.found_on %}Preço por pessoa encontrado a {{ v.found_on }} e verificado a {{ v.checked_at }} (hora de Lisboa).{% else %}Preço por pessoa verificado a {{ v.checked_at }} (hora de Lisboa).{% endif %} Os preços mudam depressa.
+
+👉 {{ v.affiliate_url }}
+
+{{ v.disclosure }}

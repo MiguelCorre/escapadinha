@@ -1,4 +1,4 @@
--- Schema version 8 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 10 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -116,3 +116,26 @@ CREATE TABLE IF NOT EXISTS partner_links (
     created_at     TEXT NOT NULL,                -- UTC, last attempt
     PRIMARY KEY (observation_id, project_id)
 );
+
+-- Posting queue (D32): one row per approved promotion and channel. Instagram rows are due at a
+-- daily slot (Lisbon time), Telegram rows at the approval. A run publishes due rows after
+-- re-verifying the promotion; an expired or rejected promotion cancels its rows.
+CREATE TABLE IF NOT EXISTS posting_queue (
+    id         INTEGER PRIMARY KEY,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id),
+    channel    TEXT    NOT NULL CHECK (channel IN ('instagram', 'telegram')),
+    due_at     TEXT    NOT NULL,             -- UTC
+    status     TEXT    NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'published', 'cancelled')),
+    created_at TEXT    NOT NULL,
+    event_id   TEXT,                         -- the approve event that queued it
+    attempts   INTEGER NOT NULL DEFAULT 0,   -- publisher errors so far
+    last_error TEXT,                         -- last publisher error, or why it waits (pt-PT)
+    publisher  TEXT,                         -- who published it: 'dry-run', 'instagram', ...
+    result_url TEXT,                         -- the post's URL, when the publisher has one
+    reason     TEXT,                         -- why it was cancelled (pt-PT)
+    settled_at TEXT,                         -- published / cancelled at
+    UNIQUE (deal_id, channel)
+);
+
+CREATE INDEX IF NOT EXISTS ix_posting_due ON posting_queue (status, due_at);

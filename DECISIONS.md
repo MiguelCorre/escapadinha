@@ -646,7 +646,7 @@ so nothing has to be hosted.
   every run (fast or full): `queue` (new/rendered), `approved`, `published` and `closed` (latest 20
   each), every deal with price (number and pt-PT text), dates, nights, airline, arrival airport,
   discount, typical low, found/fetched/detected times, affiliate link, caption, `whatsapp_text`
-  (null until generated), `page_url`, `slides` and `live_check` (last recheck, expired reason, the
+  (null until generated; filled since D32), `page_url`, `slides` and `live_check` (last recheck, expired reason, the
   exact provider `query` and the route `rules` + freshness window, so the Function's check is the
   pipeline's rule); plus `pending_events` (not yet in this database) and `recent_outcomes`.
 - **Slides:** "slide URLs on the public site" only exist for deals the site shows
@@ -957,3 +957,63 @@ so nothing has to be hosted.
   secrets `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, Contents read/write) and
   `TRAVELPAYOUTS_TOKEN`, R2 binding `STORE`. Preview deployments sit behind a separate Access app.
 - **Verification on the phone** is a manual step for Miguel: `docs/runbooks/review-phone.md`.
+
+## D32: Posting queue with daily slots, dry-run publisher, WhatsApp text (2026-10-14, #20)
+- **Why:** after approval a promotion should reach Instagram, Telegram and WhatsApp without Miguel
+  posting by hand, but never as a burst ("the feed never looks like a bot", story 54) and never
+  once it expired (story 55). The real publishers come later (Instagram #24, Telegram #21); this
+  ticket ships the queue, the publish step and a dry-run publisher.
+- **Table** `posting_queue` (schema v10, migration 10 + `schema.sql`): one row per promotion and
+  channel (`UNIQUE (deal_id, channel)`), `channel` `instagram` | `telegram`, `due_at` (UTC),
+  `status` `queued` | `published` | `cancelled`, `event_id` of the approval, `attempts` and
+  `last_error` (publisher errors, or why a due post waits), `publisher` (`dry-run`, later
+  `instagram`/`telegram`), `result_url`, `reason` (pt-PT, why cancelled), `settled_at`.
+  Published and cancelled are final.
+- **Enqueue = applying an approval.** `review_events.apply_pending` takes `plan_posts` (passed in
+  by `pipeline.apply_review_events`); when an `approve` event is applied, its posts are written by
+  `db.settle_review_event` in the same transaction as the status change and the outcome, so an
+  approval is never applied without its posts (and a re-applied event, D26, queues nothing twice).
+  Approvals made before v10 queue nothing: those were posted by hand.
+- **Slots** (`posting.next_slot`, pure, `now` passed in): Instagram gets the first daily slot at
+  or after the application time that no queued/published Instagram post holds, on a Lisbon day
+  with fewer than `max_per_day` such posts (a cancelled post frees its slot). Config
+  `posting.instagram_slots` (default `09:00`, `13:00`, `19:00`, Lisbon time) and
+  `posting.max_per_day` (3). "Today" is the Lisbon date; slots are converted with `zoneinfo`, so
+  09:00 is 08:00 UTC in summer and 09:00 UTC in winter. A slot inside the clock change hour reads
+  with `fold=0`: one skipped in March is taken with the winter offset (01:30 → 02:30 summer
+  time), a repeated one in October is the first. Tests cover both last Sundays and the
+  Lisbon-vs-UTC midnight. Telegram is due at the application time ("immediately").
+- **Publish step** (`pipeline.run_publish`, CLI `publish_due`): **every run, after `detect` and
+  before `run_path.decide`**, so posting never waits for a full path (an approval takes the full
+  path anyway, D26; a 13:00 slot usually comes on a fast run). It sits after the recheck so the
+  promotion's status is this run's: for every queued post, `posting.verdict` cancels it when the
+  promotion expired ("A promoção expirou: <reason>."), was rejected, or (Instagram only) was
+  already marked published by hand, whether or not it is due; a due post goes out only if the
+  price was verified (last recheck, else the approval's live check) within
+  `posting.max_check_age_hours` (6), otherwise it waits with the reason (e.g. this run's
+  collection had no prices for the route). At most one Instagram post per run, so a backlog
+  after failed runs goes out two hours apart. A run whose collection failed exits before this
+  step: nothing is posted without a recheck.
+- **Publishers** are pluggable (`posting.Publisher`: `name`, `publish(Message) -> Published(url)`,
+  raises on failure). `Message` carries the post, deal, observation, headline, price, the text
+  (Instagram: the caption from `deal_caption_text`; Telegram: the WhatsApp text) and the stored
+  partner link. Config `posting.publishers` maps each channel to a name; only `dry-run` exists:
+  it logs what would be posted (channel, deal, headline, price, slot in Lisbon time, full text)
+  and makes no request; the post is settled `published` with `publisher = 'dry-run'` and no URL.
+  A publisher error keeps the post queued (attempt +1, error in `last_error`);
+  `posting.max_attempts` (5) errors cancel it. Nothing here changes a review status (D26): a real
+  publisher that should mark the promotion published writes a `published` event (#24 decides).
+- **WhatsApp text** (`captions.whatsapp_text`, template `captions/templates/whatsapp.txt.j2`):
+  shorter than the caption, no hashtags, no discount claim; headline (a remote arrival airport in
+  it), price, dates and nights, airline, arrival airport, "encontrado a <found date> e verificado
+  a <fetched at> (hora de Lisboa)", the promotion's stored partner link (`deals.affiliate_url`,
+  the Instagram Project, D19; WhatsApp has no Project of its own yet) and `presentation.DISCLOSURE`.
+  Only for approved and published promotions with a link (`pipeline.whatsapp_for`). The review
+  snapshot fills the existing `whatsapp_text` field (description updated, no shape change); the
+  phone page already shows it with a copy button (D29) and the local review page now does too.
+  The traceability test checks its prices like a caption's.
+- **CLI:** `escapadinha queue list` (queued posts, Lisbon time, why a due one waits; `--all` adds
+  published and cancelled ones with publisher or reason).
+- **Rejected:** enqueueing in a separate step after the applier (an approval could be applied
+  without its posts if the run died in between); posting several Instagram slots in one run;
+  cancelling a post whose price was not re-verified (it waits for a run that verifies it).

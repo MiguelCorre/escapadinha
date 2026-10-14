@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from escapadinha import i18n_pt as pt
-from escapadinha.captions import deal_caption, guide_caption
+from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
 from escapadinha.guides import Guide
 from escapadinha.models import Deal, Observation, Photo
 from escapadinha.presentation import DISCLOSURE, PhotoCredit, build_deal_view
@@ -134,6 +134,52 @@ def test_caption_has_no_runs_of_blank_lines_and_has_hashtags():
     text = caption()
     assert "\n\n\n" not in text
     assert text.rstrip().splitlines()[-1].startswith("#amesterdao #lisboa")
+
+
+# --- WhatsApp text (D32) -----------------------------------------------------------
+
+LINK = "https://aviasales.tpo.lu/deal-11"
+
+
+def linked_deal(**kw):
+    from dataclasses import replace
+    return replace(deal(**kw), affiliate_url=LINK)
+
+
+def test_whatsapp_text_is_short_pt_pt_with_link_disclosure_and_both_dates():
+    text = whatsapp_text(view(o=observation(found_date=date(2026, 10, 9)), d=linked_deal()))
+    assert text == (
+        "✈️ Lisboa → Amesterdão desde 58 € ida e volta\n"
+        "📅 27 de novembro a 4 de dezembro · 7 noites\n"
+        "🛫 Transavia · voos diretos\n"
+        "🛬 Chegada: aeroporto Schiphol (AMS)\n"
+        "\n"
+        "Preço por pessoa encontrado a 09/10/2026 e verificado a 12/10/2026 às 10:14 "
+        "(hora de Lisboa). Os preços mudam depressa.\n"
+        "\n"
+        f"👉 {LINK}\n"
+        "\n"
+        f"{DISCLOSURE}\n")
+
+
+def test_whatsapp_text_without_a_found_date_says_only_when_it_was_checked():
+    text = whatsapp_text(view(d=linked_deal()))
+    assert "Preço por pessoa verificado a 12/10/2026 às 10:14 (hora de Lisboa)." in text
+    assert "encontrado" not in text and "#" not in text
+
+
+def test_whatsapp_text_names_a_remote_airport_in_the_headline():
+    v = build_deal_view(linked_deal(), observation(destination="PAR", destination_airport="BVA"),
+                        origin_city="Porto", destination_city="Paris",
+                        photo=PhotoCredit.from_photo(None, None))
+    text = whatsapp_text(v)
+    assert text.startswith("✈️ Porto → Paris (Beauvais) desde 58 €")
+    assert "🛬 Chegada: aeroporto Beauvais (BVA)" in text
+
+
+def test_whatsapp_text_needs_the_stored_partner_link():
+    with pytest.raises(ValueError):
+        whatsapp_text(view())
 
 
 # --- guide caption --------------------------------------------------------------

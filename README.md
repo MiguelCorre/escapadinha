@@ -4,7 +4,9 @@ Travel-deals automation for the Portuguese market (placeholder brand). It collec
 flight prices for every direct route from Lisbon, Porto, Faro, Madeira, Ponta Delgada and
 Terceira (discovered automatically) plus ~20 long-haul destinations, keeps a price history, lists low prices on the website and flags promotions well below each
 route's own historical median, and renders Instagram carousel slides (1080×1350 PNG) with
-pt-PT captions into `./output/<date>/` **for manual review. v1 does not publish anything.**
+pt-PT captions into `./output/<date>/` **for manual review.** Approved promotions go into a
+posting queue (Instagram daily slots, Telegram at once); the publishers are a dry run for now:
+they log what they would post (D32).
 
 **Integrity rule:** every price shown comes from a stored API observation (`price_observations`)
 with its source, first `fetched_at` timestamp and the day a traveller found it (`found_date`).
@@ -42,7 +44,8 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `detector.py` | Pure functions: `baseline`, `evaluate`, `low_prices`, `detect_route`, `detect` (both tiers) |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
-| `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) |
+| `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) and the WhatsApp text |
+| `posting.py` | Posting queue rules (D32): pure daily-slot allocation, re-verification verdict, publishers (dry run) |
 | `pipeline.py` | Wires the DB to each step; `cli.py` exposes them |
 | `site_data.py` | Website data contract v1: JSON export for the Astro site + fixtures (`contract/site/v1/`) |
 
@@ -85,7 +88,8 @@ uv run escapadinha render deals            # renders deals with status 'new' →
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
 uv run escapadinha export site-data        # website data contract v1 (JSON) → output/site-data/v1
-uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect, then render → export → site → deploy only if something changed → review snapshot
+uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → publish due posts, then render → export → site → deploy only if something changed → review snapshot
+uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled
 uv run escapadinha run --full              # the same, always with render → export → site build → deploy
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
 uv run escapadinha store pull              # R2 only: bucket database → data/escapadinha.db
@@ -169,6 +173,10 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 - `collector`: `months_ahead` (3 = this month + 2), currency, `requests_per_minute` (550).
   Nights come from each route's rules.
 - `photos`: `queries` (Pixabay search per destination code) and `max_per_run` (40).
+- `posting` (D32): `instagram_slots` (Lisbon time, default `09:00`, `13:00`, `19:00`),
+  `max_per_day` (3 Instagram posts per Lisbon day), `max_check_age_hours` (6: a due post waits
+  until a recheck or the approval verified the price this recently), `max_attempts` (5 publisher
+  errors cancel a post) and `publishers` per channel (`dry-run` for now).
 - `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
 - `detector`:
   - `threshold: 0.30` and `min_saving_eur: 15`: a promotion candidate needs
@@ -245,7 +253,8 @@ found/checked dates and the last recheck.
   and nothing is written: the next collection's recheck expires the deal. A deal without an
   affiliate link can't be approved.
 - **Rejeitar** (optional note) and **Marcar como publicado** (optional post URL) record the decision.
-  Publishing to Instagram is still manual.
+  Publishing to Instagram is still manual (the posting queue below runs as a dry run).
+- Approved deals show the **WhatsApp text** with a copy button (also on the phone page).
 - Approved deals keep being rechecked every 2 h. If the price moves before you post, the deal
   expires and the page tells you.
 
@@ -291,6 +300,35 @@ price, dates, discount, caption, slide links, the live-check query and last rech
 pending decisions, the latest outcomes and the review rules (`review_rules.approve_max_age_hours`,
 so a review UI can warn before an approval gets too old). Slides of deals still under review are copied to
 `review/slides/<id>/` as WebP (they aren't on the public site yet).
+
+### Posting queue (DECISIONS D32)
+
+When a run applies an approval it queues the promotion twice: **Instagram** at the next free daily
+slot (09:00, 13:00, 19:00 Lisbon time, at most 3 a day; `posting` in `config.yaml`) and
+**Telegram** at once. Every run, right after the recheck and on the fast path too, publishes the
+posts that are due:
+
+- a promotion that **expired** or was **rejected** cancels its queued posts, due or not, with the
+  reason (*cancelada: A promoção expirou: o preço subiu para 80 €.*); one you marked published by
+  hand cancels its Instagram post (Telegram still goes);
+- a due post goes out only if the price was verified (the run's recheck, else your approval's live
+  check) in the last 6 h; otherwise it waits for a run that verifies it;
+- at most one Instagram post per run, so a backlog never goes out in a burst;
+- a publisher error keeps the post queued and retries next run; after 5 errors it is cancelled.
+
+For now both channels use the **dry-run publisher**: the run log shows what would be posted
+(`[dry-run] Telegram · deal 12 · Lisboa → Londres · 58 € · agendada para ...` and the full
+text) and nothing leaves the machine. The Instagram (#24) and Telegram (#21) publishers plug in
+through `posting.publishers`.
+
+```bash
+uv run escapadinha queue list         # 2 publicações agendadas: Instagram deal 12 ... 01/12/2026 às 09:00 · agendada
+uv run escapadinha queue list --all   # also published (dry-run) and cancelled posts, with the reason
+```
+
+Every approved promotion also gets a short **WhatsApp text** (pt-PT: destination and arrival
+airport, price, dates, when the price was found and when we checked it, the affiliate link and the
+disclosure), in the review snapshot (`whatsapp_text`) and on both review pages with a copy button.
 
 ### Review on the phone: https://pontonomada.pt/review (DECISIONS D29)
 
@@ -610,7 +648,7 @@ Without the CLI: download `backups/<date>/escapadinha.db` from the R2 dashboard 
 
 `.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours (cron `17 */2 * * *`, UTC)
 on `ubuntu-latest`: lock → pull the database from R2 → daily backup → (monthly discovery) →
-collect → recheck → detect → **full path only when needed** → push → unlock.
+collect → recheck → detect → publish due posts (D32) → **full path only when needed** → push → unlock.
 
 - **Fast path, full path.** After detection the run compares a fingerprint of what the public
   outputs show with the one stored at the last full path: promotions (id, status, link), the low
@@ -746,6 +784,11 @@ uv run pytest -m "not browser"
   `web/functions/` outside the generated `tokens.css` / `tokens.ts`.
 - `test_review_function_deploy.py`: `site deploy` uploads the Function with the site, a Function
   change redeploys and takes the full path.
+- `test_posting.py`: slot allocation and the daily cap with an injected `now` (summer/winter time,
+  both clock-change Sundays, Lisbon vs UTC midnight), the upgrade from `schema_v5.sql`/`schema_v7.sql`,
+  queueing on an applied approval, the publish step (dry run, expiry/rejection cancels, waiting
+  for a recheck, publisher errors, one Instagram post per run), `queue list` and the run order.
+  The WhatsApp text is checked in `test_captions.py` and by the traceability test.
 
 ## Data sources and terms
 

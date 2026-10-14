@@ -425,8 +425,9 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
 
     from escapadinha import run_path
     calls = []
-    for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "render_deals",
-                 "export_site_data", "site_build", "site_deploy", "export_review_snapshot"):
+    for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "publish_due",
+                 "render_deals", "export_site_data", "site_build", "site_deploy",
+                 "export_review_snapshot"):
         monkeypatch.setattr(cli, name, lambda *a, _n=name, **k: calls.append(_n))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
         status="ok", n_requests=1, n_observations=1, n_new=0, errors=[]))
@@ -438,8 +439,9 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.PathDecision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
     assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
-                     "render_deals", "export_site_data", "site_build", "site_deploy",
-                     "record_full_path", "export_review_snapshot"]          # D25, D26, D27
+                     "publish_due", "render_deals", "export_site_data", "site_build",
+                     "site_deploy", "record_full_path",
+                     "export_review_snapshot"]                           # D25, D26, D27, D32
     calls.clear()
     cli._run_steps(render=False, full=True, report=[])
     assert calls[-5:] == ["export_site_data", "site_build", "site_deploy", "record_full_path",
@@ -447,7 +449,7 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     calls.clear()
     cli._run_steps(render=True, full=False, report=[])                 # fast path: no export
     assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
-                     "export_review_snapshot"]
+                     "publish_due", "export_review_snapshot"]      # posting on the fast path too
 
 
 # --- committed fixtures -----------------------------------------------------------------------

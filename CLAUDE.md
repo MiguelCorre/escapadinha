@@ -1,13 +1,14 @@
 # CLAUDE.md
 
-Travel-deals pipeline for the Portuguese market: collect → detect → render. No publishing in v1.
+Travel-deals pipeline for the Portuguese market: collect → detect → render. Approved promotions are queued for posting; the publishers are a
+dry run until #21/#24 (D32).
 See README.md for usage and DECISIONS.md for rationale and the roadmap. Vocabulary: GLOSSARY.md.
 v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in docs/agents/.
 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
-  `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`,
+  `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list`,
   `site build|preview|setup|deploy`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
@@ -85,7 +86,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `pipeline.SLIDES`, so a runner downloads only those, once), `deal_slide_names` (names only, no
   download), `deal_view` (its photo).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → upkeep → collect → recheck →
-  detect → `run_path.decide` → full path only (render → `export site-data` (D27) → site build →
+  detect → `publish_due` (D32, every run: posting never waits for a full path) →
+  `run_path.decide` → full path only (render → `export site-data` (D27) → site build →
   deploy → `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
   full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
   `run_path.fingerprint`, or a routine run won't publish it.
@@ -106,6 +108,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   approvals whose check is older than `review.approve_max_age_hours` (passed in as
   `approve_max_age`), and archives refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
   them only with a new version. Render (new → rendered) and rechecks stay pipeline-owned.
+- Posting queue (D32, `posting_queue`): only an applied approve event queues posts, in the
+  applier's transaction (`plan_posts` passed into `apply_pending`). Slot rules stay pure in
+  `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). A post goes out only from
+  `pipeline.run_publish`, after re-verification; expired/rejected promotions cancel their posts.
+  Publishers implement `posting.Publisher` and never change a review status (a real one writes a
+  `published` event). Post texts: the caption (Instagram) and `captions.whatsapp_text` (stored
+  partner link + `DISCLOSURE`), never a hand-built link.
 - Affiliate links only from `affiliate.PartnerLinksClient` (Travelpayouts API). Never build
   `marker=` URLs by hand, because Aviasales term 1.4 forbids it. Pick the Project with
   `affiliate.project_for("instagram"|"website")`; never read `project_id` directly (D19).
@@ -143,7 +152,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `docs/design/`: `design-system.md` (the visual contract) + `tokens.json`, generated from
   `renderer/tokens.py` (`tokens.write_json()`; a test fails if stale or below WCAG AA). Fonts in
   `assets/fonts/` (OFL WOFF2), logos `assets/logo-light.svg` / `logo-dark.svg`.
-- `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`
+- `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`, `whatsapp.txt.j2`
+- `src/escapadinha/posting.py`: posting queue rules (slots, verdict) + publishers (`DryRunPublisher`);
+  DB wiring in `pipeline.run_publish` / `posts`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: static site builder (`build_site`; route pages list low prices),
   `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler; stages `web/functions` via

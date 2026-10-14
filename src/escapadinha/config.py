@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import time
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -277,9 +278,51 @@ class ReviewConfig(BaseModel):
     approve_max_age_hours: float = Field(24, gt=0)
 
 
+PublisherName = Literal["dry-run"]
+
+
+class PostingConfig(BaseModel):
+    """Posting queue (D32): when approved promotions go out, and through which publisher."""
+    # Instagram daily slots, Lisbon time ("HH:MM"), and the most posts a Lisbon day gets.
+    instagram_slots: list[str] = ["09:00", "13:00", "19:00"]
+    max_per_day: int = Field(3, ge=1)
+    # A post goes out only if its promotion was rechecked (or approved) this recently;
+    # otherwise it waits for a run whose recheck covers it.
+    max_check_age_hours: float = Field(6, gt=0)
+    max_attempts: int = Field(5, ge=1)       # a publisher error this often cancels the post
+    publishers: dict[str, PublisherName] = {"instagram": "dry-run", "telegram": "dry-run"}
+
+    @field_validator("instagram_slots")
+    @classmethod
+    def _slot_times(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("posting.instagram_slots needs at least one 'HH:MM'")
+        for item in v:
+            try:
+                time.fromisoformat(item)
+            except ValueError:
+                raise ValueError(f"posting.instagram_slots: {item!r} is not 'HH:MM'") from None
+        if len(set(v)) != len(v):
+            raise ValueError("posting.instagram_slots has a repeated time")
+        return sorted(v)
+
+    @field_validator("publishers")
+    @classmethod
+    def _known_channels(cls, v: dict[str, str]) -> dict[str, str]:
+        unknown = sorted(set(v) - {"instagram", "telegram"})
+        if unknown:
+            raise ValueError(f"posting.publishers: unknown channel(s) {unknown}")
+        return {"instagram": "dry-run", "telegram": "dry-run", **v}
+
+    @property
+    def slots(self) -> list[time]:
+        return [time.fromisoformat(s) for s in self.instagram_slots]
+
+
 class AppConfig(BaseModel):
     brand: Brand = Brand()
     review: ReviewConfig = ReviewConfig()
+    posting: PostingConfig = PostingConfig()
     collector: CollectorConfig = CollectorConfig()
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()

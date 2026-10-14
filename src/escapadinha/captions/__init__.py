@@ -45,6 +45,16 @@ def deal_caption(view: DealView, *, brand_name: str) -> str:
                                  hashtags=deal_hashtags(view, brand_name)))
 
 
+def whatsapp_text(view: DealView) -> str:
+    """Ready-to-paste WhatsApp text for an approved promotion (D32): shorter than the caption,
+    no hashtags, with the stored partner link and the disclosure. Raises ValueError without a
+    link (the text is the link's carrier; there is never a hand-built one)."""
+    if not view.affiliate_url:
+        raise ValueError(f"deal {view.deal_id} has no partner link")
+    lines = [line for line in _detail_lines(view) if not line.startswith("📉")]
+    return _tidy(_env.get_template("whatsapp.txt.j2").render(v=view, detail_lines=lines))
+
+
 def guide_caption(guide: Guide, photo: PhotoCredit) -> str:
     template = _env.get_template("guide.txt.j2")
     return _tidy(template.render(g=guide, photo=photo, disclosure=DISCLOSURE))

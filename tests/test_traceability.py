@@ -104,6 +104,9 @@ def all_captions(ctx: Context, conn) -> list[tuple[str, str, Refs]]:
         view, _ = pipeline.deal_view(ctx, conn, deal, obs)
         out.append((f"deal {deal.id} caption", pipeline.deal_caption_text(ctx, view),
                     Refs(deals={deal.id})))
+        whatsapp = pipeline.deal_whatsapp_text(ctx, conn, deal, obs)
+        if whatsapp is not None:
+            out.append((f"deal {deal.id} WhatsApp text", whatsapp, Refs(deals={deal.id})))
     for path in sorted(ctx.guides_dir.glob("*.yaml")):
         guide = load_guide(ctx.guides_dir, path.stem)
         out.append((f"guide {path.stem} caption",
@@ -260,5 +263,8 @@ def test_captions_reference_only_their_own_deal(built):
     captions = {name: (text, refs) for name, text, refs in all_captions(ctx, conn)}
     text, refs = captions[f"deal {scenario.live_deal} caption"]
     assert "60 €" in text and untraceable(ctx, conn, text, refs) == []
+    whatsapp, refs = captions[f"deal {scenario.live_deal} WhatsApp text"]
+    assert "60 €" in whatsapp and untraceable(ctx, conn, whatsapp, refs) == []
+    assert f"deal {scenario.new_deal} WhatsApp text" not in captions      # not approved
     other = Refs(deals={scenario.new_deal})
     assert untraceable(ctx, conn, text, other) == ["60 €"]

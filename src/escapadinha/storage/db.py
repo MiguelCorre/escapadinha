@@ -9,9 +9,9 @@ from datetime import date, datetime, timezone
 from importlib.resources import files
 from pathlib import Path
 
-from escapadinha.models import Deal, Observation, Photo
+from escapadinha.models import Deal, Observation, Photo, Post
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -23,6 +23,24 @@ PARTNER_LINKS_TABLE = """CREATE TABLE IF NOT EXISTS partner_links (
     error          TEXT,
     created_at     TEXT NOT NULL,                -- UTC, last attempt
     PRIMARY KEY (observation_id, project_id)
+)"""
+
+POSTING_QUEUE_TABLE = """CREATE TABLE IF NOT EXISTS posting_queue (
+    id         INTEGER PRIMARY KEY,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id),
+    channel    TEXT    NOT NULL CHECK (channel IN ('instagram', 'telegram')),
+    due_at     TEXT    NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'published', 'cancelled')),
+    created_at TEXT    NOT NULL,
+    event_id   TEXT,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    publisher  TEXT,
+    result_url TEXT,
+    reason     TEXT,
+    settled_at TEXT,
+    UNIQUE (deal_id, channel)
 )"""
 
 ROUTES_TABLE = """CREATE TABLE IF NOT EXISTS routes (
@@ -79,6 +97,9 @@ MIGRATIONS = {
         "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"],
     # Two publication tiers: cached partner links for low prices on route pages.
     9: [PARTNER_LINKS_TABLE],
+    # Posting queue (D32): Instagram slots and Telegram posts queued by approvals.
+    10: [POSTING_QUEUE_TABLE,
+         "CREATE INDEX IF NOT EXISTS ix_posting_due ON posting_queue (status, due_at)"],
 }
 
 
@@ -394,12 +415,19 @@ REVIEW_EVENT_KEY = "review_event:"   # meta key prefix: outcome of each applied 
 def settle_review_event(conn: sqlite3.Connection, event_id: str, outcome: dict, *,
                         deal_id: int | None = None, status: str | None = None,
                         note: str | None = None, post_url: str | None = None,
-                        at: datetime | None = None) -> None:
+                        at: datetime | None = None,
+                        posts: list[tuple[str, datetime]] = ()) -> None:
     """Record a review event's outcome and, when it was applied, the deal's new status, in one
-    transaction: the database alone tells whether an event was already applied."""
+    transaction: the database alone tells whether an event was already applied. `posts`:
+    (channel, due_at) rows an applied approval queues (D32), written in the same transaction."""
     with conn:
         if status is not None:
             _review_update(conn, deal_id, status, note=note, post_url=post_url, at=at or utcnow())
+            conn.executemany(
+                """INSERT INTO posting_queue (deal_id, channel, due_at, created_at, event_id)
+                   VALUES (?, ?, ?, ?, ?) ON CONFLICT (deal_id, channel) DO NOTHING""",
+                [(deal_id, channel, _ts(due), _ts(utcnow()), event_id)
+                 for channel, due in posts])
         conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
                      (REVIEW_EVENT_KEY + event_id, json.dumps(outcome, ensure_ascii=False)))
 
@@ -442,19 +470,70 @@ def open_deals(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
 
 
 def record_recheck(conn: sqlite3.Connection, deal_id: int, *, valid: bool,
-                   latest_price: float | None, reason: str) -> None:
+                   latest_price: float | None, reason: str,
+                   at: datetime | None = None) -> None:
     conn.execute(
         """UPDATE deals SET last_checked_at = ?, last_seen_price = ?,
                status = CASE WHEN ? THEN status ELSE 'expired' END,
                expired_reason = CASE WHEN ? THEN NULL ELSE ? END
            WHERE id = ?""",
-        (_ts(utcnow()), latest_price, valid, valid, reason, deal_id))
+        (_ts(at or utcnow()), latest_price, valid, valid, reason, deal_id))
     conn.commit()
 
 
 def set_deal_status(conn: sqlite3.Connection, deal_id: int, status: str) -> None:
     conn.execute("UPDATE deals SET status = ? WHERE id = ?", (status, deal_id))
     conn.commit()
+
+
+# --- posting queue (D32) -------------------------------------------------------------
+
+def _row_to_post(row: sqlite3.Row) -> Post:
+    return Post(
+        id=row["id"], deal_id=row["deal_id"], channel=row["channel"],
+        due_at=datetime.fromisoformat(row["due_at"]), status=row["status"],
+        created_at=datetime.fromisoformat(row["created_at"]), event_id=row["event_id"],
+        attempts=row["attempts"], last_error=row["last_error"], publisher=row["publisher"],
+        result_url=row["result_url"], reason=row["reason"], settled_at=_dt(row["settled_at"]))
+
+
+def posts(conn: sqlite3.Connection, *statuses: str) -> list[Post]:
+    """Queue rows (all, or with these statuses), by due time."""
+    where = f"WHERE status IN ({','.join('?' * len(statuses))})" if statuses else ""
+    rows = conn.execute(f"SELECT * FROM posting_queue {where} ORDER BY due_at, id", statuses)
+    return [_row_to_post(r) for r in rows]
+
+
+def get_post(conn: sqlite3.Connection, post_id: int) -> Post:
+    return _row_to_post(conn.execute("SELECT * FROM posting_queue WHERE id = ?",
+                                     (post_id,)).fetchone())
+
+
+def post_due_times(conn: sqlite3.Connection, channel: str) -> list[datetime]:
+    """Due times held on `channel`: queued and published posts (a cancelled one frees its slot)."""
+    rows = conn.execute("SELECT due_at FROM posting_queue WHERE channel = ? "
+                        "AND status IN ('queued', 'published')", (channel,))
+    return [datetime.fromisoformat(r["due_at"]) for r in rows]
+
+
+def settle_post(conn: sqlite3.Connection, post_id: int, status: str, *, at: datetime,
+                publisher: str | None = None, result_url: str | None = None,
+                reason: str | None = None) -> None:
+    """A queued post published or cancelled (final)."""
+    conn.execute("""UPDATE posting_queue SET status = ?, settled_at = ?, publisher = ?,
+                    result_url = ?, reason = ? WHERE id = ? AND status = 'queued'""",
+                 (status, _ts(at), publisher, result_url, reason, post_id))
+    conn.commit()
+
+
+def post_waits(conn: sqlite3.Connection, post_id: int, why: str, *, failed: bool) -> int:
+    """A queued post stays queued: `why` it waits; a publisher error (`failed`) also counts an
+    attempt. Returns the attempts so far."""
+    conn.execute("UPDATE posting_queue SET last_error = ?, attempts = attempts + ? WHERE id = ?",
+                 (why, int(failed), post_id))
+    conn.commit()
+    return conn.execute("SELECT attempts FROM posting_queue WHERE id = ?",
+                        (post_id,)).fetchone()["attempts"]
 
 
 # --- photos -------------------------------------------------------------------

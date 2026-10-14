@@ -143,6 +143,19 @@ site:
 review:
   approve_max_age_hours: 24
 
+# Posting queue (DECISIONS D32): approving a promotion queues an Instagram post at the next free
+# daily slot (Lisbon time, at most max_per_day a day) and a Telegram post at once; every run
+# publishes the due ones right after the recheck. Publishers: dry-run (logs only) until the
+# Instagram (#24) and Telegram (#21) publishers exist.
+posting:
+  instagram_slots: ["09:00", "13:00", "19:00"]
+  max_per_day: 3
+  max_check_age_hours: 6      # not rechecked (or approved) this recently: the post waits
+  max_attempts: 5             # publisher errors before a post is cancelled
+  publishers:
+    instagram: dry-run
+    telegram: dry-run
+
 origins_pt:
   LIS: Lisboa
   OPO: Porto
