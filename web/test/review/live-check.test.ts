@@ -24,11 +24,19 @@ function payload(c: any) {
 describe("live check: shared cases with the pipeline", () => {
   it.each(CASES.cases.map((c: any) => [c.name, c]))("%s", (_, c: any) => {
     const now = new Date(c.now ?? CASES.defaults.now);
-    if (c.expected.error) {
-      expect(() => recheckPayload(target(c), payload(c), now)).toThrow(new CheckError(c.expected.error));
-      return;
-    }
     expect(recheckPayload(target(c), payload(c), now)).toEqual(c.expected);
+  });
+
+  it.each(CASES.failures.cases.map((c: any) => [c.name, c]))("provider failure: %s", async (_, c: any) => {
+    const net = new FakeNet().on(PRICES, () => {
+      if (c.network_error) throw new TypeError("network down");
+      if (c.http_status) return new Response(c.body, { status: c.http_status });
+      return Response.json(c.payload);
+    });
+    const run = liveCheck(deal(7) as any, { token: c.token ?? "tp-token", fetch: net.fetch, now: () => NOW });
+    await expect(run).rejects.toThrow(CheckError);
+    await expect(run).rejects.toThrow(c.expected);
+    if (c.token === "") expect(net.calls).toEqual([]);          // no request without a token
   });
 });
 
@@ -47,13 +55,11 @@ describe("live check request", () => {
     expect(call.url).not.toContain("tp-secret");
   });
 
-  it.each([
-    ["an HTTP error", () => new Response("Too Many Requests", { status: 429 }), "HTTP 429: Too Many Requests"],
-    ["a provider error", () => Response.json({ success: false, error: "bad token" }), "API error: bad token"],
-    ["no answer", () => { throw new TypeError("network down"); }, "network down"],
-  ])("turns %s into a pt-PT reason", async (_, route, detail) => {
-    const net = new FakeNet().on(PRICES, route as any);
-    await expect(liveCheck(deal(7) as any, { token: "t", fetch: net.fetch, now: () => NOW }))
-      .rejects.toThrow(`Não foi possível verificar o preço agora: ${detail}`);
+  it("keeps the technical detail off the message, on the error", async () => {
+    const net = new FakeNet().on(PRICES, () => Response.json({ success: false, error: "bad token" }));
+    const error = await liveCheck(deal(7) as any, { token: "t", fetch: net.fetch, now: () => NOW }).catch((e) => e);
+    expect(error).toBeInstanceOf(CheckError);
+    expect(error.message).toBe("Não foi possível verificar o preço agora: o Travelpayouts devolveu um erro.");
+    expect(error.detail).toBe("API error: bad token");
   });
 });

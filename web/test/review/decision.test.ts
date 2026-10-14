@@ -56,7 +56,8 @@ describe("approve", () => {
     w.net.on(PRICES, () => new Response("boom", { status: 502 }));
     const { res, body } = await decide(w, { type: "approve", deal_id: 7 });
     expect(res.status).toBe(502);
-    expect(body.message).toBe("Não foi possível verificar o preço agora: HTTP 502: boom");
+    expect(body.message).toBe("Não foi possível verificar o preço agora: o Travelpayouts respondeu com o erro HTTP 502.");
+    expect(body.message).not.toContain("boom");
     expect(w.store.keys(PENDING)).toEqual([]);
     expect(w.net.to(DISPATCH)).toHaveLength(0);
   });
@@ -122,15 +123,18 @@ describe("reject and published", () => {
 
 describe("dispatch", () => {
   it.each([
-    ["GitHub refuses", () => new Response('{"message":"Bad credentials"}', { status: 401 })],
-    ["GitHub is unreachable", () => { throw new TypeError("network down"); }],
-  ])("keeps the event and says so when %s", async (_, route) => {
+    ["GitHub refuses", () => new Response('{"message":"Bad credentials"}', { status: 401 }),
+      "O aviso ao GitHub falhou (o GitHub respondeu com o erro HTTP 401)"],
+    ["GitHub is unreachable", () => { throw new TypeError("network down"); },
+      "O aviso ao GitHub falhou (o GitHub não respondeu)"],
+  ])("keeps the event and says so when %s", async (_, route, reason) => {
     const w = await world();
     w.net.on(DISPATCH, route as any);
     const { res, body } = await decide(w, { type: "reject", deal_id: 7 });
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ ok: true, dispatched: false });
-    expect(body.message).toContain("a decisão ficou guardada; aplica-se no próximo run");
+    expect(body.message).toContain(`${reason}: a decisão ficou guardada; aplica-se no próximo run`);
+    expect(body.message).not.toMatch(/Bad credentials|network down/);
     expect(w.store.keys(PENDING)).toHaveLength(1);
     expect(w.net.to(DISPATCH)).toHaveLength(1);         // one attempt, no retry storm
   });

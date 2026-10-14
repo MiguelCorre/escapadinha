@@ -891,7 +891,13 @@ so nothing has to be hosted.
   reasons and `eur` text with a plain space) on the snapshot's `live_check.query` and `.rules`;
   the token goes in `X-Access-Token`. The shared cases in
   `contract/review/v1/fixtures/live-check-cases.json` run through both (`tests/
-  test_live_check_cases.py`, `web/test/review/live-check.test.ts`). Two known differences: the
+  test_live_check_cases.py`, `web/test/review/live-check.test.ts`). When the provider can't
+  answer, both sides give the same pt-PT reason without English or response text
+  (`pipeline.check_failure` / `checkFailure`, from `TravelpayoutsError.kind` / `ProviderError.kind`:
+  rate limited, HTTP error with its status, error in the payload, no answer, no token; the
+  technical text stays in the run's error or on `CheckError.detail`); the `failures` cases in the
+  same file drive a real request on each side. The Function's other messages (GitHub dispatch,
+  storing the event) are pt-PT the same way. Two known differences: the
   snapshot carries `direct`, not the deal's transfer counts, so on a route allowing N ≥ 1 stops a
   non-direct deal is assumed within the limit (it passed detection; the run's recheck uses the real
   counts and expires it otherwise); and no retries on 429/5xx (the pipeline waits up to a minute;

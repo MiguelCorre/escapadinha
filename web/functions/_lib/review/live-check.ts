@@ -10,12 +10,44 @@
 //   on a route allowing N >= 1 stops a non-direct deal is assumed within the limit (it passed
 //   detection under the route's rules; the run's own recheck uses the real counts);
 // - no retries on 429/5xx (the pipeline waits up to a minute): the reviewer just tries again.
+// A provider failure reads the same on both sides (`checkFailure` / `pipeline.check_failure`).
 import { eurPlain, numericDayMonth } from "../../../src/lib/format";
 import type { LiveCheck, Rules } from "./types";
 
 export const API_URL = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates";
 
-export class CheckError extends Error {}
+/** What failed at the provider, like the pipeline's TravelpayoutsError.kind (plus "network"). */
+export type FailureKind = "http" | "api" | "token" | "network";
+
+/** A provider answer the check can't use; the message is technical (never shown). */
+export class ProviderError extends Error {
+  constructor(message: string, readonly kind: FailureKind, readonly status: number | null = null) {
+    super(message);
+  }
+}
+
+/** The live check failed: `message` is the reviewer's pt-PT reason, `detail` the technical one. */
+export class CheckError extends Error {
+  constructor(message: string, readonly detail: string) {
+    super(message);
+  }
+}
+
+const CHECK_FAILED = "Não foi possível verificar o preço agora";
+
+/** pipeline.check_failure: the pt-PT reason for a failure, without English or response text
+ * (cases in live-check-cases.json `failures`). */
+export function checkFailure(exc: unknown): string {
+  let why = "resposta inesperada do Travelpayouts";
+  if (exc instanceof ProviderError) {
+    why = exc.kind === "http" && exc.status === 429 ? "o Travelpayouts está a limitar os pedidos. Tenta daqui a um minuto"
+      : exc.kind === "http" ? `o Travelpayouts respondeu com o erro HTTP ${exc.status}`
+      : exc.kind === "api" ? "o Travelpayouts devolveu um erro"
+      : exc.kind === "token" ? "falta o token do Travelpayouts (TRAVELPAYOUTS_TOKEN)"
+      : "o Travelpayouts não respondeu";
+  }
+  return `${CHECK_FAILED}: ${why}.`;
+}
 
 /** What the check needs from a snapshot deal. */
 export interface CheckTarget {
@@ -94,7 +126,7 @@ function foundDate(link: string | null): string | null {
 
 /** travelpayouts.parse_response: round trips within the nights range; the rest is dropped. */
 function parseResponse(payload: any, minNights: number, maxNights: number): Offer[] {
-  if (!payload?.success) throw new CheckError(`API error: ${payload?.error || "unknown"}`);
+  if (!payload?.success) throw new ProviderError(`API error: ${payload?.error || "unknown"}`, "api");
   const offers: Offer[] = [];
   for (const item of payload.data ?? []) {
     const price = item.price;
@@ -177,25 +209,26 @@ export function utcIso(date: Date): string {
 }
 
 /** pipeline.price_now: the deal's route-month priced now, judged by the recheck rule.
- * Throws CheckError ("Não foi possível verificar o preço agora: ...") when the provider fails. */
+ * Throws CheckError (pt-PT reason from `checkFailure`) when the provider fails. */
 export async function liveCheck(deal: CheckTarget, deps: { token: string; fetch: typeof fetch; now: () => Date }): Promise<LiveCheck> {
-  const params = new URLSearchParams(Object.entries(deal.live_check.query).map(([k, v]) => [k, String(v)]));
-  let payload: unknown;
   try {
-    const res = await deps.fetch(`${API_URL}?${params}`, {
-      headers: { "X-Access-Token": deps.token, Accept: "application/json" },
-    });
-    if (res.status !== 200) throw new CheckError(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    payload = await res.json();
+    if (!deps.token) throw new ProviderError("TRAVELPAYOUTS_TOKEN is not set", "token");
+    const params = new URLSearchParams(Object.entries(deal.live_check.query).map(([k, v]) => [k, String(v)]));
+    let res: Response;
+    try {
+      res = await deps.fetch(`${API_URL}?${params}`, {
+        headers: { "X-Access-Token": deps.token, Accept: "application/json" },
+      });
+    } catch (exc) {
+      throw new ProviderError((exc as Error).message || "no answer", "network");
+    }
+    if (res.status !== 200) {
+      throw new ProviderError(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`, "http", res.status);
+    }
+    const payload: unknown = await res.json();
+    const now = deps.now();
+    return { ...recheckPayload(deal, payload, now), checked_at: utcIso(now) };
   } catch (exc) {
-    throw new CheckError(`Não foi possível verificar o preço agora: ${(exc as Error).message}`);
+    throw new CheckError(checkFailure(exc), (exc as Error)?.message ?? String(exc));
   }
-  const now = deps.now();
-  let result: Recheck;
-  try {
-    result = recheckPayload(deal, payload, now);
-  } catch (exc) {
-    throw new CheckError(`Não foi possível verificar o preço agora: ${(exc as Error).message}`);
-  }
-  return { ...result, checked_at: utcIso(now) };
 }

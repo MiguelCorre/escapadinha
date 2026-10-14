@@ -6,9 +6,12 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
+import httpx
 import pytest
+import respx
 
-from escapadinha.collector.travelpayouts import TravelpayoutsError, parse_response
+from escapadinha import pipeline
+from escapadinha.collector.travelpayouts import API_URL, TravelpayoutsSource, parse_response
 from escapadinha.config import DetectorConfig
 from escapadinha.models import Observation, RouteRules
 from escapadinha.recheck import recheck
@@ -47,10 +50,26 @@ def run(case: dict):
 @pytest.mark.parametrize("case", CASES["cases"], ids=[c["name"] for c in CASES["cases"]])
 def test_pipeline_live_check_matches_the_shared_cases(case):
     expected = case["expected"]
-    if "error" in expected:
-        with pytest.raises(TravelpayoutsError, match=f"^{expected['error']}$"):
-            run(case)
-        return
     result = run(case)
     assert (result.valid, result.latest_price, result.reason) == (
         expected["valid"], expected["price_eur"], expected["reason"])
+
+
+FAILURES = CASES["failures"]["cases"]
+
+
+@pytest.mark.parametrize("case", FAILURES, ids=[c["name"] for c in FAILURES])
+@respx.mock
+def test_provider_failures_read_as_the_shared_pt_reasons(case):
+    """What pipeline.price_now / live_check raise: the source's request, then check_failure."""
+    if case.get("network_error"):
+        respx.get(API_URL).mock(side_effect=httpx.ConnectError("network down"))
+    elif "http_status" in case:
+        respx.get(API_URL).mock(return_value=httpx.Response(case["http_status"], text=case["body"]))
+    elif "payload" in case:
+        respx.get(API_URL).mock(return_value=httpx.Response(200, json=case["payload"]))
+    with pytest.raises(Exception) as exc:
+        source = TravelpayoutsSource(case.get("token", "tp-token"), currency="eur", limit=1000,
+                                     sleep=lambda _: None)
+        source.fetch("LIS", "LON", date(2026, 11, 1), min_nights=2, max_nights=10)
+    assert pipeline.check_failure(exc.value) == case["expected"]

@@ -108,11 +108,23 @@
                "rules": {"direct_only": false, "max_transfers": 0, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
       "items": [],
       "expected": {"valid": false, "price_eur": null, "reason": "tem mais de 0 escala(s) num dos sentidos (regra max_transfers)"}
-    },
-    {
-      "name": "the provider reports an error",
-      "payload": {"success": false, "error": "rate limit", "data": null},
-      "expected": {"error": "API error: rate limit"}
     }
-  ]
+  ],
+  "failures": {
+    "description": "When the provider can't price the deal, the reviewer reads a pt-PT reason without English or response text (pipeline.check_failure, live-check.ts liveCheck). Each case is one provider answer: an HTTP status (with a body), a payload, no answer at all, or no API token.",
+    "cases": [
+      {"name": "rate limited", "http_status": 429, "body": "Too Many Requests",
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts está a limitar os pedidos. Tenta daqui a um minuto."},
+      {"name": "server error", "http_status": 502, "body": "Bad gateway",
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts respondeu com o erro HTTP 502."},
+      {"name": "refused token", "http_status": 401, "body": "Unauthorized",
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts respondeu com o erro HTTP 401."},
+      {"name": "error in the payload", "payload": {"success": false, "error": "rate limit", "data": null},
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts devolveu um erro."},
+      {"name": "no answer", "network_error": true,
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts não respondeu."},
+      {"name": "no API token", "token": "",
+       "expected": "Não foi possível verificar o preço agora: falta o token do Travelpayouts (TRAVELPAYOUTS_TOKEN)."}
+    ]
+  }
 }

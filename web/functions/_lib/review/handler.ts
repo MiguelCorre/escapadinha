@@ -149,8 +149,8 @@ async function onDecision(request: Request, env: Env, deps: Deps, actor: string)
   const event = newEvent(kind, deal.id, { id: deps.uuid(), actor, now: deps.now(), note, postUrl, liveCheck: live });
   try {
     await writeEvent(env.STORE, event);
-  } catch (exc) {
-    return fail(`Não foi possível guardar a decisão: ${(exc as Error).message}. Tenta outra vez.`, 500);
+  } catch {
+    return fail("Não foi possível guardar a decisão no armazenamento (R2). Tenta outra vez.", 500);
   }
   const problem = await dispatch(event, {
     token: env.GITHUB_DISPATCH_TOKEN, repository: env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY, fetch: deps.fetch });

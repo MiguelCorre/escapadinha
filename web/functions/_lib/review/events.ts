@@ -75,11 +75,12 @@ export async function pendingEvents(store: Bucket, snapshot: Snapshot): Promise<
 }
 
 /** One repository_dispatch (`review-decision`) so the pipeline applies the event within minutes
- * (D25). Returns null when GitHub accepted it, else the reason (the event stays pending). */
+ * (D25). Returns null when GitHub accepted it, else the reason in pt-PT, without the response
+ * text (the event stays pending). */
 export async function dispatch(event: ReviewEvent, { token, repository, fetch: fetchFn }: {
   token: string; repository: string; fetch: typeof fetch;
 }): Promise<string | null> {
-  if (!token) return "GITHUB_DISPATCH_TOKEN em falta";
+  if (!token) return "falta o token do GitHub (GITHUB_DISPATCH_TOKEN)";
   try {
     const res = await fetchFn(`https://api.github.com/repos/${repository}/dispatches`, {
       method: "POST",
@@ -93,8 +94,8 @@ export async function dispatch(event: ReviewEvent, { token, repository, fetch: f
       body: JSON.stringify({ event_type: "review-decision",
         client_payload: { event_id: event.id, deal_id: event.deal_id, type: event.type } }),
     });
-    return res.status === 204 || res.ok ? null : `HTTP ${res.status}`;
-  } catch (exc) {
-    return (exc as Error).message || "sem resposta";
+    return res.status === 204 || res.ok ? null : `o GitHub respondeu com o erro HTTP ${res.status}`;
+  } catch {
+    return "o GitHub não respondeu";
   }
 }
