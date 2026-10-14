@@ -51,6 +51,22 @@ describe("loadSiteData", () => {
     expect(() => loadSiteData(dir)).toThrow(/low-prices\/OPO\.json/);
   });
 
+  it("loads the upcoming long weekends (pontes, D31), validated", () => {
+    const data = loadSiteData(FIXTURES_DIR);
+    expect(data.pontes.pontes[0].slug).toBe("1-dezembro-2026");
+    expect(data.pontes.pontes[0].window).toEqual({ start: "2026-11-27", end: "2026-12-02" });
+    const dir = fixtureCopy();
+    edit(dir, "pontes.json", (j) => { j.pontes[0].window.start = "27/11/2026"; });
+    expect(() => loadSiteData(dir)).toThrow(/pontes\.json.*\/pontes\/0\/window\/start/s);
+  });
+
+  it("reads an export from before pontes.json as one without long weekends", () => {
+    const dir = fixtureCopy();
+    edit(dir, "meta.json", (j) => { delete j.files.pontes; });
+    rmSync(join(dir, "pontes.json"));
+    expect(loadSiteData(dir).pontes.pontes).toEqual([]);
+  });
+
   it("refuses another contract version", () => {
     const dir = fixtureCopy();
     edit(dir, "meta.json", (j) => { j.version = 2; });

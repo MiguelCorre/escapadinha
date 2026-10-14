@@ -134,8 +134,9 @@ describe("traceability of prices", () => {
     }
     expect(problems).toEqual([]);
     // The checker saw the prices it guards: 2 on the home page, 6 on the live promotion (title,
-    // descriptions, price, typical low), 3 on the expired one (old price, recheck price, typical low).
-    expect(checked).toBe(11);
+    // descriptions, price, typical low), 3 on the expired one (old price, recheck price, typical low),
+    // 4 on the explorer (Lisboa's two destinations: price and typical low each, D31).
+    expect(checked).toBe(15);
   });
 
   it("the checker rejects a price without a reference, with a wrong one, or an unknown id", () => {

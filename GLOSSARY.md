@@ -23,7 +23,10 @@ Vocabulário do projeto. Só conceitos do domínio; nada de implementação.
 - **Publicação simulada** (dry run) — enquanto não há ligação ao Instagram e ao Telegram, a recolha só escreve no registo o que publicaria (canal, promoção, horário e texto) e não publica nada.
 - **Texto para o WhatsApp** — uma mensagem curta, pronta a copiar, para cada promoção aprovada: destino (com o aeroporto de chegada), preço, datas, quando o preço foi encontrado e quando o verificámos, o link de reserva e o aviso de publicidade. O Miguel copia-a no ecrã de revisão e cola-a no WhatsApp à mão.
 - **Expirada** — uma promoção cujo preço já não se confirma (subiu, desapareceu, deixou de ser direto ou está demasiado antigo). Mantém-se visível como histórico, sem botão de reserva.
-- **Explorador** — a pesquisa sobre o nosso histórico: "para onde posso ir desde X por menos de Y €", mês mais barato por rota. Mostra preços encontrados, não preços ao vivo.
+- **Explorador** — a pesquisa sobre o nosso histórico: "para onde posso ir desde X por menos de Y €", com filtros de orçamento, mês, noites, só diretos, fins de semana e pontes. Mostra cada destino pelo seu preço baixo mais barato; são preços encontrados, não preços ao vivo.
+- **Fim de semana** (no explorador) — uma viagem com ida à sexta ou ao sábado e volta no domingo ou na segunda-feira seguintes.
+- **Feriado** — um feriado nacional (Código do Trabalho, art. 234.º). A Terça-Feira de Carnaval é facultativa (art. 235.º): nem todos têm o dia livre. Os feriados municipais não contam.
+- **Ponte** — o fim de semana prolongado que um feriado dá: à segunda ou à sexta junta um dia ao fim de semana; à terça ou à quinta junta dois, tirando o dia útil do meio (a "ponte" propriamente dita). Um feriado à quarta, ao sábado ou ao domingo não dá ponte. Um preço baixo serve uma ponte quando a ida é entre a véspera do primeiro dia livre e o feriado, e a volta entre o feriado e o dia a seguir ao último dia livre.
 - **Pesquisa ao vivo** — o widget do parceiro (Aviasales) para procurar voos com preços atuais; a reserva faz-se no parceiro.
 - **Roteiro** — um plano de viagem para um destino (ex.: 3 dias em Roma), escrito por nós e revisto antes de ir ao ar.
 - **Dica** — um artigo prático e intemporal sobre viajar (bagagem, seguros, eSIM…), também revisto antes de ir ao ar.

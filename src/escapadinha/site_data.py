@@ -10,6 +10,7 @@ matches them, from the same database queries and detector rules as the Jinja sit
     destinations.json    destination hubs (city, airports, routes from Portugal, photo credit)
     promotions.json      approved deals, live and recently expired (paths, images, links)
     low-prices/XXX.json  one origin's low prices at date level, compact rows (explorer)
+    pontes.json          upcoming Portuguese long weekends (holiday calendar, D31), page paths
 
 Values are raw (ISO dates, UTC timestamps, euros as numbers); pt-PT formatting stays on
 the site, from `labels.json`. Every price sits next to what it traces to: an observation
@@ -31,18 +32,20 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from escapadinha import detector, i18n_pt, pipeline, routes
+from escapadinha import detector, i18n_pt, pipeline, pontes, routes
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation, Route
 from escapadinha.presentation import DISCLOSURE, SITE_DISCLOSURE
 from escapadinha.storage import db
 from escapadinha.website import (
-    LIVE, deal_image_paths, promo_slug, public_deal_rows, route_slug, slugify,
+    LIVE, deal_image_paths, ponte_path, promo_slug, public_deal_rows, route_slug, slugify,
 )
 
 VERSION = 1
 TOP_FILES = ("meta.json", "labels.json", "origins.json", "routes.json", "destinations.json",
-             "promotions.json")
+             "promotions.json", "pontes.json")
+HOLIDAYS_SOURCE = ("Código do Trabalho, art. 234.º (feriados obrigatórios) e art. 235.º "
+                   "(Terça-Feira de Carnaval, facultativo), na redação da Lei n.º 8/2016")
 LOW_COLS = ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops",
             "airport", "typical", "link"]
 ROW_BUDGET_BYTES = 160        # average bytes per low-price row (D27); tested
@@ -199,6 +202,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
             "rows": [_low_row(lp, low_links.get(lp.observation.id))
                      for lp in sorted(kept.get(code, []), key=_row_order)]}
     files["labels.json"] = _labels()
+    files["pontes.json"] = _pontes(ctx, now, origin_codes)
     files["meta.json"] = _meta(ctx, conn, now, run_id, fixture, origin_codes, files)
     return Export(files)
 
@@ -437,6 +441,26 @@ def _labels() -> dict:
     }
 
 
+def _pontes(ctx: Context, now: datetime, origin_codes: list[str]) -> dict:
+    """Long weekends whose travel window has not ended (Lisbon date), with one page per origin."""
+    today = now.astimezone(i18n_pt.LISBON).date()
+    items = []
+    for p in pontes.pontes(pontes.load_calendar(ctx.holidays_file)):
+        if p.end < today:
+            continue
+        h = p.holiday
+        items.append({
+            "slug": p.slug, "name": p.name,
+            "holiday": {"date": _day(h.day), "name": h.name, "optional": h.optional},
+            "days_off": {"first": _day(p.first_off), "last": _day(p.last_off)},
+            "bridge": _day(p.bridge), "window": {"start": _day(p.start), "end": _day(p.end)},
+            "origins": [{"iata": code, "path": ponte_path(p.slug, ctx.config.origin_name(code)),
+                         "title": f"{p.name} {i18n_pt.from_place(ctx.config.origin_name(code))}"}
+                        for code in origin_codes],
+        })
+    return {"version": VERSION, "source": HOLIDAYS_SOURCE, "pontes": items}
+
+
 def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | None,
           fixture: bool, origin_codes: list[str], files: dict[str, dict]) -> dict:
     det = ctx.config.detector
@@ -454,7 +478,7 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
                      "lookback_days": det.lookback_days},
         "files": {"origins": "origins.json", "routes": "routes.json",
                   "destinations": "destinations.json", "promotions": "promotions.json",
-                  "labels": "labels.json",
+                  "labels": "labels.json", "pontes": "pontes.json",
                   "low_prices": {c: f"low-prices/{c}.json" for c in origin_codes}},
         "counts": {"origins": len(origin_codes),
                    "routes": len(files["routes.json"]["routes"]),

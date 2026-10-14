@@ -160,6 +160,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler; stages `web/functions` via
   `function_files`, `deploy_hash`), `templates/`; shared with
   the export: `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`
+- `src/escapadinha/pontes.py` + `content/holidays.yaml`: Portuguese holidays 2026–2027 and their
+  long weekends (D31; pure `long_weekend`/`pontes`, exported as `pontes.json`). The ponte rule a
+  trip must fit and the weekend rule live in `web/src/lib/explorer.ts` (explorer + ponte pages)
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
   `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)

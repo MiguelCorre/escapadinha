@@ -1,0 +1,70 @@
+---
+// One page per long weekend and origin (D31), at the path pontes.json gives
+// (/pontes/<ponte>/<origem>/): the holiday, the days off and the travel window, and the origin's
+// low prices whose departure and return fit it (explorer.ts, the same rule as the explorer's
+// filter). No matching price: the page says so and stays out of search (noindex).
+import type { GetStaticPaths } from "astro";
+import data from "virtual:site-data";
+import Base from "../../../layouts/Base.astro";
+import ExplorerResults from "../../../components/ExplorerResults.astro";
+import type { Ponte } from "../../../lib/contract";
+import { BRAND } from "../../../lib/brand";
+import { NO_FILTERS, explore } from "../../../lib/explorer";
+import { placesFor } from "../../../lib/explorer-data";
+import { dateRange, dayMonth, longDate } from "../../../lib/format";
+
+export const getStaticPaths = (() =>
+  data.pontes.pontes.flatMap((ponte) => ponte.origins.map((origin) => {
+    const match = /^\/pontes\/([a-z0-9-]+)\/([a-z0-9-]+)\/$/.exec(origin.path);
+    if (!match) throw new Error(`ponte ${ponte.slug}: unexpected path ${origin.path}`);
+    return { params: { ponte: match[1], origem: match[2] }, props: { ponte, origin } };
+  }))) satisfies GetStaticPaths;
+
+interface Props {
+  ponte: Ponte;
+  origin: Ponte["origins"][number];
+}
+
+const { ponte, origin } = Astro.props;
+const rows = data.lowPrices[origin.iata]?.rows ?? [];
+const results = explore(rows, { ...NO_FILTERS, ponte: ponte.slug }, [ponte]);
+const names = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o.name]));
+const others = ponte.origins.filter((o) => o.iata !== origin.iata);
+const { start, end } = ponte.window;
+const holidayYear = ponte.holiday.date.slice(0, 4);
+---
+<Base
+  title={`${origin.title} · ${BRAND}`}
+  description={`${origin.title}: voos de ida e volta com partida a partir de ${dayMonth(start)} e regresso até ${dayMonth(end)}, abaixo do preço habitual de cada rota.`}
+  path={origin.path}
+  noindex={results.length === 0}
+>
+  <section class="max-w-measure">
+    <p class="label text-accent">Pontes e feriados</p>
+    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-none font-medium">{origin.title}</h1>
+    <p class="mt-md text-lead">{ponte.holiday.name}: {longDate(ponte.holiday.date)} de {holidayYear}.</p>
+    <p class="mt-xs text-muted">
+      Dias livres: {dateRange(ponte.days_off.first, ponte.days_off.last)}{ponte.bridge ? <>, tirando a ponte na {longDate(ponte.bridge)}</> : null}.
+      Mostramos voos com partida a partir de {dayMonth(start)} e regresso até {dayMonth(end)}.
+    </p>
+    {ponte.holiday.optional && (
+      <p class="notice notice-warning mt-md">A {ponte.holiday.name} não é feriado obrigatório (artigo 235.º do Código do Trabalho): confirma se tens o dia livre.</p>
+    )}
+  </section>
+
+  {results.length > 0 ? (
+    <ExplorerResults heading="Destinos para esta ponte" results={results} places={placesFor(data, origin.iata)} disclosure={data.labels.disclosure.site} />
+  ) : (
+    <p class="notice mt-xl max-w-measure">Ainda não há preços baixos para estas datas. Os preços são verificados várias vezes por dia: volta mais perto da ponte ou procura outras datas no <a href="/explorar/">explorador</a>.</p>
+  )}
+
+  <section class="mt-2xl max-w-measure text-small text-muted">
+    {others.length > 0 && (
+      <p data-other-origins>Esta ponte com partida de outros aeroportos:
+        {others.map((o, i) => <>{i > 0 && " · "}<a href={o.path}>{names[o.iata] ?? o.iata}</a></>)}
+      </p>
+    )}
+    <p class="mt-xs">Mais destinos, datas e filtros no <a href="/explorar/">explorador</a>.</p>
+    <p class="mt-xs">Feriados nacionais segundo o {data.pontes.source}.</p>
+  </section>
+</Base>

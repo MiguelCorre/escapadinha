@@ -14,8 +14,9 @@ const EXPIRED = "/promos/2-porto-paris/";
 const SITE_DISCLOSURE = "Publicidade: os botões de reserva são links de afiliado.";
 
 describe("built pages", () => {
-  it("are the home page and one page per promotion in the contract", () => {
-    expect(builtPages().sort()).toEqual(["/", "/404.html", EXPIRED, LIVE].sort());
+  it("are the home page, one page per promotion, the explorer and the ponte pages", () => {
+    const pontes = loadSiteData(FIXTURES_DIR).pontes.pontes.flatMap((p) => p.origins.map((o) => o.path));
+    expect(builtPages().sort()).toEqual(["/", "/404.html", EXPIRED, LIVE, "/explorar/", ...pontes].sort());
   });
 
   it("are in European Portuguese with a canonical URL on the data's base URL", () => {

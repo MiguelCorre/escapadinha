@@ -54,6 +54,16 @@ def route_slug(origin_city: str, city_pt: str) -> str:
     return f"{slugify(origin_city)}-{slugify(city_pt)}"
 
 
+def origin_slug(origin_city: str) -> str:
+    """An origin's slug in page paths ('Ponta Delgada' -> 'ponta-delgada')."""
+    return slugify(origin_city)
+
+
+def ponte_path(ponte_slug: str, origin_city: str) -> str:
+    """A long weekend's page for one origin: /pontes/1-dezembro-2026/porto/ (D31)."""
+    return f"/pontes/{ponte_slug}/{origin_slug(origin_city)}/"
+
+
 def promo_slug(deal_id: int, origin_city: str, city_pt: str) -> str:
     """A promotion page's slug: /promos/<slug>/ ('12-lisboa-londres')."""
     return f"{deal_id}-{slugify(origin_city)}-{slugify(city_pt)}"

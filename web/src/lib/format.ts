@@ -103,6 +103,21 @@ export function dateRange(start: string, end: string): string {
   return `${dayMonth(start)} a ${dayMonth(end)}`;
 }
 
+/** Monday first. */
+const WEEKDAYS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira",
+  "sábado", "domingo"];
+
+/** "2026-11-30" -> "segunda-feira, 30 de novembro". */
+export function longDate(iso: string): string {
+  return `${WEEKDAYS[parts(iso).weekday]}, ${dayMonth(iso)}`;
+}
+
+/** "2026-10" -> "outubro de 2026". */
+export function monthYear(month: string): string {
+  const [y, m] = month.split("-");
+  return `${MONTHS[Number(m) - 1]} de ${y}`;
+}
+
 /** "2026-12" or "2026-12-09" -> "dezembro". */
 export function monthName(iso: string): string {
   return MONTHS[Number(iso.split("-")[1]) - 1];

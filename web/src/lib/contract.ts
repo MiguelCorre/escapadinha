@@ -29,6 +29,7 @@ export interface Meta {
   detector: Record<string, number>;
   files: {
     origins: string; routes: string; destinations: string; promotions: string; labels: string;
+    pontes?: string;
     low_prices: Record<string, string>;
   };
   counts: Record<string, number>;
@@ -137,6 +138,23 @@ export interface LowPrices {
   truncated: number;
 }
 
+/** One upcoming long weekend (pontes.json, D31). Dates are ISO calendar dates. */
+export interface Ponte {
+  slug: string;
+  name: string;
+  holiday: { date: string; name: string; optional: boolean };
+  days_off: { first: string; last: string };
+  bridge: string | null;
+  window: { start: string; end: string };
+  origins: { iata: string; path: string; title: string }[];
+}
+
+export interface Pontes {
+  version: 1;
+  source: string;
+  pontes: Ponte[];
+}
+
 export interface SiteData {
   meta: Meta;
   labels: Labels;
@@ -145,4 +163,6 @@ export interface SiteData {
   destinations: { version: 1; destinations: Destination[] };
   promotions: { version: 1; promotions: Promotion[] };
   lowPrices: Record<string, LowPrices>;
+  /** Empty when the export predates pontes.json. */
+  pontes: Pontes;
 }
