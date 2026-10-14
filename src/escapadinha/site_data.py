@@ -30,7 +30,7 @@ import json
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from escapadinha import detector, i18n_pt, pipeline, pontes, routes
@@ -130,6 +130,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     """Every contract file as a document. Creates missing partner links when `new_links`
     (from the run's link budget, `pipeline.link_budget`, D24); writes nothing else."""
     now = now or db.utcnow()
+    today = now.astimezone(i18n_pt.LISBON).date()   # the one "today" of the export: Lisbon's
     cfg = ctx.config
     run_id = db.latest_completed_run_id(conn)
     run_offers = db.observations_seen_since(conn, run_id) if run_id else []
@@ -155,7 +156,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
                  if detector.is_fresh(o, cfg.detector, now)]
         cheapest[route.key] = min(fresh, key=lambda o: (o.price, o.departure_date, o.id),
                                   default=None)
-        calendars[route.key] = _calendar(fresh, now)
+        calendars[route.key] = _calendar(fresh, today)
         lows[route.origin] += detector.low_prices(offers, history, cfg.detector, now,
                                                   route.rules, baselines)
 
@@ -206,7 +207,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
             "rows": [_low_row(lp, low_links.get(lp.observation.id))
                      for lp in sorted(kept.get(code, []), key=_row_order)]}
     files["labels.json"] = _labels()
-    files["pontes.json"] = _pontes(ctx, now, origin_codes)
+    files["pontes.json"] = _pontes(ctx, today, origin_codes)
     files["meta.json"] = _meta(ctx, conn, now, run_id, fixture, origin_codes, files)
     return Export(files)
 
@@ -328,11 +329,12 @@ def _offer(o: Observation) -> dict:
             "found_date": _day(o.found_date), "fetched_at": db.utc_iso(o.fetched_at)}
 
 
-def _calendar(fresh: list[Observation], now: datetime) -> list[Observation]:
-    """The cheapest of `fresh` per departure date from today on, by date (ties: lower id)."""
+def _calendar(fresh: list[Observation], today: date) -> list[Observation]:
+    """The cheapest of `fresh` per departure date from `today` (Lisbon) on, by date (ties: lower
+    id)."""
     best: dict = {}
     for o in sorted(fresh, key=lambda o: (o.price, o.id)):
-        if o.departure_date >= now.date():
+        if o.departure_date >= today:
             best.setdefault(o.departure_date, o)
     return [best[d] for d in sorted(best)]
 
@@ -460,9 +462,9 @@ def _labels() -> dict:
     }
 
 
-def _pontes(ctx: Context, now: datetime, origin_codes: list[str]) -> dict:
-    """Long weekends whose travel window has not ended (Lisbon date), with one page per origin."""
-    today = now.astimezone(i18n_pt.LISBON).date()
+def _pontes(ctx: Context, today: date, origin_codes: list[str]) -> dict:
+    """Long weekends whose travel window has not ended by `today` (Lisbon), with one page per
+    origin."""
     items = []
     for p in pontes.pontes(pontes.load_calendar(ctx.holidays_file)):
         if p.end < today:

@@ -571,6 +571,27 @@ def test_route_calendar_is_the_cheapest_fresh_offer_per_departure_date(exported)
     assert route(out, "OPO-BER")["calendar"] == []
 
 
+def test_the_calendar_starts_on_the_lisbon_day_not_the_utc_day(ctx, tmp_path):  # noqa: F811
+    """One "today" for the whole export, Lisbon's: at 23:30 UTC on 1 July it is already 2 July
+    in Lisbon (summer time), so a 1 July departure has left and is not in the calendar."""
+    from dataclasses import replace
+    conn = pipeline.open_db(ctx)
+    now = datetime(2026, 7, 1, 23, 30, tzinfo=timezone.utc)
+    seen = datetime(2026, 7, 1, 20, 0, tzinfo=timezone.utc)
+
+    def at(o):
+        return replace(o, fetched_at=seen, found_date=seen.date())
+    store_run(conn, [at(offer("LIS", "LON", 70, found_ago=0, dep=date(2026, 7, 1))),
+                     at(offer("LIS", "LON", 80, found_ago=0, dep=date(2026, 7, 2)))])
+    lon = next(r for r in site_data.build_export(ctx, conn, now, new_links=False)
+               .files["routes.json"]["routes"] if r["key"] == "LIS-LON")
+    assert [c["dep"] for c in lon["calendar"]] == ["2026-07-02"]
+    before = datetime(2026, 7, 1, 22, 59, tzinfo=timezone.utc)      # 23:59 in Lisbon: still 1 July
+    lon = next(r for r in site_data.build_export(ctx, conn, before, new_links=False)
+               .files["routes.json"]["routes"] if r["key"] == "LIS-LON")
+    assert [c["dep"] for c in lon["calendar"]] == ["2026-07-01", "2026-07-02"]
+
+
 # --- pontes (D31) -----------------------------------------------------------------------------
 
 def test_pontes_are_the_upcoming_long_weekends_with_a_page_per_origin(ctx, tmp_path):  # noqa: F811

@@ -972,7 +972,8 @@ so nothing has to be hosted.
   depends on which city was discovered first (no collision in the real data on 2026-10-14: 156
   destination codes, 156 names). Route slugs are unchanged (`route_slug`).
 - **Calendar of cheapest found prices** (story 34, left open in D27): per departure date from the
-  export day on, the cheapest offer of the latest run within the route's rules and found within
+  export day on (the Lisbon date of the export's `now`, the same `today` the pontes use: at 23:30
+  UTC in summer it is already the next day in Lisbon, tested), the cheapest offer of the latest run within the route's rules and found within
   `max_offer_age_days`, i.e. the same offers as `cheapest`, broken down by day: `{dep, ret, obs,
   price}`, ascending. Only current offers, never old history, so a day's price is one a traveller
   saw in the last 3 days. `test_site_data.py` traces each day to its observation (and its
