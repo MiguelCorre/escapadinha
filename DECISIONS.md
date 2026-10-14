@@ -891,7 +891,12 @@ so nothing has to be hosted.
   `Cache-Control: no-store` (slides `private, max-age=600`). Same information and copy as the local
   page plus the WhatsApp text and caption with copy buttons, the snapshot time (warning past 3 h),
   pending decisions, recent outcomes and the 24 h approval rule from `review_rules`. pt-PT formats
-  come from `web/src/lib/format.ts`; the pt-PT lint test now scans `web/functions/` too.
+  come from `web/src/lib/format.ts`; the pt-PT lint test now scans `web/functions/` too. Colours,
+  radii and the focus ring are the design system's (`TOKENS` from the generated
+  `web/src/lib/tokens.ts`, a plain module wrangler bundles; both palettes as `--pn-*` variables):
+  square cards and buttons, inputs with a 4 px radius and an `ink` border (§2: anything a user must
+  see is `ink` or `accent`, `rule` is decorative), notices with the state colour as a left rule
+  over its tint. The web fonts aren't served to the Function, so the text stack's Georgia shows.
 - **Deploy wiring:** wrangler compiles `<cwd>/functions` during `pages deploy`, and the deploy ran
   with cwd = `site/`, so Functions were never uploaded. `website/deploy.py` now stages a temporary
   folder with `functions/` and the `web/src/lib/` modules they import (`function_files`: transitive

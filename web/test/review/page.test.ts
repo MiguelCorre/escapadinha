@@ -3,6 +3,7 @@
 import { parse, type HTMLElement } from "node-html-parser";
 import { describe, expect, it } from "vitest";
 import { handle } from "../../functions/_lib/review/handler";
+import { TOKENS } from "../../src/lib/tokens";
 import { deal, get, snapshot, world } from "./helpers";
 
 async function open(snap: Record<string, any> | null = snapshot(), setup?: (w: Awaited<ReturnType<typeof world>>) => void) {
@@ -126,6 +127,19 @@ describe("queue page", () => {
     const widths = [...css.matchAll(/(?:^|[^-])(?:min-)?width:\s*(\d+)px/g)].map((m) => Number(m[1]));
     expect(widths.every((w) => w <= 343)).toBe(true);           // 375 - 2 × 16 px gutter
     expect(css).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  it("uses the design system's tokens: both palettes, square cards, ink input borders", async () => {
+    const { html } = await open();
+    const css = html.match(/<style>([\s\S]*?)<\/style>/)![1];
+    for (const [name, value] of Object.entries(TOKENS.themes.light)) expect(css).toContain(`--pn-${name}: ${value};`);
+    const dark = css.match(/prefers-color-scheme: dark\) \{ :root \{([^}]*)\}/)![1];
+    for (const [name, value] of Object.entries(TOKENS.themes.dark)) expect(dark).toContain(`--pn-${name}: ${value};`);
+    // Every colour is a token variable; anything a user must see (input borders) is ink (§2).
+    expect(css.replace(/--pn-[\w-]+: #[0-9A-F]{6};/g, "")).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    expect(css).toMatch(/\.actions input \{[^}]*border-radius: 4px; border: 1px solid var\(--pn-ink\)/);
+    expect(css).toMatch(/\.card \{[^}]*border-radius: 0;/);
+    expect(css).toContain(`box-shadow: ${TOKENS.boxShadow.focus}`);
   });
 });
 

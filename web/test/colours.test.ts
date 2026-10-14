@@ -25,12 +25,14 @@ export function rawColours(source: string): string[] {
 
 const SCANNED = [
   ...files(resolve(WEB, "src"), /\.(astro|ts|css)$/),
+  ...files(resolve(WEB, "functions"), /\.ts$/),
 ].filter((f) => !GENERATED.has(f)).sort();
 
 describe("no raw colours outside the generated tokens", () => {
   it("scans the templates, the global stylesheet and the review Function", () => {
     expect(SCANNED).toContain("src/styles/global.css");
     expect(SCANNED).toContain("src/components/PromotionCard.astro");
+    expect(SCANNED).toContain("functions/_lib/review/page.ts");
   });
 
   it.each(SCANNED)("%s", (file) => {

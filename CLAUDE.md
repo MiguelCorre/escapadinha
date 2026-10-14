@@ -30,7 +30,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   (`web/test/traceability.test.ts`), booking buttons only via `src/lib/cta.ts` (live + link, with
   `labels.disclosure.site`), expired promotions `noindex` without a button, pt-PT formats from
   `src/lib/format.ts`, copy passes `web/test/pt-lint.test.ts`. Styles use only the generated
-  tokens (`src/styles/tokens.css`, `npm run tokens`; `tests/test_web_tokens.py` catches drift).
+  tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
+  `tests/test_web_tokens.py` catches drift); `web/test/colours.test.ts` fails on any raw hex or
+  rgb()/hsl() colour elsewhere in `web/src/` or `web/functions/`.
 - The review Function (D29, `web/functions/`, TypeScript) is a writer of pending review events
   only: it never changes a status (the applier does, D26). Every request must pass
   `access.verifyAccess` (RS256 Access JWT: signature against the team's certs, `aud` =
