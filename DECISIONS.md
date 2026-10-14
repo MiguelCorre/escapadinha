@@ -1125,10 +1125,19 @@ so nothing has to be hosted.
   ticket ships the queue, the publish step and a dry-run publisher.
 - **Table** `posting_queue` (schema v10, migration 10 + `schema.sql`): one row per promotion and
   channel (`UNIQUE (deal_id, channel)`), `channel` `instagram` | `telegram`, `due_at` (UTC),
-  `status` `queued` | `published` | `cancelled`, `event_id` of the approval, `attempts` and
+  `status` `queued` | `published` | `cancelled`, `event_id` of the approval, `checked_at` (that
+  approval's live price check, `live_check.checked_at`), `attempts` and
   `last_error` (publisher errors, or why a due post waits), `publisher` (`dry-run`, later
   `instagram`/`telegram`), `result_url`, `reason` (pt-PT, why cancelled), `settled_at`.
-  Published and cancelled are final.
+  Published and cancelled are final. `checked_at` was added to the v10 table itself (review fix):
+  v10 never reached a released database (master and the real database are v9).
+- **One list of channels:** `posting.CHANNELS` is the only place the channels are named: the
+  config's `posting.publishers` validation and default, and the planner of an approval's posts,
+  read it; the SQL `CHECK` (in `schema.sql` and migration 10) can't, so a test compares both
+  with it. What a run does with a post is typed: `posting.VerdictAction` (`publish`, `later`,
+  `wait`, `cancel`) and `posting.PostAction` (`published`, `cancelled`, `waiting`, `failed`,
+  in `pipeline.PostResult`, which the CLI matches on). The queue is read with `db.posts`
+  (the `pipeline.posts` pass-through is gone).
 - **Enqueue = applying an approval.** `review_events.apply_pending` takes `plan_posts` (passed in
   by `pipeline.apply_review_events`); when an `approve` event is applied, its posts are written by
   `db.settle_review_event` in the same transaction as the status change and the outcome, so an
@@ -1149,7 +1158,9 @@ so nothing has to be hosted.
   promotion's status is this run's: for every queued post, `posting.verdict` cancels it when the
   promotion expired ("A promoção expirou: <reason>."), was rejected, or (Instagram only) was
   already marked published by hand, whether or not it is due; a due post goes out only if the
-  price was verified (last recheck, else the approval's live check) within
+  price was verified (last recheck, else the approval's live check: the event's
+  `live_check.checked_at`, kept on the post as `checked_at`, not the approval time, which can
+  be later; tested) within
   `posting.max_check_age_hours` (6), otherwise it waits with the reason (e.g. this run's
   collection had no prices for the route). At most one Instagram post per run, so a backlog
   after failed runs goes out two hours apart. A run whose collection failed exits before this

@@ -134,6 +134,7 @@ class Post:
     status: str                        # queued | published | cancelled
     created_at: datetime
     event_id: str | None = None        # the approve event that queued it
+    checked_at: datetime | None = None  # that event's live check (`live_check.checked_at`), UTC
     attempts: int = 0                  # publisher errors so far
     last_error: str | None = None      # last publisher error, or why it is waiting (pt-PT)
     publisher: str | None = None       # who published it: 'dry-run', ...

@@ -34,6 +34,7 @@ POSTING_QUEUE_TABLE = """CREATE TABLE IF NOT EXISTS posting_queue (
         CHECK (status IN ('queued', 'published', 'cancelled')),
     created_at TEXT    NOT NULL,
     event_id   TEXT,
+    checked_at TEXT,
     attempts   INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
     publisher  TEXT,
@@ -416,17 +417,21 @@ def settle_review_event(conn: sqlite3.Connection, event_id: str, outcome: dict, 
                         deal_id: int | None = None, status: str | None = None,
                         note: str | None = None, post_url: str | None = None,
                         at: datetime | None = None,
-                        posts: list[tuple[str, datetime]] = ()) -> None:
+                        posts: list[tuple[str, datetime]] = (),
+                        checked_at: datetime | None = None) -> None:
     """Record a review event's outcome and, when it was applied, the deal's new status, in one
     transaction: the database alone tells whether an event was already applied. `posts`:
-    (channel, due_at) rows an applied approval queues (D32), written in the same transaction."""
+    (channel, due_at) rows an applied approval queues (D32), written in the same transaction
+    with the approval's live-check time `checked_at`."""
     with conn:
         if status is not None:
             _review_update(conn, deal_id, status, note=note, post_url=post_url, at=at or utcnow())
             conn.executemany(
-                """INSERT INTO posting_queue (deal_id, channel, due_at, created_at, event_id)
-                   VALUES (?, ?, ?, ?, ?) ON CONFLICT (deal_id, channel) DO NOTHING""",
-                [(deal_id, channel, _ts(due), _ts(utcnow()), event_id)
+                """INSERT INTO posting_queue (deal_id, channel, due_at, created_at, event_id,
+                                             checked_at)
+                   VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (deal_id, channel) DO NOTHING""",
+                [(deal_id, channel, _ts(due), _ts(utcnow()), event_id,
+                  _ts(checked_at) if checked_at else None)
                  for channel, due in posts])
         conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
                      (REVIEW_EVENT_KEY + event_id, json.dumps(outcome, ensure_ascii=False)))
@@ -493,7 +498,7 @@ def _row_to_post(row: sqlite3.Row) -> Post:
         id=row["id"], deal_id=row["deal_id"], channel=row["channel"],
         due_at=datetime.fromisoformat(row["due_at"]), status=row["status"],
         created_at=datetime.fromisoformat(row["created_at"]), event_id=row["event_id"],
-        attempts=row["attempts"], last_error=row["last_error"], publisher=row["publisher"],
+        checked_at=_dt(row["checked_at"]), attempts=row["attempts"], last_error=row["last_error"], publisher=row["publisher"],
         result_url=row["result_url"], reason=row["reason"], settled_at=_dt(row["settled_at"]))
 
 

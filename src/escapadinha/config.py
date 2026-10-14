@@ -14,6 +14,8 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from escapadinha.posting import CHANNELS as POST_CHANNELS
+
 if TYPE_CHECKING:
     from escapadinha.storage.objects import ObjectStore
 
@@ -290,7 +292,8 @@ class PostingConfig(BaseModel):
     # otherwise it waits for a run whose recheck covers it.
     max_check_age_hours: float = Field(6, gt=0)
     max_attempts: int = Field(5, ge=1)       # a publisher error this often cancels the post
-    publishers: dict[str, PublisherName] = {"instagram": "dry-run", "telegram": "dry-run"}
+    # channel (posting.CHANNELS) -> publisher; a channel left out gets the dry run.
+    publishers: dict[str, PublisherName] = {channel: "dry-run" for channel in POST_CHANNELS}
 
     @field_validator("instagram_slots")
     @classmethod
@@ -309,10 +312,11 @@ class PostingConfig(BaseModel):
     @field_validator("publishers")
     @classmethod
     def _known_channels(cls, v: dict[str, str]) -> dict[str, str]:
-        unknown = sorted(set(v) - {"instagram", "telegram"})
+        unknown = sorted(set(v) - set(POST_CHANNELS))
         if unknown:
-            raise ValueError(f"posting.publishers: unknown channel(s) {unknown}")
-        return {"instagram": "dry-run", "telegram": "dry-run", **v}
+            raise ValueError(f"posting.publishers: unknown channel(s) {unknown}, "
+                             f"use {list(POST_CHANNELS)}")
+        return {**{channel: "dry-run" for channel in POST_CHANNELS}, **v}
 
     @property
     def slots(self) -> list[time]:

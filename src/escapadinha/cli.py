@@ -609,8 +609,8 @@ def export_review_snapshot() -> None:
 def queue_list(show_all: Annotated[bool, typer.Option("--all", help="Also published and cancelled posts")] = False) -> None:
     """Upcoming posts (Lisbon time), and why a due one waits."""
     ctx, conn = _ctx()
-    queued = pipeline.posts(conn, "queued")
-    shown = pipeline.posts(conn) if show_all else queued
+    queued = db.posts(conn, "queued")
+    shown = db.posts(conn) if show_all else queued
     if not queued:
         console.print("Nenhuma publicação agendada.")
     else:
@@ -638,17 +638,19 @@ def publish_due() -> None:
     def log(line: str) -> None:                  # publisher output is text, not Rich markup
         console.print(line, markup=False, highlight=False)
 
+    Did = posting.PostAction
     for r in pipeline.run_publish(ctx, conn, log=log):
         what = f"publicação {posting.CHANNEL_PT[r.post.channel]} deal {r.post.deal_id}"
-        if r.action == "published":
-            console.print(f"  {what}: [green]publicada[/] ({r.post.publisher})")
-        elif r.action == "cancelled":
-            console.print(f"  {what}: [yellow]cancelada[/] ({escape(r.reason)})")
-        elif r.action == "failed":
-            console.print(f"  {what}: [red]falhou[/] ({escape(r.reason)}), nova tentativa na "
-                          "próxima execução")
-        else:
-            console.print(f"  {what}: à espera ({escape(r.reason)})")
+        match r.action:
+            case Did.PUBLISHED:
+                console.print(f"  {what}: [green]publicada[/] ({r.post.publisher})")
+            case Did.CANCELLED:
+                console.print(f"  {what}: [yellow]cancelada[/] ({escape(r.reason)})")
+            case Did.FAILED:
+                console.print(f"  {what}: [red]falhou[/] ({escape(r.reason)}), nova tentativa na "
+                              "próxima execução")
+            case Did.WAITING:
+                console.print(f"  {what}: à espera ({escape(r.reason)})")
 
 
 def _run_steps(render: bool, full: bool, report: list[str]) -> None:

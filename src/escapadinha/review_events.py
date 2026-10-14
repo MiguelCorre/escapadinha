@@ -274,7 +274,8 @@ def _decide(conn: sqlite3.Connection, event: Event, now: datetime,
     posts = plan_posts(conn, deal.id, now) if plan_posts and event.type == "approve" else []
     db.settle_review_event(conn, event.id, result.to_json(), deal_id=deal.id, status=target,
                            note=event.note, post_url=event.post_url, at=event.created_at,
-                           posts=posts)
+                           posts=posts,
+                           checked_at=event.live_check.checked_at if event.live_check else None)
     return result
 
 

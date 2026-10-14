@@ -305,14 +305,15 @@ so a review UI can warn before an approval gets too old). Slides of deals still 
 
 When a run applies an approval it queues the promotion twice: **Instagram** at the next free daily
 slot (09:00, 13:00, 19:00 Lisbon time, at most 3 a day; `posting` in `config.yaml`) and
-**Telegram** at once. Every run, right after the recheck and on the fast path too, publishes the
-posts that are due:
+**Telegram** at once. Every run, after detection and before the fast/full path decision (so after
+its recheck, and on the fast path too), publishes the posts that are due:
 
 - a promotion that **expired** or was **rejected** cancels its queued posts, due or not, with the
   reason (*cancelada: A promoção expirou: o preço subiu para 80 €.*); one you marked published by
   hand cancels its Instagram post (Telegram still goes);
-- a due post goes out only if the price was verified (the run's recheck, else your approval's live
-  check) in the last 6 h; otherwise it waits for a run that verifies it;
+- a due post goes out only if the price was verified (the run's recheck, else the live check you
+  ran before approving: its time, not the approval's) in the last 6 h; otherwise it waits for a
+  run that verifies it;
 - at most one Instagram post per run, so a backlog never goes out in a burst;
 - a publisher error keeps the post queued and retries next run; after 5 errors it is cancelled.
 

@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS posting_queue (
         CHECK (status IN ('queued', 'published', 'cancelled')),
     created_at TEXT    NOT NULL,
     event_id   TEXT,                         -- the approve event that queued it
+    checked_at TEXT,                         -- that event's live price check (UTC)
     attempts   INTEGER NOT NULL DEFAULT 0,   -- publisher errors so far
     last_error TEXT,                         -- last publisher error, or why it waits (pt-PT)
     publisher  TEXT,                         -- who published it: 'dry-run', 'instagram', ...

@@ -495,21 +495,17 @@ def _post_planner(ctx: Context) -> review_events.PlanPosts:
     cfg = ctx.config.posting
 
     def plan(conn: sqlite3.Connection, deal_id: int, now: datetime) -> list[tuple[str, datetime]]:
-        slot = posting.next_slot(now, db.post_due_times(conn, "instagram"), slots=cfg.slots,
-                                 max_per_day=cfg.max_per_day)
-        return [("instagram", slot), ("telegram", now)]
+        due = {"instagram": posting.next_slot(now, db.post_due_times(conn, "instagram"),
+                                              slots=cfg.slots, max_per_day=cfg.max_per_day),
+               "telegram": now}
+        return [(channel, due[channel]) for channel in posting.CHANNELS]
     return plan
-
-
-def posts(conn: sqlite3.Connection, *statuses: str) -> list[Post]:
-    """The posting queue (all rows, or these statuses), by due time."""
-    return db.posts(conn, *statuses)
 
 
 @dataclass(frozen=True)
 class PostResult:
     post: Post               # as stored after this step
-    action: str              # published | cancelled | waiting | failed
+    action: posting.PostAction
     reason: str | None = None
 
 
@@ -524,10 +520,11 @@ def _message(ctx: Context, conn: sqlite3.Connection, post: Post, deal: Deal,
 def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None, *,
                 log: Callable[[str], None] = print,
                 publishers: dict[str, posting.Publisher] | None = None) -> list[PostResult]:
-    """Every run, right after the recheck (fast and full path): cancel queued posts whose
-    promotion can no longer go out, then publish the due ones whose price was verified recently
-    (D32). At most one Instagram post per run, so a backlog never goes out in a burst. A
-    publisher error leaves the post queued; `posting.max_attempts` errors cancel it."""
+    """Every run, after `detect` and before `run_path.decide` (fast and full path, so after this
+    run's recheck): cancel queued posts whose promotion can no longer go out, then publish the
+    due ones whose price was verified recently (`posting.verdict`, D32). At most one Instagram
+    post per run, so a backlog never goes out in a burst. A publisher error leaves the post
+    queued; `posting.max_attempts` errors cancel it."""
     now = now or db.utcnow()
     cfg = ctx.config.posting
     publishers = publishers or posting.publishers(cfg.publishers, log)
@@ -536,14 +533,15 @@ def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
     for post in db.posts(conn, "queued"):
         deal, obs = db.get_deal(conn, post.deal_id)
         verdict = posting.verdict(post, deal, now=now, max_check_age=max_check_age)
-        if verdict.action == "cancel":
+        if verdict.action is posting.VerdictAction.CANCEL:
             db.settle_post(conn, post.id, "cancelled", at=now, reason=verdict.reason)
-            action, reason = "cancelled", verdict.reason
-        elif verdict.action == "later" or (post.channel == "instagram" and instagram_done):
+            action, reason = posting.PostAction.CANCELLED, verdict.reason
+        elif (verdict.action is posting.VerdictAction.LATER
+              or (post.channel == "instagram" and instagram_done)):
             continue
-        elif verdict.action == "wait":
+        elif verdict.action is posting.VerdictAction.WAIT:
             db.post_waits(conn, post.id, verdict.reason, failed=False)
-            action, reason = "waiting", verdict.reason
+            action, reason = posting.PostAction.WAITING, verdict.reason
         else:
             publisher = publishers[post.channel]
             try:
@@ -551,15 +549,15 @@ def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
             except Exception as exc:          # a channel being down never stops the run
                 error = f"{type(exc).__name__}: {exc}"
                 attempts = db.post_waits(conn, post.id, error, failed=True)
-                action, reason = "failed", error
+                action, reason = posting.PostAction.FAILED, error
                 if attempts >= cfg.max_attempts:
                     reason = f"O publicador falhou {attempts} vezes: {error}"
                     db.settle_post(conn, post.id, "cancelled", at=now, reason=reason)
-                    action = "cancelled"
+                    action = posting.PostAction.CANCELLED
             else:
                 db.settle_post(conn, post.id, "published", at=now, publisher=publisher.name,
                                result_url=published.url)
-                action, reason = "published", None
+                action, reason = posting.PostAction.PUBLISHED, None
                 instagram_done = instagram_done or post.channel == "instagram"
         results.append(PostResult(db.get_post(conn, post.id), action, reason))
     return results

@@ -122,7 +122,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   them only with a new version. Render (new → rendered) and rechecks stay pipeline-owned.
 - Posting queue (D32, `posting_queue`): only an applied approve event queues posts, in the
   applier's transaction (`plan_posts` passed into `apply_pending`). Slot rules stay pure in
-  `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). A post goes out only from
+  `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). Channels are named only in
+  `posting.CHANNELS` (the SQL CHECK is tested against it). A post goes out only from
   `pipeline.run_publish`, after re-verification; expired/rejected promotions cancel their posts.
   Publishers implement `posting.Publisher` and never change a review status (a real one writes a
   `published` event). Post texts: the caption (Instagram) and `captions.whatsapp_text` (stored
@@ -165,8 +166,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `renderer/tokens.py` (`tokens.write_json()`; a test fails if stale or below WCAG AA). Fonts in
   `assets/fonts/` (OFL WOFF2), logos `assets/logo-light.svg` / `logo-dark.svg`.
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`, `whatsapp.txt.j2`
-- `src/escapadinha/posting.py`: posting queue rules (slots, verdict) + publishers (`DryRunPublisher`);
-  DB wiring in `pipeline.run_publish` / `posts`
+- `src/escapadinha/posting.py`: posting queue rules (`CHANNELS`, slots, `verdict` →
+  `VerdictAction`) + publishers (`DryRunPublisher`); DB wiring in `pipeline.run_publish`
+  (`PostResult.action`: `PostAction`), the queue read with `db.posts`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: static site builder (`build_site`; route pages list low prices),
   `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler; stages `web/functions` via

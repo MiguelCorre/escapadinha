@@ -127,11 +127,30 @@ def test_upgrade_from_real_old_schemas_adds_the_posting_queue(ctx, fixture, vers
     db.init(fresh)
     assert _queue_shape(conn) == _queue_shape(fresh)
     assert ("ix_posting_due", 0) in _queue_shape(conn)[1]
+    assert "checked_at" in [c[0] for c in _queue_shape(conn)[0]]
     for c in (conn, fresh):
         c.execute("PRAGMA foreign_keys = OFF")          # only the channel CHECK can refuse it
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             c.execute("INSERT INTO posting_queue (deal_id, channel, due_at, created_at) "
                       "VALUES (1, 'whatsapp', 'x', 'x')")
+
+
+def test_the_channel_check_in_sql_is_posting_channels():
+    """One list of channels (posting.CHANNELS): the SQL CHECK of the fresh schema and of the
+    migration, the config's publishers and the queue planner all follow it."""
+    import re
+    from pathlib import Path
+    from escapadinha.config import PostingConfig
+    schema = (Path(db.__file__).parent / "schema.sql").read_text("utf-8")
+    for sql in (schema, db.POSTING_QUEUE_TABLE):
+        table = sql[sql.index("CREATE TABLE IF NOT EXISTS posting_queue"):]
+        listed = re.search(r"channel IN \(([^)]*)\)", table).group(1)
+        assert tuple(re.findall(r"'([a-z]+)'", listed)) == posting.CHANNELS
+    assert tuple(PostingConfig().publishers) == posting.CHANNELS
+    assert PostingConfig(publishers={"telegram": "dry-run"}).publishers == {
+        channel: "dry-run" for channel in posting.CHANNELS}
+    with pytest.raises(ValueError, match="unknown channel"):
+        PostingConfig(publishers={"whatsapp": "dry-run"})
 
 
 # --- the queue through the pipeline seam ----------------------------------------------------
@@ -143,17 +162,18 @@ APPLIED = utc(2026, 12, 1, 7, 0)
 
 
 def approve_event(store, deal_id: int, checked: datetime = CHECKED, type: str = "approve",
-                  **extra) -> str:
+                  created: datetime | None = None, **extra) -> str:
     """A decision as the review Function writes it (an approval's live check passed at
-    `checked`)."""
+    `checked`; the decision itself at `created`, by default the same moment)."""
     event_id = str(uuid.uuid4())
+    created = created or checked
     body = {"version": 1, "id": event_id, "type": type, "deal_id": deal_id,
-            "created_at": db.utc_iso(checked), "actor": "miguel@example.com", "note": None,
+            "created_at": db.utc_iso(created), "actor": "miguel@example.com", "note": None,
             "post_url": None,
             "live_check": {"valid": True, "price_eur": 58, "reason": "continua a 58 €",
                            "checked_at": db.utc_iso(checked)} if type == "approve" else None,
             **extra}
-    store.put(f"{PENDING}{checked:%Y%m%dT%H%M%SZ}-{event_id}.json", json.dumps(body).encode())
+    store.put(f"{PENDING}{created:%Y%m%dT%H%M%SZ}-{event_id}.json", json.dumps(body).encode())
     return event_id
 
 
@@ -170,7 +190,7 @@ def second_deal(ctx, conn) -> int:
 
 
 def queue(conn) -> list[tuple]:
-    return [(p.deal_id, p.channel, p.due_at, p.status) for p in pipeline.posts(conn)]
+    return [(p.deal_id, p.channel, p.due_at, p.status) for p in db.posts(conn)]
 
 
 @respx.mock
@@ -182,7 +202,7 @@ def test_an_applied_approval_queues_instagram_at_the_next_slot_and_telegram_at_o
     assert outcome.applied
     assert queue(conn) == [(deal_id, "telegram", APPLIED, "queued"),
                            (deal_id, "instagram", utc(2026, 12, 1, 9), "queued")]
-    assert {p.event_id for p in pipeline.posts(conn)} == {event_id}
+    assert {p.event_id for p in db.posts(conn)} == {event_id}
 
 
 @respx.mock
@@ -193,7 +213,7 @@ def test_approvals_in_one_run_take_consecutive_slots(ctx):
     approve_event(ctx.object_store, first)
     approve_event(ctx.object_store, second, checked=CHECKED.replace(second=1))
     pipeline.apply_review_events(ctx, conn, now=APPLIED)
-    instagram = [(p.deal_id, p.due_at) for p in pipeline.posts(conn) if p.channel == "instagram"]
+    instagram = [(p.deal_id, p.due_at) for p in db.posts(conn) if p.channel == "instagram"]
     assert instagram == [(first, utc(2026, 12, 1, 9)), (second, utc(2026, 12, 1, 13))]
 
 
@@ -207,7 +227,7 @@ def test_the_slots_and_cap_come_from_config(ctx):
     approve_event(ctx.object_store, first)
     approve_event(ctx.object_store, second, checked=CHECKED.replace(second=1))
     pipeline.apply_review_events(ctx, conn, now=APPLIED)
-    instagram = [p.due_at for p in pipeline.posts(conn) if p.channel == "instagram"]
+    instagram = [p.due_at for p in db.posts(conn) if p.channel == "instagram"]
     assert instagram == [utc(2026, 12, 1, 10, 30), utc(2026, 12, 2, 10, 30)]
 
 
@@ -317,7 +337,7 @@ def publish(ctx, conn, now, **kw) -> tuple[list[tuple], list[str]]:
 
 
 def by_channel(conn) -> dict[str, object]:
-    return {p.channel: p for p in pipeline.posts(conn)}
+    return {p.channel: p for p in db.posts(conn)}
 
 
 @respx.mock          # any HTTP request would fail: the dry-run publisher makes none
@@ -355,7 +375,7 @@ def test_an_expired_promotion_cancels_its_posts_before_their_slot(ctx):
     done, lines = publish(ctx, conn, APPLIED)
     assert sorted(done) == [(deal_id, "instagram", "cancelled"), (deal_id, "telegram", "cancelled")]
     assert not any("[dry-run]" in line for line in lines)
-    for post in pipeline.posts(conn):
+    for post in db.posts(conn):
         assert post.status == "cancelled"
         assert post.reason == "A promoção expirou: o preço subiu para 80 €."
 
@@ -367,7 +387,7 @@ def test_a_rejected_promotion_cancels_its_posts(ctx):
     approve_event(ctx.object_store, deal_id, checked=CHECKED.replace(minute=40), type="reject")
     pipeline.apply_review_events(ctx, conn, now=APPLIED)
     publish(ctx, conn, APPLIED)
-    assert {p.reason for p in pipeline.posts(conn)} == {"A promoção foi rejeitada."}
+    assert {p.reason for p in db.posts(conn)} == {"A promoção foi rejeitada."}
 
 
 @respx.mock
@@ -397,6 +417,27 @@ def test_a_due_post_waits_until_a_recent_recheck_verified_the_price(ctx):
     db.record_recheck(conn, deal_id, valid=True, latest_price=58, reason="continua", at=late)
     done, _ = publish(ctx, conn, late)
     assert sorted(done) == [(deal_id, "instagram", "published"), (deal_id, "telegram", "published")]
+
+
+@respx.mock
+def test_the_fallback_verification_is_the_approvals_live_check_not_the_approval(ctx):
+    """The live check can be older than the approval (checked 06:30, approved at 07:00 on the
+    page): the 6 h count from the check, which each queued post keeps (`checked_at`)."""
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    approve_event(ctx.object_store, deal_id, checked=CHECKED, created=utc(2026, 12, 1, 7, 0))
+    pipeline.apply_review_events(ctx, conn, now=utc(2026, 12, 1, 7, 5))
+    assert {p.checked_at for p in db.posts(conn)} == {CHECKED}
+    assert db.get_deal(conn, deal_id)[0].reviewed_at == utc(2026, 12, 1, 7, 0)
+    done, _ = publish(ctx, conn, utc(2026, 12, 1, 12, 45))      # 6 h 15 after the check
+    assert sorted(done) == [(deal_id, "instagram", "waiting"), (deal_id, "telegram", "waiting")]
+    done, _ = publish(ctx, conn, utc(2026, 12, 1, 12, 30))      # exactly 6 h: still good
+    assert sorted(done) == [(deal_id, "instagram", "published"), (deal_id, "telegram", "published")]
+
+
+def test_verdict_actions_are_an_enum():
+    assert set(posting.VerdictAction) == {"publish", "later", "wait", "cancel"}
+    assert set(posting.PostAction) == {"published", "cancelled", "waiting", "failed"}
 
 
 class Failing:

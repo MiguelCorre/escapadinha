@@ -1,13 +1,15 @@
 """Posting queue (D32): when an approved promotion goes out, and through which publisher.
 
-Approving a promotion (an approve event applied by the run, D26) queues one post per channel:
-Instagram at the next free daily slot (Lisbon time, `posting.instagram_slots`, at most
-`posting.max_per_day` a day), Telegram at once. Every run, right after the recheck, publishes
-the posts that are due after re-verifying the promotion; a promotion that expired, was rejected
-or was not re-verified recently enough never goes out (`blocker`). Publishers are pluggable
-(`Publisher`); `DryRunPublisher` only logs what would be posted.
+Approving a promotion (an approve event applied by the run, D26) queues one post per channel
+(`CHANNELS`): Instagram at the next free daily slot (Lisbon time, `posting.instagram_slots`, at
+most `posting.max_per_day` a day), Telegram at once; each row keeps the approval's live-check
+time (`Post.checked_at`). Every run, after `detect` and before the path decision (so after this
+run's recheck), `pipeline.run_publish` asks `verdict` what to do with each queued post: a
+promotion that expired or was rejected cancels it; a due post goes out only if the price was
+verified (the last recheck, else the approval's live check) within `posting.max_check_age_hours`.
+Publishers are pluggable (`Publisher`); `DryRunPublisher` only logs what would be posted.
 
-The slot rules here are pure (no I/O, no clock): `now` is passed in.
+The rules here are pure (no I/O, no clock): `now` is passed in.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from enum import StrEnum
 from typing import Protocol
 
 from escapadinha import i18n_pt
@@ -22,6 +25,8 @@ from escapadinha.i18n_pt import LISBON
 from escapadinha.models import Deal, Observation, Post
 from escapadinha.review import STATUS_PT
 
+# The channels a promotion is queued on: the one list (config validation and defaults, the queue
+# planner; the SQL CHECK in schema.sql/db.py is tested against it).
 CHANNELS = ("instagram", "telegram")
 CHANNEL_PT = {"instagram": "Instagram", "telegram": "Telegram"}
 STATUS_PT_POST = {"queued": "agendada", "published": "publicada", "cancelled": "cancelada"}
@@ -61,35 +66,56 @@ def next_slot(now: datetime, taken: list[datetime], *, slots: list[time],
 
 # --- re-verification before posting --------------------------------------------------------
 
+class VerdictAction(StrEnum):
+    """What `verdict` says to do with a queued post."""
+
+    PUBLISH = "publish"     # due and verified recently: post it now
+    LATER = "later"         # not due yet
+    WAIT = "wait"           # due, but the price was not verified recently: a later run decides
+    CANCEL = "cancel"       # can never go out (reason given)
+
+
+class PostAction(StrEnum):
+    """What the publish step did with a post (`pipeline.PostResult`)."""
+
+    PUBLISHED = "published"
+    CANCELLED = "cancelled"
+    WAITING = "waiting"
+    FAILED = "failed"       # publisher error, retried next run
+
+
 @dataclass(frozen=True)
 class Verdict:
-    action: str             # publish | later (not due) | wait (due, not re-verified) | cancel
+    action: VerdictAction
     reason: str | None = None
 
 
 def verdict(post: Post, deal: Deal, *, now: datetime, max_check_age: timedelta) -> Verdict:
     """What the run does with a queued post now. A promotion that can no longer go out cancels
-    the post whenever it is due; a due post goes out only if the promotion's price was verified
-    (recheck, else the approval's live check) within `max_check_age`."""
+    the post whether or not it is due. A due post goes out only if the price was verified within
+    `max_check_age`: the last recheck (`deal.last_checked_at`) or else the approval's live check
+    (`post.checked_at`, the event's `live_check.checked_at`, which can be earlier than the
+    approval itself). Unverified, it waits for a recheck."""
+    cancel = VerdictAction.CANCEL
     if deal.status == "expired":
         why = f": {deal.expired_reason}" if deal.expired_reason else ""
-        return Verdict("cancel", f"A promoção expirou{why}.")
+        return Verdict(cancel, f"A promoção expirou{why}.")
     if deal.status == "rejected":
-        return Verdict("cancel", "A promoção foi rejeitada.")
+        return Verdict(cancel, "A promoção foi rejeitada.")
     if deal.status == "published" and post.channel == "instagram":
-        return Verdict("cancel", "A promoção já foi marcada como publicada no Instagram.")
+        return Verdict(cancel, "A promoção já foi marcada como publicada no Instagram.")
     if deal.status not in ("approved", "published"):
-        return Verdict("cancel", f"A promoção não está aprovada ({STATUS_PT[deal.status]}).")
+        return Verdict(cancel, f"A promoção não está aprovada ({STATUS_PT[deal.status]}).")
     if not deal.affiliate_url:
-        return Verdict("cancel", "A promoção não tem link de afiliado.")
+        return Verdict(cancel, "A promoção não tem link de afiliado.")
     if post.due_at > now:
-        return Verdict("later")
-    verified = max((t for t in (deal.last_checked_at, deal.reviewed_at) if t), default=None)
-    if verified is None or now - verified > max_check_age:
-        hours = i18n_pt.number(max_check_age.total_seconds() / 3600)
-        return Verdict("wait", f"Preço verificado há mais de {hours} h: espera por uma recolha "
-                                 "que o confirme.")
-    return Verdict("publish")
+        return Verdict(VerdictAction.LATER)
+    verified = max((t for t in (deal.last_checked_at, post.checked_at) if t), default=None)
+    if verified is not None and now - verified <= max_check_age:
+        return Verdict(VerdictAction.PUBLISH)
+    hours = i18n_pt.number(max_check_age.total_seconds() / 3600)
+    return Verdict(VerdictAction.WAIT, f"Preço verificado há mais de {hours} h: espera por uma "
+                                       "recolha que o confirme.")
 
 
 # --- publishers ----------------------------------------------------------------------------
