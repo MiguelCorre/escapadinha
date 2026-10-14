@@ -958,6 +958,89 @@ so nothing has to be hosted.
   `TRAVELPAYOUTS_TOKEN`, R2 binding `STORE`. Preview deployments sit behind a separate Access app.
 - **Verification on the phone** is a manual step for Miguel: `docs/runbooks/review-phone.md`.
 
+## D30: Route pages, origin pages and destination hubs (2026-10-14, #14)
+- **What:** the Astro site (D28) gets one page per route at the contract's `path`
+  (`/voos/<origem>-<destino>/`, the Jinja site's URLs, so old route links keep working with no
+  redirect), one per Portuguese origin at `/partidas/<origem>/` and one hub per destination at
+  `/destinos/<destino>/`, plus the index pages `/partidas/` and `/destinos/` and a "Destinos" nav
+  link. All generated from the contract; the web package never builds a path or a slug.
+- **Contract, additive within v1:** `origins[].path` and `destinations[].path` (required in new
+  exports, fixtures regenerated) and `routes[].calendar`. Slugs are computed once in Python next to
+  `route_slug`: `website.origin_slug` and `website.destination_slugs`, which gives cities whose
+  pt-PT names share a slug their code too (`sao-jose-sjo`, `sao-jose-sjc`), so a hub's URL never
+  depends on which city was discovered first (no collision in the real data on 2026-10-14: 156
+  destination codes, 156 names). Route slugs are unchanged (`route_slug`).
+- **Calendar of cheapest found prices** (story 34, left open in D27): per departure date from the
+  export day on, the cheapest offer of the latest run within the route's rules and found within
+  `max_offer_age_days`, i.e. the same offers as `cheapest`, broken down by day: `{dep, ret, obs,
+  price}`, ascending. Only current offers, never old history, so a day's price is one a traveller
+  saw in the last 3 days. `test_site_data.py` traces each day to its observation (and its
+  departure date); the web traceability test adds them to the observation amounts. **Real data on
+  2026-10-14 (run 30): 402 calendar days over 360 routes** (about one per route; `routes.json`
+  223 KB), because few offers were found by a traveller in the last 3 days (all runs' fresh offers
+  give 409, so it's the freshness window, not the latest-run rule). The calendar fills up as
+  collection goes on; widening the window (e.g. every offer of the latest run whatever its found
+  date) is a one-line change in `site_data._calendar`, rejected for now because a cell can't show
+  how old its price is and stale prices are what the freshness window exists to keep out. The
+  synthetic scale data has ~50 days per route (1.5 MB `routes.json`, build-time only, never shipped
+  to visitors) as the worst case.
+- **Route page:** kind, title "Voos de <origem> para <destino>", which offers count (`rules`), a
+  **dormant notice** (`status: dormant`, with the last price seen, the page kept as a record),
+  "mais barato agora" (`cheapest`), live promotions (cards), recent **low prices** (the biggest
+  `LOW_PRICES_PER_ROUTE` = 5 discounts by departure date, a live promotion's own offer left out,
+  as on the Jinja page: each with `data-obs`, the discount, the typical low it was measured against
+  under `data-route`, dates, airline, stops, arrival airport with the remote tag, "Encontrado a"
+  found date and "visto por nós a" first fetch, and its own partner link from the contract with
+  `rel="sponsored nofollow noopener"`; the site disclosure sits under the list inside the same
+  `data-cta` block), the **calendar** (Monday-first month grids, each priced day `data-obs`, the
+  month's cheapest marked), the **typical low per month** with the plain average as context and
+  the days behind it; a month below `min_baseline_days` says "ainda sem dados suficientes" and
+  "2 de 4 dias" instead of a number. Then recently expired promotions and links to the hub and the
+  origin page. Rejected: a booking link per calendar day (one more partner link per day would blow
+  the per-run link budget of D24 for little gain; the low prices above carry the links).
+- **Origin page:** every route from the airport grouped by kind (Europa, Portugal, Longo curso),
+  each by city name (pt collation), with the cheapest price found now (`data-obs`) and dates, or
+  "sem preços recentes", or the dormant tag. Price order is the explorer's job (#15).
+- **Destination hub:** every Portuguese origin with a route there, in the contract's origin order,
+  with its route page, cheapest price, **best months** (`BEST_MONTHS` = 3 months with the lowest
+  typical low, cheapest first, under `data-route`; "Ainda sem dados suficientes" otherwise), a link
+  to the origin page; the origins we don't watch for that city are named; arrival airports with
+  the remote tag; live promotions to the city. No photo yet: destination photos are files under
+  `assets/photos/` the web package doesn't copy (D27 open question, the cutover #23).
+- **Itinerary hook for #17:** `src/lib/itinerary.ts` (`itineraryFor(code)`, always null now) and
+  `ItineraryLink.astro` on route pages and hubs; #17 swaps the body for a lookup in its reviewed
+  content collection, the pages stay as they are. The live search widget is #16.
+- **Tests:** `web/test/routes.test.ts` (the view logic in `src/lib/routes.ts` on hand-made
+  routes: month rows, best months, calendar weeks, low-price selection, groups, rules text),
+  `route-pages.test.ts` (the fixture build: every contract path built, every route page linked from
+  its origin page and hub, months without data, calendar traced, low prices with found date and a
+  sponsored link next to the disclosure, best months), the internal-link test (`brokenLinks`: every
+  `a`/`link`/`img` to an internal path resolves to a built page or file), and the traceability test
+  now also on the new pages. The traceability checker and link check moved to `test/trace.ts` and
+  `test/html.ts` to be shared with the scale test.
+- **Scale and build budget:** the fixtures have 10 routes, so `web/test/scale.test.ts` writes a
+  synthetic contract dataset the size of the real data (`test/synthetic-data.ts`: 360 routes from
+  the 6 origins as on 2026-10-14, 156 destinations, dormant routes, months with and without enough
+  days, ~50 calendar days per route, low prices, one live and one expired promotion;
+  `meta.fixture: true`, cities "Destino de teste AB", codes `Z..`, example.com links, seeded made-up
+  prices that only ever exist in a temporary build), validates it against the schemas and builds
+  it: 528 pages (360 route, 6 origin, 156 destination pages) in ~5 s on Miguel's PC (~18 s on a
+  cold first build); the test fails above **120 s**. It also checks the dormant notice, the months
+  without data, internal links and price traceability on every page at that size. The fixture
+  build takes ~2 s.
+- **Lighthouse:** one URL per new page type added to `web/lighthouserc.json` (`/voos/lisboa-paris/`,
+  `/partidas/lisboa/`, `/destinos/paris/`), thresholds unchanged. Local run 2026-10-14 (fixture
+  build, median of 3, two runs): route 0.91 / 0.93, origin 0.95 / 0.95, destination 0.95 / 1 performance; accessibility, best
+  practices and SEO 1 on all three (home and promotions 0.94 / 1 / 1 / 1). The route page's FCP is
+  ~2.6 s under simulated throttling, close to the 0.9 line; the full-size synthetic build's largest
+  route, origin and hub pages measured 0.92–0.98 (the same FCP, pages ~85 KB with ~24 KB inlined
+  CSS). If CI starts failing on the route page, look at the inlined CSS and the logo SVG first
+  (~14 KB in every page).
+- **Fixtures regenerated** from the current database (run 30, 2026-10-14): promotion 8 (LIS-FNC) is
+  now the live one and 3 (LIS-PAR) the expired one, `base_url` is `https://pontonomada.pt`; the
+  web tests and the Lighthouse URLs follow. Still no dormant route in the real data, so dormant
+  pages are tested on the synthetic build.
+
 ## D31: Explorer, weekends and Portuguese long weekends (pontes) (2026-10-14, #15)
 - **Calendar in the repo, Python owns it:** `content/holidays.yaml` lists the national holidays
   of 2026 and 2027 (Código do Trabalho art. 234.º as amended by Lei n.º 8/2016; Terça-Feira de

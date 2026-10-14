@@ -92,8 +92,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
   `run_path.fingerprint`, or a routine run won't publish it.
 - Public deals, page slugs and image paths come from one place (`website.is_public`,
-  `public_deal_rows`, `promo_slug`, `route_slug`, `promo_image_dir`, `deal_image_paths`): the site,
-  the site data export and the review snapshot all use them.
+  `public_deal_rows`, `promo_slug`, `route_slug`, `origin_slug`, `destination_slugs`,
+  `promo_image_dir`, `deal_image_paths`): the site, the site data export and the review snapshot
+  all use them. The web package never builds a page path: it uses the contract's `path` fields.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
@@ -165,6 +166,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   trip must fit and the weekend rule live in `web/src/lib/explorer.ts` (explorer + ponte pages)
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
   `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
+- `web/`: the Astro site (D28): `src/pages/` (home, `promos/`, `voos/` route pages, `partidas/`
+  origin pages, `destinos/` hubs, D30), view logic in `src/lib/` (`promotion.ts`, `routes.ts`,
+  `format.ts`, `cta.ts`; `itinerary.ts` is #17's hook), tests in `web/test/` (fixture build,
+  `scale.test.ts` full-size synthetic build, traceability, internal links)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
 - `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
   validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a

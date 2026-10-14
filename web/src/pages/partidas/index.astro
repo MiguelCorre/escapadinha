@@ -1,0 +1,25 @@
+---
+// The Portuguese departure airports, each linking to its origin page (D30).
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import { BRAND } from "../../lib/brand";
+import { count } from "../../lib/format";
+---
+<Base
+  title={`Partidas: voos baratos desde Portugal · ${BRAND}`}
+  description="Os aeroportos portugueses de onde acompanhamos voos, cada um com todos os destinos e o preço mais baixo encontrado agora."
+  path="/partidas/"
+>
+  <header class="max-w-measure">
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Partidas</h1>
+    <p class="mt-md text-lead text-muted">Escolhe o aeroporto de onde queres partir para veres todos os destinos que acompanhamos e o preço mais baixo encontrado agora. Também podes procurar pelos <a href="/destinos/">destinos</a>.</p>
+  </header>
+  <ul class="mt-xl grid max-w-measure">
+    {data.origins.origins.map((o) => (
+      <li class="flex flex-wrap items-baseline justify-between gap-x-md border-b-2 border-rule py-sm">
+        <a href={o.path} class="font-display text-title">{o.name}</a>
+        <span class="text-small text-muted">{count(o.routes.active + o.routes.dormant, "destino", "destinos")}</span>
+      </li>
+    ))}
+  </ul>
+</Base>

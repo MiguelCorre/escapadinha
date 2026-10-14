@@ -6,7 +6,8 @@ matches them, from the same database queries and detector rules as the Jinja sit
     meta.json            build metadata (contract version, generated_at, run id, settings)
     labels.json          pt-PT names the site cannot derive (airlines, airports, disclosure)
     origins.json         Portuguese departure airports
-    routes.json          every route: rules, status, monthly typical lows and averages, cheapest
+    routes.json          every route: rules, status, monthly typical lows and averages, cheapest,
+                         calendar of the cheapest fresh offer per departure date
     destinations.json    destination hubs (city, airports, routes from Portugal, photo credit)
     promotions.json      approved deals, live and recently expired (paths, images, links)
     low-prices/XXX.json  one origin's low prices at date level, compact rows (explorer)
@@ -38,7 +39,8 @@ from escapadinha.models import Deal, Observation, Route
 from escapadinha.presentation import DISCLOSURE, SITE_DISCLOSURE
 from escapadinha.storage import db
 from escapadinha.website import (
-    LIVE, deal_image_paths, ponte_path, promo_slug, public_deal_rows, route_slug, slugify,
+    LIVE, deal_image_paths, destination_slugs, origin_slug, ponte_path, promo_slug,
+    public_deal_rows, route_slug,
 )
 
 VERSION = 1
@@ -139,9 +141,10 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     keys = {r.key for r in all_routes}
     observed = db.observation_counts(conn)
 
-    # Typical lows, low prices and the cheapest fresh offer per route.
+    # Typical lows, low prices, the cheapest fresh offer per route and per departure date.
     months: dict[str, list[dict]] = {}
     cheapest: dict[str, Observation | None] = {}
+    calendars: dict[str, list[Observation]] = {}
     lows: dict[str, list[detector.LowPrice]] = defaultdict(list)    # origin -> low prices
     for route in all_routes:
         history = pipeline.route_history(ctx, conn, route, now)
@@ -152,6 +155,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
                  if detector.is_fresh(o, cfg.detector, now)]
         cheapest[route.key] = min(fresh, key=lambda o: (o.price, o.departure_date, o.id),
                                   default=None)
+        calendars[route.key] = _calendar(fresh, now)
         lows[route.origin] += detector.low_prices(offers, history, cfg.detector, now,
                                                   route.rules, baselines)
 
@@ -185,7 +189,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
         + sorted({r.origin for r in all_routes})))
     files: dict[str, dict] = {}
     files["routes.json"] = {"version": VERSION, "routes": [
-        _route(ctx, r, months[r.key], cheapest[r.key], observed.get(r.key, 0),
+        _route(ctx, r, months[r.key], cheapest[r.key], calendars[r.key], observed.get(r.key, 0),
                low_count[r.key], *promo_count[r.key]) for r in all_routes]}
     files["origins.json"] = {"version": VERSION, "origins": [
         _origin(ctx, code, all_routes, low_count, promo_count) for code in origin_codes]}
@@ -324,8 +328,18 @@ def _offer(o: Observation) -> dict:
             "found_date": _day(o.found_date), "fetched_at": db.utc_iso(o.fetched_at)}
 
 
+def _calendar(fresh: list[Observation], now: datetime) -> list[Observation]:
+    """The cheapest of `fresh` per departure date from today on, by date (ties: lower id)."""
+    best: dict = {}
+    for o in sorted(fresh, key=lambda o: (o.price, o.id)):
+        if o.departure_date >= now.date():
+            best.setdefault(o.departure_date, o)
+    return [best[d] for d in sorted(best)]
+
+
 def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | None,
-           observations: int, low_prices: int, live: int, expired: int) -> dict:
+           calendar: list[Observation], observations: int, low_prices: int, live: int,
+           expired: int) -> dict:
     origin_city = ctx.config.origin_name(r.origin)
     return {
         "key": r.key, "origin": r.origin, "destination": r.destination, "city": r.city_pt,
@@ -334,6 +348,8 @@ def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | N
         "rules": r.rules.to_json(),
         "path": f"/voos/{route_slug(origin_city, r.city_pt)}/", "months": months,
         "cheapest": _offer(cheapest) if cheapest else None,
+        "calendar": [{"dep": _day(o.departure_date), "ret": _day(o.return_date), "obs": o.id,
+                      "price": _eur(o.price)} for o in calendar],
         "counts": {"observations": observations, "low_prices": low_prices,
                    "promotions_live": live, "promotions_expired": expired},
         "discovered_at": db.utc_iso(r.discovered_at), "last_observed_at": db.utc_iso(r.last_observed_at),
@@ -343,7 +359,8 @@ def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | N
 def _origin(ctx: Context, code: str, all_routes: list[Route], low_count, promo_count) -> dict:
     mine = [r for r in all_routes if r.origin == code]
     name = ctx.config.origin_name(code)
-    return {"iata": code, "name": name, "slug": slugify(name),
+    slug = origin_slug(name)
+    return {"iata": code, "name": name, "slug": slug, "path": f"/partidas/{slug}/",
             "routes": {"active": sum(r.status == "active" for r in mine),
                        "dormant": sum(r.status == "dormant" for r in mine)},
             "low_prices": sum(low_count[r.key] for r in mine),
@@ -354,6 +371,7 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route]) -> list[dic
     grouped: dict[str, list[Route]] = defaultdict(list)
     for r in all_routes:
         grouped[r.destination].append(r)
+    slugs = destination_slugs({code: rs[0].city_pt for code, rs in grouped.items()})
     out = []
     for code, rs in sorted(grouped.items()):
         first = rs[0]
@@ -361,7 +379,8 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route]) -> list[dic
         out.append({
             "code": code, "city": first.city_pt,
             "city_en": next((r.city_en for r in rs if r.city_en), None),
-            "slug": slugify(first.city_pt), "kinds": sorted({r.kind for r in rs}),
+            "slug": slugs[code], "path": f"/destinos/{slugs[code]}/",
+            "kinds": sorted({r.kind for r in rs}),
             "airports": sorted({a for r in rs for a in (r.destination_airports or "").split(",")
                                 if a}),
             "routes": sorted(r.key for r in rs),

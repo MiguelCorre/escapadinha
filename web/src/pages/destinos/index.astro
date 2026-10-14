@@ -1,0 +1,37 @@
+---
+// Every destination hub from A to Z, plus the origin pages (D30). The nav's "Destinos" link.
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import { BRAND } from "../../lib/brand";
+
+const destinations = [...data.destinations.destinations].sort((a, b) => a.city.localeCompare(b.city, "pt"));
+---
+<Base
+  title={`Destinos: voos baratos desde Portugal · ${BRAND}`}
+  description="Todos os destinos que acompanhamos desde Portugal, de A a Z, cada um com os aeroportos de partida, o preço mais baixo encontrado agora e os melhores meses."
+  path="/destinos/"
+>
+  <header class="max-w-measure">
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Destinos</h1>
+    <p class="mt-md text-lead text-muted">Os {destinations.length} destinos que acompanhamos desde Portugal. Cada um mostra de onde partir, o preço mais baixo encontrado agora e os melhores meses para ir.</p>
+  </header>
+
+  <section class="mt-xl" aria-labelledby="titulo-partidas">
+    <h2 id="titulo-partidas" class="font-display text-title">Por aeroporto de partida</h2>
+    <ul class="mt-sm flex flex-wrap gap-x-lg gap-y-xs">
+      {data.origins.origins.map((o) => <li><a href={o.path}>Desde {o.name}</a></li>)}
+    </ul>
+  </section>
+
+  <section class="mt-2xl" aria-labelledby="titulo-az">
+    <h2 id="titulo-az" class="font-display text-headline">De A a Z</h2>
+    <ul class="mt-md grid gap-x-xl sm:grid-cols-2 lg:grid-cols-3">
+      {destinations.map((d) => (
+        <li class="flex items-baseline justify-between gap-sm border-b-2 border-rule py-xs">
+          <a href={d.path}>{d.city}</a>
+          <span class="text-small text-muted">{d.kinds.map((k) => data.labels.kinds[k]).join(" · ")}</span>
+        </li>
+      ))}
+    </ul>
+  </section>
+</Base>

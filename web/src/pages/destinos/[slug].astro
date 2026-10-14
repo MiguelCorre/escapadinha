@@ -1,0 +1,106 @@
+---
+// One hub per destination (/destinos/<destino>/, D30): every Portuguese origin with a route there,
+// in the contract's origin order, with its route page, the cheapest price found now (data-obs) and
+// the best months by typical low (data-route), or that there is not enough data yet; live
+// promotions to the city; the arrival airports; and (from #17) the itinerary.
+import type { GetStaticPaths } from "astro";
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import ItineraryLink from "../../components/ItineraryLink.astro";
+import PromotionCard from "../../components/PromotionCard.astro";
+import type { Destination } from "../../lib/contract";
+import { BRAND } from "../../lib/brand";
+import { eur, shortDate } from "../../lib/format";
+import { promotionView } from "../../lib/promotion";
+import { bestMonths } from "../../lib/routes";
+
+export const getStaticPaths = (() => {
+  return data.destinations.destinations.map((destination) => {
+    const match = /^\/destinos\/([a-z0-9-]+)\/$/.exec(destination.path);
+    if (!match) throw new Error(`destination ${destination.code}: unexpected path ${destination.path}`);
+    return { params: { slug: match[1] }, props: { destination } };
+  });
+}) satisfies GetStaticPaths;
+
+interface Props {
+  destination: Destination;
+}
+
+const { destination } = Astro.props;
+const keys = new Set(destination.routes);
+const byOrigin = data.origins.origins
+  .map((origin) => ({ origin, route: data.routes.routes.find((r) => keys.has(r.key) && r.origin === origin.iata) }))
+  .filter((x) => x.route !== undefined)
+  .map((x) => ({ origin: x.origin, route: x.route!, best: bestMonths(x.route!) }));
+const without = data.origins.origins.filter((o) => !byOrigin.some((x) => x.origin.iata === o.iata));
+const live = data.promotions.promotions.filter((p) => p.live && keys.has(p.route));
+const airports = destination.airports.map((code) => {
+  const known = data.labels.airports[code];
+  return { label: known ? `${known.name} (${code})` : code, remote: known?.remote ?? false };
+});
+const city = destination.city;
+const fromNames = byOrigin.map((x) => x.origin.name);
+const fromText = fromNames.length > 1 ? `${fromNames.slice(0, -1).join(", ")} e ${fromNames.at(-1)}` : fromNames[0];
+---
+<Base
+  title={`Voos baratos para ${city} desde Portugal · ${BRAND}`}
+  description={`Voos para ${city} desde ${fromText}: o preço mais baixo encontrado agora, os melhores meses para ir e a página de cada rota.`}
+  path={destination.path}
+>
+  <nav aria-label="Caminho" class="text-small text-muted"><a href="/destinos/">Destinos</a> › {city}</nav>
+
+  <header class="mt-lg max-w-measure">
+    <p class="label text-accent">{destination.kinds.map((k) => data.labels.kinds[k]).join(" · ")}</p>
+    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">{city}</h1>
+    <p class="mt-md text-lead text-muted">Voos de ida e volta para {city} desde {fromText}: o preço mais baixo encontrado agora e os meses em que costuma ser mais barato ir, segundo os preços que acompanhamos.</p>
+    {airports.length > 0 && (
+      <p class="mt-xs text-small text-muted">Aeroportos de chegada: {airports.map((a, i) => <>{i > 0 && ", "}{a.label}{a.remote && <> <span class="tag tag-warning">longe do centro</span></>}</>)}</p>
+    )}
+  </header>
+
+  <section class="mt-2xl" aria-labelledby="titulo-partidas">
+    <h2 id="titulo-partidas" class="font-display text-headline">De onde partir</h2>
+    <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+      {byOrigin.map(({ origin, route, best }) => (
+        <article data-origin={origin.iata} class="border-t-[3px] border-double border-ink bg-surface p-md sm:p-lg">
+          <h3 class="font-display text-title"><a href={route.path}>Desde {origin.name}</a></h3>
+          {route.status === "dormant" ? (
+            <p class="mt-xs"><span class="tag tag-expired">rota {data.labels.route_status.dormant}</span></p>
+          ) : route.cheapest ? (
+            <p data-obs={route.cheapest.obs} class="mt-xs">
+              <span class="text-small text-muted">Mais barato agora: </span><span class="num font-display text-title">{eur(route.cheapest.price)}</span>
+              <span class="block num text-small text-muted">{shortDate(route.cheapest.departure)} → {shortDate(route.cheapest.return)}</span>
+            </p>
+          ) : (
+            <p class="mt-xs text-small text-muted">Sem preços recentes.</p>
+          )}
+          <p class="label mt-md text-muted">Melhores meses</p>
+          {best.length ? (
+            <ol data-best-months data-route={route.key} class="mt-2xs grid gap-2xs">
+              {best.map((m) => (
+                <li class="flex items-baseline justify-between gap-sm border-b-2 border-rule py-2xs">
+                  <span>{m.label}</span>{" "}<span class="num font-semibold">{m.typicalLow}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p class="mt-2xs text-small text-muted">Ainda sem dados suficientes para dizer quais são os melhores meses.</p>
+          )}
+          <p class="mt-md text-small"><a href={origin.path}>Outros destinos desde {origin.name}</a></p>
+        </article>
+      ))}
+    </div>
+    <p class="mt-md max-w-measure text-small text-muted">Melhores meses: os meses de partida com o preço mínimo habitual (ida e volta, por pessoa) mais baixo.{without.length > 0 && ` Ainda não acompanhamos voos para ${city} desde ${without.map((o) => o.name).join(", ")}.`}</p>
+  </section>
+
+  {live.length > 0 && (
+    <section class="mt-2xl" aria-labelledby="titulo-promocoes">
+      <h2 id="titulo-promocoes" class="font-display text-headline">Promoções para {city}</h2>
+      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+        {live.map((p) => <PromotionCard promotion={p} view={promotionView(data, p)} />)}
+      </div>
+    </section>
+  )}
+
+  <ItineraryLink destination={destination.code} city={city} />
+</Base>

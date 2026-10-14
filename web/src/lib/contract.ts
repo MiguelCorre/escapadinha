@@ -51,6 +51,8 @@ export interface Origin {
   iata: string;
   name: string;
   slug: string;
+  /** The origin page, /partidas/<slug>/ (D30). */
+  path: string;
   routes: { active: number; dormant: number };
   low_prices: number;
   promotions_live: number;
@@ -61,6 +63,14 @@ export interface RouteMonth {
   typical_low: number | null;
   average: number | null;
   days: number;
+}
+
+/** One day of a route's price calendar: the cheapest fresh offer departing that day (D30). */
+export interface CalendarDay {
+  dep: string;
+  ret: string;
+  obs: number;
+  price: number;
 }
 
 export interface Route {
@@ -76,6 +86,7 @@ export interface Route {
   path: string;
   months: RouteMonth[];
   cheapest: Offer | null;
+  calendar: CalendarDay[];
   counts: { observations: number; low_prices: number; promotions_live: number; promotions_expired: number };
   discovered_at: string | null;
   last_observed_at: string | null;
@@ -95,6 +106,8 @@ export interface Destination {
   city: string;
   city_en: string | null;
   slug: string;
+  /** The destination hub, /destinos/<slug>/ (D30). */
+  path: string;
   kinds: Kind[];
   airports: string[];
   routes: string[];

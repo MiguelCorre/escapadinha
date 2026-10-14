@@ -21,6 +21,7 @@ import re
 import shutil
 import sqlite3
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -55,13 +56,23 @@ def route_slug(origin_city: str, city_pt: str) -> str:
 
 
 def origin_slug(origin_city: str) -> str:
-    """An origin's slug in page paths ('Ponta Delgada' -> 'ponta-delgada')."""
+    """An origin's slug in page paths ('Ponta Delgada' -> 'ponta-delgada'): its page
+    /partidas/<slug>/ (D30) and its ponte pages /pontes/<feriado>/<slug>/ (D31)."""
     return slugify(origin_city)
 
 
 def ponte_path(ponte_slug: str, origin_city: str) -> str:
     """A long weekend's page for one origin: /pontes/1-dezembro-2026/porto/ (D31)."""
     return f"/pontes/{ponte_slug}/{origin_slug(origin_city)}/"
+
+
+def destination_slugs(cities: dict[str, str]) -> dict[str, str]:
+    """Destination code -> its hub's slug, /destinos/<slug>/ ('londres'), from the Portuguese
+    city name. Codes whose names share a slug all take their code ('sao-jose-sjo'), so a hub's
+    URL never depends on which of them was discovered first (D30)."""
+    slugs = {code: slugify(city) for code, city in cities.items()}
+    taken = Counter(slugs.values())
+    return {code: f"{s}-{code.lower()}" if taken[s] > 1 else s for code, s in slugs.items()}
 
 
 def promo_slug(deal_id: int, origin_city: str, city_pt: str) -> str:

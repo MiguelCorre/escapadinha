@@ -4,8 +4,11 @@
       "staticDistDir": "./dist",
       "url": [
         "http://localhost/",
+        "http://localhost/promos/8-lisboa-madeira/",
         "http://localhost/promos/3-lisboa-paris/",
-        "http://localhost/promos/2-porto-paris/",
+        "http://localhost/voos/lisboa-paris/",
+        "http://localhost/partidas/lisboa/",
+        "http://localhost/destinos/paris/",
         "http://localhost/explorar/",
         "http://localhost/pontes/1-dezembro-2026/porto/"
       ],

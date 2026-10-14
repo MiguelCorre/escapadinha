@@ -13,11 +13,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["iata", "name", "slug", "routes", "low_prices", "promotions_live"],
+        "required": ["iata", "name", "slug", "path", "routes", "low_prices", "promotions_live"],
         "properties": {
           "iata": {"$ref": "defs.schema.json#/$defs/airport"},
           "name": {"type": "string", "minLength": 1, "description": "Portuguese name (\"Madeira\" for FNC)."},
           "slug": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+          "path": {"$ref": "defs.schema.json#/$defs/path", "description": "The origin page (/partidas/<slug>/, D30): every destination from here with its cheapest found price."},
           "routes": {
             "type": "object",
             "additionalProperties": false,
