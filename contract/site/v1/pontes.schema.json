@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pontonomada.pt/contract/site/v1/pontes.schema.json",
-  "title": "pontes.json: upcoming Portuguese long weekends",
-  "description": "From the committed holiday calendar (content/holidays.yaml, Código do Trabalho art. 234 and 235; D31): every national holiday on a Monday, Tuesday, Thursday or Friday gives a long weekend (Tuesday and Thursday with the working day in between bridged). Listed while its travel window has not ended (Lisbon date of meta.generated_at), by date. A low price fits a ponte when window.start <= departure <= holiday.date <= return <= window.end. No prices here: the site selects the matching rows of each origin's low-price file. Added in v1 (additive): an export without it has no meta.files.pontes.",
+  "title": "pontes.json: Portuguese long weekends",
+  "description": "From the committed holiday calendar (content/holidays.yaml, Código do Trabalho art. 234 and 235; D31): every national holiday on a Monday, Tuesday, Thursday or Friday gives a long weekend (Tuesday and Thursday with the working day in between bridged). Every long weekend of the calendar's years is listed, by date, past ones too: the site keeps their pages (noindex, \"Esta ponte já passou\") and calls a ponte past when window.end is before the Lisbon date of meta.generated_at. A low price fits a ponte when its departure and its return both fall inside the window (window.start <= departure < return <= window.end). No prices here: the site selects the matching rows of each origin's low-price file. No display text either (D27): page titles are the site's, from name and origins.json (name, article). Added in v1 (additive): an export without it has no meta.files.pontes.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "source", "pontes"],
@@ -54,11 +54,10 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["iata", "path", "title"],
+              "required": ["iata", "path"],
               "properties": {
                 "iata": {"$ref": "defs.schema.json#/$defs/airport"},
-                "path": {"$ref": "defs.schema.json#/$defs/path", "description": "/pontes/<ponte>/<origem>/"},
-                "title": {"type": "string", "minLength": 1, "description": "\"Ponte de 1 de dezembro desde o Porto\"."}
+                "path": {"$ref": "defs.schema.json#/$defs/path", "description": "/pontes/<ponte>/<origem>/"}
               }
             }
           }

@@ -1,7 +1,8 @@
 // The explorer (/explorar/) and the ponte pages (/pontes/<ponte>/<origem>/) built from the
 // committed fixtures (D31). Expected values read off the fixture JSON by hand: Lisboa has five
 // low prices (Madeira 69/63/60 €, Barcelona 53/51 €), Porto one (Paris 70 €), Faro none; the
-// fixture's upcoming pontes start with 1 December 2026, and no fixture trip fits any of them.
+// fixtures list every ponte of 2026-2027, the upcoming ones (from the data's day, 14 October
+// 2026) start with 1 December 2026, and no fixture trip fits any of them.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,7 +11,9 @@ import { builtPages, distDir, page, pageSource, text } from "./html";
 
 const SITE_DISCLOSURE = "Publicidade: os botões de reserva são links de afiliado.";
 const PONTE = "/pontes/1-dezembro-2026/porto/";
+const PAST = "/pontes/ano-novo-2026/lisboa/";
 const data = loadSiteData(FIXTURES_DIR);
+const upcoming = data.pontes.pontes.filter((p) => p.window.end >= "2026-10-14");
 
 describe("explorer page", () => {
   const doc = () => page("/explorar/");
@@ -43,7 +46,8 @@ describe("explorer page", () => {
     const origins = form.querySelectorAll("select[name=origem] option").map((o) => o.getAttribute("value"));
     expect(origins).toEqual(["LIS", "OPO", "FAO"]);
     const pontes = form.querySelectorAll("select[name=ponte] option").map((o) => o.getAttribute("value"));
-    expect(pontes).toEqual(["", ...data.pontes.pontes.map((p) => p.slug)]);
+    expect(pontes).toEqual(["", ...upcoming.map((p) => p.slug)]);
+    expect(pontes[1]).toBe("1-dezembro-2026");                  // past ones are not offered
     const months = form.querySelectorAll("select[name=mes] option").map((o) => text(o));
     expect(months).toEqual(["Qualquer mês", "outubro de 2026", "novembro de 2026"]);
   });
@@ -85,10 +89,13 @@ describe("explorer page", () => {
     expect(bytes).toBeLessThan(10_000);
   });
 
-  it("lists the pontes with a link per origin", () => {
-    const links = doc().querySelectorAll("#pontes a").map((a) => a.getAttribute("href"));
-    expect(links).toContain(PONTE);
-    expect(links).toHaveLength(data.pontes.pontes.length * data.origins.origins.length);
+  it("lists the upcoming pontes with a link per origin, titled in pt-PT", () => {
+    const links = doc().querySelectorAll("#pontes a");
+    expect(links.map((a) => a.getAttribute("href"))).toContain(PONTE);
+    expect(links.map((a) => a.getAttribute("href"))).not.toContain(PAST);
+    expect(links).toHaveLength(upcoming.length * data.origins.origins.length);
+    const porto = links.find((a) => a.getAttribute("href") === PONTE)!;
+    expect(porto.getAttribute("aria-label")).toBe("Ponte de 1 de dezembro desde o Porto");
   });
 
   it("is in the navigation and indexable", () => {
@@ -98,10 +105,20 @@ describe("explorer page", () => {
 });
 
 describe("ponte pages", () => {
-  it("are built for every ponte and origin, at the contract's paths", () => {
+  it("are built for every ponte and origin, past ones too, at the contract's paths", () => {
     const paths = data.pontes.pontes.flatMap((p) => p.origins.map((o) => o.path));
-    expect(paths).toHaveLength(30);
+    expect(paths.length).toBeGreaterThan(upcoming.length * 3);
+    expect(paths).toContain(PAST);
     for (const path of paths) expect(builtPages(), path).toContain(path);
+  });
+
+  it("say when a ponte has passed and stay out of search (no 404 for an indexed page)", () => {
+    const doc = page(PAST);
+    expect(text(doc.querySelector("h1")!)).toBe("Fim de semana de Ano Novo desde Lisboa");
+    expect(text(doc.querySelector("[data-past]")!)).toContain("Esta ponte já passou.");
+    expect(doc.querySelector('meta[name="robots"]')!.getAttribute("content")).toBe("noindex");
+    expect(doc.querySelectorAll("#explorer-results > li")).toHaveLength(0);
+    expect(page(PONTE).querySelector("[data-past]")).toBeNull();
   });
 
   it("explain the long weekend, cite the law and stay out of search when empty", () => {

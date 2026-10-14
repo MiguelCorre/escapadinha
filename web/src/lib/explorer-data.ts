@@ -1,8 +1,9 @@
 // Build-time inputs of the explorer (D31): the per-origin JSON files the island loads lazily
 // (/explorar/dados/<ORIGIN>.json: the contract's rows plus the names they need), and the small
 // configuration the page embeds for the island. Nothing here ships to the browser.
-import type { LowPriceRow, SiteData } from "./contract";
+import type { LowPriceRow, Ponte, SiteData } from "./contract";
 import { bookingLink } from "./cta";
+import { lisbonDay } from "./dates";
 import type { PonteWindow } from "./explorer";
 import type { Places } from "./low-prices";
 
@@ -56,8 +57,19 @@ export function islandConfig(data: SiteData): IslandConfig {
   return {
     defaultOrigin: defaultOrigin(data),
     origins: data.origins.origins.map((o) => ({ iata: o.iata, name: o.name, file: dataFile(o.iata) })),
-    pontes: data.pontes.pontes.map((p) => ({ slug: p.slug, holiday: p.holiday, window: p.window })),
+    pontes: upcomingPontes(data).map((p) => ({ slug: p.slug, holiday: p.holiday, window: p.window })),
   };
+}
+
+/** A ponte whose travel window ended before the data's day (the Lisbon date of
+ * meta.generated_at): its pages stay, noindex, saying it has passed (D31). */
+export function isPastPonte(ponte: Ponte, data: SiteData): boolean {
+  return ponte.window.end < lisbonDay(data.meta.generated_at);
+}
+
+/** The pontes the explorer offers: those not past yet, by date. */
+export function upcomingPontes(data: SiteData): Ponte[] {
+  return data.pontes.pontes.filter((p) => !isPastPonte(p, data));
 }
 
 /** Departure months (YYYY-MM) with low prices from any origin, ascending. */

@@ -37,11 +37,11 @@ export function isWeekendTrip(dep: string, ret: string): boolean {
   return (out === 4 || out === 5) && (back === 6 || back === 0) && n >= 1 && n <= 3;
 }
 
-/** Inside the ponte's travel window and over the holiday itself (pontes.schema.json). */
+/** The ponte rule (D31, pontes.schema.json): departure and return both inside the travel
+ * window, from the evening before the first day off to the morning after the last one. */
 export function fitsPonte(dep: string, ret: string, p: PonteWindow): boolean {
   const { start, end } = p.window;
-  const holiday = p.holiday.date;
-  return start <= dep && dep <= holiday && holiday <= ret && ret <= end && dep < ret;
+  return start <= dep && dep < ret && ret <= end;
 }
 
 function matches(r: LowPriceRow, f: Filters, ponte: PonteWindow | null | undefined): boolean {

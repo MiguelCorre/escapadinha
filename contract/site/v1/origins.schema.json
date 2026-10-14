@@ -17,6 +17,7 @@
         "properties": {
           "iata": {"$ref": "defs.schema.json#/$defs/airport"},
           "name": {"type": "string", "minLength": 1, "description": "Portuguese name (\"Madeira\" for FNC)."},
+          "article": {"enum": ["o", "a", "os", "as", null], "description": "The definite article the name takes in a sentence (config origins_article): \"o\" for Porto (\"desde o Porto\"), \"a\" for Madeira; null for none (\"desde Lisboa\"). Added in v1 (additive): an older export has no field, read as null."},
           "slug": {"type": "string", "pattern": "^[a-z0-9-]+$"},
           "path": {"$ref": "defs.schema.json#/$defs/path", "description": "The origin page (/partidas/<slug>/, D30): every destination from here with its cheapest found price."},
           "routes": {

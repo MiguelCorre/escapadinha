@@ -7,8 +7,9 @@ bridge, "ponte"). A holiday on a Wednesday, Saturday or Sunday gives none.
 
 The travel window follows the weekend rule (out Friday or Saturday, back Sunday or Monday):
 leave at the earliest the evening before the first day off, come back at the latest the day
-after the last one. Which trips fit a window is the site's job (web/src/lib/explorer.ts),
-from the dates exported in `pontes.json`.
+after the last one. A trip fits when its departure and its return both fall inside the window;
+that test is the site's job (web/src/lib/explorer.ts `fitsPonte`), from the dates exported in
+`pontes.json`, which lists every long weekend of the calendar (past ones keep their pages).
 """
 
 from __future__ import annotations

@@ -1,8 +1,9 @@
 ---
 // One page per long weekend and origin (D31), at the path pontes.json gives
 // (/pontes/<ponte>/<origem>/): the holiday, the days off and the travel window, and the origin's
-// low prices whose departure and return fit it (explorer.ts, the same rule as the explorer's
-// filter). No matching price: the page says so and stays out of search (noindex).
+// low prices whose departure and return fall inside it (explorer.ts, the same rule as the
+// explorer's filter). No matching price: the page says so and stays out of search (noindex). A
+// ponte that has passed keeps its page (no 404 for a page that was indexed), noindex, saying so.
 import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
 import Base from "../../../layouts/Base.astro";
@@ -10,8 +11,8 @@ import ExplorerResults from "../../../components/ExplorerResults.astro";
 import type { Ponte } from "../../../lib/contract";
 import { BRAND } from "../../../lib/brand";
 import { NO_FILTERS, explore } from "../../../lib/explorer";
-import { placesFor } from "../../../lib/explorer-data";
-import { dateRange, dayMonth, longDate, longDateYear } from "../../../lib/format";
+import { isPastPonte, placesFor } from "../../../lib/explorer-data";
+import { dateRange, dayMonth, longDate, longDateYear, ponteTitle } from "../../../lib/format";
 
 export const getStaticPaths = (() =>
   data.pontes.pontes.flatMap((ponte) => ponte.origins.map((origin) => {
@@ -26,21 +27,26 @@ interface Props {
 }
 
 const { ponte, origin } = Astro.props;
-const rows = data.lowPrices[origin.iata]?.rows ?? [];
+const past = isPastPonte(ponte, data);
+const rows = past ? [] : data.lowPrices[origin.iata]?.rows ?? [];
 const results = explore(rows, { ...NO_FILTERS, ponte: ponte.slug }, [ponte]);
 const names = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o.name]));
+const title = ponteTitle(ponte.name, data.origins.origins.find((o) => o.iata === origin.iata) ?? { name: origin.iata });
 const others = ponte.origins.filter((o) => o.iata !== origin.iata);
 const { start, end } = ponte.window;
 ---
 <Base
-  title={`${origin.title} · ${BRAND}`}
-  description={`${origin.title}: voos de ida e volta com partida a partir de ${dayMonth(start)} e regresso até ${dayMonth(end)}, abaixo do preço habitual de cada rota.`}
+  title={`${title} · ${BRAND}`}
+  description={`${title}: voos de ida e volta com partida a partir de ${dayMonth(start)} e regresso até ${dayMonth(end)}, abaixo do preço habitual de cada rota.`}
   path={origin.path}
-  noindex={results.length === 0}
+  noindex={past || results.length === 0}
 >
   <section class="max-w-measure">
     <p class="label text-accent">Pontes e feriados</p>
-    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-none font-medium">{origin.title}</h1>
+    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-none font-medium">{title}</h1>
+    {past && (
+      <p data-past class="notice notice-warning mt-md">Esta ponte já passou. Vê as próximas pontes e feriados no <a href="/explorar/#pontes">explorador</a>.</p>
+    )}
     <p class="mt-md text-lead">{ponte.holiday.name}: {longDateYear(ponte.holiday.date)}.</p>
     <p class="mt-xs text-muted">
       Dias livres: {dateRange(ponte.days_off.first, ponte.days_off.last)}{ponte.bridge ? <>, tirando a ponte na {longDate(ponte.bridge)}</> : null}.
@@ -51,7 +57,7 @@ const { start, end } = ponte.window;
     )}
   </section>
 
-  {results.length > 0 ? (
+  {past ? null : results.length > 0 ? (
     <ExplorerResults heading="Destinos para esta ponte" results={results} places={placesFor(data, origin.iata)} disclosure={data.labels.disclosure.site} />
   ) : (
     <p class="notice mt-xl max-w-measure">Ainda não há preços baixos para estas datas. Os preços são verificados várias vezes por dia: volta mais perto da ponte ou procura outras datas no <a href="/explorar/">explorador</a>.</p>

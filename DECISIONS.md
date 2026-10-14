@@ -1062,20 +1062,30 @@ so nothing has to be hosted.
   page of its own; Good Friday's ("Fim de semana da Páscoa") covers it.
 - **Travel window = the weekend rule generalised:** from the evening before the first day off to
   the morning after the last one (a plain weekend is out Friday/Saturday, back Sunday/Monday).
-  A low price fits a ponte when `start ≤ departure ≤ holiday ≤ return ≤ end`: inside the window
-  and over the holiday itself, so a plain weekend just before a Tuesday holiday does not count.
-- **Contract, additive within v1:** `pontes.json` (`pontes.schema.json`) with the upcoming pontes
-  (window end ≥ the export's Lisbon date), each with holiday, days off, bridge, window and one
-  `{iata, path, title}` per origin; `meta.files.pontes` is optional, and the site reads an export
+  A low price fits a ponte when its departure and its return both fall inside the window
+  (`start ≤ departure < return ≤ end`), as the spec says. (Review fix: the first version also
+  required the trip to span the holiday, `departure ≤ holiday ≤ return`; that is not in the
+  spec and is dropped, so a Friday-to-Sunday trip inside a Tuesday ponte's window counts.
+  Tested on a Tuesday and a Thursday holiday.)
+- **Contract, additive within v1:** `pontes.json` (`pontes.schema.json`) with every ponte of the
+  calendar's years, past ones included, each with holiday, days off, bridge, window and one
+  `{iata, path}` per origin; `meta.files.pontes` is optional, and the site reads an export
   without it as having no pontes. Paths `/pontes/<slug>-<year>/<origin-slug>/` come from Python
-  (`website.ponte_path`, `website.origin_slug`; the web package never slugifies), titles too
-  ("Ponte de 1 de dezembro desde o Porto", article from `i18n_pt.from_place`). No prices in the
+  (`website.ponte_path`, `website.origin_slug`; the web package never slugifies). **Raw values
+  only (D27, review fix):** the first version exported a pt-PT `title` per origin built with a
+  hard-coded article map (`i18n_pt._ARTICLE`); the title is now the site's
+  (`format.ponteTitle`: "Ponte de 1 de dezembro desde o Porto", `format.fromPlace`) and the
+  article comes from config `origins_article` (`OPO: o`, `FNC: a`, `TER: a`; Lisboa, Faro and
+  Ponta Delgada take none), exported as `origins.json` `article` (optional, additive; `null` =
+  none). Dropping `title` is not a v1 break for any consumer: `pontes.json` only exists on the
+  unreleased M3 branch and the web package is its only reader. No prices in the
   file: the site selects the rows of each origin's low-price file, so traceability is unchanged.
   The committed fixtures got `pontes.json` and `meta.files.pontes` computed at the fixtures'
   own `generated_at` instead of a full regeneration, which would have replaced every fixture
   with the newer database (other tickets' expectations); the next `export fixtures` writes the
-  same file. The calendar is under `content/`, which the run-path fingerprint already hashes, and
-  the "day" component moves a ponte off the site the day after its window.
+  same file (the review fixes recomputed `pontes.json` and the origins' `article` the same way).
+  The calendar is under `content/`, which the run-path fingerprint already hashes, and the "day"
+  component turns a ponte "past" on the site the day after its window.
 - **Weekend and ponte matching live in the web package** (`web/src/lib/explorer.ts`), because the
   island needs them in the browser and the pages at build time; one module, tested in vitest
   (`isWeekendTrip`: out Fri/Sat, back Sun/Mon within 3 nights; `fitsPonte`). Python tests the
@@ -1110,9 +1120,14 @@ so nothing has to be hosted.
   route page `/voos/<origem>-<destino>/`, the contract's route `path` carried in the per-origin
   files' `places.paths` (no link when a row's route is missing). Origin page and ponte pages share
   one slug function (`website.origin_slug`): `/partidas/porto/` and `/pontes/<feriado>/porto/`.
-- **Ponte pages** `/pontes/.../...` per ponte × origin (60 with six origins): holiday, days off,
+- **Ponte pages** `/pontes/.../...` per ponte × origin (16 pontes in 2026–2027: 96 with six
+  origins, past ones included): holiday, days off,
   bridge day, window, the optional-holiday warning for Carnaval, the matching low prices, the
-  other origins' pages and the legal source; `noindex` while nothing matches. No fixture trip
+  other origins' pages and the legal source; `noindex` while nothing matches. **Past pontes keep
+  their pages** (review fix: dropping them from the export turned indexed pages into 404s): a
+  ponte whose window ended before the Lisbon date of `meta.generated_at` (`isPastPonte`) is built
+  `noindex`, without prices, with "Esta ponte já passou." and a link to the upcoming ones; the
+  explorer's filter and list offer upcoming pontes only (`upcomingPontes`). No fixture trip
   fits a ponte (real data), so the built pages are all the empty state; the listing itself is
   `resultsHtml`, covered with test rows.
 - **Lighthouse** (local, 2026-10-14, mobile, median of 3): explorer 0.92 / 1 / 1 (perf / a11y /

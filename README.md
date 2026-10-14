@@ -178,6 +178,8 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
   until a recheck or the approval verified the price this recently), `max_attempts` (5 publisher
   errors cancel a post) and `publishers` per channel (`dry-run` for now).
 - `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
+- `origins_article`: the article a name takes in a sentence (`OPO: o` → "desde o Porto", `FNC: a`,
+  `TER: a`; unlisted origins take none), exported in `origins.json` for the site's titles.
 - `detector`:
   - `threshold: 0.30` and `min_saving_eur: 15`: a promotion candidate needs
     `price ≤ typical_low × (1 − 0.30)` **and** `typical_low − price ≥ 15 €`.
@@ -444,7 +446,7 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 | `destinations.json` | Destination hubs: city, hub path `/destinos/<slug>/` (cities sharing a slug take their code), airports, routes from Portugal, photo credit |
 | `promotions.json` | Approved deals, live and expired after approval (for `site.expired_promotions_days`, 30, after expiring): offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
 | `low-prices/<ORIGIN>.json` | One origin's low prices for the explorer: compact rows `[obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link]` |
-| `pontes.json` | Upcoming long weekends ("pontes", D31) from `content/holidays.yaml`: holiday, days off, bridge day, travel window, one page path + title per origin. No prices (added within v1: older exports lack it) |
+| `pontes.json` | Every long weekend ("pontes", D31) of `content/holidays.yaml`, past ones too: holiday, days off, bridge day, travel window, one page path per origin. No prices, no display text (added within v1: older exports lack it) |
 
 - **Raw values:** ISO dates, UTC timestamps, euros as numbers. pt-PT formatting is the site's job,
   with the names from `labels.json`. `found` (traveller) and `fetched` (us) are separate fields.
@@ -537,9 +539,10 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   origin's low prices only when picked, from `/explorar/dados/<ORIGIN>.json` (the contract's rows
   plus the names they need). Server and island share `src/lib/explorer.ts` (rules and result HTML).
   Each result's headline links to its route page (the contract's route `path`).
-- **Pontes** `/pontes/<feriado>-<ano>/<origem>/` (paths from `pontes.json`): one page per upcoming
-  long weekend and origin with the low prices whose departure and return fit the window and span
-  the holiday; `noindex` while there are none. The calendar is `content/holidays.yaml` (national
+- **Pontes** `/pontes/<feriado>-<ano>/<origem>/` (paths from `pontes.json`): one page per long
+  weekend and origin with the low prices whose departure and return both fall inside the window;
+  `noindex` while there are none. A ponte that has passed keeps its page, `noindex`, saying "Esta
+  ponte já passou."; titles ("desde o Porto") use the article from config `origins_article`. The calendar is `content/holidays.yaml` (national
   holidays 2026–2027, Código do Trabalho art. 234.º/235.º; add the next year's dates before 2028).
 - **Prices:** every price element carries `data-obs` / `data-deal` / `data-route` (also on `<head>`
   when the title shows a price); `web/test/traceability.test.ts` fails on any price string on a

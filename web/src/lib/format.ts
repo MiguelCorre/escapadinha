@@ -152,6 +152,16 @@ export function lisbonTimestamp(utc: string): string {
   return `${p.day}/${p.month}/${p.year} às ${p.hour}:${p.minute}`;
 }
 
+/** ("Porto", "o") -> "desde o Porto", ("Lisboa", null) -> "desde Lisboa" (origins.json article). */
+export function fromPlace(name: string, article?: string | null): string {
+  return article ? `desde ${article} ${name}` : `desde ${name}`;
+}
+
+/** A ponte page's title: "Ponte de 1 de dezembro desde o Porto". */
+export function ponteTitle(ponteName: string, origin: { name: string; article?: string | null }): string {
+  return `${ponteName} ${fromPlace(origin.name, origin.article)}`;
+}
+
 /** (1, "noite", "noites") -> "1 noite"; 0 and 2+ take the plural. */
 export function count(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`;

@@ -594,9 +594,10 @@ def test_the_calendar_starts_on_the_lisbon_day_not_the_utc_day(ctx, tmp_path):  
 
 # --- pontes (D31) -----------------------------------------------------------------------------
 
-def test_pontes_are_the_upcoming_long_weekends_with_a_page_per_origin(ctx, tmp_path):  # noqa: F811
-    """From content/holidays.yaml: long weekends whose window has not ended in Lisbon, each
-    with its travel window and one page path per origin of the export."""
+def test_pontes_are_every_long_weekend_with_a_page_per_origin(ctx, tmp_path):  # noqa: F811
+    """From content/holidays.yaml: every long weekend of the calendar, past ones too (their
+    pages stay, noindex), each with its travel window and one page path per origin; raw values
+    only (no titles: the site writes them from the name and the origin's article)."""
     conn = pipeline.open_db(ctx)
     now = datetime(2026, 12, 2, 23, 30, tzinfo=timezone.utc)       # 2 Dec, 23:30 in Lisbon
     out = tmp_path / "site-data"
@@ -604,8 +605,10 @@ def test_pontes_are_the_upcoming_long_weekends_with_a_page_per_origin(ctx, tmp_p
     assert validation_errors(out) == []
     assert read(out, "meta.json")["files"]["pontes"] == "pontes.json"
     doc = read(out, "pontes.json")
-    first = doc["pontes"][0]
-    assert first["slug"] == "1-dezembro-2026"          # its window ends today: still listed
+    assert doc["pontes"][0]["slug"] == "ano-novo-2026"    # long past: listed all the same
+    assert [p["holiday"]["date"] for p in doc["pontes"]] == sorted(
+        p["holiday"]["date"] for p in doc["pontes"])
+    first = next(p for p in doc["pontes"] if p["slug"] == "1-dezembro-2026")
     assert first["name"] == "Ponte de 1 de dezembro"
     assert first["holiday"] == {"date": "2026-12-01", "name": "Restauração da Independência",
                                 "optional": False}
@@ -615,16 +618,25 @@ def test_pontes_are_the_upcoming_long_weekends_with_a_page_per_origin(ctx, tmp_p
     assert [o["iata"] for o in first["origins"]] == [
         o["iata"] for o in read(out, "origins.json")["origins"]]
     origins = {o["iata"]: o for o in first["origins"]}
-    assert origins["OPO"] == {"iata": "OPO", "path": "/pontes/1-dezembro-2026/porto/",
-                              "title": "Ponte de 1 de dezembro desde o Porto"}
-    assert origins["LIS"]["title"] == "Ponte de 1 de dezembro desde Lisboa"
+    assert origins["OPO"] == {"iata": "OPO", "path": "/pontes/1-dezembro-2026/porto/"}
     # One origin slug for both page types: /partidas/porto/ and /pontes/<feriado>/porto/.
     pages = {o["iata"]: o for o in read(out, "origins.json")["origins"]}
     assert all(o["path"].endswith(f"/{pages[o['iata']]['slug']}/") for o in first["origins"])
     assert pages["OPO"]["path"] == "/partidas/porto/"
+    # The article for "desde o Porto" comes from config (origins_article), not from code.
+    assert (pages["OPO"]["article"], pages["LIS"]["article"]) == ("o", None)
     assert "Código do Trabalho" in doc["source"]
     carnaval = next(p for p in doc["pontes"] if p["slug"] == "carnaval-2027")
     assert carnaval["holiday"]["optional"] is True and carnaval["bridge"] == "2027-02-08"
-    later = datetime(2026, 12, 3, 0, 30, tzinfo=timezone.utc)       # 3 Dec in Lisbon
+    later = datetime(2027, 6, 1, tzinfo=timezone.utc)
     assert site_data.build_export(ctx, conn, later, new_links=False).files[
-        "pontes.json"]["pontes"][0]["slug"] == "8-dezembro-2026"
+        "pontes.json"] == doc                                      # the same list, whatever the day
+
+
+def test_origin_articles_come_from_config(ctx, tmp_path):  # noqa: F811
+    ctx.config.origins_article = {"LIS": "a"}
+    conn = pipeline.open_db(ctx)
+    origins = site_data.build_export(ctx, conn, db.utcnow(), new_links=False).files[
+        "origins.json"]["origins"]
+    assert {o["iata"]: o["article"] for o in origins}.get("LIS") == "a"
+    assert all(o["article"] is None for o in origins if o["iata"] != "LIS")

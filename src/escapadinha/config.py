@@ -331,12 +331,18 @@ class AppConfig(BaseModel):
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()
     origins_pt: dict[str, str] = {}
+    # The definite article an origin's name takes in a sentence ("desde o Porto", "desde a
+    # Madeira"); none for the others ("desde Lisboa"). Exported in origins.json for the site.
+    origins_article: dict[str, Literal["o", "a", "os", "as"]] = {}
     photos: PhotosConfig = PhotosConfig()
     affiliate: AffiliateConfig = AffiliateConfig()
     site: SiteConfig = SiteConfig()
 
     def origin_name(self, iata: str) -> str:
         return self.origins_pt.get(iata, iata)
+
+    def origin_article(self, iata: str) -> str | None:
+        return self.origins_article.get(iata)
 
 
 class Context:

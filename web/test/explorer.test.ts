@@ -47,16 +47,34 @@ describe("weekend rule: out Friday or Saturday, back Sunday or Monday of the sam
   });
 });
 
-describe("ponte window: inside the travel window and over the holiday", () => {
+// The spec's rule: departure and return both fall inside the travel window (D31).
+describe("ponte window, Tuesday holiday (1 Dec 2026: window Fri 27 Nov to Wed 2 Dec)", () => {
   it.each([
     ["2026-11-27", "2026-12-01", true],   // Fri evening -> the holiday
     ["2026-11-28", "2026-12-02", true],   // Sat -> Wed morning
     ["2026-12-01", "2026-12-02", true],   // on the holiday itself
+    ["2026-11-27", "2026-11-29", true],   // inside the window, back before the holiday
     ["2026-11-26", "2026-12-01", false],  // leaves before the window
     ["2026-11-28", "2026-12-03", false],  // back after it
-    ["2026-11-27", "2026-11-29", false],  // a weekend that ends before the holiday
+    ["2026-12-02", "2026-12-02", false],  // not a trip
   ])("%s -> %s: %s", (dep, ret, expected) => {
     expect(fitsPonte(dep, ret, DEZ_1)).toBe(expected);
+  });
+});
+
+describe("ponte window, Thursday holiday (10 Jun 2027: window Wed 9 to Mon 14 Jun)", () => {
+  const JUN_10: Pick<Ponte, "holiday" | "window"> = {
+    holiday: { date: "2027-06-10", name: "Dia de Portugal", optional: false },
+    window: { start: "2027-06-09", end: "2027-06-14" },
+  };
+  it.each([
+    ["2027-06-09", "2027-06-13", true],   // Wed evening -> Sun
+    ["2027-06-10", "2027-06-14", true],   // the holiday -> Mon morning
+    ["2027-06-11", "2027-06-13", true],   // the bridge day -> Sun, after the holiday
+    ["2027-06-08", "2027-06-13", false],  // leaves before the window
+    ["2027-06-12", "2027-06-15", false],  // back after it
+  ])("%s -> %s: %s", (dep, ret, expected) => {
+    expect(fitsPonte(dep, ret, JUN_10)).toBe(expected);
   });
 });
 
@@ -85,7 +103,7 @@ describe("explore", () => {
 
   it("keeps weekends only, and a ponte's trips only", () => {
     expect(obsOf({ weekendOnly: true })).toEqual([1, 4]);
-    expect(obsOf({ ponte: "1-dezembro-2026" })).toEqual([3, 5]);
+    expect(obsOf({ ponte: "1-dezembro-2026" })).toEqual([1, 3, 5]);
     expect(obsOf({ ponte: "carnaval-2027" })).toEqual([]);      // not upcoming: nothing fits
   });
 });

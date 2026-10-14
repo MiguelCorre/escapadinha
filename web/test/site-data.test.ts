@@ -51,10 +51,12 @@ describe("loadSiteData", () => {
     expect(() => loadSiteData(dir)).toThrow(/low-prices\/OPO\.json/);
   });
 
-  it("loads the upcoming long weekends (pontes, D31), validated", () => {
+  it("loads the long weekends (pontes, D31), past ones too, validated", () => {
     const data = loadSiteData(FIXTURES_DIR);
-    expect(data.pontes.pontes[0].slug).toBe("1-dezembro-2026");
-    expect(data.pontes.pontes[0].window).toEqual({ start: "2026-11-27", end: "2026-12-02" });
+    expect(data.pontes.pontes[0].slug).toBe("ano-novo-2026");
+    const dez = data.pontes.pontes.find((p) => p.slug === "1-dezembro-2026")!;
+    expect(dez.window).toEqual({ start: "2026-11-27", end: "2026-12-02" });
+    expect(data.origins.origins.map((o) => o.article ?? null)).toEqual([null, "o", null]);
     const dir = fixtureCopy();
     edit(dir, "pontes.json", (j) => { j.pontes[0].window.start = "27/11/2026"; });
     expect(() => loadSiteData(dir)).toThrow(/pontes\.json.*\/pontes\/0\/window\/start/s);

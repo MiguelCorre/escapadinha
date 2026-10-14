@@ -163,6 +163,12 @@ origins_pt:
   FNC: Madeira
   PDL: Ponta Delgada
   TER: Terceira
+# The article an origin's name takes in a sentence: "desde o Porto", "desde a Madeira";
+# origins not listed take none ("desde Lisboa"). The site writes the sentences (origins.json).
+origins_article:
+  OPO: o
+  FNC: a
+  TER: a
 
 photos:
   # Every destination of an active route gets a photo automatically (after a discovery and

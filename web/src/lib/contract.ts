@@ -50,6 +50,8 @@ export interface Labels {
 export interface Origin {
   iata: string;
   name: string;
+  /** The article the name takes in a sentence ("o" Porto, "a" Madeira); null or absent: none. */
+  article?: "o" | "a" | "os" | "as" | null;
   slug: string;
   /** The origin page, /partidas/<slug>/ (D30). */
   path: string;
@@ -151,7 +153,8 @@ export interface LowPrices {
   truncated: number;
 }
 
-/** One upcoming long weekend (pontes.json, D31). Dates are ISO calendar dates. */
+/** One long weekend of the holiday calendar (pontes.json, D31), past ones included. Dates are
+ * ISO calendar dates. No display text: titles come from format.ts (`ponteTitle`). */
 export interface Ponte {
   slug: string;
   name: string;
@@ -159,7 +162,7 @@ export interface Ponte {
   days_off: { first: string; last: string };
   bridge: string | null;
   window: { start: string; end: string };
-  origins: { iata: string; path: string; title: string }[];
+  origins: { iata: string; path: string }[];
 }
 
 export interface Pontes {

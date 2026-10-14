@@ -14,6 +14,8 @@ import {
   eur,
   eurParts,
   eurPlain,
+  fromPlace,
+  ponteTitle,
   lisbonTimestamp,
   longDate,
   longDateYear,
@@ -69,6 +71,15 @@ describe("pt-PT formats", () => {
     expect(lisbonTimestamp("2026-10-12T21:17:55Z")).toBe("12/10/2026 às 22:17");
     expect(lisbonTimestamp("2027-01-05T09:04Z")).toBe("05/01/2027 às 09:04");
     expect(lisbonTimestamp("2026-10-12T23:30:00Z")).toBe("13/10/2026 às 00:30");
+  });
+
+  it("names an origin with its article, and a ponte page after it", () => {
+    expect(fromPlace("Porto", "o")).toBe("desde o Porto");
+    expect(fromPlace("Madeira", "a")).toBe("desde a Madeira");
+    expect(fromPlace("Lisboa", null)).toBe("desde Lisboa");
+    expect(fromPlace("Faro")).toBe("desde Faro");
+    expect(ponteTitle("Ponte de 1 de dezembro", { name: "Terceira", article: "a" }))
+      .toBe("Ponte de 1 de dezembro desde a Terceira");
   });
 
   it("counts nights", () => {

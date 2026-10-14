@@ -11,7 +11,7 @@ matches them, from the same database queries and detector rules as the Jinja sit
     destinations.json    destination hubs (city, airports, routes from Portugal, photo credit)
     promotions.json      approved deals, live and recently expired (paths, images, links)
     low-prices/XXX.json  one origin's low prices at date level, compact rows (explorer)
-    pontes.json          upcoming Portuguese long weekends (holiday calendar, D31), page paths
+    pontes.json          the Portuguese long weekends of the holiday calendar (D31), page paths
 
 Values are raw (ISO dates, UTC timestamps, euros as numbers); pt-PT formatting stays on
 the site, from `labels.json`. Every price sits next to what it traces to: an observation
@@ -130,7 +130,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     """Every contract file as a document. Creates missing partner links when `new_links`
     (from the run's link budget, `pipeline.link_budget`, D24); writes nothing else."""
     now = now or db.utcnow()
-    today = now.astimezone(i18n_pt.LISBON).date()   # the one "today" of the export: Lisbon's
+    today = now.astimezone(i18n_pt.LISBON).date()   # the export's "today" (calendar): Lisbon's
     cfg = ctx.config
     run_id = db.latest_completed_run_id(conn)
     run_offers = db.observations_seen_since(conn, run_id) if run_id else []
@@ -207,7 +207,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
             "rows": [_low_row(lp, low_links.get(lp.observation.id))
                      for lp in sorted(kept.get(code, []), key=_row_order)]}
     files["labels.json"] = _labels()
-    files["pontes.json"] = _pontes(ctx, today, origin_codes)
+    files["pontes.json"] = _pontes(ctx, origin_codes)
     files["meta.json"] = _meta(ctx, conn, now, run_id, fixture, origin_codes, files)
     return Export(files)
 
@@ -362,7 +362,8 @@ def _origin(ctx: Context, code: str, all_routes: list[Route], low_count, promo_c
     mine = [r for r in all_routes if r.origin == code]
     name = ctx.config.origin_name(code)
     slug = origin_slug(name)
-    return {"iata": code, "name": name, "slug": slug, "path": f"/partidas/{slug}/",
+    return {"iata": code, "name": name, "article": ctx.config.origin_article(code), "slug": slug,
+            "path": f"/partidas/{slug}/",
             "routes": {"active": sum(r.status == "active" for r in mine),
                        "dormant": sum(r.status == "dormant" for r in mine)},
             "low_prices": sum(low_count[r.key] for r in mine),
@@ -462,21 +463,18 @@ def _labels() -> dict:
     }
 
 
-def _pontes(ctx: Context, today: date, origin_codes: list[str]) -> dict:
-    """Long weekends whose travel window has not ended by `today` (Lisbon), with one page per
-    origin."""
+def _pontes(ctx: Context, origin_codes: list[str]) -> dict:
+    """Every long weekend of the calendar, past ones too (their pages stay, D31), with one page
+    path per origin. Which are past is the site's call, from meta.generated_at."""
     items = []
     for p in pontes.pontes(pontes.load_calendar(ctx.holidays_file)):
-        if p.end < today:
-            continue
         h = p.holiday
         items.append({
             "slug": p.slug, "name": p.name,
             "holiday": {"date": _day(h.day), "name": h.name, "optional": h.optional},
             "days_off": {"first": _day(p.first_off), "last": _day(p.last_off)},
             "bridge": _day(p.bridge), "window": {"start": _day(p.start), "end": _day(p.end)},
-            "origins": [{"iata": code, "path": ponte_path(p.slug, ctx.config.origin_name(code)),
-                         "title": f"{p.name} {i18n_pt.from_place(ctx.config.origin_name(code))}"}
+            "origins": [{"iata": code, "path": ponte_path(p.slug, ctx.config.origin_name(code))}
                         for code in origin_codes],
         })
     return {"version": VERSION, "source": HOLIDAYS_SOURCE, "pontes": items}

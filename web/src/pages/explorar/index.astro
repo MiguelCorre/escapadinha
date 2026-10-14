@@ -9,15 +9,15 @@ import Base from "../../layouts/Base.astro";
 import ExplorerResults from "../../components/ExplorerResults.astro";
 import { BRAND } from "../../lib/brand";
 import { NO_FILTERS, explore, statusText } from "../../lib/explorer";
-import { defaultOrigin, islandConfig, months, placesFor } from "../../lib/explorer-data";
-import { dateRange, monthYear } from "../../lib/format";
+import { defaultOrigin, islandConfig, months, placesFor, upcomingPontes } from "../../lib/explorer-data";
+import { dateRange, monthYear, ponteTitle } from "../../lib/format";
 
 const origin = defaultOrigin(data);
 const originName = data.origins.origins.find((o) => o.iata === origin)?.name ?? origin;
 const results = explore(data.lowPrices[origin]?.rows ?? [], NO_FILTERS, []);
 const config = islandConfig(data);
-const pontes = data.pontes.pontes;
-const names = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o.name]));
+const pontes = upcomingPontes(data);
+const origins = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o]));
 ---
 <Base
   title={`Explorador de voos baratos desde Portugal · ${BRAND}`}
@@ -77,7 +77,7 @@ const names = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o.name
             <p class="font-semibold">{p.name}</p>
             <p class="text-small text-muted">{dateRange(p.days_off.first, p.days_off.last)}</p>
             <p class="mt-2xs flex flex-wrap gap-x-md text-small">
-              {p.origins.map((o) => <a href={o.path} aria-label={o.title}>{names[o.iata] ?? o.iata}</a>)}
+              {p.origins.map((o) => <a href={o.path} aria-label={ponteTitle(p.name, origins[o.iata] ?? { name: o.iata })}>{origins[o.iata]?.name ?? o.iata}</a>)}
             </p>
           </li>
         ))}

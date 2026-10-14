@@ -1,5 +1,5 @@
 {"origins":[
-{"iata":"LIS","low_prices":5,"name":"Lisboa","path":"/partidas/lisboa/","promotions_live":1,"routes":{"active":4,"dormant":0},"slug":"lisboa"},
-{"iata":"OPO","low_prices":1,"name":"Porto","path":"/partidas/porto/","promotions_live":0,"routes":{"active":3,"dormant":0},"slug":"porto"},
-{"iata":"FAO","low_prices":0,"name":"Faro","path":"/partidas/faro/","promotions_live":0,"routes":{"active":3,"dormant":0},"slug":"faro"}
+{"article":null,"iata":"LIS","low_prices":5,"name":"Lisboa","path":"/partidas/lisboa/","promotions_live":1,"routes":{"active":4,"dormant":0},"slug":"lisboa"},
+{"article":"o","iata":"OPO","low_prices":1,"name":"Porto","path":"/partidas/porto/","promotions_live":0,"routes":{"active":3,"dormant":0},"slug":"porto"},
+{"article":null,"iata":"FAO","low_prices":0,"name":"Faro","path":"/partidas/faro/","promotions_live":0,"routes":{"active":3,"dormant":0},"slug":"faro"}
 ],"version":1}
