@@ -556,6 +556,51 @@ def test_destination_slugs_take_the_code_when_two_cities_share_a_name():
         "SJO": "sao-jose-sjo", "SJC": "sao-jose-sjc", "ROM": "roma"}
 
 
+def test_a_published_hub_keeps_its_slug_when_a_same_name_city_appears_later():
+    from escapadinha.website import destination_slugs
+    # SJO was published as /destinos/sao-jose/; SJC (also "São José") is found afterwards.
+    assert destination_slugs({"SJO": "São José", "SJC": "São José"}, {"SJO": ["sao-jose"]}) == {
+        "SJO": "sao-jose", "SJC": "sao-jose-sjc"}
+    # Published with its code, it keeps it; a renamed city gets a new slug (old path: 301).
+    assert destination_slugs({"SJO": "São José", "SJC": "São José"},
+                             {"SJO": ["sao-jose-sjo"], "SJC": ["sao-jose-sjc"]}) == {
+        "SJO": "sao-jose-sjo", "SJC": "sao-jose-sjc"}
+    assert destination_slugs({"SJO": "San José"}, {"SJO": ["sao-jose"]}) == {"SJO": "san-jose"}
+    # Back to an earlier name: the slug it had then, the latest that fits.
+    assert destination_slugs({"SJO": "São José"}, {"SJO": ["sao-jose", "san-jose"]}) == {
+        "SJO": "sao-jose"}
+
+
+def test_destination_slugs_stay_put_across_exports_and_changes_get_a_301(exported):
+    """A same-name city discovered after the first export takes its code; the hub that was
+    already published keeps /destinos/londres/. Every exported path is remembered in
+    site.paths, so a slug that does change (a renamed city) gets a 301 from the old path."""
+    from escapadinha.website import redirects
+    ctx, conn, _, out, _ = exported
+    assert route(out, "LIS-LON") and _dest(out, "LON")["path"] == "/destinos/londres/"
+    assert pipeline.site_paths(ctx, conn)["destination:LON"] == ["/destinos/londres/"]
+    db.insert_route(conn, origin="LIS", destination="XLO", city_pt="Londres", kind="europe",
+                    discovered_at=db.utcnow())
+    conn.commit()
+    site_data.export_site_data(ctx, conn, out, new_links=False)
+    assert _dest(out, "LON")["path"] == "/destinos/londres/"
+    assert _dest(out, "XLO")["path"] == "/destinos/londres-xlo/"
+    # Renamed in the data: a new slug, and the old path redirects to it.
+    conn.execute("UPDATE routes SET city_pt = 'Londres (Reino Unido)' WHERE destination = 'LON'")
+    conn.commit()
+    site_data.export_site_data(ctx, conn, out, new_links=False)
+    new = _dest(out, "LON")["path"]
+    assert new == "/destinos/londres-reino-unido/"
+    history = pipeline.site_paths(ctx, conn)
+    assert history["destination:LON"] == ["/destinos/londres/", new]
+    plan = redirects.plan_redirects({"destination:LON": new}, history, extra={}, aliases={})
+    assert ("/destinos/londres/", new) in plan.rules
+
+
+def _dest(out: Path, code: str) -> dict:
+    return next(d for d in read(out, "destinations.json")["destinations"] if d["code"] == code)
+
+
 def test_route_calendar_is_the_cheapest_fresh_offer_per_departure_date(exported):
     """The calendar of cheapest found prices (story 34): the latest run's fresh offers within
     the route's rules, the cheapest per departure day, ascending, each with its observation."""

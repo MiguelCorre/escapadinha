@@ -39,8 +39,8 @@ from escapadinha.models import Deal, Observation, Route
 from escapadinha.presentation import DISCLOSURE, SITE_DISCLOSURE
 from escapadinha.storage import db
 from escapadinha.website import (
-    LIVE, deal_image_paths, destination_slugs, origin_slug, ponte_path, promo_slug,
-    public_deal_rows, route_slug,
+    DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, origin_slug,
+    ponte_path, promo_slug, public_deal_rows, redirects, route_slug,
 )
 
 VERSION = 1
@@ -117,11 +117,30 @@ def export_site_data(ctx: Context, conn: sqlite3.Connection, out: Path | None = 
                      now: datetime | None = None, *, new_links: bool = True) -> Export:
     """Export the website data into `out` (default `site.data_dir`).
 
-    `new_links=False`: only links already stored are used (no partner API request).
+    `new_links=False`: only links already stored are used (no partner API request). Records
+    the destination hubs' paths in the `site.paths` history (`record_destination_paths`).
     """
     export = build_export(ctx, conn, now, new_links=new_links)
     export.write(out or default_dir(ctx))
+    record_destination_paths(ctx, conn, export)
     return export
+
+
+def published_destination_slugs(ctx: Context, conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Code -> every slug its hub was exported at (oldest first), from the `site.paths` history."""
+    return {key.removeprefix(DESTINATION_KEY): [p.removeprefix(DESTINATIONS).strip("/")
+                                                for p in paths if p.startswith(DESTINATIONS)]
+            for key, paths in pipeline.site_paths(ctx, conn).items()
+            if key.startswith(DESTINATION_KEY)}
+
+
+def record_destination_paths(ctx: Context, conn: sqlite3.Connection, export: Export) -> None:
+    """Remember every destination hub's path (D30): the next export keeps each hub at its slug
+    (`destination_slugs`), and a path that ever changes keeps a 301 from the old one
+    (`website.redirects`, keys `destination:<code>` in `site.paths`, like the Jinja pages')."""
+    pages = {f"{DESTINATION_KEY}{d['code']}": d["path"]
+             for d in export.files["destinations.json"]["destinations"]}
+    pipeline.save_site_paths(conn, redirects.update_history(pipeline.site_paths(ctx, conn), pages))
 
 
 def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None, *,
@@ -194,8 +213,8 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
                low_count[r.key], *promo_count[r.key]) for r in all_routes]}
     files["origins.json"] = {"version": VERSION, "origins": [
         _origin(ctx, code, all_routes, low_count, promo_count) for code in origin_codes]}
-    files["destinations.json"] = {"version": VERSION,
-                                  "destinations": _destinations(conn, all_routes)}
+    files["destinations.json"] = {"version": VERSION, "destinations": _destinations(
+        conn, all_routes, published_destination_slugs(ctx, conn))}
     promotions = sorted(deals, key=lambda p: (p[0].detected_at, p[0].id), reverse=True)
     files["promotions.json"] = {"version": VERSION, "promotions": [
         _promotion(ctx, conn, d, o, route_by_key[o.route_key], deal_links.get(d.id))
@@ -370,11 +389,12 @@ def _origin(ctx: Context, code: str, all_routes: list[Route], low_count, promo_c
             "promotions_live": sum(promo_count[r.key][0] for r in mine)}
 
 
-def _destinations(conn: sqlite3.Connection, all_routes: list[Route]) -> list[dict]:
+def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
+                  published: dict[str, list[str]]) -> list[dict]:
     grouped: dict[str, list[Route]] = defaultdict(list)
     for r in all_routes:
         grouped[r.destination].append(r)
-    slugs = destination_slugs({code: rs[0].city_pt for code, rs in grouped.items()})
+    slugs = destination_slugs({code: rs[0].city_pt for code, rs in grouped.items()}, published)
     out = []
     for code, rs in sorted(grouped.items()):
         first = rs[0]
@@ -382,7 +402,7 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route]) -> list[dic
         out.append({
             "code": code, "city": first.city_pt,
             "city_en": next((r.city_en for r in rs if r.city_en), None),
-            "slug": slugs[code], "path": f"/destinos/{slugs[code]}/",
+            "slug": slugs[code], "path": destination_path(slugs[code]),
             "kinds": sorted({r.kind for r in rs}),
             "airports": sorted({a for r in rs for a in (r.destination_airports or "").split(",")
                                 if a}),

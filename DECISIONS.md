@@ -968,9 +968,19 @@ so nothing has to be hosted.
 - **Contract, additive within v1:** `origins[].path` and `destinations[].path` (required in new
   exports, fixtures regenerated) and `routes[].calendar`. Slugs are computed once in Python next to
   `route_slug`: `website.origin_slug` and `website.destination_slugs`, which gives cities whose
-  pt-PT names share a slug their code too (`sao-jose-sjo`, `sao-jose-sjc`), so a hub's URL never
-  depends on which city was discovered first (no collision in the real data on 2026-10-14: 156
-  destination codes, 156 names). Route slugs are unchanged (`route_slug`).
+  pt-PT names share a slug in one export their code too (`sao-jose-sjo`, `sao-jose-sjc`), so
+  their URLs don't depend on which was found first (no collision in the real data on 2026-10-14:
+  156 destination codes, 156 names). Route slugs are unchanged (`route_slug`).
+- **Destination slugs are stable once published (review fix):** the first version re-slugged an
+  existing hub when a same-name city appeared later (`/destinos/san-jose/` → `san-jose-sjo`).
+  `site_data.export_site_data` now records every hub's path in the `site.paths` history (meta,
+  key `destination:<code>`, the same mechanism as the Jinja pages' 301s, D19/D25,
+  `record_destination_paths`), and the next export keeps each hub at the latest recorded slug
+  that still fits its name (the name's slug or with its code); only the newcomer takes its code
+  (`londres-xlo`). A slug changes only when the city's name does; its old path stays in the
+  history, so `redirects.plan_redirects` gives the 301 (tested: collision introduced after the
+  first export, then a rename). The Jinja build ignores these keys (it has no hubs); the cutover
+  (#23) must add the `destination:<code>` pages to the Astro site's `_redirects` plan.
 - **Calendar of cheapest found prices** (story 34, left open in D27): per departure date from the
   export day on (the Lisbon date of the export's `now`, the same `today` the pontes use: at 23:30
   UTC in summer it is already the next day in Lisbon, tested), the cheapest offer of the latest run within the route's rules and found within

@@ -137,6 +137,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Domain moves go through `site.base_url` + `site.legacy_hosts` and the Bulk Redirect in
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
   key in `SiteBuilder._write_routing` so renamed slugs get a 301 (`website/redirects.py`).
+  Destination hubs (D30) keep their published slug: the site data export records
+  `destination:<code>` paths in `site.paths` and `website.destination_slugs` reuses them; never
+  derive a hub slug without that history.
 - Secrets only via `.env` (`Secrets` in `config.py`). Never commit `.env`, `data/`, `output/`.
 - Update README.md, CLAUDE.md and DECISIONS.md in the same commit as a feature.
 

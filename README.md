@@ -443,7 +443,7 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 | `labels.json` | pt-PT names from `i18n_pt.py` (airlines, airports + remote flag, route kinds, months, disclosures) |
 | `origins.json` | The Portuguese origins (name, slug, origin page path `/partidas/<slug>/`, active/dormant routes, low prices, live promotions) |
 | `routes.json` | Every route: kind, status, rules, page path, typical low and plain average per departure month (null while the month has too few days), cheapest fresh offer, calendar (cheapest fresh offer per departure date, D30), counts |
-| `destinations.json` | Destination hubs: city, hub path `/destinos/<slug>/` (cities sharing a slug take their code), airports, routes from Portugal, photo credit |
+| `destinations.json` | Destination hubs: city, hub path `/destinos/<slug>/` (stable once exported: a same-name city found later takes its code; paths remembered in `site.paths` for 301s), airports, routes from Portugal, photo credit |
 | `promotions.json` | Approved deals, live and expired after approval (for `site.expired_promotions_days`, 30, after expiring): offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
 | `low-prices/<ORIGIN>.json` | One origin's low prices for the explorer: compact rows `[obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link]` |
 | `pontes.json` | Every long weekend ("pontes", D31) of `content/holidays.yaml`, past ones too: holiday, days off, bridge day, travel window, one page path per origin. No prices, no display text (added within v1: older exports lack it) |

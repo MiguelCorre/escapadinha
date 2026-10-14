@@ -66,13 +66,39 @@ def ponte_path(ponte_slug: str, origin_city: str) -> str:
     return f"/pontes/{ponte_slug}/{origin_slug(origin_city)}/"
 
 
-def destination_slugs(cities: dict[str, str]) -> dict[str, str]:
+DESTINATION_KEY = "destination:"   # site.paths key of a destination hub: "destination:SJO"
+DESTINATIONS = "/destinos/"
+
+
+def destination_path(slug: str) -> str:
+    """A destination hub's page: /destinos/londres/ (D30)."""
+    return f"{DESTINATIONS}{slug}/"
+
+
+def destination_slugs(cities: dict[str, str],
+                      published: dict[str, list[str]] | None = None) -> dict[str, str]:
     """Destination code -> its hub's slug, /destinos/<slug>/ ('londres'), from the Portuguese
-    city name. Codes whose names share a slug all take their code ('sao-jose-sjo'), so a hub's
-    URL never depends on which of them was discovered first (D30)."""
-    slugs = {code: slugify(city) for code, city in cities.items()}
-    taken = Counter(slugs.values())
-    return {code: f"{s}-{code.lower()}" if taken[s] > 1 else s for code, s in slugs.items()}
+    city name (D30). Stable once published: `published` (code -> slugs its hub was exported at,
+    oldest first, from the `site.paths` history) keeps a hub at the latest of its slugs that
+    still fits its name (the name's slug, or with its code), so a city discovered later never
+    moves an existing hub. A newcomer whose name's slug is already a hub's, or another
+    newcomer's, takes its code ('sao-jose-sjc'); newcomers that share a name all do, so their
+    URLs don't depend on the order they were found in. A renamed city gets a new slug; its old
+    path stays in the history for a 301."""
+    published = published or {}
+    out: dict[str, str] = {}
+    for code, city in cities.items():
+        fits = (slugify(city), f"{slugify(city)}-{code.lower()}")
+        kept = [s for s in published.get(code, []) if s in fits]
+        if kept:
+            out[code] = kept[-1]
+    taken = set(out.values()) | {slugify(cities[code]) for code in out}
+    fresh = [code for code in cities if code not in out]
+    shared = Counter(slugify(cities[code]) for code in fresh)
+    for code in fresh:
+        base = slugify(cities[code])
+        out[code] = f"{base}-{code.lower()}" if base in taken or shared[base] > 1 else base
+    return out
 
 
 def promo_slug(deal_id: int, origin_city: str, city_pt: str) -> str:
