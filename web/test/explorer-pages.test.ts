@@ -48,6 +48,8 @@ describe("explorer page", () => {
     const pontes = form.querySelectorAll("select[name=ponte] option").map((o) => o.getAttribute("value"));
     expect(pontes).toEqual(["", ...upcoming.map((p) => p.slug)]);
     expect(pontes[1]).toBe("1-dezembro-2026");                  // past ones are not offered
+    expect(text(form.querySelector("[name=fim_de_semana]")!.parentNode!))
+      .toBe("Só fins de semana (partida sexta ou sábado, regresso domingo ou segunda, até 3 noites)");
     const months = form.querySelectorAll("select[name=mes] option").map((o) => text(o));
     expect(months).toEqual(["Qualquer mês", "outubro de 2026", "novembro de 2026"]);
   });

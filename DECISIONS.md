@@ -1098,8 +1098,15 @@ so nothing has to be hosted.
   component turns a ponte "past" on the site the day after its window.
 - **Weekend and ponte matching live in the web package** (`web/src/lib/explorer.ts`), because the
   island needs them in the browser and the pages at build time; one module, tested in vitest
-  (`isWeekendTrip`: out Fri/Sat, back Sun/Mon within 3 nights; `fitsPonte`). Python tests the
-  calendar and the windows (`tests/test_pontes.py`).
+  (`isWeekendTrip`; `fitsPonte`). Python tests the calendar and the windows
+  (`tests/test_pontes.py`).
+- **Weekend rule, 1 to 3 nights:** a weekend trip leaves on Friday or Saturday and comes back on
+  the Sunday or Monday **of the same weekend**: Saturday-Sunday is 1 night, Friday-Monday 3.
+  The 1–3 night cap is what "the same weekend" means in code: without it, Friday out and Sunday
+  back nine days later would match the weekdays. The explorer's checkbox says it in full: "Só
+  fins de semana (partida sexta ou sábado, regresso domingo ou segunda, até 3 noites)". Kept as
+  is in the review (a cap of 2 would drop Friday-Monday, which most people count as a weekend
+  away; pontes cover the longer ones).
 - **Explorer `/explorar/`:** server-rendered default list (the first origin with low prices,
   each destination at its cheapest, sorted by price, "+N datas") that works without JavaScript;
   the filter form is in the page from the first paint (hidden by `<noscript>` without JS, so the

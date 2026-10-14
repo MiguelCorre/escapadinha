@@ -536,7 +536,8 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
 - **Explorer** `/explorar/` (D31): without JavaScript, the first origin with low prices, every
   destination at its cheapest, by price; with it, a small island (`src/lib/explorer-island.ts`,
   ~5 KB, no framework) adds the filters: origin, maximum budget, departure month, nights range,
-  direct only, weekends only (out Friday/Saturday, back Sunday/Monday), pontes. It fetches an
+  direct only, weekends only (out Friday/Saturday, back Sunday/Monday of the same weekend: 1–3
+  nights), pontes. It fetches an
   origin's low prices only when picked, from `/explorar/dados/<ORIGIN>.json` (the contract's rows
   plus the names they need). Server and island share `src/lib/explorer.ts` (rules and result HTML).
   Each result's headline links to its route page (the contract's route `path`).

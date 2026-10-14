@@ -29,7 +29,9 @@ export type PonteWindow = Pick<Ponte, "holiday" | "window">;
 /** One destination: its cheapest matching row and how many other matching dates it has. */
 export type ExploreResult = LowPriceItem;
 
-/** Weekend rule: out on Friday or Saturday, back on the Sunday or Monday after. */
+/** Weekend rule (D31): out on Friday or Saturday, back on the Sunday or Monday of the same
+ * weekend, so 1 to 3 nights (Saturday-Sunday to Friday-Monday); the cap keeps out a Friday
+ * departure that comes back on a Sunday a week later. The explorer's checkbox says so. */
 export function isWeekendTrip(dep: string, ret: string): boolean {
   const out = weekday(dep);
   const back = weekday(ret);
