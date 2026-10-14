@@ -5,7 +5,9 @@
       "url": [
         "http://localhost/",
         "http://localhost/promos/3-lisboa-paris/",
-        "http://localhost/promos/2-porto-paris/"
+        "http://localhost/promos/2-porto-paris/",
+        "http://localhost/explorar/",
+        "http://localhost/pontes/1-dezembro-2026/porto/"
       ],
       "numberOfRuns": 3,
       "settings": {

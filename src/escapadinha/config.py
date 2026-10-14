@@ -358,3 +358,8 @@ class Context:
     @property
     def guides_dir(self) -> Path:
         return self.root / "content" / "guides"
+
+    @property
+    def holidays_file(self) -> Path:
+        """Portuguese public holidays (pontes, D31)."""
+        return self.root / "content" / "holidays.yaml"

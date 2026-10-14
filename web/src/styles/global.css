@@ -44,6 +44,8 @@
     letter-spacing: 0.04em;
   }
   .btn:hover { @apply underline underline-offset-4; }
+  /* Explorer filters (D31): a plain field on the surface, at least 44px tall. */
+  .field { @apply min-h-11 w-full min-w-0 border border-rule bg-surface px-xs py-2xs font-text text-body font-normal text-ink; }
   .notice { @apply border-l-[6px] border-rule py-xs pl-md text-small; }
   .notice-expired { @apply border-expired bg-expired-bg pr-md; }
   .notice-warning { @apply border-warning bg-warning-bg pr-md; }

@@ -7,7 +7,7 @@ from __future__ import annotations
 import gzip
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -525,3 +525,37 @@ def test_fixtures_show_both_promotion_states_even_without_approved_deals(ctx, tm
     assert validation_errors(out) == []
     raw = pipeline.open_db(ctx).execute("SELECT COUNT(*) FROM deals WHERE status = 'expired'")
     assert raw.fetchone()[0] == 3                                       # the real file unchanged
+
+
+# --- pontes (D31) -----------------------------------------------------------------------------
+
+def test_pontes_are_the_upcoming_long_weekends_with_a_page_per_origin(ctx, tmp_path):  # noqa: F811
+    """From content/holidays.yaml: long weekends whose window has not ended in Lisbon, each
+    with its travel window and one page path per origin of the export."""
+    conn = pipeline.open_db(ctx)
+    now = datetime(2026, 12, 2, 23, 30, tzinfo=timezone.utc)       # 2 Dec, 23:30 in Lisbon
+    out = tmp_path / "site-data"
+    site_data.build_export(ctx, conn, now, new_links=False).write(out)
+    assert validation_errors(out) == []
+    assert read(out, "meta.json")["files"]["pontes"] == "pontes.json"
+    doc = read(out, "pontes.json")
+    first = doc["pontes"][0]
+    assert first["slug"] == "1-dezembro-2026"          # its window ends today: still listed
+    assert first["name"] == "Ponte de 1 de dezembro"
+    assert first["holiday"] == {"date": "2026-12-01", "name": "Restauração da Independência",
+                                "optional": False}
+    assert first["days_off"] == {"first": "2026-11-28", "last": "2026-12-01"}
+    assert first["bridge"] == "2026-11-30"
+    assert first["window"] == {"start": "2026-11-27", "end": "2026-12-02"}
+    assert [o["iata"] for o in first["origins"]] == [
+        o["iata"] for o in read(out, "origins.json")["origins"]]
+    origins = {o["iata"]: o for o in first["origins"]}
+    assert origins["OPO"] == {"iata": "OPO", "path": "/pontes/1-dezembro-2026/porto/",
+                              "title": "Ponte de 1 de dezembro desde o Porto"}
+    assert origins["LIS"]["title"] == "Ponte de 1 de dezembro desde Lisboa"
+    assert "Código do Trabalho" in doc["source"]
+    carnaval = next(p for p in doc["pontes"] if p["slug"] == "carnaval-2027")
+    assert carnaval["holiday"]["optional"] is True and carnaval["bridge"] == "2027-02-08"
+    later = datetime(2026, 12, 3, 0, 30, tzinfo=timezone.utc)       # 3 Dec in Lisbon
+    assert site_data.build_export(ctx, conn, later, new_links=False).files[
+        "pontes.json"]["pontes"][0]["slug"] == "8-dezembro-2026"

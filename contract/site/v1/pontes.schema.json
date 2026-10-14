@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/pontes.schema.json",
+  "title": "pontes.json: upcoming Portuguese long weekends",
+  "description": "From the committed holiday calendar (content/holidays.yaml, Código do Trabalho art. 234 and 235; D31): every national holiday on a Monday, Tuesday, Thursday or Friday gives a long weekend (Tuesday and Thursday with the working day in between bridged). Listed while its travel window has not ended (Lisbon date of meta.generated_at), by date. A low price fits a ponte when window.start <= departure <= holiday.date <= return <= window.end. No prices here: the site selects the matching rows of each origin's low-price file. Added in v1 (additive): an export without it has no meta.files.pontes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "source", "pontes"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "source": {"type": "string", "minLength": 1, "description": "Legal source of the calendar, to cite on the pages."},
+    "pontes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "name", "holiday", "days_off", "bridge", "window", "origins"],
+        "properties": {
+          "slug": {"type": "string", "pattern": "^[a-z0-9-]+-\\d{4}$", "description": "Holiday slug and year: 1-dezembro-2026."},
+          "name": {"type": "string", "minLength": 1, "description": "Title: \"Ponte de 1 de dezembro\"."},
+          "holiday": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["date", "name", "optional"],
+            "properties": {
+              "date": {"$ref": "defs.schema.json#/$defs/date"},
+              "name": {"type": "string", "minLength": 1, "description": "Official name."},
+              "optional": {"type": "boolean", "description": "true for Carnaval (art. 235): not every employer gives the day; say so."}
+            }
+          },
+          "days_off": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["first", "last"],
+            "properties": {
+              "first": {"$ref": "defs.schema.json#/$defs/date"},
+              "last": {"$ref": "defs.schema.json#/$defs/date"}
+            }
+          },
+          "bridge": {"anyOf": [{"$ref": "defs.schema.json#/$defs/date"}, {"type": "null"}], "description": "The working day taken off between the holiday and the weekend (Tuesday/Thursday holidays); null when none is needed."},
+          "window": {
+            "type": "object",
+            "description": "Travel window: from the evening before the first day off to the morning after the last one (the weekend rule's Friday/Monday).",
+            "additionalProperties": false,
+            "required": ["start", "end"],
+            "properties": {
+              "start": {"$ref": "defs.schema.json#/$defs/date"},
+              "end": {"$ref": "defs.schema.json#/$defs/date"}
+            }
+          },
+          "origins": {
+            "type": "array",
+            "description": "One page per origin of origins.json, in its order.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["iata", "path", "title"],
+              "properties": {
+                "iata": {"$ref": "defs.schema.json#/$defs/airport"},
+                "path": {"$ref": "defs.schema.json#/$defs/path", "description": "/pontes/<ponte>/<origem>/"},
+                "title": {"type": "string", "minLength": 1, "description": "\"Ponte de 1 de dezembro desde o Porto\"."}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

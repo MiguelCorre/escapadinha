@@ -112,6 +112,15 @@ def hashtag(text: str) -> str:
     return "#" + "".join(ch for ch in ascii_text.lower() if ch.isalnum())
 
 
+_ARTICLE = {"Porto": "o", "Madeira": "a", "Terceira": "a"}
+
+
+def from_place(name: str) -> str:
+    """'Porto' -> 'desde o Porto', 'Madeira' -> 'desde a Madeira', 'Lisboa' -> 'desde Lisboa'."""
+    article = _ARTICLE.get(name)
+    return f"desde {article} {name}" if article else f"desde {name}"
+
+
 ROUTE_KIND = {"europe": "Europa", "long_haul": "Longo curso", "domestic": "Portugal"}
 ROUTE_STATUS = {"active": "ativa", "dormant": "adormecida"}
 

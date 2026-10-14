@@ -10,6 +10,8 @@ import {
   eurParts,
   eurPlain,
   lisbonTimestamp,
+  longDate,
+  monthYear,
   nights,
   numericDate,
   numericDayMonth,
@@ -38,6 +40,12 @@ describe("pt-PT formats", () => {
     expect(dateRange("2026-11-06", "2026-11-09")).toBe("6 a 9 de novembro");
     expect(dateRange("2026-11-27", "2026-12-04")).toBe("27 de novembro a 4 de dezembro");
     expect(dateRange("2026-12-30", "2027-01-03")).toBe("30 de dezembro de 2026 a 3 de janeiro de 2027");
+  });
+
+  it("prints a day with its full weekday, and a month with its year", () => {
+    expect(longDate("2026-11-30")).toBe("segunda-feira, 30 de novembro");
+    expect(longDate("2027-02-13")).toBe("sábado, 13 de fevereiro");
+    expect(monthYear("2026-10")).toBe("outubro de 2026");
   });
 
   it("shows instants in Lisbon time, summer and winter", () => {
