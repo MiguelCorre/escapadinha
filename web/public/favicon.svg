@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 60">
+  <style>
+    .ink { stroke: #1E1B16 } .sun { fill: #A23E1C }
+    @media (prefers-color-scheme: dark) { .ink { stroke: #EEE7D8 } .sun { fill: #F0936B } }
+  </style>
+  <g transform="translate(0 -7)"><circle class="sun" cx="57" cy="18" r="8.5"/><path class="ink" d="M3 62 L32 17 L47 39 L57 27 L86 62" fill="none" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round"/><path class="ink" d="M22 62 L32 47 L40 62" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></g>
+</svg>

@@ -1,0 +1,31 @@
+---
+// The design system's price block (§4): price, dates and when it was found, always together and
+// in this order. The price element carries data-obs (D2). Expired: the amount struck through in
+// muted, an "Expirada" stamp instead of the discount tag.
+import type { PromotionView } from "../lib/promotion";
+
+interface Props {
+  view: PromotionView;
+  size?: "page" | "card";
+}
+
+const { view, size = "card" } = Astro.props;
+const priceClass = size === "page" ? "text-price-xl" : "text-price";
+const { amount, currency } = view.price;
+---
+<div class="price-block">
+  <div class="flex flex-wrap items-end gap-x-md gap-y-xs">
+    <p data-obs={view.obs} class:list={["font-display num", priceClass, view.live ? "text-ink" : "text-muted"]}>
+      {view.live ? amount : <s>{amount}</s>}<span class="price-sign">{" "}{currency}</span>
+    </p>
+    {view.live && view.discount && (
+      <p class="pb-2xs"><span class="tag tag-success num">{view.discount.text}</span> <span class="text-small text-success">abaixo do habitual</span></p>
+    )}
+    {!view.live && <p class="pb-2xs"><span class="stamp stamp-expired">Expirada</span></p>}
+  </div>
+  <p class="mt-2xs text-small text-muted">ida e volta, por pessoa</p>
+  <p class="mt-xs font-semibold num">{view.dates} <span class="font-normal text-muted">· {view.nights}</span></p>
+  {view.foundOn && (
+    <p class="mt-2xs text-small text-muted">Encontrado por um viajante a <span class="num font-semibold text-ink">{view.foundOn}</span></p>
+  )}
+</div>

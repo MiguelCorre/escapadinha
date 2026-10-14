@@ -9,7 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-# Secrets and local state (root-level folders only: contract/site/, web/src/data/ are tracked)
+# Secrets and local state (root-level folders only: contract/site/ is tracked)
 .env
 /data/
 /output/
@@ -17,6 +17,14 @@ wheels/
 /logs/
 assets/photos/
 assets/fonts/*.ttf
+
+# Web package (D28): dependencies, build output, Lighthouse reports, and the site data the
+# pipeline exports into it (SITE_DATA_DIR default; the fixtures live in contract/site/v1/fixtures)
+/web/node_modules/
+/web/dist/
+/web/.astro/
+/web/.lighthouseci/
+/web/src/data/
 
 # Agent worktrees
 .claude/worktrees/

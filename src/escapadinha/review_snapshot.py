@@ -136,6 +136,8 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "nights": view.nights,
         "airline": view.airline,
         "direct": view.direct,
+        "transfers": obs.transfers,              # the live check's stop limit (D29)
+        "return_transfers": obs.return_transfers,
         "rule": deal.rule,
         "discount_pct": view.discount_pct,
         "typical_low_eur": deal.baseline_median,

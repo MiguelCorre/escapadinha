@@ -747,3 +747,213 @@ so nothing has to be hosted.
   `site build` into `site/img/`) or the export must start writing them; a per-route calendar of
   cheapest prices per departure date (#14); destination "best months" are derivable from
   `routes.json`; the explorer only sees low prices (none until baselines mature, D24).
+
+## D28: Astro site scaffold on the data contract (2026-10-13, #13)
+- **What:** a separate npm package in `web/` (own `package.json` + committed lockfile, exact
+  versions, Node 22 in CI) builds the M3 site from the contract JSON only (D27): home page and
+  promotion pages, live and expired. The Jinja site stays the live one until the cutover (#23);
+  `config.yaml` `site.data_dir` is unchanged until then. `web/functions/` is reserved for the
+  review Function (#9).
+- **Astro 7.3.5, static output** (`trailingSlash: always`, directory format, so paths are the
+  current site's `/promos/<id>-<origem>-<destino>/`; CSS inlined into each page). 7.x was the
+  current major (7.3.8 latest on 2026-10-13); 7.3.5 was picked as the newest release older than
+  two weeks. Astro telemetry is disabled in CI (`ASTRO_TELEMETRY_DISABLED`).
+- **Tailwind 4.3.3** via `@tailwindcss/vite`, CSS-first. The design tokens are not copied by hand:
+  `web/scripts/tokens.mjs` generates `src/styles/tokens.css` from `docs/design/tokens.json`: an
+  `@theme` that resets Tailwind's colour, font, text-size, radius and shadow namespaces
+  (`--color-*: initial`, …) so no framework default leaks through, then maps every token
+  (`--color-accent: var(--pn-accent)`, `--text-price-xl` with its line height, tracking and
+  weight, `--spacing-lg`, `--radius-sm`, `--shadow-focus`), plus the light/dark `--pn-*`
+  palettes (`prefers-color-scheme` and `data-theme`), plus the dark palette under fixed
+  `--pn-dark-*` names for surfaces that stay dark in both schemes (the `.photo-placeholder`
+  gradient behind a slide or thumbnail, dark `rule` to `photo.scrim`). The same script writes
+  `src/lib/tokens.ts` (`TOKENS`, the JSON as a dependency-free module) for code that can't use CSS
+  variables: theme-color metas, the OG image, the logo's recolouring, the review page (D29). A
+  vitest test fails while either file is stale; `tests/test_web_tokens.py` compares both value by
+  value with `tokens.json`, so a change to `renderer/tokens.py` fails `uv run pytest` until
+  `npm run tokens` is run. `web/test/colours.test.ts` fails on any raw hex / `rgb()` / `hsl()`
+  colour in `web/src/` (templates, `global.css`, modules) outside those two generated files.
+- **Fonts through Astro's Fonts API** (local provider, files from `assets/fonts/`): family and
+  fallback stacks come from `tokens.json` in `astro.config.ts`; Astro adds metric-matched
+  fallbacks (`size-adjust`), so swapping in the web font barely moves the page (CLS 0.13 → 0.015
+  on the expired page). No font preload and no italic on first paint: Lighthouse's simulated
+  throttling counts fonts fetched before the first paint against it (FCP 3.0 s → 2.4 s), and the
+  slides keep the italic voice. The logo is `assets/logo-light.svg` inlined with its ink and sun
+  recoloured to `currentColor` / accent, so one file works on paper and in dark mode.
+- **Input seam:** `SITE_DATA_DIR` (relative to `web/`, default `web/src/data`, git-ignored: the
+  future export target) names the contract directory; `npm run build:fixtures` / tests / Lighthouse
+  point it at `contract/site/v1/fixtures`. A Vite virtual module (`virtual:site-data`) loads
+  every file named in `meta.json` and validates it with **ajv 8.20.0** (draft 2020-12, the
+  committed schemas, `allErrors`) before any page renders; a mismatch or a missing directory
+  stops the build with the file and field. A fixture build marks `<html data-fixture="true">` so
+  the cutover's deploy step can refuse it. **Two builds, on purpose:** `npm run build:fixtures` is
+  the build on a fresh checkout and in CI (and what `npm test` builds); plain `npm run build` is
+  the build from real data and fails while `web/src/data` is empty (no `meta.json`), telling you
+  to run `escapadinha export site-data --out web/src/data` (or to use the fixture build). The
+  guard stays: a build that silently fell back to the fixtures could be deployed as the site.
+  So #13's acceptance "`npm test` and `npm run build` green" reads as `npm test` and
+  `npm run build:fixtures` green on a checkout, and `npm run build` green after an export.
+- **Shared modules for #14+:** `src/lib/format.ts` (pt-PT: "49,50 €" with a no-break space,
+  "sex, 6 nov", "6 a 9 de novembro", "12/10/2026 às 22:17" in Europe/Lisbon via `Intl` time zone
+  data, month/weekday words equal to `labels.json`, tested; prices and discounts also come in
+  parts, `eurParts` / `discountParts`, so a component styles the raised "€" or drops the minus
+  sign without parsing a formatted string; every pt-PT string the review Function builds comes
+  from here too), `src/lib/promotion.ts` (the
+  promotion view, like `presentation.DealView`: remote arrival airport in the headline; it
+  carries the traveller's found date and our `checked_at` ("verificado a": last recheck, else
+  first fetch), the two times the page shows, and no field nobody renders),
+  `src/lib/cta.ts` + `BookingCta.astro` (a button only when the price is live and the contract
+  has a link, `rel="sponsored nofollow noopener"`, `labels.disclosure.site` next to it, never a
+  hand-built link). The site uses the contract's **site** disclosure next to buttons (its
+  documented place); `disclosure.post` stays for captions and CTA slides, which the promotion
+  page shows as images.
+- **Traceability (D2) in vitest:** `web/test/traceability.test.ts` walks every built page (text
+  and attribute values, prices split over elements included) and requires each price to sit in or
+  under the nearest `data-obs` / `data-deal` / `data-route` element whose contract amounts include
+  it (observation price; deal offer, typical low, recheck price; route month typical low or
+  average, cheapest). Element-level, stricter than the page-level Python checker. Pages with a
+  price in `<title>`/descriptions put `data-deal` on `<head>`.
+- **Expired promotions:** page kept at its URL, `<meta name="robots" content="noindex">`, no
+  booking button, the recheck's reason in an expired notice that carries the recheck price's
+  `data-obs`, the old price struck through. The home page lists them under "Expiradas
+  recentemente" without links to the partner.
+- **OG images:** a promotion page uses its rendered `images.og` (the pipeline's `og.jpg`); other
+  pages a branded default `og-default.png` (1200×630) rendered at build time with sharp from the
+  logo's outlined paths on paper, so no font is needed and the M6 logo swap updates it.
+  Promotion slides and thumbnails are contract paths only; the cutover must bring the real files
+  (D27 open question). So that Lighthouse measures pages with their images, a **fixture build
+  only** (`meta.fixture`) draws stand-ins at those paths (`src/lib/fixture-images.ts`, two
+  endpoints under `src/pages/img/promos/[id]/`: the `.photo-placeholder` gradient at the slide,
+  thumbnail and OG sizes, generated with sharp, so no binary is committed); a build from real data
+  gets no such route. The link test now checks `/img/promos/` too.
+- **Lighthouse CI:** `.github/workflows/web.yml` on pull requests touching `web/`, `contract/`,
+  the tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, then `@lhci/cli@0.15.1`
+  (run with `npx`, not a dependency: its old transitive dependencies carry audit warnings)
+  against the static build: mobile form factor, simulated throttling, 3 runs (median), on the
+  home page, the live and the expired promotion; performance, accessibility and SEO must be
+  ≥ 0.9. `is-crawlable` is skipped because the expired page is `noindex` on purpose (vitest
+  asserts robots per page type instead). Reports go to an artifact, never to public storage.
+  Local run 2026-10-13: 0.94 / 1 / 1 on all three pages (best practices 0.96: the missing images).
+  Local runs 2026-10-14 with the fixture stand-in images: median 0.94 / 1 / 1, best practices 1 on
+  all three. **Known flake, not fixed:** about one run in five on the live promotion page reports
+  CLS 0.46 (performance 0.73–0.78), all of it on the slide strip, which sits below the fold on a
+  phone. It happens with and without the images and with `snap-proximity` too, and a
+  PerformanceObserver in a 412 px frame never sees it, so it looks like Lighthouse's emulation
+  laying the page out at desktop width first (where the strip is the first column) rather than a
+  visitor's shift. A 3-run median fails only if two runs flake (~10 %); re-run the job, and look
+  again with real slides at the cutover (#23).
+- **pt-PT lint:** `web/test/pt-lint.test.ts` scans `src/**/*.astro` and `src/**/*.ts` (comments
+  skipped) for an explicit list of Brazilian words and spellings ("você", "celular", "equipe",
+  "registro", "ônibus", …) and English UI leftovers ("Book now", "Buy", "Search", …, matched
+  case-sensitively so code identifiers don't trip it), and checks `lang="pt-PT"` on every page.
+- **Not yet (later tickets):** route, origin and destination pages, explorer, sitemap, JSON-LD,
+  analytics beacon, `_redirects`/`_headers`, About/Privacy pages (the footer links none of them
+  yet), deploy and the `run` integration (#14–#16, #23).
+
+## D29: Review queue on Pages Functions behind Access (2026-10-14, #9)
+- **What:** the review queue Miguel uses on his phone is a Cloudflare Pages Function in the web
+  package (`web/functions/`, TypeScript) deployed with the site to the Pages project
+  `ondestaanocas`, at **https://pontonomada.pt/review**. It reads the snapshot (D26), serves the
+  queue slides, runs the live check, writes review events and fires one `repository_dispatch`
+  per decision. It is a writer of pending events only: statuses still change only in the
+  pipeline's applier (D26).
+- **Routes**, all under `/review` so the one Access application covers them:
+  `GET /review` (server-rendered page), `GET /review/slides/<id>/slide_NN.webp` (streams the WebP
+  copy from `STORE`; only that key pattern), `POST /review/check` `{deal_id}` (live check, writes
+  nothing), `POST /review/decision` `{type, deal_id, note?, post_url?}`. Two route files
+  (`review/index.ts`, `review/[[path]].ts`) call the same `serve`; library code lives in
+  `functions/_lib/review/` and exports no `onRequest*`, so it is never a route (a test checks).
+  Decisions are JSON POSTs with a same-origin check (`Origin` must match; a cross-site form can't
+  send `application/json`), the Access cookie being the only credential.
+- **JWT verification in the Function, not just Access in front:** Access protects
+  `pontonomada.pt/review`, but the production `ondestaanocas.pages.dev` host is only redirected by
+  a Bulk Redirect, not protected, so a request could reach the Function without passing Access and
+  with a forged `Cf-Access-Jwt-Assertion`. Every request therefore verifies the token: RS256 only
+  (no `alg: none`, no HS256), signature against `https://<ACCESS_TEAM_DOMAIN>/cdn-cgi/access/certs`
+  (keys cached per isolate for an hour; an unknown `kid` refetches at most once a minute, so
+  forged kids can't hammer the endpoint), `aud` containing `ACCESS_AUD`, `iss` =
+  `https://<ACCESS_TEAM_DOMAIN>`, `exp` in the future, `nbf` (60 s skew), and an `email` claim,
+  which becomes the event's `actor`. Missing settings fail closed. Refusals are 403 in pt-PT.
+  WebCrypto only; the clock, fetch, UUIDs and the key cache are injected, so vitest signs tokens
+  with a generated RSA key.
+- **Type check:** `npm run typecheck` (CI, before the tests) runs `tsc` strict twice, with
+  `typescript` 5.9.3 and `@types/node` 22.20.4 pinned as dev dependencies:
+  `tsconfig.functions.json` checks `functions/` and the `src/lib` modules it imports with web
+  platform globals only (no Node types, so a `Buffer` or `node:` import fails here instead of in
+  the Workers runtime); `tsconfig.typecheck.json` checks `src/lib` and the tests with Node types.
+  `.astro` templates are left to the build. It caught WebCrypto's `BufferSource` wanting an
+  `ArrayBuffer`-backed `Uint8Array` in `access.ts`.
+- **Handler seam:** `handler.handle(request, env, deps)` is pure; the tests (`web/test/review/`)
+  drive it with an in-memory R2 stub (paginated listing), a fake fetch for the certs,
+  Travelpayouts and GitHub, and validate every written event against
+  `contract/review/v1/event.schema.json` with ajv. They assert exactly one dispatch per decision,
+  none when the event can't be stored, and the pt-PT message when GitHub fails.
+- **Events** have the Python writer's shape and key (`review/events/pending/<YYYYMMDDTHHMMSSZ>-<uuid
+  v4>.json`, `created_at` to the second with `Z`, note and post link stored as sent with only an
+  empty one becoming null, exactly like `Event.new` (`note or None`; the pages trim before
+  sending; cases in `review-rules.json`), `post_url` only on `published`, `live_check` only on
+  `approve`). Before writing, the Function applies the same
+  pre-checks as `pipeline._decidable` against the snapshot: the transition table and the
+  affiliate-link and post-URL rules (`rules.ts`, a port of `review.check_decision` with the same
+  pt-PT messages) and "one pending decision per deal". The ported tables (`TRANSITIONS`,
+  `STATUS_PT`, `DECISIONS`, `DECISION_PT`, `db.OPEN_STATUSES`) and `check_decision` cases live in
+  `contract/review/v1/fixtures/review-rules.json`, checked against both sides
+  (`tests/test_review_rules_cases.py`, `web/test/review/rules.test.ts`), so they can't drift. Pending = the snapshot's `pending_events`
+  plus objects under `pending/` whose name is not older than the snapshot's `generated_at`: an
+  older object missing from the snapshot was already applied by the run that made it (D26 keeps it
+  pending until the next run), so it must not block, e.g., marking a just-approved deal
+  published. The applier re-checks everything anyway.
+- **Dispatch:** after the event is stored, one `POST /repos/<GITHUB_REPOSITORY or
+  MiguelCorre/escapadinha>/dispatches` with `event_type: review-decision` and `{event_id,
+  deal_id, type}` (the workflow ignores the payload: a dispatch run applies every pending event
+  and takes the full path, D25). No retry: a failure is reported ("a decisão ficou guardada;
+  aplica-se no próximo run") and the event stays for the next scheduled run, so it is never lost
+  or written twice. GitHub keeps at most one queued run per concurrency group, which is fine: any
+  run applies all pending events.
+- **Live check port:** `live-check.ts` reimplements `travelpayouts.parse_response` (local dates
+  from the link, `search_date`, nights range, positive numeric price) and `recheck.recheck` (rule
+  check, same trip, first cheapest, price rose, freshness by found date else fetch day, same pt-PT
+  reasons and `eur` text with a plain space) on the snapshot's `live_check.query` and `.rules`;
+  the token goes in `X-Access-Token`. The shared cases in
+  `contract/review/v1/fixtures/live-check-cases.json` run through both (`tests/
+  test_live_check_cases.py`, `web/test/review/live-check.test.ts`). When the provider can't
+  answer, both sides give the same pt-PT reason without English or response text
+  (`pipeline.check_failure` / `checkFailure`, from `TravelpayoutsError.kind` / `ProviderError.kind`:
+  rate limited, HTTP error with its status, error in the payload, no answer, no token; the
+  technical text stays in the run's error or on `CheckError.detail`); the `failures` cases in the
+  same file drive a real request on each side. The Function's other messages (GitHub dispatch,
+  storing the event) are pt-PT the same way. The deal's own stop limit uses its observation's
+  counts, which the snapshot carries since this ticket (`transfers` / `return_transfers`, optional
+  fields added within v1, exported by `review_snapshot.py`), exactly like `RouteRules.allows`
+  (unknown counts never pass a limit); only a snapshot made before them falls back to `direct`
+  (a non-direct deal counts as one stop each way). Shared cases cover both. One known difference:
+  no retries on 429/5xx (the pipeline waits up to a minute; on the phone Miguel taps again).
+- **Page:** pt-PT, one column (max 680 px, 16 px gutters, checked at 375 px with no horizontal
+  scroll), slides in a swipeable strip, 44 px buttons, `noindex` (meta and `X-Robots-Tag`),
+  `Cache-Control: no-store` (slides `private, max-age=600`). Same information and copy as the local
+  page plus the WhatsApp text and caption with copy buttons, the snapshot time (warning past 3 h),
+  pending decisions, recent outcomes and the 24 h approval rule from `review_rules`. pt-PT formats
+  come from `web/src/lib/format.ts`; the pt-PT lint test now scans `web/functions/` too. Colours,
+  radii and the focus ring are the design system's (`TOKENS` from the generated
+  `web/src/lib/tokens.ts`, a plain module wrangler bundles; both palettes as `--pn-*` variables):
+  square cards and buttons, inputs with a 4 px radius and an `ink` border (§2: anything a user must
+  see is `ink` or `accent`, `rule` is decorative), notices with the state colour as a left rule
+  over its tint. The web fonts aren't served to the Function, so the text stack's Georgia shows.
+- **Deploy wiring:** wrangler compiles `<cwd>/functions` during `pages deploy`, and the deploy ran
+  with cwd = `site/`, so Functions were never uploaded. `website/deploy.py` now stages a temporary
+  folder with `functions/` and the `web/src/lib/` modules they import (`function_files`: transitive
+  relative imports, whether `import … from`, `export … from`, side-effect `import "./x"` or dynamic
+  `import("./x")`; a bare package import or a missing file is a `DeployError`; listed once per
+  deploy and shared by the hash and the staging), runs wrangler
+  there with the site's absolute path, and deletes it. The staging folder holds nothing else, so
+  wrangler still never scans the repository (D15), and no `npm ci` is needed on the runner
+  (wrangler bundles TypeScript itself; Node 22 is already set up). Rejected: running wrangler from
+  `web/` (its `package.json` invites framework auto-detection, the D15 failure) and building a
+  `_worker.js` into `site/` (advanced mode, a second wrangler step). The deploy hash
+  (`deploy_hash`) adds those files (line endings normalised) to the site's content hash, and
+  `run_path._code_files` includes them, so a Function change takes the full path and redeploys.
+  The first deploy after this change uploads once more, as the hash's meaning changed.
+- **Bindings** (Pages project, Production, set by Miguel): `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`,
+  secrets `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, Contents read/write) and
+  `TRAVELPAYOUTS_TOKEN`, R2 binding `STORE`. Preview deployments sit behind a separate Access app.
+- **Verification on the phone** is a manual step for Miguel: `docs/runbooks/review-phone.md`.

@@ -29,7 +29,14 @@ SOURCE = "travelpayouts"
 
 
 class TravelpayoutsError(RuntimeError):
-    pass
+    """The message is technical (logs, run errors). `kind` says what failed, for a pt-PT reason
+    shown to a reviewer (`pipeline.check_failure`): "http" (`status` set), "api" (the payload
+    says success false), "token" (no API token) or "error"."""
+
+    def __init__(self, message: str, *, kind: str = "error", status: int | None = None):
+        super().__init__(message)
+        self.kind = kind
+        self.status = status
 
 
 # "/search/LIS1811LON22111?..." -> local departure 18/11 and return 22/11 (then passengers).
@@ -80,7 +87,7 @@ def parse_response(payload: dict, *, origin: str, destination: str, fetched_at: 
     Items without a return date or a positive price are dropped, never patched up.
     """
     if not payload.get("success", False):
-        raise TravelpayoutsError(f"API error: {payload.get('error') or 'unknown'}")
+        raise TravelpayoutsError(f"API error: {payload.get('error') or 'unknown'}", kind="api")
 
     currency = str(payload.get("currency", "")).upper()
     observations = []
@@ -179,7 +186,8 @@ class TravelpayoutsSource:
                  sleep: Callable[[float], None] = time.sleep, max_attempts: int = 3,
                  limiter: RateLimiter | None = None):
         if not token:
-            raise TravelpayoutsError("TRAVELPAYOUTS_TOKEN is not set (see .env.example)")
+            raise TravelpayoutsError("TRAVELPAYOUTS_TOKEN is not set (see .env.example)",
+                                     kind="token")
         self._client = client or httpx.Client(timeout=30)
         self._headers = {"X-Access-Token": token, "Accept-Encoding": "gzip, deflate"}
         self._currency = currency.lower()
@@ -226,6 +234,8 @@ class TravelpayoutsSource:
                 self._sleep(float(retry_after) if retry_after else 60.0 if response.status_code == 429 else 5.0)
                 continue
             if response.status_code != 200:
-                raise TravelpayoutsError(f"HTTP {response.status_code}: {response.text[:200]}")
+                raise TravelpayoutsError(f"HTTP {response.status_code}: {response.text[:200]}",
+                                         kind="http", status=response.status_code)
             return response.json()
-        raise TravelpayoutsError(f"HTTP {response.status_code} after {self._max_attempts} attempts")
+        raise TravelpayoutsError(f"HTTP {response.status_code} after {self._max_attempts} attempts",
+                                 kind="http", status=response.status_code)

@@ -309,6 +309,28 @@ def _fetch_trip_month(ctx: Context, conn: sqlite3.Connection,
     return fetched, rules
 
 
+CHECK_FAILED = "Não foi possível verificar o preço agora"
+
+
+def check_failure(exc: Exception) -> str:
+    """The reviewer's pt-PT reason when the provider couldn't price a deal: no English and no
+    response text (that stays in the run's error / the log). The review Function says the same
+    (web/functions/_lib/review/live-check.ts; cases in live-check-cases.json `failures`)."""
+    if isinstance(exc, TravelpayoutsError) and exc.kind == "http" and exc.status == 429:
+        why = "o Travelpayouts está a limitar os pedidos. Tenta daqui a um minuto"
+    elif isinstance(exc, TravelpayoutsError) and exc.kind == "http":
+        why = f"o Travelpayouts respondeu com o erro HTTP {exc.status}"
+    elif isinstance(exc, TravelpayoutsError) and exc.kind == "api":
+        why = "o Travelpayouts devolveu um erro"
+    elif isinstance(exc, TravelpayoutsError) and exc.kind == "token":
+        why = "falta o token do Travelpayouts (TRAVELPAYOUTS_TOKEN)"
+    elif isinstance(exc, httpx.HTTPError):
+        why = "o Travelpayouts não respondeu"
+    else:
+        why = "resposta inesperada do Travelpayouts"
+    return f"{CHECK_FAILED}: {why}."
+
+
 def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
                now: datetime | None = None) -> tuple[Deal, Recheck]:
     """Fetch this deal's route and departure month right now and recheck the price.
@@ -332,7 +354,7 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
         fetched, rules = _fetch_trip_month(ctx, conn, obs)
     except Exception as exc:
         db.finish_run(conn, run_id, status="failed", n_requests=1, n_observations=0, error=str(exc))
-        raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
+        raise ReviewError(check_failure(exc)) from exc
     fresh = fetched.observations
     stored = db.insert_observations(conn, run_id, fresh)
     archive.write_run(ctx.object_store, conn, run_id, [fetched.response])
@@ -358,7 +380,7 @@ def price_now(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     try:
         fetched, rules = _fetch_trip_month(ctx, conn, obs)
     except Exception as exc:
-        raise ReviewError(f"Não foi possível verificar o preço agora: {exc}") from exc
+        raise ReviewError(check_failure(exc)) from exc
     return recheck(obs, fetched.observations, ctx.config.detector, now or db.utcnow(), rules=rules)
 
 

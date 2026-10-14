@@ -13,7 +13,8 @@ the `meta` table at the end of every successful full path:
 - low prices: the observation ids the route pages list (D24);
 - routes: key, status and Portuguese name of every route (pages appear or get renamed);
 - day: the Lisbon date, so typical lows and "Atualizado a" are at most a day old;
-- code: the package, config.yaml and content/ (templates, rules or guides changed).
+- code: the package, config.yaml, content/ (templates, rules or guides changed) and the review
+  Function's sources (web/functions and the modules it imports, D29).
 
 A failed full path records nothing, so the next run takes the full path again.
 """
@@ -32,6 +33,7 @@ from escapadinha import i18n_pt, pipeline, routes
 from escapadinha.config import Context
 from escapadinha.storage import db
 from escapadinha.website import LIVE
+from escapadinha.website import deploy as site_deploy
 
 FINGERPRINT = "run.full_path_fingerprint"   # meta key: components at the last full path
 LABELS = {"promotions": "promotions", "low_prices": "low prices", "routes": "routes",
@@ -67,6 +69,8 @@ def _code_files(ctx: Context) -> list[Path]:
     content = ctx.guides_dir.parent
     if content.is_dir():
         files += [p for p in content.rglob("*") if p.is_file()]
+    # The review Function ships with the site deploy (D29): a change to it must redeploy.
+    files += site_deploy.function_files(site_deploy.web_dir(ctx))
     config = ctx.root / "config.yaml"
     return files + ([config] if config.is_file() else [])
 

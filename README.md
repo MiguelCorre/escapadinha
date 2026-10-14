@@ -263,8 +263,8 @@ Status flow: `new → rendered → approved → published`. `rejected` and `expi
 
 ### Review decisions are events (D26)
 
-Approve, reject and published never change the database directly. The page, the CLI and (soon)
-the review Function on Cloudflare each write one **review event** to the object store
+Approve, reject and published never change the database directly. The page, the CLI and the
+review Function on Cloudflare (on the phone, below) each write one **review event** to the object store
 (`review/events/pending/<time>-<id>.json`, shape in `contract/review/v1/event.schema.json`), and
 the pipeline applies them:
 
@@ -291,6 +291,40 @@ price, dates, discount, caption, slide links, the live-check query and last rech
 pending decisions, the latest outcomes and the review rules (`review_rules.approve_max_age_hours`,
 so a review UI can warn before an approval gets too old). Slides of deals still under review are copied to
 `review/slides/<id>/` as WebP (they aren't on the public site yet).
+
+### Review on the phone: https://pontonomada.pt/review (DECISIONS D29)
+
+The same queue, in Portuguese, served by a Cloudflare Pages Function from `review/snapshot.json`.
+Open **https://pontonomada.pt/review**, sign in with the e-mail code from Cloudflare Access (only
+Miguel's e-mail is allowed), and for each candidate you see the slides (swipe), price, dates,
+airline, discount, found and verified times (Lisbon time), the affiliate link, the caption and
+the WhatsApp text (when the snapshot has it) with copy buttons.
+
+- **Verificar preço** asks Travelpayouts now, with the same query and rule as the pipeline
+  (`pipeline.price_now`); it stores nothing.
+- **Aprovar** runs that check first: a moved price refuses the approval with the reason and writes
+  nothing. **Rejeitar** (optional note) and **Marcar como publicado** (optional post link) need
+  no check.
+- Each decision is one event in `review/events/pending/` (actor = your Access e-mail), then one
+  `repository_dispatch` (`review-decision`) starts the pipeline, which applies it within minutes.
+  If GitHub can't be reached the page says *a decisão ficou guardada; aplica-se no próximo run*:
+  the event is kept and the next scheduled run (≤ 2 h) applies it.
+- The page shows when the snapshot was made (and warns when it's over 3 h old), pending decisions
+  (a deal with one accepts no other) and recent refusals with their reason. An approval applied
+  more than 24 h after its check is refused, as everywhere (D26).
+
+Setup (done once by Miguel, in the dashboards): an Access application on `pontonomada.pt/review`;
+on the Pages project (Production) the variables `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, the secrets
+`GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, *Contents: read and write*) and
+`TRAVELPAYOUTS_TOKEN`, and the R2 binding `STORE` to the pipeline's bucket. The Function checks the
+Access token itself (signature, audience, issuer, expiry), because `ondestaanocas.pages.dev` is not
+behind Access. The step-by-step test from the phone (pt-PT) is
+[`docs/runbooks/review-phone.md`](docs/runbooks/review-phone.md).
+
+The code is in `web/functions/` (TypeScript, no npm dependencies) and is tested with the web
+package (`cd web && npm test`). It ships with every `site deploy`: wrangler runs in a temporary
+folder holding `functions/` and the `web/src/lib/` modules they import, and the deploy hash (and
+the run's code fingerprint) include those files, so a Function change redeploys.
 
 ## Public website
 
@@ -351,7 +385,7 @@ uv run escapadinha site deploy    # upload if the content changed (--force to al
 
 ### Website data contract v1 (DECISIONS D27)
 
-The Astro site (M3, #13) will be built from JSON files only. Their shape is a JSON Schema
+The Astro site (M3, `web/`, see below) is built from JSON files only. Their shape is a JSON Schema
 (draft 2020-12) in [`contract/site/v1/`](contract/site/v1/); the Python export writes them and
 the tests validate every export against the schemas.
 
@@ -388,6 +422,57 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
   `https://example.com/parceiro/<sub_id>`, photographers' names a placeholder. When no deal was
   approved yet, the copy marks the newest deal live and an expired one as approved before it
   expired, so both promotion states exist (`meta.fixture: true`: never deploy them).
+
+### The new site: Astro package `web/` (DECISIONS D28)
+
+The M3 website is a separate npm package in [`web/`](web/) (Astro 7, static output, Tailwind 4
+with the design-system tokens). It reads only the contract JSON, so it builds and tests without
+Python. It is **not live yet**: the Jinja site above stays the live one until the cutover (#23).
+So far: home page and promotion pages (live and expired).
+
+```bash
+cd web
+npm ci                     # Node 22+ (CI uses 22)
+npm run typecheck          # tsc, strict: functions/ without Node types, then src/lib + test
+npm test                   # vitest: builds the site from the fixtures and checks the HTML
+npm run build:fixtures     # → web/dist from contract/site/v1/fixtures (test data, never deployed)
+npm run dev:fixtures       # http://localhost:4321 on the fixtures
+npm run build              # → web/dist from SITE_DATA_DIR (default web/src/data, git-ignored):
+                           #   needs exported data first, see below; fails without it on purpose
+npm run lhci               # Lighthouse CI on web/dist (mobile, ≥ 0.9 perf/a11y/SEO)
+npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.ts after docs/design/tokens.json changes
+```
+
+- **Which build:** on a fresh checkout (and in CI) the build to run is `npm run build:fixtures`;
+  `npm test` builds the same way. Plain `npm run build` is the build from real data: it reads
+  `web/src/data` (or `SITE_DATA_DIR`) and **fails on purpose** while that folder is empty, so a
+  site is never built from nothing or silently from the fixtures. To fill it, export the data from
+  the repository root: `uv run escapadinha export site-data --out web/src/data`, then
+  `cd web && npm run build`.
+- **Data:** `SITE_DATA_DIR` (relative to `web/`) names the contract directory; without it the
+  build reads `web/src/data` and stops with a clear message when it is missing. Every file is
+  validated against `contract/site/v1/*.schema.json` (ajv) before any page renders; a mismatch
+  fails the build naming the file and the field. A fixture build carries `<html data-fixture>`.
+- **Pages:** `/` (live promotions, then recently expired ones), `/promos/<id>-<origem>-<destino>/`
+  (the path from the contract, same URLs as today), `404.html`, `robots.txt`, `og-default.png`.
+  An expired promotion is `noindex`, has no booking button and says why (the recheck's reason).
+- **Prices:** every price element carries `data-obs` / `data-deal` (also on `<head>` when the title
+  shows a price); `web/test/traceability.test.ts` fails on any price string on a built page that
+  isn't an amount of the referenced observation or deal in the contract.
+- **Booking links** come from the contract as given (never built here); `src/lib/cta.ts` shows a
+  button only for a live price with a link, always with `labels.disclosure.site` next to it.
+- **pt-PT:** formats in `src/lib/format.ts` (mirrors `i18n_pt.py`: "49,50 €", "sex, 6 nov",
+  "12/10/2026 às 22:17" Lisbon time); `web/test/pt-lint.test.ts` fails on Brazilian words
+  ("você", "celular", "equipe", …) or English UI text in the templates.
+- **Design:** `src/styles/tokens.css` is generated from `docs/design/tokens.json` and replaces
+  Tailwind's default colours, fonts, sizes, radii and shadows (`src/lib/tokens.ts` is the same data
+  for code: theme-color, the OG image, the review page; no other colour is allowed, a test checks
+  it); fonts come from `assets/fonts/`
+  through Astro's Fonts API (metric-matched fallbacks), the logo from `assets/logo-light.svg`.
+- **CI:** `.github/workflows/web.yml` runs on pull requests touching `web/`, `contract/`, the
+  tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, Lighthouse CI (reports kept as an
+  artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all
+  three page types.
 
 ## Visual directions (M2, issue #11)
 
@@ -560,7 +645,7 @@ collect → recheck → detect → **full path only when needed** → push → u
   gh workflow run pipeline.yml                # like the schedule: the run decides fast or full
   gh workflow run pipeline.yml -f full=true   # full path
   gh run watch                                # follow the run that just started
-  gh api repos/MiguelCorre/escapadinha/dispatches -f event_type=full-run   # what the review Function will send
+  gh api repos/MiguelCorre/escapadinha/dispatches -f event_type=full-run   # like the review Function's review-decision
   ```
   `repository_dispatch` events of type `review-decision` or `full-run` always take the full path.
 
@@ -612,7 +697,8 @@ spacing, components (price block, card, tag, notice, …), photo treatment and t
 - **Tokens:** values live in `src/escapadinha/renderer/tokens.py`; `docs/design/tokens.json` is the
   Tailwind-ready copy for the website. After changing a token, regenerate it:
   `uv run python -c "from escapadinha.renderer import tokens; tokens.write_json()"` (a test fails
-  if it is stale or a colour pair drops below WCAG AA).
+  if it is stale or a colour pair drops below WCAG AA), then `npm run tokens` in `web/` for the
+  Astro site's Tailwind theme and `TOKENS` module (`test_web_tokens.py` fails until you do).
 - **Fonts:** Fraunces (headlines, prices) and Source Serif 4 (text), SIL OFL 1.1, self-hosted as
   WOFF2 in `assets/fonts/` with their licences. The slides inline them, so rendering works offline.
 - **Logo (provisional):** `assets/logo-light.svg` (on paper) and `assets/logo-dark.svg` (on photos
@@ -645,6 +731,21 @@ uv run pytest -m "not browser"
 - `test_site_data.py` validates the JSON export and the committed fixtures against
   `contract/site/v1/*.schema.json`, traces every price in the export the same way (a guard fails
   when a schema gains a price field the checker doesn't know), and tests the size budget.
+- `test_web_tokens.py` fails when `web/src/styles/tokens.css` or `web/src/lib/tokens.ts` no longer
+  matches `docs/design/tokens.json` (run `npm run tokens` in `web/`).
+- The web package has its own tests: `cd web && npm test` (see "The new site"), including the
+  review Function's (`web/test/review/`: Access token checks, events validated against
+  `contract/review/v1/event.schema.json`, the dispatch, the page).
+- `test_live_check_cases.py` and `web/test/review/live-check.test.ts` run the same cases
+  (`contract/review/v1/fixtures/live-check-cases.json`) through the pipeline's live check and the
+  Function's port: both must agree, on prices, stop counts and the pt-PT reason shown when the
+  provider fails (rate limit, HTTP error, error payload, no answer, no token).
+- `test_review_rules_cases.py` and `web/test/review/rules.test.ts` check `review.py`'s tables and
+  `check_decision` and the Function's `rules.ts` against `contract/review/v1/fixtures/review-rules.json`.
+- `web/test/colours.test.ts` fails on a raw colour (hex, `rgb()`, `hsl()`) in `web/src/` or
+  `web/functions/` outside the generated `tokens.css` / `tokens.ts`.
+- `test_review_function_deploy.py`: `site deploy` uploads the Function with the site, a Function
+  change redeploys and takes the full path.
 
 ## Data sources and terms
 

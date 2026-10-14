@@ -1,0 +1,45 @@
+---
+// Home: live promotions first, then the recently expired ones (marked, no booking link). The home
+// page shows promotions only (D24); low prices live on route pages and in the explorer (#14+).
+import data from "virtual:site-data";
+import Base from "../layouts/Base.astro";
+import PromotionCard from "../components/PromotionCard.astro";
+import { BRAND } from "../lib/brand";
+import { promotionView } from "../lib/promotion";
+
+const all = data.promotions.promotions.map((p) => ({ promotion: p, view: promotionView(data, p) }));
+const live = all.filter((x) => x.promotion.live);
+const expired = all.filter((x) => !x.promotion.live);
+---
+<Base
+  title={`${BRAND}: promoções de voos desde Portugal`}
+  description="Voos de ida e volta desde Portugal bem abaixo do preço habitual de cada rota. Cada promoção foi revista por nós e diz quando o preço foi encontrado e verificado."
+  path="/"
+>
+  <section class="max-w-measure">
+    <p class="label text-accent">Caderno de viagem</p>
+    <h1 class="mt-xs font-display text-[clamp(2.5rem,9vw,4.5rem)] leading-none tracking-[-0.01em] font-medium">Voos baratos desde Portugal</h1>
+    <p class="mt-md text-lead text-muted">Promoções revistas por nós, com o preço, as datas e o dia em que um viajante o encontrou. Estes preços desaparecem depressa: confirma sempre antes de pagar.</p>
+  </section>
+
+  <section id="promocoes" class="mt-2xl" aria-labelledby="titulo-promocoes">
+    <h2 id="titulo-promocoes" class="font-display text-headline">Promoções</h2>
+    {live.length ? (
+      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+        {live.map(({ promotion, view }, i) => <PromotionCard promotion={promotion} view={view} eager={i === 0} />)}
+      </div>
+    ) : (
+      <p class="notice mt-lg max-w-measure">Neste momento não há promoções ativas. Os preços são verificados várias vezes por dia e as novas promoções aparecem aqui.</p>
+    )}
+  </section>
+
+  {expired.length > 0 && (
+    <section class="mt-2xl" aria-labelledby="titulo-expiradas">
+      <h2 id="titulo-expiradas" class="font-display text-headline">Expiradas recentemente</h2>
+      <p class="mt-xs max-w-measure text-small text-muted">Ficam aqui como registo, sem ligação de reserva.</p>
+      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+        {expired.map(({ promotion, view }) => <PromotionCard promotion={promotion} view={view} />)}
+      </div>
+    </section>
+  )}
+</Base>

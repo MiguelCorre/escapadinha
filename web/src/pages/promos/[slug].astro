@@ -1,0 +1,114 @@
+---
+// One page per promotion at the path the contract gives (/promos/<id>-<origem>-<destino>/, the
+// current site's URLs). Live: price block, ficha, booking button with the disclosure. Expired:
+// noindex, no button, says why (D15); the page stays so shared links never break.
+import type { GetStaticPaths } from "astro";
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import BookingCta from "../../components/BookingCta.astro";
+import PriceBlock from "../../components/PriceBlock.astro";
+import type { Promotion } from "../../lib/contract";
+import { BRAND } from "../../lib/brand";
+import { bookingCta } from "../../lib/cta";
+import { airportLabel, promotionView } from "../../lib/promotion";
+
+export const getStaticPaths = (() => {
+  return data.promotions.promotions.map((promotion) => {
+    const match = /^\/promos\/([a-z0-9-]+)\/$/.exec(promotion.path);
+    if (!match) throw new Error(`promotion ${promotion.id}: unexpected path ${promotion.path}`);
+    return { params: { slug: match[1] }, props: { promotion } };
+  });
+}) satisfies GetStaticPaths;
+
+interface Props {
+  promotion: Promotion;
+}
+
+const { promotion } = Astro.props;
+const view = promotionView(data, promotion);
+const cta = bookingCta(promotion.booking_link, promotion.live, data.labels);
+const arrival = airportLabel(view);
+const slides = promotion.images?.slides ?? [];
+
+const title = view.live
+  ? `${view.headline} por ${view.price.text} ida e volta · ${BRAND}`
+  : `Expirada: ${view.headline}, ${view.datesProse} · ${BRAND}`;
+const description = view.live
+  ? `${view.headline}, ${view.datesProse} (${view.nights}), ${view.price.text} ida e volta`
+    + (view.discount ? `, ${view.discount.value} abaixo do habitual em ${view.month}` : "")
+    + (view.foundOn ? `. Encontrado por um viajante a ${view.foundOn}.` : ".")
+  : `Promoção expirada: ${view.headline}, ${view.datesProse}. Fica como registo, sem ligação de reserva.`;
+---
+<Base
+  title={title}
+  description={description}
+  path={promotion.path}
+  noindex={!view.live}
+  ogImage={promotion.images?.og ?? null}
+  refs={{ deal: view.id }}
+>
+  <nav aria-label="Caminho" class="text-small text-muted"><a href="/#promocoes">Promoções</a> › {view.originName} → {view.city}</nav>
+
+  <article data-deal={view.id} class="mt-lg grid grid-cols-1 gap-2xl md:grid-cols-2">
+    {slides.length > 0 && (
+      <div class="order-2 md:order-1">
+        <div class="grid auto-cols-[86%] grid-flow-col gap-xs overflow-x-auto snap-x snap-mandatory md:auto-cols-[100%]" role="group" aria-label="Imagens da promoção" tabindex="0">
+          {slides.map((src, i) => (
+            <img src={src} alt={`Imagem ${i + 1} de ${slides.length} da promoção ${view.headline}`}
+              width="1080" height="1350" loading={i === 0 ? "eager" : "lazy"} decoding="async"
+              class="aspect-[4/5] w-full snap-start photo-placeholder object-cover" />
+          ))}
+        </div>
+      </div>
+    )}
+
+    <div class="order-1 md:order-2">
+      {view.live && <p class="mb-sm"><span class="stamp">Promoção</span></p>}
+      <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">{view.headline}</h1>
+
+      {!view.live && (
+        <div class="notice notice-expired mt-lg text-ink" data-expired data-obs={view.expiredObs ?? undefined}>
+          <p><strong>Expirada.</strong> Esta promoção já expirou{view.expiredReason ? `: ${view.expiredReason}` : ""}. Fica aqui como registo, sem ligação de reserva. Vê as <a href="/#promocoes">promoções ativas</a>.</p>
+        </div>
+      )}
+
+      <div class="mt-lg"><PriceBlock view={view} size="page" /></div>
+
+      {view.remote && view.arrivalName && (
+        <p class="notice notice-warning mt-lg text-ink">Chegada a {arrival}, longe do centro de {view.city}. Conta com o transfer no tempo e no orçamento.</p>
+      )}
+
+      <dl class="mt-xl border-t-2 border-ink">
+        <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+          <dt class="label text-muted">Datas</dt><dd class="text-right font-semibold">{view.datesProse}</dd>
+        </div>
+        {view.airline && (
+          <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+            <dt class="label text-muted">Companhia</dt><dd class="text-right font-semibold">{view.airline}</dd>
+          </div>
+        )}
+        {view.stops && (
+          <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+            <dt class="label text-muted">Voos</dt><dd class="text-right font-semibold">{view.stops}</dd>
+          </div>
+        )}
+        {arrival && (
+          <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+            <dt class="label text-muted">Chegada</dt><dd class="text-right font-semibold">{arrival}</dd>
+          </div>
+        )}
+        {view.typicalLow && (
+          <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+            <dt class="label text-muted">Preço habitual em {view.month}</dt><dd class="num text-right font-semibold">{view.typicalLow}</dd>
+          </div>
+        )}
+        <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+          <dt class="label text-muted">Verificado por nós</dt><dd class="num text-right font-semibold">{view.checkedAt}</dd>
+        </div>
+      </dl>
+      <p class="mt-xs text-small text-muted">O preço habitual é o mínimo típico da rota para o mês de partida. As horas são de Lisboa.</p>
+
+      {cta && <BookingCta cta={cta} />}
+    </div>
+  </article>
+</Base>

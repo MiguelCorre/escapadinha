@@ -1,0 +1,158 @@
+{
+  "description": "Shared cases of the approval live check (D26, D29): a snapshot deal, the provider payload of its route-month (prices_for_dates) and the expected result. tests/test_live_check_cases.py runs them through the pipeline (travelpayouts.parse_response + recheck.recheck), web/test/review/live-check.test.ts through the review Function's port; both must agree. A deal with 'transfers' and 'return_transfers' (the snapshot's stop counts, null = unknown) is judged on them; a deal without them is an older snapshot that only says 'direct', which stands for the counts: true = 0 and 0, false = 1 and 1, null = unknown.",
+  "defaults": {
+    "now": "2026-10-14T09:30:00Z",
+    "deal": {
+      "origin": "LIS", "destination": "LON", "price_eur": 58,
+      "departure_date": "2026-11-20", "return_date": "2026-11-23", "direct": true,
+      "rules": {"direct_only": true, "max_transfers": 0, "min_nights": 2, "max_nights": 10, "max_offer_age_days": 3}
+    },
+    "item": {
+      "origin": "LIS", "destination": "LON", "origin_airport": "LIS", "destination_airport": "LGW",
+      "airline": "TP", "flight_number": "1336", "transfers": 0, "return_transfers": 0,
+      "departure_at": "2026-11-20T07:05:00+00:00", "return_at": "2026-11-23T19:40:00+00:00",
+      "link": "/search/LIS2011LON23111?t=TP&search_date=14102026"
+    }
+  },
+  "cases": [
+    {
+      "name": "same price, found today",
+      "items": [{"price": 58}, {"price": 90, "departure_at": "2026-11-21T07:05:00+00:00", "link": "/search/LIS2111LON23111?search_date=14102026"}],
+      "expected": {"valid": true, "price_eur": 58, "reason": "continua a 58 €"}
+    },
+    {
+      "name": "cheaper now, with cents",
+      "items": [{"price": 49.5}],
+      "expected": {"valid": true, "price_eur": 49.5, "reason": "continua a 49,50 €"}
+    },
+    {
+      "name": "price rose",
+      "items": [{"price": 70}, {"price": 40, "departure_at": "2026-11-21T07:05:00+00:00", "link": "/search/LIS2111LON23111?search_date=14102026"}],
+      "expected": {"valid": false, "price_eur": 70, "reason": "o preço subiu para 70 €"}
+    },
+    {
+      "name": "trip no longer offered",
+      "items": [{"price": 40, "departure_at": "2026-11-21T07:05:00+00:00", "link": "/search/LIS2111LON23111?search_date=14102026"}],
+      "expected": {"valid": false, "price_eur": null, "reason": "a viagem já não aparece nos preços mais recentes"}
+    },
+    {
+      "name": "empty month",
+      "items": [],
+      "expected": {"valid": false, "price_eur": null, "reason": "a viagem já não aparece nos preços mais recentes"}
+    },
+    {
+      "name": "price found too long ago",
+      "items": [{"price": 58, "link": "/search/LIS2011LON23111?search_date=05102026"}],
+      "expected": {"valid": false, "price_eur": 58, "reason": "o preço foi visto pela última vez a 05/10, há mais de 3 dias"}
+    },
+    {
+      "name": "found exactly at the edge of the freshness window",
+      "items": [{"price": 58, "link": "/search/LIS2011LON23111?search_date=11102026"}],
+      "expected": {"valid": true, "price_eur": 58, "reason": "continua a 58 €"}
+    },
+    {
+      "name": "no search_date: our fetch time counts, so it is fresh",
+      "items": [{"price": 58, "link": "/search/LIS2011LON23111?t=TP"}],
+      "expected": {"valid": true, "price_eur": 58, "reason": "continua a 58 €"}
+    },
+    {
+      "name": "the cheapest first: a stale copy listed before a fresh one at the same price decides",
+      "items": [{"price": 58, "link": "/search/LIS2011LON23111?search_date=01102026"}, {"price": 58}],
+      "expected": {"valid": false, "price_eur": 58, "reason": "o preço foi visto pela última vez a 01/10, há mais de 3 dias"}
+    },
+    {
+      "name": "UTC timestamps just after midnight: the link's local dates match",
+      "items": [{"price": 55, "departure_at": "2026-11-19T23:30:00+00:00", "return_at": "2026-11-22T23:50:00+00:00", "link": "/search/LIS2011LON23111?search_date=14102026"}],
+      "expected": {"valid": true, "price_eur": 55, "reason": "continua a 55 €"}
+    },
+    {
+      "name": "a connection on a direct-only route is not the same offer",
+      "items": [{"price": 45, "return_transfers": 1}, {"price": 60}],
+      "expected": {"valid": false, "price_eur": 60, "reason": "o preço subiu para 60 €"}
+    },
+    {
+      "name": "unknown transfer counts never pass a stop limit",
+      "items": [{"price": 45, "transfers": null, "return_transfers": null}],
+      "expected": {"valid": false, "price_eur": null, "reason": "a viagem já não aparece nos preços mais recentes"}
+    },
+    {
+      "name": "items without a return, a price, or outside the nights range are dropped",
+      "items": [{"price": 30, "return_at": null}, {"price": 0}, {"price": "31"},
+                {"price": 32, "return_at": "2026-12-05T19:40:00+00:00", "link": "/search/LIS2011LON05121?search_date=14102026"},
+                {"price": 59}],
+      "expected": {"valid": false, "price_eur": 59, "reason": "o preço subiu para 59 €"}
+    },
+    {
+      "name": "deal with connections on a route that became direct-only",
+      "deal": {"direct": false},
+      "items": [{"price": 58}],
+      "expected": {"valid": false, "price_eur": null, "reason": "não é ida e volta com voos diretos (regra direct_only)"}
+    },
+    {
+      "name": "deal outside the route's nights range",
+      "deal": {"rules": {"direct_only": true, "max_transfers": 0, "min_nights": 4, "max_nights": 10, "max_offer_age_days": 3}},
+      "items": [{"price": 58}],
+      "expected": {"valid": false, "price_eur": null, "reason": "fora do intervalo de 4–10 noites da rota"}
+    },
+    {
+      "name": "long-haul: one stop each way allowed",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": false, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": 1, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 415, "transfers": 1, "return_transfers": 1, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=13102026"},
+                {"destination": "NYC", "price": 380, "transfers": 2, "return_transfers": 1, "departure_at": "2026-12-02T06:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": true, "price_eur": 415, "reason": "continua a 415 €"}
+    },
+    {
+      "name": "long-haul: the deal's own stop counts are within the limit",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": false, "transfers": 1, "return_transfers": 0, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": 1, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 410, "transfers": 1, "return_transfers": 0, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": true, "price_eur": 410, "reason": "continua a 410 €"}
+    },
+    {
+      "name": "long-haul: two stops on the way out break a one-stop limit (not just 'not direct')",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": false, "transfers": 2, "return_transfers": 0, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": 1, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 410, "transfers": 1, "return_transfers": 1, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": false, "price_eur": null, "reason": "tem mais de 1 escala(s) num dos sentidos (regra max_transfers)"}
+    },
+    {
+      "name": "long-haul: a deal with unknown stop counts never passes a limit",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": null, "transfers": null, "return_transfers": null, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": 1, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 410, "transfers": 1, "return_transfers": 1, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": false, "price_eur": null, "reason": "tem mais de 1 escala(s) num dos sentidos (regra max_transfers)"}
+    },
+    {
+      "name": "no stop limit: any counts pass",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": false, "transfers": 3, "return_transfers": 2, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": null, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [{"destination": "NYC", "price": 399, "transfers": 2, "return_transfers": 2, "departure_at": "2026-12-02T10:00:00+00:00", "return_at": "2026-12-12T18:00:00+00:00", "link": "/search/LIS0212NYC12121?search_date=14102026"}],
+      "expected": {"valid": true, "price_eur": 399, "reason": "continua a 399 €"}
+    },
+    {
+      "name": "long-haul deal on a route now limited to direct flights both ways",
+      "deal": {"destination": "NYC", "price_eur": 420, "direct": false, "departure_date": "2026-12-02", "return_date": "2026-12-12",
+               "rules": {"direct_only": false, "max_transfers": 0, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3}},
+      "items": [],
+      "expected": {"valid": false, "price_eur": null, "reason": "tem mais de 0 escala(s) num dos sentidos (regra max_transfers)"}
+    }
+  ],
+  "failures": {
+    "description": "When the provider can't price the deal, the reviewer reads a pt-PT reason without English or response text (pipeline.check_failure, live-check.ts liveCheck). Each case is one provider answer: an HTTP status (with a body), a payload, no answer at all, or no API token.",
+    "cases": [
+      {"name": "rate limited", "http_status": 429, "body": "Too Many Requests",
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts está a limitar os pedidos. Tenta daqui a um minuto."},
+      {"name": "server error", "http_status": 502, "body": "Bad gateway",
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts respondeu com o erro HTTP 502."},
+      {"name": "refused token", "http_status": 401, "body": "Unauthorized",
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts respondeu com o erro HTTP 401."},
+      {"name": "error in the payload", "payload": {"success": false, "error": "rate limit", "data": null},
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts devolveu um erro."},
+      {"name": "no answer", "network_error": true,
+       "expected": "Não foi possível verificar o preço agora: o Travelpayouts não respondeu."},
+      {"name": "no API token", "token": "",
+       "expected": "Não foi possível verificar o preço agora: falta o token do Travelpayouts (TRAVELPAYOUTS_TOKEN)."}
+    ]
+  }
+}

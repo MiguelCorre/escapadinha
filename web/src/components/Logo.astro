@@ -1,0 +1,19 @@
+---
+// The provisional logo (assets/logo-light.svg, #12) inlined, its ink and sun recoloured to the
+// theme's ink and accent so one file serves paper and dark mode (logo-dark.svg differs only there).
+// The light file is drawn in the light palette's ink and accent (TOKENS); a logo or token change
+// that breaks the match stops the build instead of shipping a fixed-colour logo.
+import svg from "../../../assets/logo-light.svg?raw";
+import { TOKENS } from "../lib/tokens";
+
+const { ink, accent } = TOKENS.themes.light;
+const recolour = (text: string, find: string, replace: string) => {
+  if (!text.includes(find)) throw new Error(`assets/logo-light.svg: ${find} not found (tokens changed?)`);
+  return text.replaceAll(find, replace);
+};
+const inline = recolour(recolour(svg.replace(/<!--[\s\S]*?-->/g, ""),
+  `fill="${accent}"`, 'fill="currentColor" class="text-accent"'),
+  `"${ink}"`, '"currentColor"')
+  .replace("<svg ", '<svg class="h-10 w-auto" focusable="false" ');
+---
+<Fragment set:html={inline} />

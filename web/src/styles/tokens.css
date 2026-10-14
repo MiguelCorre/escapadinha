@@ -1,0 +1,155 @@
+/* Generated from docs/design/tokens.json by web/scripts/tokens.mjs (`npm run tokens`).
+   Do not edit by hand. Tailwind classes point at the --pn-* variables, so one class works in
+   both colour schemes; the theme namespaces are reset so no Tailwind default leaks through. */
+@theme {
+  --color-*: initial;
+  --color-bg: var(--pn-bg);
+  --color-surface: var(--pn-surface);
+  --color-ink: var(--pn-ink);
+  --color-muted: var(--pn-muted);
+  --color-accent: var(--pn-accent);
+  --color-on-accent: var(--pn-on-accent);
+  --color-rule: var(--pn-rule);
+  --color-success: var(--pn-success);
+  --color-success-bg: var(--pn-success-bg);
+  --color-warning: var(--pn-warning);
+  --color-warning-bg: var(--pn-warning-bg);
+  --color-expired: var(--pn-expired);
+  --color-expired-bg: var(--pn-expired-bg);
+  --font-*: initial;
+  --font-display: var(--pn-font-display);
+  --font-text: var(--pn-font-text);
+  --text-*: initial;
+  --text-display-xl: 4.5rem;
+  --text-display-xl--line-height: 1;
+  --text-display-xl--letter-spacing: -0.01em;
+  --text-display-xl--font-weight: 500;
+  --text-display: 3.5rem;
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.005em;
+  --text-display--font-weight: 500;
+  --text-headline: 2.25rem;
+  --text-headline--line-height: 1.1;
+  --text-headline--letter-spacing: 0;
+  --text-headline--font-weight: 600;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: 0;
+  --text-title--font-weight: 600;
+  --text-price-xl: 4rem;
+  --text-price-xl--line-height: 1;
+  --text-price-xl--letter-spacing: -0.02em;
+  --text-price-xl--font-weight: 600;
+  --text-price: 2.5rem;
+  --text-price--line-height: 1;
+  --text-price--letter-spacing: -0.01em;
+  --text-price--font-weight: 600;
+  --text-lead: 1.25rem;
+  --text-lead--line-height: 1.55;
+  --text-lead--letter-spacing: 0;
+  --text-lead--font-weight: 400;
+  --text-body: 1.125rem;
+  --text-body--line-height: 1.6;
+  --text-body--letter-spacing: 0;
+  --text-body--font-weight: 400;
+  --text-small: 0.9375rem;
+  --text-small--line-height: 1.5;
+  --text-small--letter-spacing: 0;
+  --text-small--font-weight: 400;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.3;
+  --text-label--letter-spacing: 0.14em;
+  --text-label--font-weight: 600;
+  --text-caption: 0.8125rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--letter-spacing: 0;
+  --text-caption--font-weight: 400;
+  --spacing: 0.25rem;
+  --spacing-2xs: 0.25rem;
+  --spacing-xs: 0.5rem;
+  --spacing-sm: 0.75rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+  --spacing-3xl: 4rem;
+  --spacing-4xl: 6rem;
+  --radius-*: initial;
+  --radius-none: 0;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-full: 9999px;
+  --shadow-*: initial;
+  --shadow-none: none;
+  --shadow-card: 0 1px 0 rgba(30, 27, 22, 0.06), 0 10px 28px -14px rgba(30, 27, 22, 0.28);
+  --shadow-lifted: 0 2px 0 rgba(30, 27, 22, 0.08), 0 28px 60px -24px rgba(22, 20, 15, 0.6);
+  --shadow-focus: 0 0 0 3px var(--pn-accent);
+  --container-page: 70rem;
+  --container-measure: 68ch;
+}
+
+:root {
+  --pn-bg: #F5F0E6;
+  --pn-surface: #FFFDF8;
+  --pn-ink: #1E1B16;
+  --pn-muted: #5F574B;
+  --pn-accent: #A23E1C;
+  --pn-on-accent: #FFFFFF;
+  --pn-rule: #D3C8B4;
+  --pn-success: #2F6830;
+  --pn-success-bg: #E4EEDC;
+  --pn-warning: #835400;
+  --pn-warning-bg: #F6EACB;
+  --pn-expired: #8F1D33;
+  --pn-expired-bg: #F7E1DF;
+  --pn-photo-ink: #FFFDF8;
+  --pn-photo-scrim: #16140F;
+  --pn-photo-scrim-text-alpha: 0.7;
+  --pn-dark-bg: #16140F;
+  --pn-dark-surface: #201D17;
+  --pn-dark-ink: #EEE7D8;
+  --pn-dark-muted: #B3A994;
+  --pn-dark-accent: #F0936B;
+  --pn-dark-on-accent: #16140F;
+  --pn-dark-rule: #3D372C;
+  --pn-dark-success: #93C98C;
+  --pn-dark-success-bg: #1D2A1B;
+  --pn-dark-warning: #E3B65C;
+  --pn-dark-warning-bg: #2D2514;
+  --pn-dark-expired: #F4A3AE;
+  --pn-dark-expired-bg: #331A1D;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pn-bg: #16140F;
+    --pn-surface: #201D17;
+    --pn-ink: #EEE7D8;
+    --pn-muted: #B3A994;
+    --pn-accent: #F0936B;
+    --pn-on-accent: #16140F;
+    --pn-rule: #3D372C;
+    --pn-success: #93C98C;
+    --pn-success-bg: #1D2A1B;
+    --pn-warning: #E3B65C;
+    --pn-warning-bg: #2D2514;
+    --pn-expired: #F4A3AE;
+    --pn-expired-bg: #331A1D;
+  }
+}
+
+:root[data-theme="dark"] {
+  --pn-bg: #16140F;
+  --pn-surface: #201D17;
+  --pn-ink: #EEE7D8;
+  --pn-muted: #B3A994;
+  --pn-accent: #F0936B;
+  --pn-on-accent: #16140F;
+  --pn-rule: #3D372C;
+  --pn-success: #93C98C;
+  --pn-success-bg: #1D2A1B;
+  --pn-warning: #E3B65C;
+  --pn-warning-bg: #2D2514;
+  --pn-expired: #F4A3AE;
+  --pn-expired-bg: #331A1D;
+}

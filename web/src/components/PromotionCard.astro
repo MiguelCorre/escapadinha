@@ -1,0 +1,38 @@
+---
+// Promotion card (design system §4 "Card"): the cover slide's 4:5 thumbnail, route title, price
+// block, arrival airport line. The whole card is one link to the promotion page. On phones the
+// thumbnail sits beside the text so a card stays within one screen.
+import type { Promotion } from "../lib/contract";
+import { airportLabel, type PromotionView } from "../lib/promotion";
+import PriceBlock from "./PriceBlock.astro";
+
+interface Props {
+  promotion: Promotion;
+  view: PromotionView;
+  eager?: boolean;
+}
+
+const { promotion, view, eager = false } = Astro.props;
+const thumb = promotion.images?.thumb ?? null;
+const arrival = airportLabel(view);
+---
+<article data-deal={view.id} class="relative grid grid-cols-[6.5rem_1fr] border-t-[3px] border-double border-ink bg-surface sm:flex sm:flex-col">
+  <div class="aspect-[4/5] self-start photo-placeholder">
+    {thumb && (
+      <img src={thumb} alt="" width="540" height="675" loading={eager ? "eager" : "lazy"}
+        decoding="async" class="h-full w-full object-cover" />
+    )}
+  </div>
+  <div class="flex flex-1 flex-col gap-xs p-md sm:p-lg">
+    <h3 class="font-display text-title">
+      <a href={view.path} class="text-ink no-underline after:absolute after:inset-0 hover:underline">{view.headline}</a>
+    </h3>
+    <PriceBlock view={view} />
+    {arrival && (
+      <p class="flex flex-wrap items-center gap-x-xs gap-y-2xs text-small text-muted">
+        <span>Chegada: {arrival}</span>
+        {view.remote && <span class="tag tag-warning">longe do centro</span>}
+      </p>
+    )}
+  </div>
+</article>

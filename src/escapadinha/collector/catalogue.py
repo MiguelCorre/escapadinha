@@ -61,9 +61,11 @@ class TravelpayoutsCatalogue:
 
     def _json(self, url: str, params: dict | None = None, token: bool = False):
         if token and not self._token:
-            raise TravelpayoutsError("TRAVELPAYOUTS_TOKEN is not set (see .env.example)")
+            raise TravelpayoutsError("TRAVELPAYOUTS_TOKEN is not set (see .env.example)",
+                                     kind="token")
         headers = {"X-Access-Token": self._token} if token else {}
         response = self._client.get(url, params=params, headers=headers)
         if response.status_code != 200:
-            raise TravelpayoutsError(f"{url}: HTTP {response.status_code}: {response.text[:200]}")
+            raise TravelpayoutsError(f"{url}: HTTP {response.status_code}: {response.text[:200]}",
+                                     kind="http", status=response.status_code)
         return response.json()

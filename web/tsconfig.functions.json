@@ -1,0 +1,12 @@
+{
+  // `npm run typecheck`, part 1: the review Function (web/functions + the src/lib modules it
+  // imports) as Cloudflare runs it: strict, web platform globals only, no Node types (a `Buffer`
+  // or `node:` import would type-check here and then fail in the Workers runtime).
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "allowJs": false
+  },
+  "include": ["functions"]
+}
