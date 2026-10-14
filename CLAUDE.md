@@ -271,7 +271,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `build-site.ts`, `scale.test.ts` full-size synthetic build, traceability, internal links,
   `content-pages.test.ts`, `seo.test.ts` + `jsonld.ts`, `seo-configured.test.ts`)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`,
-  `search-widget.md`, `instagram.md`)
+  `search-widget.md`, `instagram.md`, `rever-conteudo.md`: reviewing MDX drafts in `npm run dev:fixtures`)
 - `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
   validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a
   promotion), `cta.ts` (booking button + disclosure); `src/layouts/Base.astro`, `src/components/`,

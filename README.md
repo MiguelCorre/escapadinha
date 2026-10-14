@@ -657,6 +657,15 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   the draft tip `web/src/content/tips/voos-baratos.mdx` (`/dicas/voos-baratos/` once reviewed;
   `legacy_path: /guias/voos-baratos-dicas/`): to publish it, check the facts, add the sources and
   `last_checked`, set `reviewed: true`.
+- **Drafts waiting for review (#19):** five itineraries (`barcelona-em-3-dias`, `paris-em-4-dias`,
+  `roma-em-3-dias`, `madeira-em-3-dias`, `sao-miguel-em-3-dias`: the five destinations with low
+  prices in the latest run) and five tips (`bagagem-de-mao`, `esim-ou-roaming`,
+  `seguro-de-viagem`, `transportes-aeroportos`, `direitos-dos-passageiros`), each with at least
+  three official sources and `reviewed: false`. **To review:** `cd web && npm run dev:fixtures`,
+  then http://localhost:4321/roteiros/ and `/dicas/` list the drafts (with the "Rascunho"
+  notice); open questions are `# TODO Miguel` lines in each front matter. The pt-PT checklist
+  (facts against the sources, no prices, tone, blocks, then `reviewed: true` + `last_checked`)
+  is [docs/runbooks/rever-conteudo.md](docs/runbooks/rever-conteudo.md).
 - **Affiliate blocks (D37):** an itinerary or tip places `<EsimBlock />`, `<InsuranceBlock />` or
   `<ActivitiesBlock />` where it fits in the MDX body (no import: the pages pass them,
   `src/components/mdx-components.ts`) **and** lists the programme in its front matter, e.g.

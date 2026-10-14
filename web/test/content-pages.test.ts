@@ -1,13 +1,26 @@
 // Itinerary and tip pages (#17, D33) in the fixture build. The content is the test-only MDX under
 // test/fixtures/content/ (a reviewed Paris itinerary checked on 2026-10-14, a draft for Barcelona,
-// a reviewed tip checked on 2026-10-12 with two sources) plus the real src/content/ files, whose
-// only entry today is the converted "guia rápido", still a draft.
+// a reviewed tip checked on 2026-10-12 with two sources) plus the real src/content/ files: the
+// converted "guia rápido" and #19's drafts, all still waiting for Miguel's review.
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { contentPath, type ContentKind } from "../src/lib/content";
 import { builtPages, page, pageSource, text } from "./html";
 
 const ITINERARY = "/roteiros/paris-em-3-dias/";
 const TIP = "/dicas/dica-de-teste/";
-const DRAFTS = ["/roteiros/rascunho-de-teste/", "/dicas/voos-baratos/"];
+
+/** The pages of the real entries (src/content/) whose front matter is not `reviewed: true`. */
+function realDrafts(): string[] {
+  return (["itineraries", "tips"] as ContentKind[]).flatMap((kind) => {
+    const dir = new URL(`../src/content/${kind}/`, import.meta.url);
+    return readdirSync(dir).filter((f) => f.endsWith(".mdx"))
+      .filter((f) => !/^reviewed:\s*true\s*$/m.test(readFileSync(new URL(f, dir), "utf8").split(/^---\s*$/m)[1] ?? ""))
+      .map((f) => contentPath(kind, f.replace(/\.mdx$/, "")));
+  });
+}
+
+const DRAFTS = ["/roteiros/rascunho-de-teste/", ...realDrafts()];
 
 describe("content pages", () => {
   it("builds reviewed itineraries and tips and lists them", () => {

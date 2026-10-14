@@ -1,0 +1,55 @@
+---
+# Draft by Claude (#19): Miguel checks every fact against the sources, then sets reviewed: true
+# (and last_checked to the day he checked). Chosen from the data: PAR has active routes from all
+# five origins (LIS, OPO, FAO, FNC, PDL), 3 promotion candidates and 2 low prices in the latest
+# run; most observed fares land at Beauvais (209 of 289), then Orly (77) and CDG (3).
+# The slug is not paris-em-3-dias: that one is the test-only itinerary in web/test/fixtures/content/.
+# TODO Miguel: parisjetaime.com and iledefrance-mobilites.fr refuse automated reads (HTTP 403):
+# the Orly line 14 and CDG RER B sentences come from their pages as shown in search results.
+# Open both links and confirm before approving.
+# TODO Miguel: best_months left out on purpose (no official source).
+title: Paris em 4 dias
+description: Da chegada a Beauvais, Orly ou Charles de Gaulle ao Louvre, à torre Eiffel e a Montmartre, em quatro dias a pé e de metro.
+destination: PAR
+days: 4
+last_checked: 2026-10-14
+sources:
+  - title: Aeroporto de Paris-Beauvais, autocarro entre Paris e o aeroporto (site oficial, em inglês)
+    url: https://www.aeroportparisbeauvais.com/en/access-parking/paris-airport-shuttle
+  - title: Paris je t'aime, guia dos aeroportos de Paris (posto de turismo oficial, em inglês)
+    url: https://parisjetaime.com/eng/article/flying-to-paris-guide-to-airports-access-and-transfers-a1961
+  - title: Île-de-France Mobilités, bilhete Paris Région Aéroports (em inglês)
+    url: https://www.iledefrance-mobilites.fr/en/titres-et-tarifs/detail/ticket-paris-region-aeroports
+  - title: Museu do Louvre, horários e entrada (site oficial, em inglês)
+    url: https://www.louvre.fr/en/visit/hours-admission
+affiliates: [activities]
+reviewed: false
+---
+
+Desde Portugal, os voos para Paris chegam a três aeroportos: Beauvais, Orly e Charles de Gaulle. Confirma qual é o teu antes de reservar, porque o caminho até ao centro muda muito.
+
+## Chegar ao centro
+
+- **Beauvais:** é o mais afastado. O autocarro oficial (Aérobus) sai cerca de 20 minutos depois de cada aterragem e leva pelo menos 1h15 até Porte Maillot, conforme o trânsito.
+- **Orly:** a linha 14 do metro tem estação junto ao Terminal 3 e leva-te ao centro em cerca de 25 minutos.
+- **Charles de Gaulle:** o RER B liga o aeroporto a Gare du Nord e a Châtelet-Les Halles.
+
+Para Orly e Charles de Gaulle, a Île-de-France Mobilités vende um bilhete próprio para os aeroportos (Paris Région Aéroports).
+
+## Dia 1: Île de la Cité e Quartier Latin
+
+Começa no coração da cidade, na Île de la Cité, e atravessa o Sena para o Quartier Latin. Ao fim do dia, passeia pelas margens do rio.
+
+## Dia 2: Louvre e Tulherias
+
+O Louvre fecha à terça-feira. O museu recomenda reservar a hora de entrada, mesmo para quem tem entrada gratuita, e em alguns períodos a reserva é obrigatória para todos. Depois, segue pelo jardim das Tulherias até aos Campos Elísios.
+
+<ActivitiesBlock />
+
+## Dia 3: torre Eiffel e Trocadéro
+
+Dedica o dia à margem esquerda: a torre Eiffel e, do outro lado do rio, a vista do Trocadéro. Junta um museu à tarde, se o tempo não ajudar.
+
+## Dia 4: Montmartre
+
+Sobe a Montmartre de manhã, antes da enchente. Se voltas por Beauvais, conta com tempo: o site do aeroporto aconselha apanhar o autocarro em Porte Maillot 3h30 antes do teu voo.

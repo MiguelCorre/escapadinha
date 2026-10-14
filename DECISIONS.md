@@ -1314,6 +1314,27 @@ so nothing has to be hosted.
   Barcelona's and Madeira's hubs show no section.
 - **Not done here:** a nav link, JSON-LD and the sitemap (done in D34), affiliate blocks (#18), the
   drafts themselves (#19).
+- **First drafts (#19, 2026-10-14):** five itineraries and five tips in `web/src/content/`, all
+  `reviewed: false`, each with at least three official https sources and `last_checked`. The
+  issue asked for "the destinations with the most published promotions", but nothing is
+  published yet, so the destinations come from the data instead (read-only on the 2026-10-14
+  database, generation 30, run 42): the active routes' low prices in the latest completed run
+  (`pipeline.route_low_prices`) per destination city. Exactly five cities had any: Barcelona 5,
+  Madeira 3, Paris 2, Ponta Delgada 1, Roma 1 (promotion candidates: Madeira 3, Paris 3,
+  Barcelona 2): city breaks in Spain, France and Italy plus Madeira and the Azores. All five are
+  inside the EU, where roaming costs what it does at home, so no itinerary has an eSIM
+  block; the eSIM tip does. Activities (Tiqets) go in every itinerary, insurance in the hiking
+  ones (Madeira, São Miguel) and the insurance tip (it renders nothing until a programme is
+  configured, D37). Facts are only what the cited pages say; what could not be read
+  automatically (sites refusing bots or rendered with JavaScript) or needs Miguel's decision is a
+  `# TODO Miguel` YAML comment in the front matter (the lint skips YAML comments, the page never
+  shows them). `best_months` is left empty: no official source states one. Compensation amounts
+  (EU 261/2004) and fees (Madeira's trails) are not written: the lint refuses euro amounts, and
+  the sources are linked instead. The review checklist is `docs/runbooks/rever-conteudo.md`
+  (pt-PT); the drafts render in `npm run dev:fixtures` with the "Rascunho" notice.
+  `content-pages.test.ts` now reads its draft list from `src/content/` (every entry whose front
+  matter is not `reviewed: true`) instead of naming the old guide only, so no real draft can reach
+  the build, a listing or a link, and approving one needs no test change.
 
 ## D34: SEO, structured data, search widget and analytics (2026-10-14, #16)
 - **What:** the Astro site (D28) gets canonical, OpenGraph and Twitter tags on every page,
