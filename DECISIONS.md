@@ -1519,4 +1519,22 @@ so nothing has to be hosted.
   60 min lock). The PC task needs Node 22+ installed (it already did for wrangler).
 - **CLI:** `site build` (Astro, prints pages per type, images, redirects, size), `site
   build-jinja` (legacy, never deployed), `site preview` (serves `web/dist`; `_redirects` not
-  applied), `site deploy` (refuses fixtures).
+  applied), `site deploy` (refuses fixtures), `site crawl`.
+- **No old URL may 404 (`website/crawl.py`, `site crawl`):** `check_build` resolves a sitemap's
+  URLs against a build the way Pages does (a `_redirects` rule wins over a file; a redirect must
+  land on a served page, not on another rule), `check_live` asks the live site without following
+  redirects (200, or 301 whose target answers 200; 302/308/404/5xx and chains are reported).
+  `escapadinha site crawl --sitemap <url|file> [--base <host>] [--dist web/dist]` prints the count
+  and every broken URL and exits 1 on any. `tests/test_crawl.py` builds the legacy Jinja site
+  and the **real** Astro site (npm, `web/`, into a temporary folder) from one database, with a
+  promotion that expired 40 days ago (its Jinja page stayed; the contract dropped it) and a
+  reviewed Jinja guide, and crawls every page, sitemap URL and `_redirects` source of the old
+  site: all resolve (skipped when `web/node_modules` is missing). On the real data the live
+  sitemap's 363 URLs resolve on the real-data build (below). Rejected: committing a snapshot of
+  the live sitemap (the Jinja build from the same database is the same list and stays honest as
+  the data changes).
+- **Phase 2 (not here):** after a week live with `site crawl --sitemap <the old sitemap>`
+  clean, delete `SiteBuilder`/`build_site`, `website/templates/`, `site build-jinja` and their
+  tests; keep the slug helpers (move them out of `website/__init__.py`), `images.py`,
+  `routing.py`, `redirects.py`, `deploy.py`, `crawl.py`. Keep a copy of today's sitemap
+  (`web/dist/sitemap.xml` of the first deploy, or the Jinja one) for that week's crawls.

@@ -441,6 +441,34 @@ def site_preview(port: Annotated[int, typer.Option()] = 8766) -> None:
     http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
 
 
+@site_app.command("crawl")
+def site_crawl(
+    sitemap: Annotated[str, typer.Option(help="Old sitemap: URL or file "
+                                              "(e.g. a copy of the Jinja site's sitemap.xml)")],
+    base: Annotated[str | None, typer.Option(help="Crawl this host instead of the sitemap's "
+                                                  "(e.g. a preview deployment)")] = None,
+    dist: Annotated[Path | None, typer.Option(help="Check a local build (its _redirects) "
+                                                   "instead of the live site")] = None,
+    pause: Annotated[float, typer.Option(help="Seconds between live requests")] = 0.2,
+) -> None:
+    """Every URL of a sitemap must answer 200, or 301 to a page that answers 200 (D35). Exits 1
+    and lists the others."""
+    from escapadinha.website import crawl
+
+    with httpx.Client(timeout=30, headers={"User-Agent": "escapadinha-crawl"}) as client:
+        urls = crawl.sitemap_urls(sitemap, client)
+        results = (crawl.check_build(urls, dist) if dist
+                   else crawl.check_live(urls, client, base=base, pause=pause))
+    bad = [r for r in results if not r.ok]
+    redirected = sum(r.ok and r.status == 301 for r in results)
+    console.print(f"{len(results)} URLs: {len(results) - len(bad)} ok "
+                  f"({redirected} by a 301), {len(bad)} broken")
+    for r in bad:
+        console.print(f"  [red]✗[/] {escape(r.path)} {r.status} {escape(r.detail)}")
+    if bad:
+        raise typer.Exit(1)
+
+
 @site_app.command("setup")
 def site_setup() -> None:
     """One-time: create the Cloudflare Pages project."""

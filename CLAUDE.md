@@ -9,7 +9,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list`,
-  `site build|preview|setup|deploy|build-jinja`, `design directions`, `export site-data|fixtures`,
+  `site build|preview|setup|deploy|crawl|build-jinja`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 - Web package (`cd web`): `npm ci`, `npm run typecheck` (strict tsc: `tsconfig.functions.json`
@@ -152,7 +152,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
   key in `website/routing.current_pages` (`deal:`, `route:`, `origin:`, `destination:`) so renamed
   slugs get a 301 (`website/redirects.py`); old URLs of pages that left the site get a rule there
-  too (expired promotions → route, `/guias/` → `legacy_path`). Never let an old URL 404.
+  too (expired promotions → route, `/guias/` → `legacy_path`). Never let an old URL 404:
+  `tests/test_crawl.py` crawls the old site's URLs on the real Astro build; `site crawl` the live one.
   Destination hubs (D30) keep their published slug: the site data export records
   `destination:<code>` paths in `site.paths` and `website.destination_slugs` reuses them; never
   derive a hub slug without that history.
@@ -192,6 +193,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: `astro.py` (`site build`: npm ci stamp, `astro_build`, `finish`),
   `routing.py` (the Astro site's `_redirects`/`_headers` from the contract + `site.paths`),
+  `crawl.py` (`site crawl`: a sitemap against a build or the live site),
   `images.py` (promotion WebP/thumb/OG), `redirects.py` (rules), `deploy.py` (wrangler in `web/`,
   `function_files`, `deploy_hash`, fixture refusal); `__init__.py` shares with the export
   `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`, ... **Legacy until #23

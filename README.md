@@ -391,6 +391,7 @@ uv run escapadinha site preview       # http://127.0.0.1:8766 (web/dist; _redire
 uv run escapadinha site setup         # one-time: create the Cloudflare Pages project (REST API)
 uv run escapadinha site deploy        # upload web/dist + the review Function if they changed (--force to always)
 uv run escapadinha site build-jinja   # legacy: the old Jinja site into ./site, never deployed (until #23 phase 2)
+uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # every URL: 200 or a 301 to a 200
 ```
 
 | Pages | |
@@ -430,6 +431,12 @@ uv run escapadinha site build-jinja   # legacy: the old Jinja site into ./site, 
 - **Legacy Jinja site:** `src/escapadinha/website/__init__.py` (`SiteBuilder`) and
   `website/templates/` stay buildable (`site build-jinja`) for a week after the cutover, then
   are deleted (#23 phase 2). Nothing deploys them.
+- **Old URLs:** `site crawl --sitemap <url or file>` checks every URL of a sitemap on the live
+  site (no redirect followed: 200, or a 301 whose target answers 200; anything else is listed
+  and the command exits 1). `--base https://<hash>.ondestaanocas.pages.dev` crawls a preview
+  deployment instead, `--dist web/dist` a local build with its `_redirects`. During the week
+  after the cutover, run it daily with the old site's sitemap (the Jinja site's, e.g.
+  `site build-jinja` then `--sitemap site/sitemap.xml`).
 
 ### Domain and redirects
 
@@ -903,6 +910,9 @@ uv run pytest -m "not browser"
   `check_decision` and the Function's `rules.ts` against `contract/review/v1/fixtures/review-rules.json`.
 - `web/test/colours.test.ts` fails on a raw colour (hex, `rgb()`, `hsl()`) in `web/src/` or
   `web/functions/` outside the generated `tokens.css` / `tokens.ts`.
+- `test_crawl.py`: the crawl against a build and the live site (respx), and the cutover's check:
+  the legacy Jinja site and the real Astro build (npm) from one database, every old URL a page
+  or a 301 to one (skipped without `web/node_modules`).
 - `test_review_function_deploy.py`: `site deploy` uploads the Function with the Astro build, a
   Function change redeploys and takes the full path.
 - `test_posting.py`: slot allocation and the daily cap with an injected `now` (summer/winter time,
