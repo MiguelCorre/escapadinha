@@ -56,7 +56,9 @@ servidor local, com o aviso "Rascunho". Só tu mudas um ficheiro para `reviewed:
       `affiliates:` do topo (senão a construção do site para). Se não quiseres um bloco, apaga a
       linha do bloco **e** o nome na lista.
 - [ ] **Meses (só roteiros):** `best_months` ficou vazio de propósito (não encontrei uma fonte
-      oficial). Se quiseres, acrescenta por exemplo `best_months: [4, 5, 9]`.
+      oficial que diga quais são os melhores meses). Podes preenchê-lo tu, se quiseres (é
+      opcional), com os números dos meses: por exemplo `best_months: [4, 5, 9]` aparece na página
+      como "abril, maio e setembro".
 
 ## 3. Aprovar
 
