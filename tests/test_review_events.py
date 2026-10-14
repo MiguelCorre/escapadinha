@@ -13,6 +13,7 @@ from escapadinha import pipeline
 from escapadinha.presentation import DISCLOSURE
 from escapadinha.review import ReviewError
 from escapadinha.storage import db
+from test_web_build import npm  # noqa: F401
 from test_pipeline import ctx, mock_api, mock_links  # noqa: F401
 from test_review import price_api, rendered_deal
 
@@ -340,10 +341,12 @@ def test_snapshot_follows_a_deal_from_queue_to_published(remote):
 
 
 @respx.mock
-def test_run_applies_events_first_and_exports_the_snapshot_last(ctx, monkeypatch):
+def test_run_applies_events_first_and_exports_the_snapshot_last(ctx, monkeypatch, npm):
     from typer.testing import CliRunner
     from escapadinha import cli
+    from test_web_build import web_package
     monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
+    web_package(ctx.root)                              # the full path builds the site (npm faked)
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn)
     db.set_meta(conn, pipeline.DISCOVERED_AT, db.utcnow().isoformat())   # no discovery this run

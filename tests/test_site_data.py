@@ -412,7 +412,7 @@ def test_export_command_writes_the_contract_files(ctx, monkeypatch):  # noqa: F8
     conn.close()
     result = CliRunner().invoke(cli.app, ["export", "site-data", "--no-new-links"])
     assert result.exit_code == 0, result.output
-    out = ctx.root / "output" / "site-data" / "v1"                  # site.data_dir
+    out = ctx.root / "web" / "src" / "data"                         # site.data_dir
     assert "10 routes" in result.output and str(out) in result.output.replace("\n", "")
     assert read(out, "meta.json")["counts"]["routes"] == 10 and validation_errors(out) == []
     custom = ctx.root / "web-data"

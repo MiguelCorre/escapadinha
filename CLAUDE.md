@@ -9,14 +9,14 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list`,
-  `site build|preview|setup|deploy`, `design directions`, `export site-data|fixtures`,
+  `site build|preview|setup|deploy|build-jinja`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 - Web package (`cd web`): `npm ci`, `npm run typecheck` (strict tsc: `tsconfig.functions.json`
   without Node types, `tsconfig.typecheck.json` for `src/lib` + tests), `npm test` (vitest builds from the fixtures), `npm run
   build:fixtures` / `dev:fixtures` (the build on a checkout), `npm run build` (reads
-  `SITE_DATA_DIR`, default `web/src/data`; fails on purpose until `escapadinha export site-data
-  --out web/src/data` fills it), `npm run lhci`,
+  `SITE_DATA_DIR`, default `web/src/data`; fails on purpose until `escapadinha export site-data`
+  fills it; `escapadinha site build` does npm ci + build + images + routing), `npm run lhci`,
   `npm run tokens`. `npx vitest run test/review` runs only the review Function's tests.
 
 ## Rules
@@ -71,8 +71,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   with `contract/review/v1/fixtures/review-rules.json`, which `tests/test_review_rules_cases.py`
   and `web/test/review/rules.test.ts` check on both sides. Function sources import only relative modules under
   `web/functions/` or `web/src/lib/` (no npm packages: wrangler bundles them without
-  `node_modules`); `website/deploy.py` stages exactly those files, and both the deploy hash and
-  `run_path._code_files` include them.
+  `node_modules`; `deploy.function_files` refuses a package import); wrangler runs in `web/`
+  (D35), and both the deploy hash and `run_path._code_files` include them.
 - The website data contract is versioned: change `contract/site/v1/*.schema.json` together with
   `site_data.py`, keep changes additive within v1 (a breaking change is `v2/`), and regenerate the
   committed fixtures with `escapadinha export fixtures` (read-only DB copy, anonymous links and
@@ -108,8 +108,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   download), `deal_view` (its photo).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → upkeep → collect → recheck →
   detect → `publish_due` (D32, every run: posting never waits for a full path) →
-  `run_path.decide` → full path only (render → `export site-data` (D27) → site build →
-  deploy → `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
+  `run_path.decide` → full path only (render → `export site-data` (D27, → `web/src/data`) →
+  `site build` (Astro, D35: npm ci if needed, astro build, promotion images, `_redirects`/
+  `_headers` → `web/dist`) → `site deploy` (`web/dist` + Functions; refuses a fixture build) →
+  `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
   full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
   `run_path.fingerprint`, or a routine run won't publish it.
 - Public deals, page slugs and image paths come from one place (`website.is_public`,
@@ -146,7 +148,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `site.max_new_links_per_build`).
 - Domain moves go through `site.base_url` + `site.legacy_hosts` and the Bulk Redirect in
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
-  key in `SiteBuilder._write_routing` so renamed slugs get a 301 (`website/redirects.py`).
+  key in `website/routing.current_pages` (`deal:`, `route:`, `origin:`, `destination:`) so renamed
+  slugs get a 301 (`website/redirects.py`); old URLs of pages that left the site get a rule there
+  too (expired promotions → route, `/guias/` → `legacy_path`). Never let an old URL 404.
   Destination hubs (D30) keep their published slug: the site data export records
   `destination:<code>` paths in `site.paths` and `website.destination_slugs` reuses them; never
   derive a hub slug without that history.
@@ -183,10 +187,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `VerdictAction`) + publishers (`DryRunPublisher`); DB wiring in `pipeline.run_publish`
   (`PostResult.action`: `PostAction`), the queue read with `db.posts`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
-- `src/escapadinha/website/`: static site builder (`build_site`; route pages list low prices),
-  `redirects.py` (`_redirects`, `_headers`), `deploy.py` (wrangler; stages `web/functions` via
-  `function_files`, `deploy_hash`), `templates/`; shared with
-  the export: `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`
+- `src/escapadinha/website/`: `astro.py` (`site build`: npm ci stamp, `astro_build`, `finish`),
+  `routing.py` (the Astro site's `_redirects`/`_headers` from the contract + `site.paths`),
+  `images.py` (promotion WebP/thumb/OG), `redirects.py` (rules), `deploy.py` (wrangler in `web/`,
+  `function_files`, `deploy_hash`, fixture refusal); `__init__.py` shares with the export
+  `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`, ... **Legacy until #23
+  phase 2:** `SiteBuilder`/`build_site` + `templates/` (the Jinja site, `site build-jinja`, never
+  deployed); don't extend them.
 - `src/escapadinha/pontes.py` + `content/holidays.yaml`: Portuguese holidays 2026–2027 and their
   long weekends (D31; pure `long_weekend`/`pontes`, exported as `pontes.json`, past ones too, raw
   values only). The ponte rule (departure and return inside the window) and the weekend rule

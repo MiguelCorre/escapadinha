@@ -1,12 +1,11 @@
 """The review Function ships with the site (D29): `site deploy` uploads web/functions with the
-static site, a Function change redeploys, and takes the full path of a run."""
+Astro build (web/dist, D35), a Function change redeploys, and takes the full path of a run."""
 
 from pathlib import Path
 
 import pytest
 
 from escapadinha import pipeline, run_path
-from escapadinha.website import build_site
 from escapadinha.website import deploy as site_deploy
 from test_pipeline import ctx  # noqa: F401
 
@@ -32,6 +31,14 @@ def web(root: Path) -> Path:
     return w
 
 
+def build(w: Path) -> Path:
+    """A built site in web/dist (what `site build` leaves for the deploy)."""
+    dist = w / "dist"
+    dist.mkdir(parents=True, exist_ok=True)
+    (dist / "index.html").write_text('<html lang="pt-PT"><p>site</p></html>', "utf-8")
+    return dist
+
+
 @pytest.fixture
 def wrangler(monkeypatch):
     """Records each wrangler call with the files its working directory holds at that moment."""
@@ -42,7 +49,7 @@ def wrangler(monkeypatch):
         stdout = "Deployment complete! https://abc123.ondestaanocas.pages.dev"
 
     def fake(ctx, *args, cwd=None):
-        cwd = Path(cwd) if cwd else ctx.site_dir          # _wrangler's default
+        cwd = Path(cwd) if cwd else site_deploy.web_dir(ctx)     # _wrangler's default
         calls.append({"args": args, "cwd": cwd,
                       "files": sorted(p.relative_to(cwd).as_posix() for p in cwd.rglob("*") if p.is_file())})
         return Done()
@@ -82,9 +89,8 @@ def test_package_side_effect_or_dynamic_imports_stop_the_deploy(tmp_path, source
 
 
 def test_deploy_lists_the_function_files_once(ctx, wrangler, monkeypatch):
-    web(ctx.root)
+    build(web(ctx.root))
     conn = pipeline.open_db(ctx)
-    build_site(ctx, conn)
     calls = []
     real = site_deploy.function_files
     monkeypatch.setattr(site_deploy, "function_files", lambda w: calls.append(w) or real(w))
@@ -108,25 +114,22 @@ def test_the_repositorys_functions_bundle_from_the_staged_files_only():
 
 
 def test_deploy_uploads_the_functions_with_the_site(ctx, wrangler):
-    web(ctx.root)
+    w = web(ctx.root)
+    dist = build(w)
     conn = pipeline.open_db(ctx)
-    build_site(ctx, conn)
     assert site_deploy.deploy(ctx, conn)[0]
     [call] = wrangler
     assert call["args"][:2] == ("pages", "deploy")
-    assert Path(call["args"][2]) == ctx.site_dir.resolve()             # the site, by absolute path
-    # wrangler runs in a staging folder holding only functions/ and the modules they import:
-    # it compiles <cwd>/functions and never scans the repository (D15).
-    assert call["files"] == ["functions/_lib/review/serve.ts", "functions/_lib/review/types.ts",
-                             "functions/review/[[path]].ts", "functions/review/index.ts",
-                             "src/lib/format.ts"]
-    assert call["cwd"] != ctx.site_dir and not call["cwd"].exists()   # removed afterwards
+    assert Path(call["args"][2]) == dist.resolve()                    # the build, by absolute path
+    # wrangler compiles <cwd>/functions: it runs in the web package, next to functions/ (D35).
+    assert call["cwd"] == w
+    assert {"functions/review/index.ts", "functions/_lib/review/serve.ts"} <= set(call["files"])
 
 
 def test_a_function_change_redeploys_an_unchanged_site(ctx, wrangler):
     w = web(ctx.root)
+    build(w)
     conn = pipeline.open_db(ctx)
-    build_site(ctx, conn)
     assert site_deploy.deploy(ctx, conn)[0]
     assert site_deploy.deploy(ctx, conn) == (False, "site unchanged since last deploy, skipped")
     (w / "src/lib/format.ts").write_text("export const eur = (n: number) => `${n} €`;\n", "utf-8")
@@ -136,13 +139,6 @@ def test_a_function_change_redeploys_an_unchanged_site(ctx, wrangler):
     serve.write_bytes(serve.read_bytes().replace(b"\n", b"\r\n"))
     assert not site_deploy.deploy(ctx, conn)[0]
     assert len(wrangler) == 2
-
-
-def test_without_functions_wrangler_runs_inside_the_site(ctx, wrangler):
-    conn = pipeline.open_db(ctx)
-    build_site(ctx, conn)
-    site_deploy.deploy(ctx, conn)
-    assert wrangler[0]["cwd"] == ctx.site_dir
 
 
 def test_a_function_change_takes_the_full_path(ctx):

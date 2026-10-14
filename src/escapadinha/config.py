@@ -198,11 +198,12 @@ class SiteConfig(BaseModel):
     # <= 900 keeps one build under the API's 100 requests/min (10 links per request).
     max_new_links_per_build: int = Field(300, ge=0, le=900)
     # Website data contract v1 (D27): where `export site-data` writes (relative to the
-    # project root) and the row cap of each per-origin low-price file (size budget).
-    data_dir: str = "output/site-data/v1"
+    # project root; the Astro build in web/ reads it, D35) and the row cap of each per-origin
+    # low-price file (size budget).
+    data_dir: str = "web/src/data"
     max_low_prices_per_origin: int = Field(1500, ge=1)
-    # Expired promotions stay in the export this many days after they expired (the Jinja
-    # site's own expired pages are unchanged: they stay, noindex, D27).
+    # Expired promotions stay in the export (and on the site, noindex) this many days after they
+    # expired; afterwards their links 301 to the route page (`website.routing`, D35).
     expired_promotions_days: int = Field(30, ge=0)
 
     @field_validator("base_url")

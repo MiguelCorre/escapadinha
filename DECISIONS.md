@@ -752,7 +752,7 @@ so nothing has to be hosted.
 ## D28: Astro site scaffold on the data contract (2026-10-13, #13)
 - **What:** a separate npm package in `web/` (own `package.json` + committed lockfile, exact
   versions, Node 22 in CI) builds the M3 site from the contract JSON only (D27): home page and
-  promotion pages, live and expired. The Jinja site stays the live one until the cutover (#23);
+  promotion pages, live and expired. The Jinja site stays the live one until the cutover (#23, D35);
   `config.yaml` `site.data_dir` is unchanged until then. `web/functions/` is reserved for the
   review Function (#9).
 - **Astro 7.3.5, static output** (`trailingSlash: always`, directory format, so paths are the
@@ -944,7 +944,8 @@ so nothing has to be hosted.
   square cards and buttons, inputs with a 4 px radius and an `ink` border (§2: anything a user must
   see is `ink` or `accent`, `rule` is decorative), notices with the state colour as a left rule
   over its tint. The web fonts aren't served to the Function, so the text stack's Georgia shows.
-- **Deploy wiring:** wrangler compiles `<cwd>/functions` during `pages deploy`, and the deploy ran
+- **Deploy wiring** (the staging folder was replaced at the cutover, D35: wrangler now runs in
+  `web/`): wrangler compiles `<cwd>/functions` during `pages deploy`, and the deploy ran
   with cwd = `site/`, so Functions were never uploaded. `website/deploy.py` now stages a temporary
   folder with `functions/` and the `web/src/lib/` modules they import (`function_files`: transitive
   relative imports, whether `import … from`, `export … from`, side-effect `import "./x"` or dynamic
@@ -1441,3 +1442,59 @@ so nothing has to be hosted.
 - **Not done here:** submitting the sitemap in Google Search Console (runbook brand-switch step 7,
   after the cutover), the Astro site's `_headers`/`_redirects` and deploy (#23), the widget's
   real `src` (Miguel, runbook).
+
+## D35: Cutover to the Astro site (2026-10-14, #23)
+- **What:** the Astro site (`web/`, D28–D34) replaces the Jinja site on the Pages project
+  `ondestaanocas` (https://pontonomada.pt, D19). `run`'s full path is now render → `export
+  site-data` into `web/src/data` (config `site.data_dir`, git-ignored) → `site build` (the Astro
+  site, below) → `site deploy` (`web/dist` + the review Function) → `record_full_path`. The Jinja
+  build is no longer part of `run` and nothing deploys it: it stays as `site build-jinja`
+  (`website/__init__.py` `SiteBuilder` + `website/templates/`) only until **phase 2**, which
+  deletes it once the new site has been live for a week with no broken link reported by
+  `site crawl`. The shared helpers in `website/__init__.py` (slugs, `is_public`,
+  `public_deal_rows`, `deal_image_paths`) and the modules below stay.
+- **`site build` (`website/astro.py`):** `npm ci` only when `web/node_modules` is missing or
+  `package-lock.json` changed since the last install (a stamp in node_modules,
+  `.escapadinha-npm-ci`, holds the lockfile's sha256; deleting node_modules deletes it too);
+  then `npm run build` with `SITE_DATA_DIR` set to the export's absolute path (a stray variable
+  pointing at the fixtures can't be what gets built; the old `web/dist` is removed first, so a
+  failed build never leaves the previous one for the deploy). npm is found like npx: on the
+  PATH (`npm.cmd` through PATHEXT on Windows), else `C:\Program Files\nodejs\npm.cmd`, for the
+  PC's scheduled task (`deploy.node_tool`). Then the pipeline adds what the web package can't:
+  - **promotion images** (D27/D28 open question): for every promotion in `promotions.json`,
+    the slides the contract names are converted from the rendered folder
+    (`pipeline.deal_folder(..., pipeline.SLIDES)`: on a runner each slide is downloaded once,
+    D25) into `web/dist/img/promos/<id>/` (`slide_NN.webp`, `thumb.webp`, `og.jpg`;
+    `website/images.py`, shared with the Jinja build); a path that couldn't be written is
+    printed. **Destination photos** are not copied: no page shows one yet (D30), the contract
+    only carries the credit.
+  - **`_redirects` and `_headers`** (`website/routing.py`, the rules of `redirects.py`):
+    `X-Robots-Tag: noindex` on the legacy hosts and per-deployment URLs as before (D19); there
+    were no other headers to keep. Redirects (301, never on a built page, never to a path the
+    build doesn't serve, both with and without the trailing slash):
+    every older path of a page whose path changed, by stable key in `site.paths` (`deal:<id>`,
+    `route:<key>`, `destination:<code>` from D30, and now `origin:<code>`; the build records the
+    current paths, so a later rename gets its 301); `/promos/<id>` short aliases; a promotion the
+    contract no longer lists (expired more than `site.expired_promotions_days` ago: the Jinja
+    site kept those pages forever, D15) → its route page; `/guias/<slug>/` → the reviewed tip or
+    itinerary whose front matter has that `legacy_path` (D33), else the tips index `/dicas/`
+    (also for a history `guide:<slug>` no content names); `site.redirects` from config (one that
+    would hide a page is printed and left out). A removed route stays an honest 404 (D19).
+- **`site deploy`:** uploads `web/dist` (absolute path) with wrangler **running in `web/`**, so
+  it compiles `web/functions` directly; the temporary staging folder of D29 is gone. D29 had
+  rejected `web/` because its `package.json` might trigger framework auto-detection (the D15
+  failure); checked in wrangler 4.149.0's source: autoconfig runs only for `wrangler deploy` and
+  `wrangler setup`, and `pages deploy` delegates to Workers only for an agent run on a project
+  that doesn't exist and has no Functions, neither of which applies. The Function must still
+  bundle without npm packages (`function_files` refuses a package import, so it never depends on
+  `node_modules` being there). **A fixture build is refused** (any page with
+  `<html data-fixture="true">`, D28), and so is a missing build. The deploy hash is the content
+  hash of `web/dist` plus the Function's sources (unchanged → skipped); the build's own
+  timestamps don't count: the footer's `Atualizado a <span …>…</span>` and the explorer data's
+  `generated_at`.
+- **CI:** `actions/setup-node` with `cache: npm` keyed on `web/package-lock.json`, so the full
+  path's `npm ci` installs from the cache; the fast path never runs npm. Timeout unchanged (45 <
+  60 min lock). The PC task needs Node 22+ installed (it already did for wrangler).
+- **CLI:** `site build` (Astro, prints pages per type, images, redirects, size), `site
+  build-jinja` (legacy, never deployed), `site preview` (serves `web/dist`; `_redirects` not
+  applied), `site deploy` (refuses fixtures).

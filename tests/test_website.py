@@ -266,24 +266,31 @@ def test_content_hash_ignores_build_timestamp(tmp_path):
 
 
 def test_deploy_skips_unchanged_site(ctx, monkeypatch):
+    """The deploy uploads the Astro build (web/dist, D35); the legacy Jinja site is never deployed."""
     conn = pipeline.open_db(ctx)
     build_site(ctx, conn)
+    dist = site_deploy.web_dir(ctx) / "dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<p>Atualizado a 13/10/2026 às 10:00</p><p>x</p>", "utf-8")
     calls = []
 
     class Done:
         returncode, stderr = 0, ""
         stdout = "✨ Deployment complete! https://abc123.ondestaanocas.pages.dev"
 
-    monkeypatch.setattr(site_deploy, "_wrangler", lambda c, *args: calls.append(args) or Done())
+    monkeypatch.setattr(site_deploy, "_wrangler",
+                        lambda c, *args, cwd=None: calls.append(args) or Done())
     assert site_deploy.deploy(ctx, conn) == (True, "https://abc123.ondestaanocas.pages.dev")
     assert site_deploy.deploy(ctx, conn) == (False, "site unchanged since last deploy, skipped")
     assert site_deploy.deploy(ctx, conn, force=True)[0]
-    assert len(calls) == 2 and calls[0][:2] == ("pages", "deploy")
+    assert len(calls) == 2 and calls[0][:3] == ("pages", "deploy", str(dist.resolve()))
 
 
 def test_deploy_requires_keys(ctx, monkeypatch):
     conn = pipeline.open_db(ctx)
-    build_site(ctx, conn)
+    dist = site_deploy.web_dir(ctx) / "dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<p>x</p>", "utf-8")
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     with pytest.raises(site_deploy.DeployError, match="CLOUDFLARE_API_TOKEN"):

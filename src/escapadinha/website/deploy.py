@@ -1,13 +1,15 @@
-"""Deploy the built site to Cloudflare Pages with wrangler (Direct Upload).
+"""Deploy the Astro build (`web/dist`, D35) to Cloudflare Pages with wrangler (Direct Upload).
 
-Skips the upload when the content did not change since the last deploy. The footer's
-"Atualizado a ..." timestamp is ignored for that comparison, so a rebuild with the same
-deals doesn't create a new deployment every 2 hours.
+Skips the upload when the content did not change since the last deploy. The build's own
+timestamps (the footer's "Atualizado a ...", the explorer data's `generated_at`) are ignored
+for that comparison, so a rebuild with the same content doesn't create a new deployment.
+A fixture build (`<html data-fixture="true">`, D28) is refused.
 
 The review Function (D29) ships in the same deployment: wrangler compiles `<cwd>/functions`,
-so it runs in a temporary staging folder holding `functions/` copied from `web/functions/`
-plus the `web/src/lib/` modules they import (and nothing else: it never scans the repository,
-D15). The deploy hash covers those files too, so a Function change redeploys an unchanged site.
+so it runs in `web/` (D35; `pages deploy` never auto-detects a framework for an existing
+project, checked in wrangler 4.149's source). The Function must still bundle without npm
+packages (`function_files` refuses a package import), and the deploy hash covers its files
+(line endings normalised), so a Function change redeploys an unchanged site.
 """
 
 from __future__ import annotations
@@ -19,7 +21,6 @@ import re
 import shutil
 import sqlite3
 import subprocess
-import tempfile
 from pathlib import Path
 
 import httpx
@@ -27,7 +28,12 @@ import httpx
 from escapadinha.config import Context
 from escapadinha.storage import db
 
-BUILT_AT = re.compile(rb"Atualizado a [^<]*")
+# The build's timestamps: the footer ("Atualizado a <span class="num">14/10/2026 às 10:01</span>"
+# in the Astro pages, without the span in the legacy Jinja ones) and the explorer data's
+# generated_at. Not content: a rebuild that only moved them is not deployed again.
+BUILT_AT = re.compile(rb"Atualizado a (?:<span[^>]*>)?[^<]*")
+GENERATED_AT = re.compile(rb'"generated_at":"[^"]*"')
+FIXTURE = b'data-fixture="true"'     # a build from the committed fixtures (D28): never deployed
 DEPLOYED = "site.deployed"   # meta: {hash, url} of the last deployment (D25)
 NODE_DIRS = [Path(r"C:\Program Files\nodejs")]
 API = "https://api.cloudflare.com/client/v4"
@@ -53,6 +59,8 @@ def content_hash(site_dir: Path) -> str:
         data = path.read_bytes()
         if path.suffix == ".html":
             data = BUILT_AT.sub(b"", data)
+        elif path.suffix == ".json":
+            data = GENERATED_AT.sub(b"", data)
         h.update(path.relative_to(site_dir).as_posix().encode())
         h.update(hashlib.sha256(data).digest())
     return h.hexdigest()
@@ -104,22 +112,25 @@ def deploy_hash(site_dir: Path, web: Path, files: list[Path] | None = None) -> s
     return h.hexdigest()
 
 
-def _stage_functions(web: Path, files: list[Path], stage: Path) -> None:
-    for path in files:
-        target = stage / path.relative_to(web)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, target)
-
-
-def _npx() -> str:
-    found = shutil.which("npx")
+def node_tool(name: str) -> str | None:
+    """`npm` / `npx` on the PATH (on Windows `which` finds `npm.cmd` through PATHEXT), else
+    `<name>.cmd` in Node's default Windows install folder: the PC's scheduled task may run with
+    a PATH that lacks it. None when Node isn't installed."""
+    found = shutil.which(name)
     if found:
         return found
     for d in NODE_DIRS:
-        candidate = d / "npx.cmd"
+        candidate = d / f"{name}.cmd"
         if candidate.exists():
             return str(candidate)
-    raise DeployError("npx not found: install Node.js (https://nodejs.org) to deploy the site")
+    return None
+
+
+def _npx() -> str:
+    found = node_tool("npx")
+    if found is None:
+        raise DeployError("npx not found: install Node.js (https://nodejs.org) to deploy the site")
+    return found
 
 
 def _wrangler(ctx: Context, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
@@ -132,10 +143,9 @@ def _wrangler(ctx: Context, *args: str, cwd: Path | None = None) -> subprocess.C
     npx = _npx()
     env["PATH"] = str(Path(npx).parent) + os.pathsep + env.get("PATH", "")
     cmd = [npx, "--yes", f"wrangler@{ctx.config.site.wrangler_version}", *args]
-    # Run inside site/ (or the functions staging folder): wrangler's framework auto-detection
-    # must never scan the repo (it mistook content/ + config.yaml for a Hugo project).
-    ctx.site_dir.mkdir(parents=True, exist_ok=True)
-    return subprocess.run(cmd, env=env, cwd=cwd or ctx.site_dir, capture_output=True, text=True,
+    # Run inside web/ (wrangler compiles <cwd>/functions), never the repository root, where
+    # `pages project create` once mistook content/ + config.yaml for a Hugo project (D15).
+    return subprocess.run(cmd, env=env, cwd=cwd or web_dir(ctx), capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=600)
 
 
@@ -170,25 +180,30 @@ def create_project(ctx: Context, client: httpx.Client | None = None) -> str:
     return f"Created Pages project '{name}': https://{body['result']['subdomain']}"
 
 
+def fixture_pages(site_dir: Path) -> list[str]:
+    """Pages of a build made from the committed fixtures (`<html data-fixture="true">`)."""
+    return sorted(p.relative_to(site_dir).as_posix() for p in site_dir.rglob("*.html")
+                  if FIXTURE in p.read_bytes())
+
+
 def deploy(ctx: Context, conn: sqlite3.Connection, force: bool = False) -> tuple[bool, str]:
-    """Upload site/ and the review Function if either changed. Returns (deployed, message)."""
-    site_dir = ctx.site_dir
-    if not (site_dir / "index.html").exists():
-        raise DeployError("site/ is empty: run `escapadinha site build` first")
+    """Upload web/dist and the review Function if either changed. Returns (deployed, message)."""
     web = web_dir(ctx)
-    functions = function_files(web)          # once: the hash and the staging use the same list
+    site_dir = web / "dist"
+    if not (site_dir / "index.html").exists():
+        raise DeployError(f"{site_dir} is empty: run `escapadinha site build` first")
+    fixtures = fixture_pages(site_dir)
+    if fixtures:
+        raise DeployError(f"{site_dir} is a fixture build (test data, data-fixture=\"true\" on "
+                          f"{len(fixtures)} pages, e.g. {fixtures[0]}): never deployed. Export the "
+                          "real data and run `escapadinha site build`.")
+    functions = function_files(web)          # refuses a package import; hashed with the site
     digest = deploy_hash(site_dir, web, functions)
     if not force and _last_deploy(ctx, conn).get("hash") == digest:
         return False, "site unchanged since last deploy, skipped"
-    args = ("pages", "deploy", str(site_dir.resolve()),
-            "--project-name", ctx.config.site.cloudflare_project,
-            "--branch", "main", "--commit-dirty=true")
-    if functions:
-        with tempfile.TemporaryDirectory(prefix="pages-deploy-") as stage:
-            _stage_functions(web, functions, Path(stage))
-            result = _wrangler(ctx, *args, cwd=Path(stage))
-    else:
-        result = _wrangler(ctx, *args)
+    result = _wrangler(ctx, "pages", "deploy", str(site_dir.resolve()),
+                       "--project-name", ctx.config.site.cloudflare_project,
+                       "--branch", "main", "--commit-dirty=true", cwd=web)
     output = (result.stdout + result.stderr).strip()
     if result.returncode != 0:
         hint = (" (run `escapadinha site setup` once to create the project)"

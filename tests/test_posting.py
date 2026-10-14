@@ -16,6 +16,7 @@ from escapadinha.presentation import DISCLOSURE
 from escapadinha.storage import db
 from test_pipeline import ctx, mock_links  # noqa: F401
 from test_review import rendered_deal
+from test_web_build import npm  # noqa: F401
 
 UTC = timezone.utc
 SLOTS = [time(9), time(13), time(19)]
@@ -287,10 +288,12 @@ def test_queue_list_shows_why_a_post_waits_or_was_cancelled(ctx, monkeypatch):
 
 
 @respx.mock
-def test_run_publishes_due_posts_after_the_recheck_before_the_path_decision(ctx, monkeypatch):
+def test_run_publishes_due_posts_after_the_recheck_before_the_path_decision(ctx, monkeypatch, npm):
     """Posting never waits for a full path: the step runs on every run, fast or full."""
     from test_pipeline import mock_api
+    from test_web_build import web_package
     from test_website import real_slides
+    web_package(ctx.root)                          # the full path builds the site (npm faked)
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn)
     real_slides(conn, deal_id)                     # the approval sends the run down the full path

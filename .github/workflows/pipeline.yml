@@ -54,11 +54,14 @@ jobs:
         with:
           enable-cache: true
 
-      # npx wrangler for the deploy; wrangler also bundles the review Function (web/functions,
-      # TypeScript without npm dependencies, D29), so no npm ci is needed here.
+      # Node for the Astro site (web/, D35) and `npx wrangler` (deploy + the review Function,
+      # D29). npm's download cache is keyed on the web lockfile; `escapadinha run` runs `npm ci`
+      # itself on the full path only, so a fast path installs nothing.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - name: Cache the Chromium download
         uses: actions/cache@v4

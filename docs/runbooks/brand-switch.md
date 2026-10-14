@@ -100,6 +100,7 @@ Podes pedir-me isto ("liga o site ao pontonomada.pt") ou fazer tu:
   ```
 - [ ] Corre:
   ```bash
+  uv run escapadinha export site-data
   uv run escapadinha site build
   uv run escapadinha site deploy --force
   ```
@@ -177,10 +178,11 @@ a programas, por isso tem de ser já o domínio final.
       instagram: 584711
       website: <ID novo>
   ```
-- [ ] `uv run escapadinha site build` → abre uma promoção ativa em `site/` e confirma que o botão
-      "Ver voo e reservar" tem um link `https://aviasales.tpo.lu/...` (os links do site ficam
-      guardados na base de dados, com `sub_id=site-deal-<id>`). Se um link falhar, o
-      site usa o link da promoção (Projeto do Instagram) e volta a tentar no build seguinte.
+- [ ] `uv run escapadinha export site-data` e `uv run escapadinha site build` → abre uma promoção
+      ativa em `web/dist/promos/` e confirma que o botão de reserva tem um link
+      `https://aviasales.tpo.lu/...` (os links do site são criados pela exportação e ficam
+      guardados na base de dados, com `sub_id=site-deal-<id>`). Se um link falhar, o site usa o
+      link da promoção (Projeto do Instagram) e volta a tentar na exportação seguinte.
 - [ ] `uv run escapadinha site deploy` e faz commit do `config.yaml`.
 - [ ] Marca no `LAUNCH_CHECKLIST.md`: "Create a separate Project for the website".
 

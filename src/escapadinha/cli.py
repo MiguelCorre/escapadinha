@@ -21,6 +21,7 @@ from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError
+from escapadinha.website.astro import BuildError
 from escapadinha.website.deploy import DeployError
 from escapadinha.config import Context
 from escapadinha.storage import db, sync
@@ -32,7 +33,8 @@ app =typer.Typer(help="Travel deals from Portugal: collect → detect → render
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
                          no_args_is_help=True)
-site_app = typer.Typer(help="Public website: build, preview, deploy (Cloudflare Pages).",
+site_app = typer.Typer(help="Public website (the Astro package in web/): build, preview, deploy "
+                            "(Cloudflare Pages), crawl.",
                        no_args_is_help=True)
 deal_app = typer.Typer(help="Approval queue actions (same rules as the review page).",
                        no_args_is_help=True)
@@ -348,7 +350,30 @@ def deal_published(deal_id: int, url: Annotated[str | None, typer.Option(help="P
 
 @site_app.command("build")
 def site_build() -> None:
-    """Generate the static site into ./site from the database."""
+    """Build the website (web/dist) from the exported data: npm ci when needed, astro build,
+    promotion images, _redirects and _headers. Run `export site-data` first."""
+    from escapadinha.website import astro
+
+    ctx, conn = _ctx()
+    summary = astro.build(ctx, conn)
+    pages = ", ".join(f"{n} {kind}" for kind, n in sorted(summary.pages.items()))
+    console.print(f"Site built in [bold]{astro.dist_dir(ctx)}[/] in {summary.seconds} s"
+                  + (" (npm ci ran)" if summary.installed else "") + f": {pages}; "
+                  f"{summary.images} promotion images, {summary.redirects} redirects, "
+                  f"{summary.size_bytes / 1_000_000:.1f} MB")
+    for skipped in summary.skipped_redirects:
+        console.print(f"  [yellow]![/] redirect left out: {escape(skipped)}")
+    for path in summary.missing_images:
+        console.print(f"  [yellow]![/] image missing (slides not rendered or stored): {path}")
+    site = ctx.config.site
+    if not site.on_final_domain:
+        console.print(f"  [dim]Served at {site.base_url}; final domain {site.domain} not "
+                      f"connected yet (docs/runbooks/brand-switch.md)[/]")
+
+
+@site_app.command("build-jinja")
+def site_build_jinja() -> None:
+    """Legacy (until #23 phase 2): the old Jinja site into ./site. Never deployed any more."""
     from escapadinha.website import build_site
 
     ctx, conn = _ctx()
@@ -403,12 +428,15 @@ def export_fixtures(
 
 @site_app.command("preview")
 def site_preview(port: Annotated[int, typer.Option()] = 8766) -> None:
-    """Serve ./site locally (http://127.0.0.1:PORT)."""
+    """Serve the built site (web/dist) locally (http://127.0.0.1:PORT); _redirects not applied."""
     import functools
     import http.server
 
+    from escapadinha.website import astro
+
     ctx = Context()
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ctx.site_dir))
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler,
+                                directory=str(astro.dist_dir(ctx)))
     console.print(f"Site preview at [bold]http://127.0.0.1:{port}[/] (Ctrl+C to stop)")
     http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
 
@@ -423,7 +451,8 @@ def site_setup() -> None:
 
 @site_app.command("deploy")
 def site_deploy(force: Annotated[bool, typer.Option(help="Deploy even if unchanged")] = False) -> None:
-    """Upload ./site to Cloudflare Pages if it changed since the last deploy."""
+    """Upload web/dist and the review Function to Cloudflare Pages if they changed since the
+    last deploy (a fixture build is refused)."""
     from escapadinha.website.deploy import deploy
 
     ctx, conn = _ctx()
@@ -689,8 +718,8 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
         console.print(f"{len(uploaded)} local files uploaded to the object store.")
     if render:
         render_deals()
-    export_site_data(out=None, new_links=True)
-    site_build()
+    export_site_data(out=None, new_links=True)   # → web/src/data (site.data_dir)
+    site_build()                                 # the Astro site → web/dist (D35)
     if _site_configured(ctx):
         site_deploy()
     else:
@@ -720,8 +749,8 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
             "--full", help="Render, build and deploy even if nothing the site shows changed")] = False,
         ) -> None:
     """Review events → (monthly route discovery) → collect → recheck open deals → detect →
-    publish due posts (D32), then the full path (render new deals → build the site → deploy)
-    only when something it shows changed → review snapshot. What the scheduler runs (GitHub Actions, D25).
+    publish due posts (D32), then the full path (render new deals → export the site data →
+    build the Astro site → deploy) only when something it shows changed → review snapshot. What the scheduler runs (GitHub Actions, D25).
 
     With R2 keys in .env: lock → pull the database → daily backup → steps → push → unlock.
     Another run holding the lock makes this one exit 0 without touching anything.
@@ -757,7 +786,7 @@ def main() -> None:
     try:
         app()
     except (TravelpayoutsError, PhotoSourceError, AffiliateError, ReviewError, DeployError,
-            sync.SyncError, FileNotFoundError, KeyError) as exc:
+            BuildError, sync.SyncError, FileNotFoundError, KeyError) as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise SystemExit(2) from None
 
