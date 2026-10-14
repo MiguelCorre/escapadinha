@@ -1,0 +1,76 @@
+# Feriados nacionais de Portugal, 2026 e 2027: a base das pontes (fins de semana prolongados)
+# do explorador e das páginas /pontes/ (DECISIONS D31). Lido por src/escapadinha/pontes.py.
+#
+# Fonte legal: Código do Trabalho (Lei n.º 7/2009, de 12 de fevereiro), artigo 234.º
+# (feriados obrigatórios: 1 de janeiro, Sexta-Feira Santa, Domingo de Páscoa, 25 de Abril,
+# 1 de Maio, Corpo de Deus, 10 de Junho, 15 de agosto, 5 de outubro, 1 de novembro,
+# 1, 8 e 25 de dezembro), na redação da Lei n.º 8/2016, de 1 de abril, que repôs o Corpo de Deus,
+# o 5 de outubro, o 1 de novembro e o 1 de dezembro. A Terça-Feira de Carnaval é feriado
+# facultativo (artigo 235.º): `optional: true`. Os feriados municipais (ex.: 13 de junho em
+# Lisboa, 24 de junho no Porto) não entram: não valem para todo o país.
+#
+# Datas móveis: Páscoa a 5 de abril de 2026 e a 28 de março de 2027; Sexta-Feira Santa = Páscoa
+# − 2 dias, Carnaval = Páscoa − 47 dias, Corpo de Deus = Páscoa + 60 dias.
+#
+# Cada feriado: `slug` (+ ano = o endereço da ponte, /pontes/<slug>-<ano>/<origem>/), `name`
+# (nome oficial), `ponte` (título da página e do filtro), `dates` (uma por ano). Para 2028,
+# acrescentar as datas e confirmar as móveis.
+
+holidays:
+  - slug: ano-novo
+    name: Dia de Ano Novo
+    ponte: Fim de semana de Ano Novo
+    dates: [2026-01-01, 2027-01-01]
+  - slug: carnaval
+    name: Terça-Feira de Carnaval
+    ponte: Ponte de Carnaval
+    optional: true
+    dates: [2026-02-17, 2027-02-09]
+  - slug: sexta-feira-santa
+    name: Sexta-Feira Santa
+    ponte: Fim de semana da Páscoa
+    dates: [2026-04-03, 2027-03-26]
+  - slug: pascoa
+    name: Domingo de Páscoa
+    ponte: Páscoa
+    dates: [2026-04-05, 2027-03-28]
+  - slug: 25-abril
+    name: Dia da Liberdade (25 de Abril)
+    ponte: Ponte do 25 de Abril
+    dates: [2026-04-25, 2027-04-25]
+  - slug: 1-maio
+    name: Dia do Trabalhador (1 de Maio)
+    ponte: Ponte do 1.º de Maio
+    dates: [2026-05-01, 2027-05-01]
+  - slug: corpo-de-deus
+    name: Corpo de Deus
+    ponte: Ponte do Corpo de Deus
+    dates: [2026-06-04, 2027-05-27]
+  - slug: 10-junho
+    name: Dia de Portugal, de Camões e das Comunidades Portuguesas
+    ponte: Ponte do 10 de Junho
+    dates: [2026-06-10, 2027-06-10]
+  - slug: 15-agosto
+    name: Assunção de Nossa Senhora
+    ponte: Ponte de 15 de agosto
+    dates: [2026-08-15, 2027-08-15]
+  - slug: 5-outubro
+    name: Implantação da República
+    ponte: Ponte de 5 de outubro
+    dates: [2026-10-05, 2027-10-05]
+  - slug: 1-novembro
+    name: Dia de Todos os Santos
+    ponte: Ponte de 1 de novembro
+    dates: [2026-11-01, 2027-11-01]
+  - slug: 1-dezembro
+    name: Restauração da Independência
+    ponte: Ponte de 1 de dezembro
+    dates: [2026-12-01, 2027-12-01]
+  - slug: 8-dezembro
+    name: Imaculada Conceição
+    ponte: Ponte de 8 de dezembro
+    dates: [2026-12-08, 2027-12-08]
+  - slug: natal
+    name: Dia de Natal
+    ponte: Fim de semana de Natal
+    dates: [2026-12-25, 2027-12-25]

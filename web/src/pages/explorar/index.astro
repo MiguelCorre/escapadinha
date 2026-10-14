@@ -1,0 +1,94 @@
+---
+// The explorer (D31): where can I go from here, for how much, when. Server-rendered default
+// view (the first origin with low prices, every destination at its cheapest, by price) that works
+// without JavaScript; the island (explorer-island.ts) makes the filters work and loads other
+// origins' low prices lazily from /explorar/dados/<ORIGIN>.json. The long weekends link to their
+// own pages, which work without JavaScript too.
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import ExplorerResults from "../../components/ExplorerResults.astro";
+import { BRAND } from "../../lib/brand";
+import { NO_FILTERS, explore, statusText } from "../../lib/explorer";
+import { defaultOrigin, islandConfig, months, placesFor, upcomingPontes } from "../../lib/explorer-data";
+import { dateRange, monthYear, ponteTitle } from "../../lib/format";
+
+const origin = defaultOrigin(data);
+const originName = data.origins.origins.find((o) => o.iata === origin)?.name ?? origin;
+const results = explore(data.lowPrices[origin]?.rows ?? [], NO_FILTERS, []);
+const config = islandConfig(data);
+const pontes = upcomingPontes(data);
+const origins = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o]));
+---
+<Base
+  title={`Explorador de voos baratos desde Portugal · ${BRAND}`}
+  description="Escolhe o aeroporto de partida, o orçamento, o mês, as noites, só voos diretos, fins de semana ou pontes e feriados, e vê para onde há voos abaixo do preço habitual."
+  path="/explorar/"
+>
+  <section class="max-w-measure">
+    <p class="label text-accent">Explorador</p>
+    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-none font-medium">Para onde posso ir?</h1>
+    <p class="mt-md text-lead text-muted">Preços baixos encontrados por viajantes nos últimos dias, abaixo do habitual de cada rota. Cada destino aparece pelo preço mais baixo; confirma sempre antes de pagar.</p>
+  </section>
+
+  <noscript><style is:inline>#explorer{display:none}</style></noscript>
+  <form id="explorer" class="mt-xl grid gap-md border-t-[3px] border-double border-ink pt-md sm:grid-cols-2 lg:grid-cols-4 [&>*]:min-w-0">
+    <label class="flex flex-col gap-2xs text-small font-semibold">Partida
+      <select name="origem" class="field">
+        {data.origins.origins.map((o) => <option value={o.iata} selected={o.iata === origin}>{o.name}</option>)}
+      </select>
+    </label>
+    <label class="flex flex-col gap-2xs text-small font-semibold">Orçamento máximo, em euros
+      <input name="orcamento" type="number" min="1" step="1" inputmode="numeric" placeholder="sem limite" class="field" />
+    </label>
+    <label class="flex flex-col gap-2xs text-small font-semibold">Mês de partida
+      <select name="mes" class="field">
+        <option value="">Qualquer mês</option>
+        {months(data).map((m) => <option value={m}>{monthYear(m)}</option>)}
+      </select>
+    </label>
+    <fieldset class="flex min-w-0 flex-col gap-2xs text-small font-semibold">
+      <legend>Noites</legend>
+      <div class="flex items-center gap-xs">
+        <input name="noites_min" type="number" min="1" max="30" step="1" inputmode="numeric" aria-label="Noites, no mínimo" placeholder="mín." class="field flex-1" />
+        <span aria-hidden="true">a</span>
+        <input name="noites_max" type="number" min="1" max="30" step="1" inputmode="numeric" aria-label="Noites, no máximo" placeholder="máx." class="field flex-1" />
+      </div>
+    </fieldset>
+    <label class="flex items-center gap-xs text-small"><input name="diretos" type="checkbox" class="size-5 accent-accent" /> Só voos diretos</label>
+    <label class="flex items-center gap-xs text-small"><input name="fim_de_semana" type="checkbox" class="size-5 accent-accent" /> Só fins de semana (partida sexta ou sábado, regresso domingo ou segunda, até 3 noites)</label>
+    <label class="flex flex-col gap-2xs text-small font-semibold sm:col-span-2">Pontes e feriados
+      <select name="ponte" class="field">
+        <option value="">Todas as datas</option>
+        {pontes.map((p) => <option value={p.slug}>{p.name} ({dateRange(p.window.start, p.window.end)})</option>)}
+      </select>
+    </label>
+  </form>
+
+  <ExplorerResults heading="Destinos" results={results} places={placesFor(data, origin)} disclosure={data.labels.disclosure.site}
+    status={statusText(results.length, originName)} />
+
+  {pontes.length > 0 && (
+    <section id="pontes" class="mt-2xl" aria-labelledby="titulo-pontes">
+      <h2 id="titulo-pontes" class="font-display text-headline">Pontes e feriados</h2>
+      <p class="mt-xs max-w-measure text-small text-muted">Fins de semana prolongados com os feriados nacionais. Cada página mostra os preços baixos com ida e volta dentro da ponte.</p>
+      <ul class="mt-lg grid gap-md sm:grid-cols-2 lg:grid-cols-3">
+        {pontes.map((p) => (
+          <li class="border-t border-rule pt-sm">
+            <p class="font-semibold">{p.name}</p>
+            <p class="text-small text-muted">{dateRange(p.days_off.first, p.days_off.last)}</p>
+            <p class="mt-2xs flex flex-wrap gap-x-md text-small">
+              {p.origins.map((o) => <a href={o.path} aria-label={ponteTitle(p.name, origins[o.iata] ?? { name: o.iata })}>{origins[o.iata]?.name ?? o.iata}</a>)}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  <script type="application/json" id="explorer-config" set:html={JSON.stringify(config).replace(/</g, "\\u003c")} />
+</Base>
+
+<script>
+  import { start } from "../../lib/explorer-island";
+  start();
+</script>

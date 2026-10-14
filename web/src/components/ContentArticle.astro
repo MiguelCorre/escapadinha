@@ -1,0 +1,48 @@
+---
+// An itinerary or a tip (D33): title, lead, the article (MDX, rendered by the page into the slot),
+// then when its facts were last checked and the official sources they were checked against. A draft
+// (only ever rendered by the dev server) says so at the top.
+import { dayMonthYear } from "../lib/format";
+
+interface Props {
+  kicker: string;
+  title: string;
+  description: string;
+  reviewed: boolean;
+  lastChecked?: string;
+  sources: { title: string; url: string }[];
+}
+
+const { kicker, title, description, reviewed, lastChecked, sources } = Astro.props;
+---
+<article class="max-w-measure">
+  {!reviewed && (
+    <p class="notice notice-warning mb-lg">Rascunho: ainda não foi revisto e não aparece no site publicado.</p>
+  )}
+  <header>
+    <p class="label text-accent">{kicker}</p>
+    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">{title}</h1>
+    <p class="mt-md text-lead text-muted">{description}</p>
+    <slot name="meta" />
+  </header>
+
+  <div class="prose mt-xl">
+    <slot />
+  </div>
+
+  <footer class="mt-2xl border-t-2 border-rule pt-md text-small">
+    <p class="text-ink">
+      {lastChecked
+        ? <>Factos verificados a <span class="num">{dayMonthYear(lastChecked)}</span>. Horários, regras e preços mudam: confirma nas fontes oficiais antes de ir.</>
+        : <>Factos ainda por verificar.</>}
+    </p>
+    {sources.length > 0 && (
+      <div class="mt-sm" data-sources>
+        <h2 class="label text-muted">Fontes</h2>
+        <ul class="mt-2xs">
+          {sources.map((s) => <li><a href={s.url} rel="noopener">{s.title}</a></li>)}
+        </ul>
+      </div>
+    )}
+  </footer>
+</article>

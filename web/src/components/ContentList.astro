@@ -1,0 +1,26 @@
+---
+// A list of itineraries or tips (D33): title linking the article, the lead, and when the facts were
+// last checked. Only entries that passed the review gate are passed in (src/collections.ts).
+import { dayMonthYear } from "../lib/format";
+
+interface Props {
+  items: { path: string; title: string; description: string; lastChecked?: string; meta?: string }[];
+  /** Heading level of each title: 2 on a listing page, 3 inside a section. */
+  level?: 2 | 3;
+}
+
+const { items, level = 2 } = Astro.props;
+const Heading = level === 2 ? "h2" : "h3";
+---
+<ul class="grid gap-lg sm:grid-cols-2">
+  {items.map((item) => (
+    <li class="border-t-2 border-rule pt-sm">
+      <Heading class="font-display text-title"><a href={item.path}>{item.title}</a></Heading>
+      {item.meta && <p class="mt-2xs text-small text-muted">{item.meta}</p>}
+      <p class="mt-xs">{item.description}</p>
+      {item.lastChecked && (
+        <p class="mt-2xs text-small text-muted">Factos verificados a <span class="num">{dayMonthYear(item.lastChecked)}</span></p>
+      )}
+    </li>
+  ))}
+</ul>

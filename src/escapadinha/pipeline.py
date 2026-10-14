@@ -4,22 +4,23 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path, PureWindowsPath
 
 import httpx
 
-from escapadinha import archive, detector, discovery, i18n_pt, review_events, routes
+from escapadinha import archive, detector, discovery, i18n_pt, posting, review_events, routes
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
-from escapadinha.captions import deal_caption, guide_caption
+from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
 from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.base import Fetched, departure_months
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
 from escapadinha.collector.travelpayouts import RateLimiter, TravelpayoutsError, TravelpayoutsSource
 from escapadinha.config import Context
 from escapadinha.guides import load_guide
-from escapadinha.models import Deal, Observation, Route, RouteRules
+from escapadinha.models import Deal, Observation, Post, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
 from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, recheck
@@ -274,7 +275,7 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
         rules = route_for(ctx, conn, obs.route_key).rules
         result = recheck(obs, route_latest, ctx.config.detector, now, rules=rules)
         db.record_recheck(conn, deal.id, valid=result.valid, latest_price=result.latest_price,
-                          reason=result.reason)
+                          reason=result.reason, at=now)
         if not result.valid:
             _mark_expired_outputs(ctx, deal.id, result.reason, now)
         results.append((db.get_deal(conn, deal.id)[0], obs, result))
@@ -363,7 +364,7 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     now = now or db.utcnow()
     result = recheck(obs, fresh, ctx.config.detector, now, rules=rules)
     db.record_recheck(conn, deal_id, valid=result.valid, latest_price=result.latest_price,
-                      reason=result.reason)
+                      reason=result.reason, at=now)
     if not result.valid:
         _mark_expired_outputs(ctx, deal_id, result.reason, now)
     return db.get_deal(conn, deal_id)[0], result
@@ -483,7 +484,83 @@ def apply_review_events(ctx: Context, conn: sqlite3.Connection,
     Approve events older than `review.approve_max_age_hours` are refused."""
     max_age = timedelta(hours=ctx.config.review.approve_max_age_hours)
     return review_events.apply_pending(ctx.object_store, conn, now=now or db.utcnow(),
-                                       durable=not ctx.remote_store, approve_max_age=max_age)
+                                       durable=not ctx.remote_store, approve_max_age=max_age,
+                                       plan_posts=_post_planner(ctx))
+
+
+# --- posting queue (D32) --------------------------------------------------------
+
+def _post_planner(ctx: Context) -> review_events.PlanPosts:
+    """What an applied approval queues: Instagram at the next free daily slot, Telegram now."""
+    cfg = ctx.config.posting
+
+    def plan(conn: sqlite3.Connection, deal_id: int, now: datetime) -> list[tuple[str, datetime]]:
+        due = {"instagram": posting.next_slot(now, db.post_due_times(conn, "instagram"),
+                                              slots=cfg.slots, max_per_day=cfg.max_per_day),
+               "telegram": now}
+        return [(channel, due[channel]) for channel in posting.CHANNELS]
+    return plan
+
+
+@dataclass(frozen=True)
+class PostResult:
+    post: Post               # as stored after this step
+    action: posting.PostAction
+    reason: str | None = None
+
+
+def _message(ctx: Context, conn: sqlite3.Connection, post: Post, deal: Deal,
+             obs: Observation) -> posting.Message:
+    view = text_view(ctx, conn, deal, obs)
+    text = deal_caption_text(ctx, view) if post.channel == "instagram" else whatsapp_text(view)
+    return posting.Message(post, deal, obs, f"{view.origin_city} → {view.destination_headline}",
+                           view.price, text, deal.affiliate_url)
+
+
+def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None, *,
+                log: Callable[[str], None] = print,
+                publishers: dict[str, posting.Publisher] | None = None) -> list[PostResult]:
+    """Every run, after `detect` and before `run_path.decide` (fast and full path, so after this
+    run's recheck): cancel queued posts whose promotion can no longer go out, then publish the
+    due ones whose price was verified recently (`posting.verdict`, D32). At most one Instagram
+    post per run, so a backlog never goes out in a burst. A publisher error leaves the post
+    queued; `posting.max_attempts` errors cancel it."""
+    now = now or db.utcnow()
+    cfg = ctx.config.posting
+    publishers = publishers or posting.publishers(cfg.publishers, log)
+    max_check_age = timedelta(hours=cfg.max_check_age_hours)
+    results, instagram_done = [], False
+    for post in db.posts(conn, "queued"):
+        deal, obs = db.get_deal(conn, post.deal_id)
+        verdict = posting.verdict(post, deal, now=now, max_check_age=max_check_age)
+        if verdict.action is posting.VerdictAction.CANCEL:
+            db.settle_post(conn, post.id, "cancelled", at=now, reason=verdict.reason)
+            action, reason = posting.PostAction.CANCELLED, verdict.reason
+        elif (verdict.action is posting.VerdictAction.LATER
+              or (post.channel == "instagram" and instagram_done)):
+            continue
+        elif verdict.action is posting.VerdictAction.WAIT:
+            db.post_waits(conn, post.id, verdict.reason, failed=False)
+            action, reason = posting.PostAction.WAITING, verdict.reason
+        else:
+            publisher = publishers[post.channel]
+            try:
+                published = publisher.publish(_message(ctx, conn, post, deal, obs))
+            except Exception as exc:          # a channel being down never stops the run
+                error = f"{type(exc).__name__}: {exc}"
+                attempts = db.post_waits(conn, post.id, error, failed=True)
+                action, reason = posting.PostAction.FAILED, error
+                if attempts >= cfg.max_attempts:
+                    reason = f"O publicador falhou {attempts} vezes: {error}"
+                    db.settle_post(conn, post.id, "cancelled", at=now, reason=reason)
+                    action = posting.PostAction.CANCELLED
+            else:
+                db.settle_post(conn, post.id, "published", at=now, publisher=publisher.name,
+                               result_url=published.url)
+                action, reason = posting.PostAction.PUBLISHED, None
+                instagram_done = instagram_done or post.channel == "instagram"
+        results.append(PostResult(db.get_post(conn, post.id), action, reason))
+    return results
 
 
 def export_review_snapshot(ctx: Context, conn: sqlite3.Connection,
@@ -842,9 +919,34 @@ def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal,
     return view, photo_path
 
 
+def text_view(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observation) -> DealView:
+    """`deal_view` for texts only (caption, WhatsApp, posts): the photo's credit without its
+    file, so a runner downloads nothing (D25)."""
+    route = route_for(ctx, conn, obs.route_key)
+    return build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
+                           destination_city=route.city_pt,
+                           photo=PhotoCredit.from_photo(db.get_photo(conn, obs.destination), None))
+
+
 def deal_caption_text(ctx: Context, view: DealView) -> str:
     """A deal's Instagram caption, exactly as `render deals` writes it to caption.txt."""
     return deal_caption(view, brand_name=ctx.config.brand.handle.lstrip("@"))
+
+
+WHATSAPP_STATUSES = ("approved", "published")   # a human approved it and it never expired
+
+
+def whatsapp_for(deal: Deal, view: DealView) -> str | None:
+    """The WhatsApp text of an approved (or published) promotion with a stored partner link,
+    else None: an open, rejected or expired deal gets none (D32)."""
+    if deal.status not in WHATSAPP_STATUSES or not deal.affiliate_url:
+        return None
+    return whatsapp_text(view)
+
+
+def deal_whatsapp_text(ctx: Context, conn: sqlite3.Connection, deal: Deal,
+                       obs: Observation) -> str | None:
+    return whatsapp_for(deal, text_view(ctx, conn, deal, obs))
 
 
 def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new",

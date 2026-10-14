@@ -1,0 +1,63 @@
+---
+// One page per Portuguese origin (/partidas/<origem>/, D30): every destination watched from there,
+// by kind and city name, each linking to its route page with the cheapest price found now
+// (routes.json `cheapest`, data-obs) or why there is none.
+import type { GetStaticPaths } from "astro";
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import type { Origin } from "../../lib/contract";
+import { BRAND } from "../../lib/brand";
+import { count, eur, shortDate } from "../../lib/format";
+import { originGroups } from "../../lib/routes";
+
+export const getStaticPaths = (() => {
+  return data.origins.origins.map((origin) => {
+    const match = /^\/partidas\/([a-z0-9-]+)\/$/.exec(origin.path);
+    if (!match) throw new Error(`origin ${origin.iata}: unexpected path ${origin.path}`);
+    return { params: { slug: match[1] }, props: { origin } };
+  });
+}) satisfies GetStaticPaths;
+
+interface Props {
+  origin: Origin;
+}
+
+const { origin } = Astro.props;
+const groups = originGroups(data, origin.iata);
+const total = groups.reduce((n, g) => n + g.routes.length, 0);
+---
+<Base
+  title={`Voos baratos desde ${origin.name}: todos os destinos · ${BRAND}`}
+  description={`Os ${total} destinos que acompanhamos a partir de ${origin.name}, cada um com o preço de ida e volta mais baixo encontrado agora e a página da rota.`}
+  path={origin.path}
+>
+  <nav aria-label="Caminho" class="text-small text-muted"><a href="/partidas/">Partidas</a> › {origin.name}</nav>
+
+  <header class="mt-lg max-w-measure">
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Voos desde {origin.name}</h1>
+    <p class="mt-md text-lead text-muted">{count(total, "destino", "destinos")} que acompanhamos a partir de {origin.name}, com o preço de ida e volta mais baixo encontrado por viajantes nos últimos {data.meta.detector.max_offer_age_days} dias. Abre uma rota para veres o calendário de preços e o que é habitual em cada mês.</p>
+  </header>
+
+  {groups.map((g) => (
+    <section class="mt-2xl" aria-labelledby={`grupo-${g.kind}`}>
+      <h2 id={`grupo-${g.kind}`} class="font-display text-headline">{g.label}</h2>
+      <ul class="mt-md grid max-w-measure">
+        {g.routes.map((r) => (
+          <li data-route={r.key} class="flex flex-wrap items-baseline justify-between gap-x-md gap-y-2xs border-b-2 border-rule py-sm">
+            <a href={r.path} class="font-semibold">{r.city}</a>
+            {r.status === "dormant" ? (
+              <span class="tag tag-expired">rota {data.labels.route_status.dormant}</span>
+            ) : r.cheapest ? (
+              <span data-obs={r.cheapest.obs} class="text-right">
+                <span class="text-small text-muted">desde </span><span class="num font-display text-title">{eur(r.cheapest.price)}</span>
+                <span class="block num text-small text-muted">{shortDate(r.cheapest.departure)} → {shortDate(r.cheapest.return)}</span>
+              </span>
+            ) : (
+              <span class="text-small text-muted">sem preços recentes</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</Base>

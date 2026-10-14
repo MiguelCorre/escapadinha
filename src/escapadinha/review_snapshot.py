@@ -150,7 +150,7 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "affiliate_url": deal.affiliate_url,
         "affiliate_error": deal.affiliate_error,
         "caption": rendered.caption(deal),
-        "whatsapp_text": None,           # generated alongside the caption by a later ticket
+        "whatsapp_text": pipeline.whatsapp_for(deal, view),     # approved / published (D32)
         "page_url": (f"{ctx.config.site.base_url}/promos/"
                      f"{promo_slug(deal.id, view.origin_city, view.destination_city)}/"
                      if is_public(deal) else None),

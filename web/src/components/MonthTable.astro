@@ -1,0 +1,41 @@
+---
+// The typical low per departure month (design system §4 "Table"): month left, the typical low in
+// title size, the plain average as context and the days behind it in muted. A month with fewer
+// days than min_baseline_days says so instead of a number (D27). Traced by data-route (D2).
+import type { Route } from "../lib/contract";
+import { monthRows } from "../lib/routes";
+
+interface Props {
+  route: Route;
+  minDays: number;
+}
+
+const { route, minDays } = Astro.props;
+const rows = monthRows(route, minDays);
+---
+<table data-months data-route={route.key} class="mt-md w-full max-w-measure border-t-2 border-ink text-left">
+  <thead>
+    <tr class="border-b-2 border-rule">
+      <th scope="col" class="label py-xs pr-sm font-semibold text-muted">Partida em</th>
+      <th scope="col" class="label py-xs pr-sm text-right font-semibold text-muted">Mínimo habitual</th>
+      <th scope="col" class="label py-xs pr-sm text-right font-semibold text-muted">Média</th>
+      <th scope="col" class="label py-xs text-right font-semibold text-muted">Dados</th>
+    </tr>
+  </thead>
+  <tbody>
+    {rows.map((row) => (
+      <tr class="border-b-2 border-rule">
+        <th scope="row" class="py-sm pr-sm font-semibold">{row.label}</th>{" "}
+        {row.typicalLow ? (
+          <>
+            <td class="num py-sm pr-sm text-right font-display text-title">{row.typicalLow}</td>{" "}
+            <td class="num py-sm pr-sm text-right text-muted">{row.average}</td>{" "}
+          </>
+        ) : (
+          <><td colspan="2" class="py-sm pr-sm text-right text-small text-muted">ainda sem dados suficientes</td>{" "}</>
+        )}
+        <td class="num py-sm text-right text-small text-muted">{row.days}</td>
+      </tr>
+    ))}
+  </tbody>
+</table>

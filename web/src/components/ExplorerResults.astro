@@ -1,0 +1,27 @@
+---
+// A list of low prices, one per destination (explorer.ts renders the items, so the server and
+// the island draw the same HTML). Every item links to the partner: the note and the site
+// disclosure sit with the list, inside the same [data-cta] block (src/lib/cta.ts).
+import { CTA_NOTE } from "../lib/cta";
+import { resultsHtml, type ExploreResult, type Places } from "../lib/explorer";
+
+interface Props {
+  /** The list's <h2> (the items are <h3>). */
+  heading: string;
+  results: ExploreResult[];
+  places: Places;
+  disclosure: string;
+  /** The live status line above the list (the explorer); none on static lists. */
+  status?: string;
+}
+
+const { heading, results, places, disclosure, status } = Astro.props;
+---
+<div data-cta class="mt-xl">
+  <h2 class="font-display text-headline">{heading}</h2>
+  <p class="mt-md notice text-muted">{disclosure} {CTA_NOTE}</p>
+  {status !== undefined && (
+    <p id="explorer-status" class="mt-md font-semibold" role="status" aria-live="polite">{status}</p>
+  )}
+  <ul id="explorer-results" class="mt-md grid gap-xl sm:grid-cols-2 lg:grid-cols-3" set:html={resultsHtml(results, places)} />
+</div>

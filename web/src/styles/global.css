@@ -44,9 +44,18 @@
     letter-spacing: 0.04em;
   }
   .btn:hover { @apply underline underline-offset-4; }
+  /* Explorer filters (D31): a plain field on the surface, at least 44px tall. */
+  .field { @apply min-h-11 w-full min-w-0 border border-rule bg-surface px-xs py-2xs font-text text-body font-normal text-ink; }
   .notice { @apply border-l-[6px] border-rule py-xs pl-md text-small; }
   .notice-expired { @apply border-expired bg-expired-bg pr-md; }
   .notice-warning { @apply border-warning bg-warning-bg pr-md; }
+  /* Itinerary and tip bodies (MDX, D33): plain elements from Markdown, spaced on the scale. */
+  .prose > * + * { margin-top: var(--spacing-md); }
+  .prose h2 { @apply mt-xl font-display text-headline; }
+  .prose h3 { @apply mt-lg font-display text-title; }
+  .prose ul { @apply list-disc pl-lg; }
+  .prose ol { @apply list-decimal pl-lg; }
+  .prose li + li { margin-top: var(--spacing-2xs); }
   .price-sign { font-size: 0.4em; vertical-align: 0.9em; margin-left: 0.08em; }
   /* Behind a photo or slide until it loads (or in a fixture build, D28): dark in both schemes,
      like the photo it stands for (design system §5). */

@@ -73,6 +73,7 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "affiliate_url": deal.affiliate_url,
         "affiliate_error": deal.affiliate_error,
         "caption": caption_file.read_text("utf-8") if caption_file and caption_file.exists() else None,
+        "whatsapp_text": pipeline.whatsapp_for(deal, view),      # approved / published (D32)
         "slides": [f"/deals/{deal.id}/slides/{name}" for name in slides],
         "output_path": deal.output_path,
         "post_url": deal.post_url,

@@ -12,10 +12,11 @@ from typing import Annotated
 import httpx
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from escapadinha import i18n_pt as pt
-from escapadinha import pipeline, review_events, routes, run_path
+from escapadinha import pipeline, posting, review_events, routes, run_path
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
@@ -26,7 +27,7 @@ from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LockHeld
 from escapadinha.storage.s3 import STORE_ERRORS
 
-app =typer.Typer(help="Travel deals from Portugal: collect → detect → render (no publishing).",
+app =typer.Typer(help="Travel deals from Portugal: collect → detect → render (posting: dry run).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
@@ -50,6 +51,9 @@ app.add_typer(store_app, name="store")
 export_app = typer.Typer(help="Website data contract v1 (contract/site/v1): JSON for the Astro site.",
                          no_args_is_help=True)
 app.add_typer(export_app, name="export")
+queue_app = typer.Typer(help="Posting queue (D32): Instagram slots and Telegram posts after approval.",
+                        no_args_is_help=True)
+app.add_typer(queue_app, name="queue")
 
 console = Console()
 
@@ -601,6 +605,54 @@ def export_review_snapshot() -> None:
                   f"aprovados, {len(snap['pending_events'])} decisões pendentes.")
 
 
+@queue_app.command("list")
+def queue_list(show_all: Annotated[bool, typer.Option("--all", help="Also published and cancelled posts")] = False) -> None:
+    """Upcoming posts (Lisbon time), and why a due one waits."""
+    ctx, conn = _ctx()
+    queued = db.posts(conn, "queued")
+    shown = db.posts(conn) if show_all else queued
+    if not queued:
+        console.print("Nenhuma publicação agendada.")
+    else:
+        console.print(pt.count(len(queued), "publicação agendada", "publicações agendadas") + ":")
+    for post in shown:
+        deal, obs = db.get_deal(conn, post.deal_id)
+        view = pipeline.text_view(ctx, conn, deal, obs)
+        state = posting.STATUS_PT_POST[post.status]
+        if post.publisher:
+            state += f" ({post.publisher})"
+        if post.status == "cancelled":
+            state += f": {post.reason}"
+        elif post.status == "queued" and post.last_error:
+            state += f": {post.last_error}"
+        state = escape(state)
+        console.print(f"  {posting.CHANNEL_PT[post.channel]:<9} deal {post.deal_id} "
+                      f"{view.origin_city} → {view.destination_headline} {view.price} "
+                      f"{pt.lisbon_timestamp(post.due_at)} · {state}")
+
+
+def publish_due() -> None:
+    """Due posts of approved promotions, after re-verifying them (D32)."""
+    ctx, conn = _ctx()
+
+    def log(line: str) -> None:                  # publisher output is text, not Rich markup
+        console.print(line, markup=False, highlight=False)
+
+    Did = posting.PostAction
+    for r in pipeline.run_publish(ctx, conn, log=log):
+        what = f"publicação {posting.CHANNEL_PT[r.post.channel]} deal {r.post.deal_id}"
+        match r.action:
+            case Did.PUBLISHED:
+                console.print(f"  {what}: [green]publicada[/] ({r.post.publisher})")
+            case Did.CANCELLED:
+                console.print(f"  {what}: [yellow]cancelada[/] ({escape(r.reason)})")
+            case Did.FAILED:
+                console.print(f"  {what}: [red]falhou[/] ({escape(r.reason)}), nova tentativa na "
+                              "próxima execução")
+            case Did.WAITING:
+                console.print(f"  {what}: à espera ({escape(r.reason)})")
+
+
 def _run_steps(render: bool, full: bool, report: list[str]) -> None:
     apply_review_events()                       # first: the run sees the reviewer's decisions
     try:
@@ -625,6 +677,7 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
         raise typer.Exit(1)
     recheck_cmd()
     detect()
+    publish_due()                            # every run: posting never waits for a full path (D32)
     ctx, conn = _ctx()
     decision = run_path.decide(ctx, conn, force=full)
     console.print(f"Path: {decision.name} ({decision.reason})")
@@ -666,9 +719,9 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
         full: Annotated[bool, typer.Option(
             "--full", help="Render, build and deploy even if nothing the site shows changed")] = False,
         ) -> None:
-    """Review events → (monthly route discovery) → collect → recheck open deals → detect, then
-    the full path (render new deals → build the site → deploy) only when something it shows
-    changed → review snapshot. What the scheduler runs (GitHub Actions, D25).
+    """Review events → (monthly route discovery) → collect → recheck open deals → detect →
+    publish due posts (D32), then the full path (render new deals → build the site → deploy)
+    only when something it shows changed → review snapshot. What the scheduler runs (GitHub Actions, D25).
 
     With R2 keys in .env: lock → pull the database → daily backup → steps → push → unlock.
     Another run holding the lock makes this one exit 0 without touching anything.

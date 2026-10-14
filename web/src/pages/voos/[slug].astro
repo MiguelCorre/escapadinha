@@ -1,0 +1,136 @@
+---
+// One page per route at the contract's path (/voos/<origem>-<destino>/, the current site's URLs,
+// D30): its promotions, recent low prices with found-on dates and partner links, the calendar of
+// the cheapest found prices, the typical low per month (or "ainda sem dados"), the rules behind
+// the numbers, a notice when the route is dormant, and links to the origin page, the destination
+// hub and (from #17) the itinerary.
+import type { GetStaticPaths } from "astro";
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import ItineraryLink from "../../components/ItineraryLink.astro";
+import LowPriceList from "../../components/LowPriceList.astro";
+import MonthTable from "../../components/MonthTable.astro";
+import PriceCalendar from "../../components/PriceCalendar.astro";
+import PromotionCard from "../../components/PromotionCard.astro";
+import type { Route } from "../../lib/contract";
+import { BRAND } from "../../lib/brand";
+import { eur, nights, numericDate, shortDate } from "../../lib/format";
+import { promotionView } from "../../lib/promotion";
+import { routeLowPrices, rulesText } from "../../lib/routes";
+
+export const getStaticPaths = (() => {
+  return data.routes.routes.map((route) => {
+    const match = /^\/voos\/([a-z0-9-]+)\/$/.exec(route.path);
+    if (!match) throw new Error(`route ${route.key}: unexpected path ${route.path}`);
+    return { params: { slug: match[1] }, props: { route } };
+  });
+}) satisfies GetStaticPaths;
+
+interface Props {
+  route: Route;
+}
+
+const { route } = Astro.props;
+const origin = data.origins.origins.find((o) => o.iata === route.origin)!;
+const destination = data.destinations.destinations.find((d) => d.code === route.destination)!;
+const promotions = data.promotions.promotions.filter((p) => p.route === route.key);
+const live = promotions.filter((p) => p.live);
+const expired = promotions.filter((p) => !p.live);
+const lows = routeLowPrices(data, route, new Set(live.map((p) => p.offer.obs)));
+const det = data.meta.detector;
+const cheapest = route.cheapest;
+const dormant = route.status === "dormant";
+const name = `${origin.name} para ${route.city}`;
+---
+<Base
+  title={`Voos baratos de ${name} · ${BRAND}`}
+  description={`Preço mínimo habitual por mês de partida, calendário dos preços mais baixos encontrados e preços baixos recentes de ida e volta de ${name}.`}
+  path={route.path}
+>
+  <nav aria-label="Caminho" class="text-small text-muted"><a href={origin.path}>Voos desde {origin.name}</a> › <a href={destination.path}>{route.city}</a></nav>
+
+  <header class="mt-lg max-w-measure">
+    <p class="label text-accent">{data.labels.kinds[route.kind]}</p>
+    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Voos de {name}</h1>
+    <p class="mt-md text-lead text-muted">Acompanhamos esta rota várias vezes por dia. Aqui estão as promoções, os preços baixos encontrados nos últimos dias, o calendário dos preços mais baixos e o preço mínimo habitual de ida e volta, para saberes se um preço é mesmo bom.</p>
+    <p class="mt-xs text-small text-muted">Contamos {rulesText(route)}.</p>
+  </header>
+
+  {dormant && (
+    <div data-dormant class="notice notice-warning mt-lg max-w-measure text-ink">
+      <p><strong>Rota {data.labels.route_status.dormant}.</strong> Há algum tempo que não encontramos preços nesta rota, por isso deixámos de a acompanhar por agora{route.last_observed_at ? <>; o último preço que vimos foi a <span class="num">{numericDate(route.last_observed_at.slice(0, 10))}</span></> : ""}. A página fica como registo e volta a ter preços quando a rota voltar a voar.</p>
+    </div>
+  )}
+
+  {cheapest && (
+    <p data-obs={cheapest.obs} class="mt-lg max-w-measure">
+      <span class="label block text-muted">Mais barato agora</span>
+      <span class="num mt-2xs block font-display text-price">{eur(cheapest.price)}</span>
+      <span class="num mt-xs block font-semibold">{shortDate(cheapest.departure)} → {shortDate(cheapest.return)} <span class="font-normal text-muted">· {nights(cheapest.nights)}</span></span>
+      {cheapest.found_date && <span class="block text-small text-muted">Encontrado por um viajante a <span class="num font-semibold text-ink">{numericDate(cheapest.found_date)}</span></span>}
+    </p>
+  )}
+
+  {live.length > 0 && (
+    <section class="mt-2xl" aria-labelledby="titulo-promocoes">
+      <h2 id="titulo-promocoes" class="font-display text-headline">Promoções ativas</h2>
+      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+        {live.map((p) => <PromotionCard promotion={p} view={promotionView(data, p)} />)}
+      </div>
+    </section>
+  )}
+
+  <section class="mt-2xl" aria-labelledby="titulo-baixos">
+    <h2 id="titulo-baixos" class="font-display text-headline">Preços baixos recentes</h2>
+    {lows.length ? (
+      <>
+        <p class="mt-xs max-w-measure text-small text-muted">Preços de ida e volta encontrados por viajantes nos últimos {det.max_offer_age_days} dias, pelo menos {Math.round(det.low_threshold * 100)}% abaixo do preço mínimo habitual do mês de partida. Aparecem automaticamente, sem revisão: o preço pode já ter mudado, confirma-o antes de pagar.</p>
+        <LowPriceList lows={lows} routeKey={route.key} labels={data.labels} />
+      </>
+    ) : (
+      <p class="mt-md max-w-measure text-muted">Não há preços baixos recentes nesta rota neste momento.</p>
+    )}
+  </section>
+
+  <section class="mt-2xl" aria-labelledby="titulo-calendario">
+    <h2 id="titulo-calendario" class="font-display text-headline">Calendário dos preços mais baixos</h2>
+    {route.calendar.length ? (
+      <>
+        <p class="mt-xs max-w-measure text-small text-muted">O preço de ida e volta mais baixo encontrado nos últimos {det.max_offer_age_days} dias para cada dia de partida, por pessoa. A verde, o mais barato de cada mês.</p>
+        <PriceCalendar route={route} />
+      </>
+    ) : (
+      <p class="mt-md max-w-measure text-muted">Não há preços recentes nesta rota neste momento.</p>
+    )}
+  </section>
+
+  <section class="mt-2xl" aria-labelledby="titulo-meses">
+    <h2 id="titulo-meses" class="font-display text-headline">Preço mínimo habitual por mês de partida</h2>
+    {route.months.length ? (
+      <>
+        <MonthTable route={route} minDays={det.min_baseline_days} />
+        <p class="mt-xs max-w-measure text-small text-muted">Mediana dos preços mais baixos encontrados em cada dia, por pessoa, ida e volta; a média dos mesmos dias fica como contexto. Precisamos de pelo menos {det.min_baseline_days} dias de dados num mês antes de dizer o que é habitual. Não é uma garantia de preço.</p>
+      </>
+    ) : (
+      <p class="mt-md max-w-measure text-muted">Ainda estamos a recolher dados suficientes para esta rota.</p>
+    )}
+  </section>
+
+  {expired.length > 0 && (
+    <section class="mt-2xl" aria-labelledby="titulo-expiradas">
+      <h2 id="titulo-expiradas" class="font-display text-headline">Promoções recentes (já expiradas)</h2>
+      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+        {expired.map((p) => <PromotionCard promotion={p} view={promotionView(data, p)} />)}
+      </div>
+    </section>
+  )}
+
+  <section class="mt-2xl max-w-measure" aria-labelledby="titulo-mais">
+    <h2 id="titulo-mais" class="font-display text-title">Mais sobre esta rota</h2>
+    <ul class="mt-sm grid gap-xs">
+      <li><a href={destination.path}>{route.city}: voos desde todo o país e os melhores meses</a></li>
+      <li><a href={origin.path}>Todos os destinos desde {origin.name}</a></li>
+    </ul>
+    <ItineraryLink destination={route.destination} city={route.city} />
+  </section>
+</Base>

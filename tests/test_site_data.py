@@ -7,7 +7,7 @@ from __future__ import annotations
 import gzip
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -118,7 +118,7 @@ def price_fields(node, path=""):
 CHECKED = {
     "defs": set(),
     "routes": {("/routes/*/months/*/typical_low", "eur"), ("/routes/*/months/*/average", "eur"),
-               ("/routes/*/cheapest", "offer")},
+               ("/routes/*/cheapest", "offer"), ("/routes/*/calendar/*/price", "eur")},
     "promotions": {("/promotions/*/offer", "offer"), ("/promotions/*/typical_low", "eur"),
                    ("/promotions/*/expired/latest/price", "eur")},
     "low-prices": {("/rows/*/2", "eur"), ("/rows/*/10", "eur")},
@@ -158,6 +158,11 @@ def untraced_prices(ctx, conn, out: Path) -> list[str]:
                     bad.append(f"{r['key']} {m['month']} {field}: {m[field]}")
         if r["cheapest"]:
             offer(f"{r['key']} cheapest", r["cheapest"], r["key"])
+        for c in r["calendar"]:
+            offer(f"{r['key']} calendar {c['dep']}", c, r["key"])
+            stored = db.get_observation(conn, c["obs"])
+            if stored.departure_date.isoformat() != c["dep"]:
+                bad.append(f"{r['key']} calendar {c['dep']}: obs {c['obs']} departs another day")
     for p in read(out, "promotions.json")["promotions"]:
         deal, obs = db.get_deal(conn, p["id"])
         offer(f"promotion {p['id']}", p["offer"], obs.route_key)
@@ -394,7 +399,8 @@ def test_low_price_files_stay_inside_the_size_budget(ctx, tmp_path):  # noqa: F8
     assert len(gzip.compress(raw)) < len(raw) / 3                      # gzip-friendly
     assert raw.count(b"\n") == len(doc["rows"]) + 2                    # one row per line
     site_data.export_site_data(ctx, conn, tmp_path / "again", now)
-    assert (tmp_path / "again" / "low-prices" / "LIS.json").read_bytes() == raw   # deterministic    assert validation_errors(out) == []
+    assert (tmp_path / "again" / "low-prices" / "LIS.json").read_bytes() == raw   # deterministic
+    assert validation_errors(out) == []
 
 
 # --- CLI and the run -----------------------------------------------------------------------
@@ -425,8 +431,9 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
 
     from escapadinha import run_path
     calls = []
-    for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "render_deals",
-                 "export_site_data", "site_build", "site_deploy", "export_review_snapshot"):
+    for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "publish_due",
+                 "render_deals", "export_site_data", "site_build", "site_deploy",
+                 "export_review_snapshot"):
         monkeypatch.setattr(cli, name, lambda *a, _n=name, **k: calls.append(_n))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
         status="ok", n_requests=1, n_observations=1, n_new=0, errors=[]))
@@ -438,8 +445,9 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.PathDecision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
     assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
-                     "render_deals", "export_site_data", "site_build", "site_deploy",
-                     "record_full_path", "export_review_snapshot"]          # D25, D26, D27
+                     "publish_due", "render_deals", "export_site_data", "site_build",
+                     "site_deploy", "record_full_path",
+                     "export_review_snapshot"]                           # D25, D26, D27, D32
     calls.clear()
     cli._run_steps(render=False, full=True, report=[])
     assert calls[-5:] == ["export_site_data", "site_build", "site_deploy", "record_full_path",
@@ -447,7 +455,7 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     calls.clear()
     cli._run_steps(render=True, full=False, report=[])                 # fast path: no export
     assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
-                     "export_review_snapshot"]
+                     "publish_due", "export_review_snapshot"]      # posting on the fast path too
 
 
 # --- committed fixtures -----------------------------------------------------------------------
@@ -525,3 +533,155 @@ def test_fixtures_show_both_promotion_states_even_without_approved_deals(ctx, tm
     assert validation_errors(out) == []
     raw = pipeline.open_db(ctx).execute("SELECT COUNT(*) FROM deals WHERE status = 'expired'")
     assert raw.fetchone()[0] == 3                                       # the real file unchanged
+
+
+# --- origin pages, destination hubs and the route calendar (#14, D30) -----------------------
+
+def test_origins_and_destinations_carry_their_page_paths(exported):
+    _, _, _, out, _ = exported
+    origins = {o["iata"]: o for o in read(out, "origins.json")["origins"]}
+    assert origins["LIS"]["path"] == "/partidas/lisboa/"
+    assert origins["OPO"]["path"] == "/partidas/porto/"
+    dests = {d["code"]: d for d in read(out, "destinations.json")["destinations"]}
+    assert dests["LON"]["path"] == "/destinos/londres/" and dests["LON"]["slug"] == "londres"
+    assert dests["ROM"]["path"] == "/destinos/roma/"
+
+
+def test_destination_slugs_take_the_code_when_two_cities_share_a_name():
+    from escapadinha.website import destination_slugs
+    assert destination_slugs({"LON": "Londres", "AMS": "Amesterdão"}) == {
+        "LON": "londres", "AMS": "amesterdao"}
+    # Two provider cities with one Portuguese name: both get their code, whatever else exists.
+    assert destination_slugs({"SJO": "São José", "SJC": "São José", "ROM": "Roma"}) == {
+        "SJO": "sao-jose-sjo", "SJC": "sao-jose-sjc", "ROM": "roma"}
+
+
+def test_a_published_hub_keeps_its_slug_when_a_same_name_city_appears_later():
+    from escapadinha.website import destination_slugs
+    # SJO was published as /destinos/sao-jose/; SJC (also "São José") is found afterwards.
+    assert destination_slugs({"SJO": "São José", "SJC": "São José"}, {"SJO": ["sao-jose"]}) == {
+        "SJO": "sao-jose", "SJC": "sao-jose-sjc"}
+    # Published with its code, it keeps it; a renamed city gets a new slug (old path: 301).
+    assert destination_slugs({"SJO": "São José", "SJC": "São José"},
+                             {"SJO": ["sao-jose-sjo"], "SJC": ["sao-jose-sjc"]}) == {
+        "SJO": "sao-jose-sjo", "SJC": "sao-jose-sjc"}
+    assert destination_slugs({"SJO": "San José"}, {"SJO": ["sao-jose"]}) == {"SJO": "san-jose"}
+    # Back to an earlier name: the slug it had then, the latest that fits.
+    assert destination_slugs({"SJO": "São José"}, {"SJO": ["sao-jose", "san-jose"]}) == {
+        "SJO": "sao-jose"}
+
+
+def test_destination_slugs_stay_put_across_exports_and_changes_get_a_301(exported):
+    """A same-name city discovered after the first export takes its code; the hub that was
+    already published keeps /destinos/londres/. Every exported path is remembered in
+    site.paths, so a slug that does change (a renamed city) gets a 301 from the old path."""
+    from escapadinha.website import redirects
+    ctx, conn, _, out, _ = exported
+    assert route(out, "LIS-LON") and _dest(out, "LON")["path"] == "/destinos/londres/"
+    assert pipeline.site_paths(ctx, conn)["destination:LON"] == ["/destinos/londres/"]
+    db.insert_route(conn, origin="LIS", destination="XLO", city_pt="Londres", kind="europe",
+                    discovered_at=db.utcnow())
+    conn.commit()
+    site_data.export_site_data(ctx, conn, out, new_links=False)
+    assert _dest(out, "LON")["path"] == "/destinos/londres/"
+    assert _dest(out, "XLO")["path"] == "/destinos/londres-xlo/"
+    # Renamed in the data: a new slug, and the old path redirects to it.
+    conn.execute("UPDATE routes SET city_pt = 'Londres (Reino Unido)' WHERE destination = 'LON'")
+    conn.commit()
+    site_data.export_site_data(ctx, conn, out, new_links=False)
+    new = _dest(out, "LON")["path"]
+    assert new == "/destinos/londres-reino-unido/"
+    history = pipeline.site_paths(ctx, conn)
+    assert history["destination:LON"] == ["/destinos/londres/", new]
+    plan = redirects.plan_redirects({"destination:LON": new}, history, extra={}, aliases={})
+    assert ("/destinos/londres/", new) in plan.rules
+
+
+def _dest(out: Path, code: str) -> dict:
+    return next(d for d in read(out, "destinations.json")["destinations"] if d["code"] == code)
+
+
+def test_route_calendar_is_the_cheapest_fresh_offer_per_departure_date(exported):
+    """The calendar of cheapest found prices (story 34): the latest run's fresh offers within
+    the route's rules, the cheapest per departure day, ascending, each with its observation."""
+    _, _, _, out, _ = exported
+    lon = route(out, "LIS-LON")
+    jan = date(db.utcnow().year + 1, 1, 10)
+    # 50 € has a stop on a direct-only route: not in it. 60/80/85,40/95 € are fresh and direct.
+    assert [(c["dep"], c["price"]) for c in lon["calendar"]] == [
+        ((jan + timedelta(days=d)).isoformat(), p) for d, p in [(3, 60), (5, 80), (8, 85.4), (9, 95)]]
+    first = lon["calendar"][0]
+    assert first["obs"] == lon["cheapest"]["obs"]
+    assert first["ret"] == (jan + timedelta(days=7)).isoformat()
+    assert route(out, "OPO-BER")["calendar"] == []
+
+
+def test_the_calendar_starts_on_the_lisbon_day_not_the_utc_day(ctx, tmp_path):  # noqa: F811
+    """One "today" for the whole export, Lisbon's: at 23:30 UTC on 1 July it is already 2 July
+    in Lisbon (summer time), so a 1 July departure has left and is not in the calendar."""
+    from dataclasses import replace
+    conn = pipeline.open_db(ctx)
+    now = datetime(2026, 7, 1, 23, 30, tzinfo=timezone.utc)
+    seen = datetime(2026, 7, 1, 20, 0, tzinfo=timezone.utc)
+
+    def at(o):
+        return replace(o, fetched_at=seen, found_date=seen.date())
+    store_run(conn, [at(offer("LIS", "LON", 70, found_ago=0, dep=date(2026, 7, 1))),
+                     at(offer("LIS", "LON", 80, found_ago=0, dep=date(2026, 7, 2)))])
+    lon = next(r for r in site_data.build_export(ctx, conn, now, new_links=False)
+               .files["routes.json"]["routes"] if r["key"] == "LIS-LON")
+    assert [c["dep"] for c in lon["calendar"]] == ["2026-07-02"]
+    before = datetime(2026, 7, 1, 22, 59, tzinfo=timezone.utc)      # 23:59 in Lisbon: still 1 July
+    lon = next(r for r in site_data.build_export(ctx, conn, before, new_links=False)
+               .files["routes.json"]["routes"] if r["key"] == "LIS-LON")
+    assert [c["dep"] for c in lon["calendar"]] == ["2026-07-01", "2026-07-02"]
+
+
+# --- pontes (D31) -----------------------------------------------------------------------------
+
+def test_pontes_are_every_long_weekend_with_a_page_per_origin(ctx, tmp_path):  # noqa: F811
+    """From content/holidays.yaml: every long weekend of the calendar, past ones too (their
+    pages stay, noindex), each with its travel window and one page path per origin; raw values
+    only (no titles: the site writes them from the name and the origin's article)."""
+    conn = pipeline.open_db(ctx)
+    now = datetime(2026, 12, 2, 23, 30, tzinfo=timezone.utc)       # 2 Dec, 23:30 in Lisbon
+    out = tmp_path / "site-data"
+    site_data.build_export(ctx, conn, now, new_links=False).write(out)
+    assert validation_errors(out) == []
+    assert read(out, "meta.json")["files"]["pontes"] == "pontes.json"
+    doc = read(out, "pontes.json")
+    assert doc["pontes"][0]["slug"] == "ano-novo-2026"    # long past: listed all the same
+    assert [p["holiday"]["date"] for p in doc["pontes"]] == sorted(
+        p["holiday"]["date"] for p in doc["pontes"])
+    first = next(p for p in doc["pontes"] if p["slug"] == "1-dezembro-2026")
+    assert first["name"] == "Ponte de 1 de dezembro"
+    assert first["holiday"] == {"date": "2026-12-01", "name": "Restauração da Independência",
+                                "optional": False}
+    assert first["days_off"] == {"first": "2026-11-28", "last": "2026-12-01"}
+    assert first["bridge"] == "2026-11-30"
+    assert first["window"] == {"start": "2026-11-27", "end": "2026-12-02"}
+    assert [o["iata"] for o in first["origins"]] == [
+        o["iata"] for o in read(out, "origins.json")["origins"]]
+    origins = {o["iata"]: o for o in first["origins"]}
+    assert origins["OPO"] == {"iata": "OPO", "path": "/pontes/1-dezembro-2026/porto/"}
+    # One origin slug for both page types: /partidas/porto/ and /pontes/<feriado>/porto/.
+    pages = {o["iata"]: o for o in read(out, "origins.json")["origins"]}
+    assert all(o["path"].endswith(f"/{pages[o['iata']]['slug']}/") for o in first["origins"])
+    assert pages["OPO"]["path"] == "/partidas/porto/"
+    # The article for "desde o Porto" comes from config (origins_article), not from code.
+    assert (pages["OPO"]["article"], pages["LIS"]["article"]) == ("o", None)
+    assert "Código do Trabalho" in doc["source"]
+    carnaval = next(p for p in doc["pontes"] if p["slug"] == "carnaval-2027")
+    assert carnaval["holiday"]["optional"] is True and carnaval["bridge"] == "2027-02-08"
+    later = datetime(2027, 6, 1, tzinfo=timezone.utc)
+    assert site_data.build_export(ctx, conn, later, new_links=False).files[
+        "pontes.json"] == doc                                      # the same list, whatever the day
+
+
+def test_origin_articles_come_from_config(ctx, tmp_path):  # noqa: F811
+    ctx.config.origins_article = {"LIS": "a"}
+    conn = pipeline.open_db(ctx)
+    origins = site_data.build_export(ctx, conn, db.utcnow(), new_links=False).files[
+        "origins.json"]["origins"]
+    assert {o["iata"]: o["article"] for o in origins}.get("LIS") == "a"
+    assert all(o["article"] is None for o in origins if o["iata"] != "LIS")

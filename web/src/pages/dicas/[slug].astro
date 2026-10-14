@@ -1,0 +1,30 @@
+---
+// One page per tip that passed the review gate (D33): /dicas/<file name>/.
+import type { GetStaticPaths } from "astro";
+import { render } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import ContentArticle from "../../components/ContentArticle.astro";
+import { tips } from "../../collections";
+import { BRAND } from "../../lib/brand";
+import { contentPath } from "../../lib/content";
+
+export const getStaticPaths = (async () => {
+  return (await tips()).map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}) satisfies GetStaticPaths;
+
+const { entry } = Astro.props;
+const { data } = entry;
+const { Content } = await render(entry);
+---
+<Base
+  title={`${data.title} · ${BRAND}`}
+  description={data.description}
+  path={contentPath("tips", entry.id)}
+  noindex={!data.reviewed}
+>
+  <ContentArticle kicker="Dica" title={data.title} description={data.description} reviewed={data.reviewed}
+    lastChecked={data.last_checked} sources={data.sources}>
+    <Content />
+  </ContentArticle>
+  <p class="mt-2xl"><a href="/dicas/">Todas as dicas</a></p>
+</Base>

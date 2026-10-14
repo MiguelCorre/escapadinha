@@ -1,0 +1,27 @@
+---
+// Tips about this destination (story 36, D33's `destinations` front matter), on its hub: reviewed
+// tips only (src/collections.ts gate), most recently checked first. Renders nothing when none.
+import { tips } from "../collections";
+import { tipsFor } from "../lib/related";
+
+interface Props {
+  destination: string;
+  city: string;
+}
+
+const { destination, city } = Astro.props;
+const related = tipsFor(destination, await tips());
+---
+{related.length > 0 && (
+  <section data-related-tips class="mt-2xl max-w-measure" aria-labelledby="titulo-dicas">
+    <h2 id="titulo-dicas" class="font-display text-headline">Dicas para {city}</h2>
+    <ul class="mt-md grid gap-md">
+      {related.map((t) => (
+        <li class="border-t border-rule pt-sm">
+          <a class="font-semibold" href={t.path}>{t.title}</a>
+          <p class="mt-2xs text-small text-muted">{t.description}</p>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

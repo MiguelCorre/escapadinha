@@ -16,7 +16,7 @@ export const FIXTURES_DIR = join(CONTRACT_DIR, "fixtures");
 export const DEFAULT_DATA_DIR = join(WEB_DIR, "src/data");
 
 const SCHEMAS = ["defs", "meta", "labels", "origins", "routes", "destinations", "promotions",
-  "low-prices"];
+  "low-prices", "pontes"];
 const ID = "https://pontonomada.pt/contract/site/v1/";
 
 export class SiteDataError extends Error {}
@@ -76,6 +76,8 @@ export function loadSiteData(dir: string): SiteData {
     routes: read(meta.files.routes, "routes"),
     destinations: read(meta.files.destinations, "destinations"),
     promotions: read(meta.files.promotions, "promotions"),
+    // Added within v1 (D31): an older export has no long weekends.
+    pontes: meta.files.pontes ? read(meta.files.pontes, "pontes") : { version: 1, source: "", pontes: [] },
     lowPrices: Object.fromEntries(
       Object.entries(meta.files.low_prices as Record<string, string>).map(
         ([origin, file]) => [origin, read(file, "low-prices")],

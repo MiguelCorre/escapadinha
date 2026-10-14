@@ -1,15 +1,25 @@
 ---
 // Home: live promotions first, then the recently expired ones (marked, no booking link). The home
 // page shows promotions only (D24); low prices live on route pages and in the explorer (#14+).
+// Then the latest reviewed itineraries and tips (D33), when there are any.
 import data from "virtual:site-data";
 import Base from "../layouts/Base.astro";
+import ContentList from "../components/ContentList.astro";
 import PromotionCard from "../components/PromotionCard.astro";
+import { itineraries, tips } from "../collections";
 import { BRAND } from "../lib/brand";
+import { contentPath } from "../lib/content";
 import { promotionView } from "../lib/promotion";
 
 const all = data.promotions.promotions.map((p) => ({ promotion: p, view: promotionView(data, p) }));
 const live = all.filter((x) => x.promotion.live);
 const expired = all.filter((x) => !x.promotion.live);
+const LATEST = 3;
+const reading = [
+  ...(await itineraries()).slice(0, LATEST).map((e) => ({ entry: e, path: contentPath("itineraries", e.id), meta: "Roteiro" })),
+  ...(await tips()).slice(0, LATEST).map((e) => ({ entry: e, path: contentPath("tips", e.id), meta: "Dica" })),
+].map(({ entry, path, meta }) => ({ path, meta, title: entry.data.title, description: entry.data.description,
+  lastChecked: entry.data.last_checked }));
 ---
 <Base
   title={`${BRAND}: promoções de voos desde Portugal`}
@@ -40,6 +50,14 @@ const expired = all.filter((x) => !x.promotion.live);
       <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
         {expired.map(({ promotion, view }) => <PromotionCard promotion={promotion} view={view} />)}
       </div>
+    </section>
+  )}
+
+  {reading.length > 0 && (
+    <section class="mt-2xl" aria-labelledby="titulo-leituras">
+      <h2 id="titulo-leituras" class="font-display text-headline">Roteiros e dicas</h2>
+      <div class="mt-lg"><ContentList items={reading} level={3} /></div>
+      <p class="mt-md"><a href="/roteiros/">Todos os roteiros</a> · <a href="/dicas/">Todas as dicas</a></p>
     </section>
   )}
 </Base>

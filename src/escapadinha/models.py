@@ -124,6 +124,26 @@ class Deal:
 
 
 @dataclass(frozen=True)
+class Post:
+    """One promotion on one channel in the posting queue (D32)."""
+
+    id: int
+    deal_id: int
+    channel: str                       # instagram | telegram
+    due_at: datetime                   # UTC: an Instagram daily slot, or the approval for Telegram
+    status: str                        # queued | published | cancelled
+    created_at: datetime
+    event_id: str | None = None        # the approve event that queued it
+    checked_at: datetime | None = None  # that event's live check (`live_check.checked_at`), UTC
+    attempts: int = 0                  # publisher errors so far
+    last_error: str | None = None      # last publisher error, or why it is waiting (pt-PT)
+    publisher: str | None = None       # who published it: 'dry-run', ...
+    result_url: str | None = None      # the post's URL, when the publisher returns one
+    reason: str | None = None          # why it was cancelled (pt-PT)
+    settled_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class Photo:
     destination: str
     file_path: str

@@ -13,7 +13,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "origin", "destination", "city", "city_en", "kind", "status", "airports", "rules", "path", "months", "cheapest", "counts", "discovered_at", "last_observed_at"],
+        "required": ["key", "origin", "destination", "city", "city_en", "kind", "status", "airports", "rules", "path", "months", "cheapest", "calendar", "counts", "discovered_at", "last_observed_at"],
         "properties": {
           "key": {"$ref": "defs.schema.json#/$defs/route_key"},
           "origin": {"$ref": "defs.schema.json#/$defs/airport"},
@@ -43,6 +43,21 @@
           "cheapest": {
             "anyOf": [{"$ref": "defs.schema.json#/$defs/offer"}, {"type": "null"}],
             "description": "Cheapest offer within the route's rules in the latest run, found within meta.detector.max_offer_age_days (\"a partir de\" on origin pages). null when there is none."
+          },
+          "calendar": {
+            "type": "array",
+            "description": "Calendar of the cheapest found prices (D30): per departure date from the export day on (the Lisbon date of meta.generated_at), the cheapest offer of the latest run within the route's rules and found within meta.detector.max_offer_age_days (the same offers as `cheapest`), ascending by date. Empty when there is none.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["dep", "ret", "obs", "price"],
+              "properties": {
+                "dep": {"$ref": "defs.schema.json#/$defs/date"},
+                "ret": {"$ref": "defs.schema.json#/$defs/date"},
+                "obs": {"$ref": "defs.schema.json#/$defs/obs_id"},
+                "price": {"$ref": "defs.schema.json#/$defs/eur"}
+              }
+            }
           },
           "counts": {
             "type": "object",

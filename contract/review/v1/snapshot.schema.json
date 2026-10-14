@@ -117,7 +117,7 @@
         "affiliate_url": {"type": ["string", "null"], "description": "Instagram Project partner link (D19)."},
         "affiliate_error": {"type": ["string", "null"]},
         "caption": {"type": ["string", "null"], "description": "Instagram caption as rendered (carries the disclosure)."},
-        "whatsapp_text": {"type": ["string", "null"], "description": "Ready-to-paste WhatsApp text, when generated (later ticket)."},
+        "whatsapp_text": {"type": ["string", "null"], "description": "Ready-to-paste pt-PT WhatsApp text (D32) for approved and published promotions with a partner link: headline (names a remote arrival airport), price, dates, airline, arrival airport, found date vs checked time (Lisbon), the stored affiliate_url and the disclosure. Null for any other status. A UI shows it with a copy button."},
         "page_url": {"type": ["string", "null"], "pattern": "^https://",
                      "description": "The promotion page on the public site, for deals the site shows."},
         "slides": {"type": "array", "items": {"$ref": "#/$defs/slide"}},

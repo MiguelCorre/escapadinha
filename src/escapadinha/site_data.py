@@ -6,10 +6,12 @@ matches them, from the same database queries and detector rules as the Jinja sit
     meta.json            build metadata (contract version, generated_at, run id, settings)
     labels.json          pt-PT names the site cannot derive (airlines, airports, disclosure)
     origins.json         Portuguese departure airports
-    routes.json          every route: rules, status, monthly typical lows and averages, cheapest
+    routes.json          every route: rules, status, monthly typical lows and averages, cheapest,
+                         calendar of the cheapest fresh offer per departure date
     destinations.json    destination hubs (city, airports, routes from Portugal, photo credit)
     promotions.json      approved deals, live and recently expired (paths, images, links)
     low-prices/XXX.json  one origin's low prices at date level, compact rows (explorer)
+    pontes.json          the Portuguese long weekends of the holiday calendar (D31), page paths
 
 Values are raw (ISO dates, UTC timestamps, euros as numbers); pt-PT formatting stays on
 the site, from `labels.json`. Every price sits next to what it traces to: an observation
@@ -28,21 +30,24 @@ import json
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from escapadinha import detector, i18n_pt, pipeline, routes
+from escapadinha import detector, i18n_pt, pipeline, pontes, routes
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation, Route
 from escapadinha.presentation import DISCLOSURE, SITE_DISCLOSURE
 from escapadinha.storage import db
 from escapadinha.website import (
-    LIVE, deal_image_paths, promo_slug, public_deal_rows, route_slug, slugify,
+    DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, origin_slug,
+    ponte_path, promo_slug, public_deal_rows, redirects, route_slug,
 )
 
 VERSION = 1
 TOP_FILES = ("meta.json", "labels.json", "origins.json", "routes.json", "destinations.json",
-             "promotions.json")
+             "promotions.json", "pontes.json")
+HOLIDAYS_SOURCE = ("Código do Trabalho, art. 234.º (feriados obrigatórios) e art. 235.º "
+                   "(Terça-Feira de Carnaval, facultativo), na redação da Lei n.º 8/2016")
 LOW_COLS = ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops",
             "airport", "typical", "link"]
 ROW_BUDGET_BYTES = 160        # average bytes per low-price row (D27); tested
@@ -112,11 +117,30 @@ def export_site_data(ctx: Context, conn: sqlite3.Connection, out: Path | None = 
                      now: datetime | None = None, *, new_links: bool = True) -> Export:
     """Export the website data into `out` (default `site.data_dir`).
 
-    `new_links=False`: only links already stored are used (no partner API request).
+    `new_links=False`: only links already stored are used (no partner API request). Records
+    the destination hubs' paths in the `site.paths` history (`record_destination_paths`).
     """
     export = build_export(ctx, conn, now, new_links=new_links)
     export.write(out or default_dir(ctx))
+    record_destination_paths(ctx, conn, export)
     return export
+
+
+def published_destination_slugs(ctx: Context, conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Code -> every slug its hub was exported at (oldest first), from the `site.paths` history."""
+    return {key.removeprefix(DESTINATION_KEY): [p.removeprefix(DESTINATIONS).strip("/")
+                                                for p in paths if p.startswith(DESTINATIONS)]
+            for key, paths in pipeline.site_paths(ctx, conn).items()
+            if key.startswith(DESTINATION_KEY)}
+
+
+def record_destination_paths(ctx: Context, conn: sqlite3.Connection, export: Export) -> None:
+    """Remember every destination hub's path (D30): the next export keeps each hub at its slug
+    (`destination_slugs`), and a path that ever changes keeps a 301 from the old one
+    (`website.redirects`, keys `destination:<code>` in `site.paths`, like the Jinja pages')."""
+    pages = {f"{DESTINATION_KEY}{d['code']}": d["path"]
+             for d in export.files["destinations.json"]["destinations"]}
+    pipeline.save_site_paths(conn, redirects.update_history(pipeline.site_paths(ctx, conn), pages))
 
 
 def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None, *,
@@ -125,6 +149,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     """Every contract file as a document. Creates missing partner links when `new_links`
     (from the run's link budget, `pipeline.link_budget`, D24); writes nothing else."""
     now = now or db.utcnow()
+    today = now.astimezone(i18n_pt.LISBON).date()   # the export's "today" (calendar): Lisbon's
     cfg = ctx.config
     run_id = db.latest_completed_run_id(conn)
     run_offers = db.observations_seen_since(conn, run_id) if run_id else []
@@ -136,9 +161,10 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     keys = {r.key for r in all_routes}
     observed = db.observation_counts(conn)
 
-    # Typical lows, low prices and the cheapest fresh offer per route.
+    # Typical lows, low prices, the cheapest fresh offer per route and per departure date.
     months: dict[str, list[dict]] = {}
     cheapest: dict[str, Observation | None] = {}
+    calendars: dict[str, list[Observation]] = {}
     lows: dict[str, list[detector.LowPrice]] = defaultdict(list)    # origin -> low prices
     for route in all_routes:
         history = pipeline.route_history(ctx, conn, route, now)
@@ -149,6 +175,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
                  if detector.is_fresh(o, cfg.detector, now)]
         cheapest[route.key] = min(fresh, key=lambda o: (o.price, o.departure_date, o.id),
                                   default=None)
+        calendars[route.key] = _calendar(fresh, today)
         lows[route.origin] += detector.low_prices(offers, history, cfg.detector, now,
                                                   route.rules, baselines)
 
@@ -182,12 +209,12 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
         + sorted({r.origin for r in all_routes})))
     files: dict[str, dict] = {}
     files["routes.json"] = {"version": VERSION, "routes": [
-        _route(ctx, r, months[r.key], cheapest[r.key], observed.get(r.key, 0),
+        _route(ctx, r, months[r.key], cheapest[r.key], calendars[r.key], observed.get(r.key, 0),
                low_count[r.key], *promo_count[r.key]) for r in all_routes]}
     files["origins.json"] = {"version": VERSION, "origins": [
         _origin(ctx, code, all_routes, low_count, promo_count) for code in origin_codes]}
-    files["destinations.json"] = {"version": VERSION,
-                                  "destinations": _destinations(conn, all_routes)}
+    files["destinations.json"] = {"version": VERSION, "destinations": _destinations(
+        conn, all_routes, published_destination_slugs(ctx, conn))}
     promotions = sorted(deals, key=lambda p: (p[0].detected_at, p[0].id), reverse=True)
     files["promotions.json"] = {"version": VERSION, "promotions": [
         _promotion(ctx, conn, d, o, route_by_key[o.route_key], deal_links.get(d.id))
@@ -199,6 +226,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
             "rows": [_low_row(lp, low_links.get(lp.observation.id))
                      for lp in sorted(kept.get(code, []), key=_row_order)]}
     files["labels.json"] = _labels()
+    files["pontes.json"] = _pontes(ctx, origin_codes)
     files["meta.json"] = _meta(ctx, conn, now, run_id, fixture, origin_codes, files)
     return Export(files)
 
@@ -320,8 +348,19 @@ def _offer(o: Observation) -> dict:
             "found_date": _day(o.found_date), "fetched_at": db.utc_iso(o.fetched_at)}
 
 
+def _calendar(fresh: list[Observation], today: date) -> list[Observation]:
+    """The cheapest of `fresh` per departure date from `today` (Lisbon) on, by date (ties: lower
+    id)."""
+    best: dict = {}
+    for o in sorted(fresh, key=lambda o: (o.price, o.id)):
+        if o.departure_date >= today:
+            best.setdefault(o.departure_date, o)
+    return [best[d] for d in sorted(best)]
+
+
 def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | None,
-           observations: int, low_prices: int, live: int, expired: int) -> dict:
+           calendar: list[Observation], observations: int, low_prices: int, live: int,
+           expired: int) -> dict:
     origin_city = ctx.config.origin_name(r.origin)
     return {
         "key": r.key, "origin": r.origin, "destination": r.destination, "city": r.city_pt,
@@ -330,6 +369,8 @@ def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | N
         "rules": r.rules.to_json(),
         "path": f"/voos/{route_slug(origin_city, r.city_pt)}/", "months": months,
         "cheapest": _offer(cheapest) if cheapest else None,
+        "calendar": [{"dep": _day(o.departure_date), "ret": _day(o.return_date), "obs": o.id,
+                      "price": _eur(o.price)} for o in calendar],
         "counts": {"observations": observations, "low_prices": low_prices,
                    "promotions_live": live, "promotions_expired": expired},
         "discovered_at": db.utc_iso(r.discovered_at), "last_observed_at": db.utc_iso(r.last_observed_at),
@@ -339,17 +380,21 @@ def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | N
 def _origin(ctx: Context, code: str, all_routes: list[Route], low_count, promo_count) -> dict:
     mine = [r for r in all_routes if r.origin == code]
     name = ctx.config.origin_name(code)
-    return {"iata": code, "name": name, "slug": slugify(name),
+    slug = origin_slug(name)
+    return {"iata": code, "name": name, "article": ctx.config.origin_article(code), "slug": slug,
+            "path": f"/partidas/{slug}/",
             "routes": {"active": sum(r.status == "active" for r in mine),
                        "dormant": sum(r.status == "dormant" for r in mine)},
             "low_prices": sum(low_count[r.key] for r in mine),
             "promotions_live": sum(promo_count[r.key][0] for r in mine)}
 
 
-def _destinations(conn: sqlite3.Connection, all_routes: list[Route]) -> list[dict]:
+def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
+                  published: dict[str, list[str]]) -> list[dict]:
     grouped: dict[str, list[Route]] = defaultdict(list)
     for r in all_routes:
         grouped[r.destination].append(r)
+    slugs = destination_slugs({code: rs[0].city_pt for code, rs in grouped.items()}, published)
     out = []
     for code, rs in sorted(grouped.items()):
         first = rs[0]
@@ -357,7 +402,8 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route]) -> list[dic
         out.append({
             "code": code, "city": first.city_pt,
             "city_en": next((r.city_en for r in rs if r.city_en), None),
-            "slug": slugify(first.city_pt), "kinds": sorted({r.kind for r in rs}),
+            "slug": slugs[code], "path": destination_path(slugs[code]),
+            "kinds": sorted({r.kind for r in rs}),
             "airports": sorted({a for r in rs for a in (r.destination_airports or "").split(",")
                                 if a}),
             "routes": sorted(r.key for r in rs),
@@ -437,6 +483,23 @@ def _labels() -> dict:
     }
 
 
+def _pontes(ctx: Context, origin_codes: list[str]) -> dict:
+    """Every long weekend of the calendar, past ones too (their pages stay, D31), with one page
+    path per origin. Which are past is the site's call, from meta.generated_at."""
+    items = []
+    for p in pontes.pontes(pontes.load_calendar(ctx.holidays_file)):
+        h = p.holiday
+        items.append({
+            "slug": p.slug, "name": p.name,
+            "holiday": {"date": _day(h.day), "name": h.name, "optional": h.optional},
+            "days_off": {"first": _day(p.first_off), "last": _day(p.last_off)},
+            "bridge": _day(p.bridge), "window": {"start": _day(p.start), "end": _day(p.end)},
+            "origins": [{"iata": code, "path": ponte_path(p.slug, ctx.config.origin_name(code))}
+                        for code in origin_codes],
+        })
+    return {"version": VERSION, "source": HOLIDAYS_SOURCE, "pontes": items}
+
+
 def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | None,
           fixture: bool, origin_codes: list[str], files: dict[str, dict]) -> dict:
     det = ctx.config.detector
@@ -454,7 +517,7 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
                      "lookback_days": det.lookback_days},
         "files": {"origins": "origins.json", "routes": "routes.json",
                   "destinations": "destinations.json", "promotions": "promotions.json",
-                  "labels": "labels.json",
+                  "labels": "labels.json", "pontes": "pontes.json",
                   "low_prices": {c: f"low-prices/{c}.json" for c in origin_codes}},
         "counts": {"origins": len(origin_codes),
                    "routes": len(files["routes.json"]["routes"]),

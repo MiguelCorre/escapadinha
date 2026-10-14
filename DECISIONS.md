@@ -488,7 +488,8 @@ so nothing has to be hosted.
   (#7) keeps no files (D21: `data/site_links.json` isn't synced yet). Each build converts at most
   `site.max_new_links_per_build` (300 = 30 requests, ≤ 900 enforced so one build stays under the
   per-minute limit), biggest discounts first; the rest and failures wait for the next build and are
-  shown meanwhile without a button. Since D27 the cap is one budget per collection run, shared by
+  shown meanwhile without a button (on the Astro site with the note "Ligação de reserva
+  disponível em breve.", `cta.NO_LINK_NOTE`, next to the found-on date). Since D27 the cap is one budget per collection run, shared by
   the site data export and the site build (meta `site.link_budget`, see D27). Rows older than 30 days are pruned (their offers left the
   freshness window long before). On a copy of the real database (2026-10-13, baselines still
   warming up after discovery): 7 low prices on 360 route pages, 0 promotion candidates.
@@ -646,7 +647,7 @@ so nothing has to be hosted.
   every run (fast or full): `queue` (new/rendered), `approved`, `published` and `closed` (latest 20
   each), every deal with price (number and pt-PT text), dates, nights, airline, arrival airport,
   discount, typical low, found/fetched/detected times, affiliate link, caption, `whatsapp_text`
-  (null until generated), `page_url`, `slides` and `live_check` (last recheck, expired reason, the
+  (null until generated; filled since D32), `page_url`, `slides` and `live_check` (last recheck, expired reason, the
   exact provider `query` and the route `rules` + freshness window, so the Function's check is the
   pipeline's rule); plus `pending_events` (not yet in this database) and `recent_outcomes`.
 - **Slides:** "slide URLs on the public site" only exist for deals the site shows
@@ -776,7 +777,11 @@ so nothing has to be hosted.
 - **Fonts through Astro's Fonts API** (local provider, files from `assets/fonts/`): family and
   fallback stacks come from `tokens.json` in `astro.config.ts`; Astro adds metric-matched
   fallbacks (`size-adjust`), so swapping in the web font barely moves the page (CLS 0.13 → 0.015
-  on the expired page). No font preload and no italic on first paint: Lighthouse's simulated
+  on the expired page). That match is against Georgia / Iowan, which Linux and Android don't have:
+  on the PR runner the swap moved whole sections (CLS 0.19 on a destination hub, 0.26 on a ponte
+  page). Since #14 the fonts use `font-display: optional`: the browser uses the web font only if it
+  is there before first paint (from cache after the first page), otherwise the fallback for that
+  page, so a font never moves the layout on any system (2026-10-14). No font preload and no italic on first paint: Lighthouse's simulated
   throttling counts fonts fetched before the first paint against it (FCP 3.0 s → 2.4 s), and the
   slides keep the italic voice. The logo is `assets/logo-light.svg` inlined with its ink and sun
   recoloured to `currentColor` / accent, so one file works on paper and in dark mode.
@@ -957,3 +962,354 @@ so nothing has to be hosted.
   secrets `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, Contents read/write) and
   `TRAVELPAYOUTS_TOKEN`, R2 binding `STORE`. Preview deployments sit behind a separate Access app.
 - **Verification on the phone** is a manual step for Miguel: `docs/runbooks/review-phone.md`.
+
+## D30: Route pages, origin pages and destination hubs (2026-10-14, #14)
+- **What:** the Astro site (D28) gets one page per route at the contract's `path`
+  (`/voos/<origem>-<destino>/`, the Jinja site's URLs, so old route links keep working with no
+  redirect), one per Portuguese origin at `/partidas/<origem>/` and one hub per destination at
+  `/destinos/<destino>/`, plus the index pages `/partidas/` and `/destinos/` and a "Destinos" nav
+  link. All generated from the contract; the web package never builds a path or a slug.
+- **Contract, additive within v1:** `origins[].path` and `destinations[].path` (required in new
+  exports, fixtures regenerated) and `routes[].calendar`. Slugs are computed once in Python next to
+  `route_slug`: `website.origin_slug` and `website.destination_slugs`, which gives cities whose
+  pt-PT names share a slug in one export their code too (`sao-jose-sjo`, `sao-jose-sjc`), so
+  their URLs don't depend on which was found first (no collision in the real data on 2026-10-14:
+  156 destination codes, 156 names). Route slugs are unchanged (`route_slug`).
+- **Destination slugs are stable once published (review fix):** the first version re-slugged an
+  existing hub when a same-name city appeared later (`/destinos/san-jose/` → `san-jose-sjo`).
+  `site_data.export_site_data` now records every hub's path in the `site.paths` history (meta,
+  key `destination:<code>`, the same mechanism as the Jinja pages' 301s, D19/D25,
+  `record_destination_paths`), and the next export keeps each hub at the latest recorded slug
+  that still fits its name (the name's slug or with its code); only the newcomer takes its code
+  (`londres-xlo`). A slug changes only when the city's name does; its old path stays in the
+  history, so `redirects.plan_redirects` gives the 301 (tested: collision introduced after the
+  first export, then a rename). The Jinja build ignores these keys (it has no hubs); the cutover
+  (#23) must add the `destination:<code>` pages to the Astro site's `_redirects` plan.
+- **Calendar of cheapest found prices** (story 34, left open in D27): per departure date from the
+  export day on (the Lisbon date of the export's `now`, the same `today` the pontes use: at 23:30
+  UTC in summer it is already the next day in Lisbon, tested), the cheapest offer of the latest run within the route's rules and found within
+  `max_offer_age_days`, i.e. the same offers as `cheapest`, broken down by day: `{dep, ret, obs,
+  price}`, ascending. Only current offers, never old history, so a day's price is one a traveller
+  saw in the last 3 days. `test_site_data.py` traces each day to its observation (and its
+  departure date); the web traceability test adds them to the observation amounts. **Real data on
+  2026-10-14 (run 30): 402 calendar days over 360 routes** (about one per route; `routes.json`
+  223 KB), because few offers were found by a traveller in the last 3 days (all runs' fresh offers
+  give 409, so it's the freshness window, not the latest-run rule). The calendar fills up as
+  collection goes on; widening the window (e.g. every offer of the latest run whatever its found
+  date) is a one-line change in `site_data._calendar`, rejected for now because a cell can't show
+  how old its price is and stale prices are what the freshness window exists to keep out. The
+  synthetic scale data has ~50 days per route (1.5 MB `routes.json`, build-time only, never shipped
+  to visitors) as the worst case.
+- **Route page:** kind, title "Voos de <origem> para <destino>", which offers count (`rules`), a
+  **dormant notice** (`status: dormant`, with the last price seen, the page kept as a record),
+  "mais barato agora" (`cheapest`), live promotions (cards), recent **low prices** (the biggest
+  `LOW_PRICES_PER_ROUTE` = 5 discounts by departure date, a live promotion's own offer left out,
+  as on the Jinja page: each with `data-obs`, the discount, the typical low it was measured against
+  under `data-route`, dates, airline, stops, arrival airport with the remote tag, "Encontrado por
+  um viajante a" found date and "visto por nós a" first fetch (the explorer's row, D31), and its
+  own partner link from the contract with
+  `rel="sponsored nofollow noopener"`; the site disclosure sits under the list inside the same
+  `data-cta` block), the **calendar** (Monday-first month grids, each priced day `data-obs`, the
+  month's cheapest marked), the **typical low per month** with the plain average as context and
+  the days behind it; a month below `min_baseline_days` says "ainda sem dados suficientes" and
+  "2 de 4 dias" instead of a number. Then recently expired promotions and links to the hub and the
+  origin page. Rejected: a booking link per calendar day (one more partner link per day would blow
+  the per-run link budget of D24 for little gain; the low prices above carry the links).
+- **Origin page:** every route from the airport grouped by kind (Europa, Portugal, Longo curso),
+  each by city name (pt collation), with the cheapest price found now (`data-obs`) and dates, or
+  "sem preços recentes", or the dormant tag. Price order is the explorer's job (#15).
+- **Destination hub:** every Portuguese origin with a route there, in the contract's origin order,
+  with its route page, cheapest price, **best months** (`BEST_MONTHS` = 3 months with the lowest
+  typical low, cheapest first, under `data-route`; "Ainda sem dados suficientes" otherwise), a link
+  to the origin page; the origins we don't watch for that city are named; arrival airports with
+  the remote tag; live promotions to the city. No photo yet: destination photos are files under
+  `assets/photos/` the web package doesn't copy (D27 open question, the cutover #23).
+- **Itinerary hook for #17:** `src/lib/itinerary.ts` (`itineraryFor(code)`, always null now) and
+  `ItineraryLink.astro` on route pages and hubs; #17 swaps the body for a lookup in its reviewed
+  content collection, the pages stay as they are. The live search widget is #16.
+- **One place for pt-PT words and day arithmetic (review fix):** month and weekday names, "terça-feira,
+  1 de dezembro de 2026" (`longDateYear`), month labels (`monthYear`) and the calendar's column
+  names come from `src/lib/format.ts`; weekday, nights between two days, days in a month and the
+  Lisbon day of an instant from `src/lib/dates.ts`, shared by the route pages, the explorer, the
+  island and the ponte pages. A test fails on a month or weekday name spelled out anywhere else
+  in `web/src/`.
+- **Tests:** `web/test/routes.test.ts` (the view logic in `src/lib/routes.ts` on hand-made
+  routes: month rows, best months, calendar weeks, low-price selection, groups, rules text),
+  `route-pages.test.ts` (the fixture build: every contract path built, every route page linked from
+  its origin page and hub, months without data, calendar traced, low prices with found date and a
+  sponsored link next to the disclosure, best months), the internal-link test (`brokenLinks`: every
+  `a`/`link`/`img` to an internal path resolves to a built page or file), and the traceability test
+  now also on the new pages. The traceability checker and link check moved to `test/trace.ts` and
+  `test/html.ts` to be shared with the scale test.
+- **Scale and build budget:** the fixtures have 10 routes, so `web/test/scale.test.ts` writes a
+  synthetic contract dataset the size of the real data (`test/synthetic-data.ts`: 360 routes from
+  the 6 origins as on 2026-10-14, 156 destinations, dormant routes, months with and without enough
+  days, ~50 calendar days per route, low prices, one live and one expired promotion;
+  `meta.fixture: true`, cities "Destino de teste AB", codes `Z..`, example.com links, seeded made-up
+  prices that only ever exist in a temporary build), validates it against the schemas and builds
+  it: 528 pages (360 route, 6 origin, 156 destination pages) in ~5 s on Miguel's PC (~18 s on a
+  cold first build); the test fails above **120 s**. It also checks the dormant notice, the months
+  without data, internal links and price traceability on every page at that size. The fixture
+  build takes ~2 s.
+- **Lighthouse:** one URL per new page type added to `web/lighthouserc.json` (`/voos/lisboa-paris/`,
+  `/partidas/lisboa/`, `/destinos/paris/`), thresholds unchanged. Local run 2026-10-14 (fixture
+  build, median of 3, two runs): route 0.91 / 0.93, origin 0.95 / 0.95, destination 0.95 / 1 performance; accessibility, best
+  practices and SEO 1 on all three (home and promotions 0.94 / 1 / 1 / 1). The route page's FCP is
+  ~2.6 s under simulated throttling, close to the 0.9 line; the full-size synthetic build's largest
+  route, origin and hub pages measured 0.92–0.98 (the same FCP, pages ~85 KB with ~24 KB inlined
+  CSS). If CI starts failing on the route page, look at the inlined CSS and the logo SVG first
+  (~14 KB in every page).
+- **Fixtures regenerated** from the current database (run 30, 2026-10-14): promotion 8 (LIS-FNC) is
+  now the live one and 3 (LIS-PAR) the expired one, `base_url` is `https://pontonomada.pt`; the
+  web tests and the Lighthouse URLs follow. Still no dormant route in the real data, so dormant
+  pages are tested on the synthetic build.
+
+## D31: Explorer, weekends and Portuguese long weekends (pontes) (2026-10-14, #15)
+- **Calendar in the repo, Python owns it:** `content/holidays.yaml` lists the national holidays
+  of 2026 and 2027 (Código do Trabalho art. 234.º as amended by Lei n.º 8/2016; Terça-Feira de
+  Carnaval as `optional`, art. 235.º; Corpo de Deus and the other movable dates from each year's
+  Easter), with the source in the file. Municipal holidays (Santo António, São João) are left
+  out: they are not national. `pontes.py` (pure, plus a loader that refuses a day listed twice)
+  derives each holiday's long weekend: Monday → Sat–Mon, Tuesday → Sat–Tue with Monday bridged,
+  Thursday → Thu–Sun with Friday bridged, Friday → Fri–Sun; Wednesday, Saturday and Sunday give
+  none (a five-day "double bridge" is not a ponte most people get). Easter Sunday therefore has no
+  page of its own; Good Friday's ("Fim de semana da Páscoa") covers it.
+- **Travel window = the weekend rule generalised:** from the evening before the first day off to
+  the morning after the last one (a plain weekend is out Friday/Saturday, back Sunday/Monday).
+  A low price fits a ponte when its departure and its return both fall inside the window
+  (`start ≤ departure < return ≤ end`), as the spec says. (Review fix: the first version also
+  required the trip to span the holiday, `departure ≤ holiday ≤ return`; that is not in the
+  spec and is dropped, so a Friday-to-Sunday trip inside a Tuesday ponte's window counts.
+  Tested on a Tuesday and a Thursday holiday.)
+- **Contract, additive within v1:** `pontes.json` (`pontes.schema.json`) with every ponte of the
+  calendar's years, past ones included, each with holiday, days off, bridge, window and one
+  `{iata, path}` per origin; `meta.files.pontes` is optional, and the site reads an export
+  without it as having no pontes. Paths `/pontes/<slug>-<year>/<origin-slug>/` come from Python
+  (`website.ponte_path`, `website.origin_slug`; the web package never slugifies). **Raw values
+  only (D27, review fix):** the first version exported a pt-PT `title` per origin built with a
+  hard-coded article map (`i18n_pt._ARTICLE`); the title is now the site's
+  (`format.ponteTitle`: "Ponte de 1 de dezembro desde o Porto", `format.fromPlace`) and the
+  article comes from config `origins_article` (`OPO: o`, `FNC: a`, `TER: a`; Lisboa, Faro and
+  Ponta Delgada take none), exported as `origins.json` `article` (optional, additive; `null` =
+  none). Dropping `title` is not a v1 break for any consumer: `pontes.json` only exists on the
+  unreleased M3 branch and the web package is its only reader. No prices in the
+  file: the site selects the rows of each origin's low-price file, so traceability is unchanged.
+  The committed fixtures got `pontes.json` and `meta.files.pontes` computed at the fixtures'
+  own `generated_at` instead of a full regeneration, which would have replaced every fixture
+  with the newer database (other tickets' expectations); the next `export fixtures` writes the
+  same file (the review fixes recomputed `pontes.json` and the origins' `article` the same way).
+  The calendar is under `content/`, which the run-path fingerprint already hashes, and the "day"
+  component turns a ponte "past" on the site the day after its window.
+- **Weekend and ponte matching live in the web package** (`web/src/lib/explorer.ts`), because the
+  island needs them in the browser and the pages at build time; one module, tested in vitest
+  (`isWeekendTrip`; `fitsPonte`). Python tests the calendar and the windows
+  (`tests/test_pontes.py`).
+- **Weekend rule, 1 to 3 nights:** a weekend trip leaves on Friday or Saturday and comes back on
+  the Sunday or Monday **of the same weekend**: Saturday-Sunday is 1 night, Friday-Monday 3.
+  The 1–3 night cap is what "the same weekend" means in code: without it, Friday out and Sunday
+  back nine days later would match the weekdays. The explorer's checkbox says it in full: "Só
+  fins de semana (partida sexta ou sábado, regresso domingo ou segunda, até 3 noites)". Kept as
+  is in the review (a cap of 2 would drop Friday-Monday, which most people count as a weekend
+  away; pontes cover the longer ones).
+- **Explorer `/explorar/`:** server-rendered default list (the first origin with low prices,
+  each destination at its cheapest, sorted by price, "+N datas") that works without JavaScript;
+  the filter form is in the page from the first paint (hidden by `<noscript>` without JS, so the
+  island causes no layout shift). The island is vanilla TypeScript (~5.4 KB, 2.7 KB gzipped):
+  it fetches `/explorar/dados/<ORIGIN>.json` (static endpoints: the contract rows as they are plus
+  destination and airport names) only when that origin is needed, caches it, and redraws with the
+  same `resultsHtml` the server used, so every result keeps `data-obs` on its price, `data-route`
+  on its typical low, the found date, the arrival airport and the tracked link; the site
+  disclosure and the CTA note sit once above the list in its `[data-cta]` block. No framework:
+  one list and a form don't need one. Filters live in the form only (no URL state yet).
+- **One low-price row everywhere (review fix):** the explorer, the ponte pages, the island and
+  the route pages draw a low price with the same function, `src/lib/low-prices.ts`
+  (`lowPriceView` + `lowPriceHtml`; the explorer adds the destination as headline and "+N
+  datas"): price (`data-obs`), discount, dates and nights, airline and stops ("voos diretos",
+  `format.stopsText`), arrival airport (remote tag), "Mínimo habitual em <mês>" (`data-route`),
+  "Encontrado por um viajante a <found date> · visto por nós a <first fetch>" and the button by
+  the `cta.ts` rule (`bookingLink`: the contract's link, https only, `CTA_TEXT`/`CTA_REL`; the
+  site disclosure and `CTA_NOTE` once per list). The route pages had their own wording ("Ver
+  voo", "Encontrado a", no https check); a test compares a row on `/explorar/` with the same
+  offer on its route page. The per-origin files carry airline names too (`places.airlines`), and
+  `originFile` runs every row's link through the https rule at build time, so the island never
+  meets a link the server would refuse. Island: 6.6 KB (3.2 KB gzipped).
+- **A row without a stored partner link** (D24: links are created a few hundred per collection
+  run, the rest wait for the next run) shows everything else, found-on date included, and "Ligação
+  de reserva disponível em breve." (`cta.NO_LINK_NOTE`) where the button would be, on route pages,
+  the explorer and the ponte pages alike.
+- **Results link to route pages** (after merging #14): each result's headline links to its
+  route page `/voos/<origem>-<destino>/`, the contract's route `path` carried in the per-origin
+  files' `places.paths` (no link when a row's route is missing). Origin page and ponte pages share
+  one slug function (`website.origin_slug`): `/partidas/porto/` and `/pontes/<feriado>/porto/`.
+- **Ponte pages** `/pontes/.../...` per ponte × origin (16 pontes in 2026–2027: 96 with six
+  origins, past ones included): holiday, days off,
+  bridge day, window, the optional-holiday warning for Carnaval, the matching low prices, the
+  other origins' pages and the legal source; `noindex` while nothing matches. **Past pontes keep
+  their pages** (review fix: dropping them from the export turned indexed pages into 404s): a
+  ponte whose window ended before the Lisbon date of `meta.generated_at` (`isPastPonte`) is built
+  `noindex`, without prices, with "Esta ponte já passou." and a link to the upcoming ones; the
+  explorer's filter and list offer upcoming pontes only (`upcomingPontes`). No fixture trip
+  fits a ponte (real data), so the built pages are all the empty state; the listing itself is
+  `resultsHtml`, covered with test rows.
+- **Lighthouse** (local, 2026-10-14, mobile, median of 3): explorer 0.92 / 1 / 1 (perf / a11y /
+  SEO), ponte page 0.95 / 1 / 1; both URLs are in `web/lighthouserc.json`.
+
+## D32: Posting queue with daily slots, dry-run publisher, WhatsApp text (2026-10-14, #20)
+- **Why:** after approval a promotion should reach Instagram, Telegram and WhatsApp without Miguel
+  posting by hand, but never as a burst ("the feed never looks like a bot", story 54) and never
+  once it expired (story 55). The real publishers come later (Instagram #24, Telegram #21); this
+  ticket ships the queue, the publish step and a dry-run publisher.
+- **Table** `posting_queue` (schema v10, migration 10 + `schema.sql`): one row per promotion and
+  channel (`UNIQUE (deal_id, channel)`), `channel` `instagram` | `telegram`, `due_at` (UTC),
+  `status` `queued` | `published` | `cancelled`, `event_id` of the approval, `checked_at` (that
+  approval's live price check, `live_check.checked_at`), `attempts` and
+  `last_error` (publisher errors, or why a due post waits), `publisher` (`dry-run`, later
+  `instagram`/`telegram`), `result_url`, `reason` (pt-PT, why cancelled), `settled_at`.
+  Published and cancelled are final. `checked_at` was added to the v10 table itself (review fix):
+  v10 never reached a released database (master and the real database are v9).
+- **One list of channels:** `posting.CHANNELS` is the only place the channels are named: the
+  config's `posting.publishers` validation and default, and the planner of an approval's posts,
+  read it; the SQL `CHECK` (in `schema.sql` and migration 10) can't, so a test compares both
+  with it. What a run does with a post is typed: `posting.VerdictAction` (`publish`, `later`,
+  `wait`, `cancel`) and `posting.PostAction` (`published`, `cancelled`, `waiting`, `failed`,
+  in `pipeline.PostResult`, which the CLI matches on). The queue is read with `db.posts`
+  (the `pipeline.posts` pass-through is gone).
+- **Enqueue = applying an approval.** `review_events.apply_pending` takes `plan_posts` (passed in
+  by `pipeline.apply_review_events`); when an `approve` event is applied, its posts are written by
+  `db.settle_review_event` in the same transaction as the status change and the outcome, so an
+  approval is never applied without its posts (and a re-applied event, D26, queues nothing twice).
+  Approvals made before v10 queue nothing: those were posted by hand.
+- **Slots** (`posting.next_slot`, pure, `now` passed in): Instagram gets the first daily slot at
+  or after the application time that no queued/published Instagram post holds, on a Lisbon day
+  with fewer than `max_per_day` such posts (a cancelled post frees its slot). Config
+  `posting.instagram_slots` (default `09:00`, `13:00`, `19:00`, Lisbon time) and
+  `posting.max_per_day` (3). "Today" is the Lisbon date; slots are converted with `zoneinfo`, so
+  09:00 is 08:00 UTC in summer and 09:00 UTC in winter. A slot inside the clock change hour reads
+  with `fold=0`: one skipped in March is taken with the winter offset (01:30 → 02:30 summer
+  time), a repeated one in October is the first. Tests cover both last Sundays and the
+  Lisbon-vs-UTC midnight. Telegram is due at the application time ("immediately").
+- **Publish step** (`pipeline.run_publish`, CLI `publish_due`): **every run, after `detect` and
+  before `run_path.decide`**, so posting never waits for a full path (an approval takes the full
+  path anyway, D26; a 13:00 slot usually comes on a fast run). It sits after the recheck so the
+  promotion's status is this run's: for every queued post, `posting.verdict` cancels it when the
+  promotion expired ("A promoção expirou: <reason>."), was rejected, or (Instagram only) was
+  already marked published by hand, whether or not it is due; a due post goes out only if the
+  price was verified (last recheck, else the approval's live check: the event's
+  `live_check.checked_at`, kept on the post as `checked_at`, not the approval time, which can
+  be later; tested) within
+  `posting.max_check_age_hours` (6), otherwise it waits with the reason (e.g. this run's
+  collection had no prices for the route). At most one Instagram post per run, so a backlog
+  after failed runs goes out two hours apart. A run whose collection failed exits before this
+  step: nothing is posted without a recheck.
+- **A published promotion is not rechecked any more** (only `db.OPEN_STATUSES` are), so a post
+  that waits for a recheck would wait forever (review fix). When Miguel marks a promotion
+  published, its Instagram post is cancelled as before; a post on another channel (Telegram)
+  still goes out if the last verification (a recheck made while it was approved, else the
+  approval's live check) is within the 6 h, and once that window has passed it is **cancelled**
+  with "A promoção foi marcada como publicada e já não é verificada: o preço confirmado tem mais
+  de 6 h." instead of waiting. `posting.verdict` applies this to any status the run no longer
+  rechecks; tested on both sides of the window.
+- **Publishers** are pluggable (`posting.Publisher`: `name`, `publish(Message) -> Published(url)`,
+  raises on failure). `Message` carries the post, deal, observation, headline, price, the text
+  (Instagram: the caption from `deal_caption_text`; Telegram: the WhatsApp text) and the stored
+  partner link. Config `posting.publishers` maps each channel to a name; only `dry-run` exists:
+  it logs what would be posted (channel, deal, headline, price, slot in Lisbon time, full text)
+  and makes no request; the post is settled `published` with `publisher = 'dry-run'` and no URL.
+  A publisher error keeps the post queued (attempt +1, error in `last_error`);
+  `posting.max_attempts` (5) errors cancel it. Nothing here changes a review status (D26): a real
+  publisher that should mark the promotion published writes a `published` event (#24 decides).
+- **WhatsApp text** (`captions.whatsapp_text`, template `captions/templates/whatsapp.txt.j2`):
+  shorter than the caption, no hashtags, no discount claim; headline (a remote arrival airport in
+  it), price, dates and nights, airline, arrival airport, "encontrado a <found date> e verificado
+  a <fetched at> (hora de Lisboa)", the promotion's stored partner link (`deals.affiliate_url`,
+  the Instagram Project, D19; WhatsApp has no Project of its own yet) and `presentation.DISCLOSURE`.
+  Only for approved and published promotions with a link (`pipeline.whatsapp_for`). The review
+  snapshot fills the existing `whatsapp_text` field (description updated, no shape change); the
+  phone page already shows it with a copy button (D29) and the local review page now does too.
+  The traceability test checks its prices like a caption's.
+- **CLI:** `escapadinha queue list` (queued posts, Lisbon time, why a due one waits; `--all` adds
+  published and cancelled ones with publisher or reason).
+- **Rejected:** enqueueing in a separate step after the applier (an approval could be applied
+  without its posts if the run died in between); posting several Instagram slots in one run;
+  cancelling a post whose price was not re-verified (it waits for a run that verifies it).
+
+## D33: Itineraries and tips as reviewed MDX content collections (2026-10-14, #17)
+- **What:** two Astro content collections in the web package, `itineraries` and `tips`, MDX files
+  in `web/src/content/itineraries/` and `web/src/content/tips/` (where the build and #19's drafts
+  both find them). The file name is the slug and the only source of the page path:
+  `/roteiros/<slug>/` and `/dicas/<slug>/` (`content.contentPath`, refuses a non-slug name), plus
+  the listings `/roteiros/` and `/dicas/` (`noindex` while empty) and a "Roteiros e dicas" section
+  on the home page (latest three of each, only when there are any). Hand-chosen slugs are not
+  computed in Python like the contract's paths: they are not data, they are file names. No nav link
+  yet: there is no reviewed content in a real build, and the nav would point at an empty page.
+  `@astrojs/mdx` **8.0.2** (exact, newest release older than two weeks; peer `astro ^7.2.10`) is
+  the only new dependency.
+- **Front matter** (zod schemas in `src/lib/content.ts`, `astro/zod`, a plain module so vitest and
+  tsc check it): `title`, `description` (≤ 200), `last_checked` (YAML date → ISO day),
+  `sources` (`{title, url}`, https only), `best_months` (1–12), `reviewed` (default `false`),
+  `fixture` (default `false`), `legacy_path` (an old site path); itineraries add `destination`
+  (contract city code) and `days` (1–30), tips `topic` (a slug) and `destinations` (codes). A
+  reviewed entry without `last_checked` or without a source fails the build: "nothing I have not
+  read goes live" (story 47) and "state when facts were last checked and link official sources"
+  (story 51) are schema rules, not conventions. Every file, drafts included, is validated on every
+  build, because the loader reads them all; the gate decides only what is built. The spec's
+  "affiliate blocks" (eSIM, insurance, activities) are #18's.
+- **Review gate in one place:** `src/collections.ts` (`itineraries()`, `tips()`) filters with
+  `content.isVisible`: reviewed entries; drafts too in `astro dev` (with a "Rascunho" notice and
+  `noindex`, so Miguel reads them in the local preview); test-only entries (`fixture: true`) only
+  when the site data is fixture data (`meta.fixture`). Every page, listing and the itinerary link
+  read through it; a sitemap (not built yet) must too. The dev check is `import.meta.env.MODE ===
+  "development"`, not `DEV`: Vite derives `DEV` from `NODE_ENV`, which vitest sets to `test`, and
+  the first test build did ship the drafts that way (caught by `content-pages.test.ts`).
+- **Articles** (`ContentArticle.astro`): kicker, title, lead, the MDX body (`.prose` spacing on the
+  tokens), then "Factos verificados a 14 de outubro de 2026" (`format.dayMonthYear`) with a line
+  that hours, rules and prices change, and the sources as plain links (`rel="noopener"`, not
+  sponsored: they are official pages). Itineraries add duration (`count`), best months
+  (`format.monthList`: "abril, maio e setembro") and a link to the destination hub when the city is
+  in the data. No JSON-LD `Article` yet (the SEO work with the sitemap).
+- **Itinerary hook (D30) wired:** `itineraryFor(code, entries)` is now pure over the gated entries
+  (`ItineraryLink.astro` passes `await itineraries()`); one reviewed itinerary per city (two stop
+  the build), and in the dev server a draft shows only where no reviewed one exists. Hubs and route
+  pages of that city render the link (`[data-itinerary]`).
+- **No prices in content** (CLAUDE.md, never fabricate prices): an article can't carry an
+  observation id, so it carries no amount at all. If an article ever needs a price, it must be a
+  contract value rendered by a component with its `data-obs`/`data-route` (the traceability test
+  already walks these pages), never text in the MDX.
+- **pt-PT lint over content:** `web/test/pt-lint.test.ts` lints every MDX file (real, drafts and
+  test-only): front matter values (YAML comments and `last_checked` skipped) and body, URLs
+  removed; the Brazilian and English word lists, plus: "€", "EUR" or a number followed by
+  "euro(s)"; a dot inside a number ("3.5 km"; pt-PT writes "3,5" and "1200"); ISO dates; a
+  capitalised month after a day ("6 de Novembro"); English month names; "20 %"; "9 am"; the pt-BR
+  progressive gerund ("estou visitando" → "estou a visitar"). A seeded "você" fails it (in a
+  string and in a seeded file).
+- **Old guide converted:** `content/guides/voos-baratos-dicas.yaml` (never published: it was
+  `reviewed: false`, with no sources) is now the tip `web/src/content/tips/voos-baratos.mdx` with
+  its five tips as sections, **still a draft** (no `last_checked`, no sources): it renders in the
+  dev server at `/dicas/voos-baratos/` and goes live when Miguel checks it, adds sources and sets
+  `reviewed: true`. Its front matter keeps `legacy_path: /guias/voos-baratos-dicas/` for the
+  cutover (#23) to turn into a 301 (any entry's `legacy_path` → its new path). The Instagram-only
+  fields (kicker, CTA, caption, hashtags) stay in the YAML, which still feeds the carousel
+  renderer (`render guide`) and the Jinja site until #23 retires them.
+- **Fixture content:** `web/test/fixtures/content/` holds a reviewed test itinerary for Paris
+  (`paris-em-3-dias`, PAR is in the fixtures), a reviewed test tip (`dica-de-teste`, two sources,
+  about PAR)
+  and a draft itinerary for Barcelona, all `fixture: true`, saying in their text that they are test
+  content, with example.com sources. They make the fixture build (and Lighthouse) exercise the
+  pages; a build from real data never includes them. `content-pages.test.ts` checks: pages and
+  listings for reviewed entries; drafts absent from the build, from every page's links and text;
+  the checked date and source links; the MDX body; days, best months and the hub link; the link
+  from `/destinos/paris/` and `/voos/lisboa-paris/`, none from Barcelona's hub (draft only).
+- **Run path:** the Astro site is not deployed by `run` until the cutover; #23 must add the web
+  package's sources, content included, to `run_path._code_files` so a newly reviewed article
+  takes the full path.
+- **Lighthouse:** `/roteiros/paris-em-3-dias/` and `/dicas/dica-de-teste/` added to
+  `web/lighthouserc.json`. Local run 2026-10-14 (fixture build, mobile, median of 3): itinerary,
+  tip and `/roteiros/` 0.95 / 1 / 1 / 1 (performance / accessibility / best practices / SEO), home
+  with the new section 0.94 / 1 / 1 / 1.
+- **Related tips on destination hubs (story 36, review fix):** a hub lists the reviewed tips whose
+  `destinations` front matter names its city code ("Dicas para Paris", most recently checked first,
+  `src/lib/related.ts` `tipsFor` over the gated `tips()`, `RelatedTips.astro`); nothing is rendered
+  when there are none. The test tip now has `destinations: [PAR]`: `/destinos/paris/` links it,
+  Barcelona's and Madeira's hubs show no section.
+- **Not done here:** a nav link, JSON-LD and the sitemap, affiliate blocks (#18), the drafts
+  themselves (#19).

@@ -1,0 +1,23 @@
+---
+// A route's low prices (D24): automatic, not reviewed. The rows are the shared low-price view
+// (src/lib/low-prices.ts, the same as the explorer's): the price (data-obs), its discount against
+// the departure month's typical low (data-route), dates, airline and stops, arrival airport, the
+// traveller's found date and our first sight, and the booking button by the src/lib/cta.ts rule
+// (or the note that the link comes with a later run); the site disclosure and the CTA note sit
+// once under the list, inside the same [data-cta] block.
+import type { Labels } from "../lib/contract";
+import { CTA_NOTE } from "../lib/cta";
+import { lowPriceHtml, type LowPriceView } from "../lib/low-prices";
+
+interface Props {
+  lows: LowPriceView[];
+  routeKey: string;
+  labels: Labels;
+}
+
+const { lows, routeKey, labels } = Astro.props;
+---
+<div data-low-prices data-cta data-route={routeKey} class="mt-md">
+  <ul class="grid gap-xl sm:grid-cols-2 lg:grid-cols-3" set:html={lows.map((l) => lowPriceHtml(l, { headline: false })).join("")} />
+  <p class="notice mt-md max-w-measure text-muted">{labels.disclosure.site} {CTA_NOTE}</p>
+</div>

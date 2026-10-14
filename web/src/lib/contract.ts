@@ -29,6 +29,7 @@ export interface Meta {
   detector: Record<string, number>;
   files: {
     origins: string; routes: string; destinations: string; promotions: string; labels: string;
+    pontes?: string;
     low_prices: Record<string, string>;
   };
   counts: Record<string, number>;
@@ -49,7 +50,11 @@ export interface Labels {
 export interface Origin {
   iata: string;
   name: string;
+  /** The article the name takes in a sentence ("o" Porto, "a" Madeira); null or absent: none. */
+  article?: "o" | "a" | "os" | "as" | null;
   slug: string;
+  /** The origin page, /partidas/<slug>/ (D30). */
+  path: string;
   routes: { active: number; dormant: number };
   low_prices: number;
   promotions_live: number;
@@ -60,6 +65,14 @@ export interface RouteMonth {
   typical_low: number | null;
   average: number | null;
   days: number;
+}
+
+/** One day of a route's price calendar: the cheapest fresh offer departing that day (D30). */
+export interface CalendarDay {
+  dep: string;
+  ret: string;
+  obs: number;
+  price: number;
 }
 
 export interface Route {
@@ -75,6 +88,7 @@ export interface Route {
   path: string;
   months: RouteMonth[];
   cheapest: Offer | null;
+  calendar: CalendarDay[];
   counts: { observations: number; low_prices: number; promotions_live: number; promotions_expired: number };
   discovered_at: string | null;
   last_observed_at: string | null;
@@ -94,6 +108,8 @@ export interface Destination {
   city: string;
   city_en: string | null;
   slug: string;
+  /** The destination hub, /destinos/<slug>/ (D30). */
+  path: string;
   kinds: Kind[];
   airports: string[];
   routes: string[];
@@ -137,6 +153,24 @@ export interface LowPrices {
   truncated: number;
 }
 
+/** One long weekend of the holiday calendar (pontes.json, D31), past ones included. Dates are
+ * ISO calendar dates. No display text: titles come from format.ts (`ponteTitle`). */
+export interface Ponte {
+  slug: string;
+  name: string;
+  holiday: { date: string; name: string; optional: boolean };
+  days_off: { first: string; last: string };
+  bridge: string | null;
+  window: { start: string; end: string };
+  origins: { iata: string; path: string }[];
+}
+
+export interface Pontes {
+  version: 1;
+  source: string;
+  pontes: Ponte[];
+}
+
 export interface SiteData {
   meta: Meta;
   labels: Labels;
@@ -145,4 +179,6 @@ export interface SiteData {
   destinations: { version: 1; destinations: Destination[] };
   promotions: { version: 1; promotions: Promotion[] };
   lowPrices: Record<string, LowPrices>;
+  /** Empty when the export predates pontes.json. */
+  pontes: Pontes;
 }

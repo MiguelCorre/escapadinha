@@ -4,7 +4,9 @@ Travel-deals automation for the Portuguese market (placeholder brand). It collec
 flight prices for every direct route from Lisbon, Porto, Faro, Madeira, Ponta Delgada and
 Terceira (discovered automatically) plus ~20 long-haul destinations, keeps a price history, lists low prices on the website and flags promotions well below each
 route's own historical median, and renders Instagram carousel slides (1080×1350 PNG) with
-pt-PT captions into `./output/<date>/` **for manual review. v1 does not publish anything.**
+pt-PT captions into `./output/<date>/` **for manual review.** Approved promotions go into a
+posting queue (Instagram daily slots, Telegram at once); the publishers are a dry run for now:
+they log what they would post (D32).
 
 **Integrity rule:** every price shown comes from a stored API observation (`price_observations`)
 with its source, first `fetched_at` timestamp and the day a traveller found it (`found_date`).
@@ -42,7 +44,8 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `detector.py` | Pure functions: `baseline`, `evaluate`, `low_prices`, `detect_route`, `detect` (both tiers) |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
-| `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) |
+| `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) and the WhatsApp text |
+| `posting.py` | Posting queue rules (D32): pure daily-slot allocation, re-verification verdict, publishers (dry run) |
 | `pipeline.py` | Wires the DB to each step; `cli.py` exposes them |
 | `site_data.py` | Website data contract v1: JSON export for the Astro site + fixtures (`contract/site/v1/`) |
 
@@ -85,7 +88,8 @@ uv run escapadinha render deals            # renders deals with status 'new' →
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
 uv run escapadinha export site-data        # website data contract v1 (JSON) → output/site-data/v1
-uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect, then render → export → site → deploy only if something changed → review snapshot
+uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → publish due posts, then render → export → site → deploy only if something changed → review snapshot
+uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled
 uv run escapadinha run --full              # the same, always with render → export → site build → deploy
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
 uv run escapadinha store pull              # R2 only: bucket database → data/escapadinha.db
@@ -169,7 +173,13 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 - `collector`: `months_ahead` (3 = this month + 2), currency, `requests_per_minute` (550).
   Nights come from each route's rules.
 - `photos`: `queries` (Pixabay search per destination code) and `max_per_run` (40).
+- `posting` (D32): `instagram_slots` (Lisbon time, default `09:00`, `13:00`, `19:00`),
+  `max_per_day` (3 Instagram posts per Lisbon day), `max_check_age_hours` (6: a due post waits
+  until a recheck or the approval verified the price this recently), `max_attempts` (5 publisher
+  errors cancel a post) and `publishers` per channel (`dry-run` for now).
 - `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
+- `origins_article`: the article a name takes in a sentence (`OPO: o` → "desde o Porto", `FNC: a`,
+  `TER: a`; unlisted origins take none), exported in `origins.json` for the site's titles.
 - `detector`:
   - `threshold: 0.30` and `min_saving_eur: 15`: a promotion candidate needs
     `price ≤ typical_low × (1 − 0.30)` **and** `typical_low − price ≥ 15 €`.
@@ -245,7 +255,8 @@ found/checked dates and the last recheck.
   and nothing is written: the next collection's recheck expires the deal. A deal without an
   affiliate link can't be approved.
 - **Rejeitar** (optional note) and **Marcar como publicado** (optional post URL) record the decision.
-  Publishing to Instagram is still manual.
+  Publishing to Instagram is still manual (the posting queue below runs as a dry run).
+- Approved deals show the **WhatsApp text** with a copy button (also on the phone page).
 - Approved deals keep being rechecked every 2 h. If the price moves before you post, the deal
   expires and the page tells you.
 
@@ -291,6 +302,37 @@ price, dates, discount, caption, slide links, the live-check query and last rech
 pending decisions, the latest outcomes and the review rules (`review_rules.approve_max_age_hours`,
 so a review UI can warn before an approval gets too old). Slides of deals still under review are copied to
 `review/slides/<id>/` as WebP (they aren't on the public site yet).
+
+### Posting queue (DECISIONS D32)
+
+When a run applies an approval it queues the promotion twice: **Instagram** at the next free daily
+slot (09:00, 13:00, 19:00 Lisbon time, at most 3 a day; `posting` in `config.yaml`) and
+**Telegram** at once. Every run, after detection and before the fast/full path decision (so after
+its recheck, and on the fast path too), publishes the posts that are due:
+
+- a promotion that **expired** or was **rejected** cancels its queued posts, due or not, with the
+  reason (*cancelada: A promoção expirou: o preço subiu para 80 €.*); one you marked published by
+  hand cancels its Instagram post (Telegram still goes if its price was verified in the last 6 h;
+  published promotions aren't rechecked, so after that it is cancelled rather than waiting);
+- a due post goes out only if the price was verified (the run's recheck, else the live check you
+  ran before approving: its time, not the approval's) in the last 6 h; otherwise it waits for a
+  run that verifies it;
+- at most one Instagram post per run, so a backlog never goes out in a burst;
+- a publisher error keeps the post queued and retries next run; after 5 errors it is cancelled.
+
+For now both channels use the **dry-run publisher**: the run log shows what would be posted
+(`[dry-run] Telegram · deal 12 · Lisboa → Londres · 58 € · agendada para ...` and the full
+text) and nothing leaves the machine. The Instagram (#24) and Telegram (#21) publishers plug in
+through `posting.publishers`.
+
+```bash
+uv run escapadinha queue list         # 2 publicações agendadas: Instagram deal 12 ... 01/12/2026 às 09:00 · agendada
+uv run escapadinha queue list --all   # also published (dry-run) and cancelled posts, with the reason
+```
+
+Every approved promotion also gets a short **WhatsApp text** (pt-PT: destination and arrival
+airport, price, dates, when the price was found and when we checked it, the affiliate link and the
+disclosure), in the review snapshot (`whatsapp_text`) and on both review pages with a copy button.
 
 ### Review on the phone: https://pontonomada.pt/review (DECISIONS D29)
 
@@ -399,11 +441,12 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 |---|---|
 | `meta.json` | Contract version, `generated_at`, latest run id, detector settings, list of files, counts, `fixture` flag |
 | `labels.json` | pt-PT names from `i18n_pt.py` (airlines, airports + remote flag, route kinds, months, disclosures) |
-| `origins.json` | The Portuguese origins (name, slug, active/dormant routes, low prices, live promotions) |
-| `routes.json` | Every route: kind, status, rules, page path, typical low and plain average per departure month (null while the month has too few days), cheapest fresh offer, counts |
-| `destinations.json` | Destination hubs: city, airports, routes from Portugal, photo credit |
+| `origins.json` | The Portuguese origins (name, slug, origin page path `/partidas/<slug>/`, active/dormant routes, low prices, live promotions) |
+| `routes.json` | Every route: kind, status, rules, page path, typical low and plain average per departure month (null while the month has too few days), cheapest fresh offer, calendar (cheapest fresh offer per departure date, D30), counts |
+| `destinations.json` | Destination hubs: city, hub path `/destinos/<slug>/` (stable once exported: a same-name city found later takes its code; paths remembered in `site.paths` for 301s), airports, routes from Portugal, photo credit |
 | `promotions.json` | Approved deals, live and expired after approval (for `site.expired_promotions_days`, 30, after expiring): offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
 | `low-prices/<ORIGIN>.json` | One origin's low prices for the explorer: compact rows `[obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link]` |
+| `pontes.json` | Every long weekend ("pontes", D31) of `content/holidays.yaml`, past ones too: holiday, days off, bridge day, travel window, one page path per origin. No prices, no display text (added within v1: older exports lack it) |
 
 - **Raw values:** ISO dates, UTC timestamps, euros as numbers. pt-PT formatting is the site's job,
   with the names from `labels.json`. `found` (traveller) and `fetched` (us) are separate fields.
@@ -428,7 +471,8 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 The M3 website is a separate npm package in [`web/`](web/) (Astro 7, static output, Tailwind 4
 with the design-system tokens). It reads only the contract JSON, so it builds and tests without
 Python. It is **not live yet**: the Jinja site above stays the live one until the cutover (#23).
-So far: home page and promotion pages (live and expired).
+So far: home page, promotion pages (live and expired), route pages, origin pages and destination
+hubs (D30), the explorer and the ponte pages (D31), itineraries and tips (D33).
 
 ```bash
 cd web
@@ -456,14 +500,68 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
 - **Pages:** `/` (live promotions, then recently expired ones), `/promos/<id>-<origem>-<destino>/`
   (the path from the contract, same URLs as today), `404.html`, `robots.txt`, `og-default.png`.
   An expired promotion is `noindex`, has no booking button and says why (the recheck's reason).
-- **Prices:** every price element carries `data-obs` / `data-deal` (also on `<head>` when the title
-  shows a price); `web/test/traceability.test.ts` fails on any price string on a built page that
-  isn't an amount of the referenced observation or deal in the contract.
+- **Route, origin and destination pages (D30):** `/voos/<origem>-<destino>/` (the contract's
+  `path`, the Jinja site's URLs): promotions on the route, recent low prices (biggest 5 discounts,
+  by date, each with its found-on date, our first sight and its own partner link, the disclosure
+  under the list), a calendar of the cheapest found price per departure day, the typical low per
+  month ("ainda sem dados suficientes" while a month has too few days), a notice on dormant
+  routes, links to the origin page and the destination hub. `/partidas/<origem>/`: every
+  destination from that airport by kind, with the cheapest price found now. `/destinos/<destino>/`:
+  every Portuguese origin with a route there, its cheapest price and best months (lowest typical
+  lows). Index pages `/partidas/` and `/destinos/` (nav "Destinos"). Hubs and route pages link the
+  city's reviewed itinerary when there is one (`src/lib/itinerary.ts`, `ItineraryLink.astro`);
+  hubs also list the reviewed tips whose `destinations` name the city (`src/lib/related.ts`).
+- **Itineraries and tips (D33):** MDX files in `web/src/content/itineraries/` and
+  `web/src/content/tips/`; the file name is the slug, the page is `/roteiros/<slug>/` or
+  `/dicas/<slug>/`, listed on `/roteiros/` and `/dicas/` and (the latest three of each) on the home
+  page. Front matter (schemas in `src/lib/content.ts`, checked on every build, drafts included):
+  `title`, `description`, `last_checked` (the day every fact was checked), `sources` (`title` +
+  https `url` of the official pages), `best_months` (1–12), `reviewed` (default `false`); an
+  itinerary adds `destination` (the city code, one itinerary per city) and `days`, a tip `topic`
+  and optional `destinations`; `legacy_path` keeps an old site path for the cutover's redirects.
+  **Only `reviewed: true` entries are built**, and a reviewed entry needs `last_checked` and at
+  least one source; drafts show only in the dev server (`npm run dev` / `dev:fixtures`), with a
+  "Rascunho" notice and `noindex`. Each article ends with "Factos verificados a <data>" and its
+  sources. **No prices in content:** the pt-PT lint refuses "€", "EUR" and amounts in euros; link
+  the official source instead. Test-only entries (`fixture: true`) live in
+  `web/test/fixtures/content/` and are built only from fixture data. The old "guia rápido" is now
+  the draft tip `web/src/content/tips/voos-baratos.mdx` (`/dicas/voos-baratos/` once reviewed;
+  `legacy_path: /guias/voos-baratos-dicas/`): to publish it, check the facts, add the sources and
+  `last_checked`, set `reviewed: true`.
+- **Scale:** `web/test/scale.test.ts` builds a synthetic dataset the size of the real data
+  (`test/synthetic-data.ts`: 360 routes, 6 origins, 156 destinations, `meta.fixture: true`, made-up
+  prices only ever shown in a temporary build) and checks page counts, the build-time budget
+  (120 s; ~5 s measured for 528 pages), dormant notices, months without data, internal links and
+  price traceability at that size.
+- **Explorer** `/explorar/` (D31): without JavaScript, the first origin with low prices, every
+  destination at its cheapest, by price; with it, a small island (`src/lib/explorer-island.ts`,
+  ~5 KB, no framework) adds the filters: origin, maximum budget, departure month, nights range,
+  direct only, weekends only (out Friday/Saturday, back Sunday/Monday of the same weekend: 1–3
+  nights), pontes. It fetches an
+  origin's low prices only when picked, from `/explorar/dados/<ORIGIN>.json` (the contract's rows
+  plus the names they need). Server and island share `src/lib/explorer.ts` (rules and result HTML).
+  Each result's headline links to its route page (the contract's route `path`).
+- **Pontes** `/pontes/<feriado>-<ano>/<origem>/` (paths from `pontes.json`): one page per long
+  weekend and origin with the low prices whose departure and return both fall inside the window;
+  `noindex` while there are none. A ponte that has passed keeps its page, `noindex`, saying "Esta
+  ponte já passou."; titles ("desde o Porto") use the article from config `origins_article`. The calendar is `content/holidays.yaml` (national
+  holidays 2026–2027, Código do Trabalho art. 234.º/235.º; add the next year's dates before 2028).
+- **Prices:** every price element carries `data-obs` / `data-deal` / `data-route` (also on `<head>`
+  when the title shows a price); `web/test/traceability.test.ts` fails on any price string on a
+  built page that isn't an amount of the referenced observation, deal or route in the contract.
+- **Links:** `web/test/pages.test.ts` fails on any internal link (`a`, `link`, `img`) that doesn't
+  resolve to a built page or file; every route page is linked from its origin page and its hub.
 - **Booking links** come from the contract as given (never built here); `src/lib/cta.ts` shows a
-  button only for a live price with a link, always with `labels.disclosure.site` next to it.
-- **pt-PT:** formats in `src/lib/format.ts` (mirrors `i18n_pt.py`: "49,50 €", "sex, 6 nov",
+  button only for a live price with an https link, always with `labels.disclosure.site` next to it.
+  Low prices (route pages, explorer, ponte pages, the island) are drawn by one function,
+  `src/lib/low-prices.ts`; a row whose partner link is not created yet (per-run link budget) says
+  "Ligação de reserva disponível em breve." instead of a button.
+- **pt-PT:** formats only in `src/lib/format.ts`, day arithmetic (weekday, nights, Lisbon day of
+  an instant) only in `src/lib/dates.ts` (mirrors `i18n_pt.py`: "49,50 €", "sex, 6 nov",
   "12/10/2026 às 22:17" Lisbon time); `web/test/pt-lint.test.ts` fails on Brazilian words
-  ("você", "celular", "equipe", …) or English UI text in the templates.
+  ("você", "celular", "equipe", …) or English UI text in the templates, and on every itinerary and
+  tip (drafts too) also on euro amounts, decimal points ("3.5 km"), ISO or English dates,
+  capitalised months ("6 de Novembro"), "20 %", "9 am" and the pt-BR gerund ("estou visitando").
 - **Design:** `src/styles/tokens.css` is generated from `docs/design/tokens.json` and replaces
   Tailwind's default colours, fonts, sizes, radii and shadows (`src/lib/tokens.ts` is the same data
   for code: theme-color, the OG image, the review page; no other colour is allowed, a test checks
@@ -472,7 +570,9 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
 - **CI:** `.github/workflows/web.yml` runs on pull requests touching `web/`, `contract/`, the
   tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, Lighthouse CI (reports kept as an
   artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all
-  three page types.
+  three page types; on 2026-10-14 (D30) route 0.91–0.93, origin 0.95, destination 0.95–1 (accessibility,
+  best practices and SEO 1), and 0.92–0.98 on the full-size synthetic build's largest pages; (D31)
+  the explorer 0.92 / 1 / 1 and a ponte page 0.95 / 1 / 1; (D33) the test itinerary and tip 0.95 / 1 / 1.
 
 ## Visual directions (M2, issue #11)
 
@@ -610,7 +710,7 @@ Without the CLI: download `backups/<date>/escapadinha.db` from the R2 dashboard 
 
 `.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours (cron `17 */2 * * *`, UTC)
 on `ubuntu-latest`: lock → pull the database from R2 → daily backup → (monthly discovery) →
-collect → recheck → detect → **full path only when needed** → push → unlock.
+collect → recheck → detect → publish due posts (D32) → **full path only when needed** → push → unlock.
 
 - **Fast path, full path.** After detection the run compares a fingerprint of what the public
   outputs show with the one stored at the last full path: promotions (id, status, link), the low
@@ -683,7 +783,9 @@ PC sleeps start when it wakes. Output is appended to `logs/run-<date>.log`, endi
 
 ## Guides ("guia rápido")
 
-Add `content/guides/<slug>.yaml` with a title, 3–8 tips, CTA, caption and hashtags (see the
+The website's tips and itineraries are MDX in `web/src/content/` (see "The new site", D33); the
+YAML guides below only feed the Instagram carousel (`render guide`) and the current Jinja site
+until the cutover (#23). Add `content/guides/<slug>.yaml` with a title, 3–8 tips, CTA, caption and hashtags (see the
 sample). Guides are hand-written. Set `reviewed: true` after checking the facts; the CLI
 warns until then. `photo_destination` picks a cached photo (for example `LIS`; add its
 query under `photos.queries` and run `photos fetch --dest LIS`).
@@ -746,6 +848,11 @@ uv run pytest -m "not browser"
   `web/functions/` outside the generated `tokens.css` / `tokens.ts`.
 - `test_review_function_deploy.py`: `site deploy` uploads the Function with the site, a Function
   change redeploys and takes the full path.
+- `test_posting.py`: slot allocation and the daily cap with an injected `now` (summer/winter time,
+  both clock-change Sundays, Lisbon vs UTC midnight), the upgrade from `schema_v5.sql`/`schema_v7.sql`,
+  queueing on an applied approval, the publish step (dry run, expiry/rejection cancels, waiting
+  for a recheck, publisher errors, one Instagram post per run), `queue list` and the run order.
+  The WhatsApp text is checked in `test_captions.py` and by the traceability test.
 
 ## Data sources and terms
 

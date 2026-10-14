@@ -1,0 +1,19 @@
+---
+// Link to the destination's itinerary when one exists (src/lib/itinerary.ts, reviewed entries of
+// the itineraries collection, D33); renders nothing otherwise.
+import { itineraries } from "../collections";
+import { itineraryFor } from "../lib/itinerary";
+
+interface Props {
+  destination: string;
+  city: string;
+}
+
+const { destination, city } = Astro.props;
+const itinerary = itineraryFor(destination, await itineraries());
+---
+{itinerary && (
+  <p class="notice mt-lg max-w-measure text-ink" data-itinerary>
+    O que fazer em {city}: <a href={itinerary.path}>{itinerary.title}</a>
+  </p>
+)}

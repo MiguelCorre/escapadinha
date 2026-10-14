@@ -384,7 +384,7 @@ def test_upgrade_from_v7_adds_city_en_and_meta_and_keeps_routes(ctx):
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     for table in ("routes", "meta", "price_observations", "deals", "fetch_runs", "photos",
-                  "partner_links"):
+                  "partner_links", "posting_queue"):
         assert _columns(conn, table) == _columns(fresh, table), table
 
 

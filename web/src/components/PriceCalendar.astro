@@ -1,0 +1,43 @@
+---
+// Calendar of the cheapest found prices (story 34, D30): one Monday-first month grid per departure
+// month, each day with the cheapest fresh offer departing then (routes.json `calendar`), the
+// month's lowest marked. Every price cell carries its observation (data-obs, D2).
+import type { Route } from "../lib/contract";
+import { WEEKDAYS, WEEKDAYS_SHORT } from "../lib/format";
+import { calendarMonths } from "../lib/routes";
+
+interface Props {
+  route: Route;
+}
+
+const { route } = Astro.props;
+const months = calendarMonths(route);
+---
+<div data-calendar data-route={route.key} class="mt-md grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+  {months.map((m) => (
+    <table class="w-full table-fixed border-t-2 border-ink text-center">
+      <caption class="pb-xs text-left font-semibold">{m.label}</caption>
+      <thead>
+        <tr>
+          {WEEKDAYS_SHORT.map((d, i) => <th scope="col" abbr={WEEKDAYS[i]} class="py-2xs text-caption font-normal text-muted">{d}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {m.weeks.map((week) => (
+          <tr>
+            {week.map((cell) => cell === null ? <td></td> : cell.price ? (
+              <td data-obs={cell.price.obs} title={cell.price.title}
+                class:list={["border border-bg px-0 py-2xs align-top", cell.price.cheapest ? "bg-success-bg text-success" : "bg-surface"]}>
+                <span class="block text-caption text-muted">{cell.day}</span>{" "}
+                <span class="num block text-caption font-semibold whitespace-nowrap">{cell.price.text}</span>{" "}
+                <span class="sr-only">{cell.price.title}{cell.price.cheapest ? ", o mais barato do mês" : ""}</span>{" "}
+              </td>
+            ) : (
+              <td class="py-2xs align-top text-caption text-muted">{cell.day}{" "}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  ))}
+</div>

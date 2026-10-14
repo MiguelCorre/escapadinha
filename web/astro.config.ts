@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import mdx from "@astrojs/mdx";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, fontProviders } from "astro/config";
 import { siteDataPlugin } from "./src/lib/site-data-plugin";
@@ -11,8 +12,9 @@ import { siteDataPlugin } from "./src/lib/site-data-plugin";
 const tokens = JSON.parse(readFileSync(new URL("../docs/design/tokens.json", import.meta.url), "utf8"));
 
 // The self-hosted OFL fonts shared with the slides (assets/fonts/, D22), served through Astro's
-// Fonts API so it adds metric-matched fallbacks (size-adjust) and swapping in the font moves
-// nothing on the page. Family names and fallback stacks come from tokens.json; the Tailwind theme
+// Fonts API so it adds metric-matched fallbacks (size-adjust). font-display: optional (D28): the
+// web font is used only when it arrives before first paint (from cache after the first page), so
+// it never moves the layout. Family names and fallback stacks come from tokens.json; the Tailwind theme
 // (src/styles/tokens.css) points font-display / font-text at these variables.
 const FONT_FILES: Record<string, { normal: string; italic: string; weight: string }> = {
   display: { normal: "Fraunces-Roman.woff2", italic: "Fraunces-Italic.woff2", weight: "100 900" },
@@ -30,7 +32,7 @@ const fonts = Object.entries(FONT_FILES).map(([role, files]) => {
         src: [`../assets/fonts/${files[style]}`] as [string],
         weight: files.weight,
         style,
-        display: "swap" as const,
+        display: "optional" as const,
       })) as [any, ...any[]],
     },
   };
@@ -42,6 +44,8 @@ export default defineConfig({
   trailingSlash: "always",
   build: { format: "directory", inlineStylesheets: "always" },
   fonts,
+  // Itineraries and tips (src/content.config.ts, D33).
+  integrations: [mdx()],
   vite: {
     plugins: [tailwindcss(), siteDataPlugin()],
     // Fonts and logos live in the repository's assets/ (shared with the slides).

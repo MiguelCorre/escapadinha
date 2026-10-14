@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import time
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -12,6 +13,8 @@ import yaml
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from escapadinha.posting import CHANNELS as POST_CHANNELS
 
 if TYPE_CHECKING:
     from escapadinha.storage.objects import ObjectStore
@@ -277,19 +280,69 @@ class ReviewConfig(BaseModel):
     approve_max_age_hours: float = Field(24, gt=0)
 
 
+PublisherName = Literal["dry-run"]
+
+
+class PostingConfig(BaseModel):
+    """Posting queue (D32): when approved promotions go out, and through which publisher."""
+    # Instagram daily slots, Lisbon time ("HH:MM"), and the most posts a Lisbon day gets.
+    instagram_slots: list[str] = ["09:00", "13:00", "19:00"]
+    max_per_day: int = Field(3, ge=1)
+    # A post goes out only if its promotion was rechecked (or approved) this recently;
+    # otherwise it waits for a run whose recheck covers it.
+    max_check_age_hours: float = Field(6, gt=0)
+    max_attempts: int = Field(5, ge=1)       # a publisher error this often cancels the post
+    # channel (posting.CHANNELS) -> publisher; a channel left out gets the dry run.
+    publishers: dict[str, PublisherName] = {channel: "dry-run" for channel in POST_CHANNELS}
+
+    @field_validator("instagram_slots")
+    @classmethod
+    def _slot_times(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("posting.instagram_slots needs at least one 'HH:MM'")
+        for item in v:
+            try:
+                time.fromisoformat(item)
+            except ValueError:
+                raise ValueError(f"posting.instagram_slots: {item!r} is not 'HH:MM'") from None
+        if len(set(v)) != len(v):
+            raise ValueError("posting.instagram_slots has a repeated time")
+        return sorted(v)
+
+    @field_validator("publishers")
+    @classmethod
+    def _known_channels(cls, v: dict[str, str]) -> dict[str, str]:
+        unknown = sorted(set(v) - set(POST_CHANNELS))
+        if unknown:
+            raise ValueError(f"posting.publishers: unknown channel(s) {unknown}, "
+                             f"use {list(POST_CHANNELS)}")
+        return {**{channel: "dry-run" for channel in POST_CHANNELS}, **v}
+
+    @property
+    def slots(self) -> list[time]:
+        return [time.fromisoformat(s) for s in self.instagram_slots]
+
+
 class AppConfig(BaseModel):
     brand: Brand = Brand()
     review: ReviewConfig = ReviewConfig()
+    posting: PostingConfig = PostingConfig()
     collector: CollectorConfig = CollectorConfig()
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()
     origins_pt: dict[str, str] = {}
+    # The definite article an origin's name takes in a sentence ("desde o Porto", "desde a
+    # Madeira"); none for the others ("desde Lisboa"). Exported in origins.json for the site.
+    origins_article: dict[str, Literal["o", "a", "os", "as"]] = {}
     photos: PhotosConfig = PhotosConfig()
     affiliate: AffiliateConfig = AffiliateConfig()
     site: SiteConfig = SiteConfig()
 
     def origin_name(self, iata: str) -> str:
         return self.origins_pt.get(iata, iata)
+
+    def origin_article(self, iata: str) -> str | None:
+        return self.origins_article.get(iata)
 
 
 class Context:
@@ -358,3 +411,8 @@ class Context:
     @property
     def guides_dir(self) -> Path:
         return self.root / "content" / "guides"
+
+    @property
+    def holidays_file(self) -> Path:
+        """Portuguese public holidays (pontes, D31)."""
+        return self.root / "content" / "holidays.yaml"
