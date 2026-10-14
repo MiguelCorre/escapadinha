@@ -416,10 +416,14 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
   `web/dist/img/promos/<id>/` (`slide_NN.webp` 1080 px, `thumb.webp` 540 px, `og.jpg`), the paths
   `promotions.json` names; on a CI runner the slides come from the object store (each once).
 - **`site build`** (`website/astro.py`) runs `npm ci` only when `web/node_modules` is missing or
-  `package-lock.json` changed (a stamp in node_modules), then `npm run build` with `SITE_DATA_DIR`
+  was installed from another `package-lock.json` or by another Node version, platform or
+  architecture (a stamp in node_modules), then `npm run build` with `SITE_DATA_DIR`
   = the export, and refuses to go on without an export. It prints pages per type, images,
   redirects and the size (real data, 2026-10-14: 627 pages, 31 MB, ~8 s, ~18 s with `npm ci`).
-  Node 22+ is required (on Windows `npm.cmd` is found on the PATH or in `C:\Program Files\nodejs`).
+  Node 22+ is required (on Windows `npm.cmd` is found on the PATH or in `C:\Program Files\nodejs`,
+  `website/node.py`). On `run`'s full path npm ci, the build and the deploy share one 20-minute
+  budget (`node.FULL_PATH_SECONDS`): a command that hangs fails the run with the end of its
+  output, leaving time to push the database inside the job (D35).
 - **`site deploy`** uploads `web/dist` with `npx wrangler@<site.wrangler_version>` running in
   `web/`, so the review Function (`web/functions/`) ships in the same deployment. It refuses a
   fixture build (`<html data-fixture="true">`) and skips the upload when the content hash (the
@@ -896,7 +900,8 @@ uv run pytest -m "not browser"
 - `test_web_tokens.py` fails when `web/src/styles/tokens.css` or `web/src/lib/tokens.ts` no longer
   matches `docs/design/tokens.json` (run `npm run tokens` in `web/`).
 - `test_web_build.py`: `site build` (npm ci only when needed, the export's path, promotion
-  images, `_redirects`/`_headers` for renamed, dropped and old guide pages, config rules) and
+  images, `_redirects`/`_headers` for renamed, dropped and old guide pages, config rules, the
+  full path's time budget with a fake clock and subprocess) and
   `site deploy` (from `web/`, refuses a fixture build, skips a rebuild that only moved
   timestamps), with npm and wrangler faked.
 - The web package has its own tests: `cd web && npm test` (see "The Astro package"), including the

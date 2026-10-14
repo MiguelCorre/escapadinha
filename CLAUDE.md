@@ -192,6 +192,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   (`PostResult.action`: `PostAction`), the queue read with `db.posts`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)
 - `src/escapadinha/website/`: `astro.py` (`site build`: npm ci stamp, `astro_build`, `finish`),
+  `node.py` (finds npm/npx/node, `run` with the full path's one deadline, `web_dir`/`dist_dir`,
+  `BuildError`; light, so the CLI imports it at the top),
   `routing.py` (the Astro site's `_redirects`/`_headers` from the contract + `site.paths`),
   `crawl.py` (`site crawl`: a sitemap against a build or the live site),
   `images.py` (promotion WebP/thumb/OG), `redirects.py` (rules), `deploy.py` (wrangler in `web/`,

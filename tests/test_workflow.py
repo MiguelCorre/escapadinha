@@ -33,6 +33,14 @@ def test_runs_never_overlap_and_end_before_the_lock_expires():
     assert job["timeout-minutes"] < sync.LOCK_TTL.total_seconds() / 60
 
 
+def test_the_full_paths_node_budget_leaves_room_in_the_job():
+    """The full path's Node commands share one budget (D35); the rest of the job (collection
+    before, review snapshot and database push after) keeps at least 20 minutes."""
+    from escapadinha.website import node
+    [job] = load()["jobs"].values()
+    assert node.FULL_PATH_SECONDS / 60 <= job["timeout-minutes"] - 20
+
+
 def test_every_secret_comes_from_actions_secrets_and_none_is_printed():
     [job] = load()["jobs"].values()
     expected = {name.upper() for name in Secrets.model_fields}

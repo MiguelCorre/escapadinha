@@ -10,7 +10,7 @@ import respx
 
 from escapadinha import pipeline, run_path, site_data
 from escapadinha.storage import db
-from escapadinha.website import astro
+from escapadinha.website import astro, node
 from escapadinha.website import deploy as site_deploy
 from test_pipeline import REPO, ctx  # noqa: F401
 from test_website import approved_deal
@@ -39,8 +39,8 @@ class FakeNpm:
         self.calls: list[dict] = []
         self.extra_pages: list[str] = []
 
-    def __call__(self, web: Path, *args: str, env: dict[str, str]) -> None:
-        self.calls.append({"args": args, "env": env})
+    def __call__(self, web: Path, *args: str, env: dict[str, str], until: float) -> None:
+        self.calls.append({"args": args, "env": env, "until": until})
         if args == ("ci",):
             (web / "node_modules").mkdir(parents=True, exist_ok=True)
         elif args == ("run", "build"):
@@ -65,6 +65,7 @@ class FakeNpm:
 def npm(monkeypatch):
     fake = FakeNpm()
     monkeypatch.setattr(astro, "_run_npm", fake)
+    monkeypatch.setattr(astro, "runtime", lambda web, until: "v22.0.0 linux x64")
     return fake
 
 
@@ -89,16 +90,104 @@ def test_npm_ci_runs_only_when_node_modules_is_missing_or_the_lockfile_changed(t
     assert npm.ran("ci") == 3
 
 
+def test_npm_ci_runs_again_for_another_node_version_or_platform(tmp_path, npm, monkeypatch):
+    """Native packages (esbuild's binary) are installed per Node, platform and architecture: a
+    node_modules made by another Node is installed again (D35)."""
+    web = web_package(tmp_path)
+    assert astro.ensure_dependencies(web) is True
+    assert "v22.0.0 linux x64" in (web / "node_modules" / astro.STAMP).read_text("utf-8")
+    assert astro.ensure_dependencies(web) is False
+    monkeypatch.setattr(astro, "runtime", lambda web, until: "v24.1.0 linux x64")
+    assert astro.ensure_dependencies(web) is True
+    monkeypatch.setattr(astro, "runtime", lambda web, until: "v24.1.0 win32 x64")
+    assert astro.ensure_dependencies(web) is True
+    assert astro.ensure_dependencies(web) is False
+    assert npm.ran("ci") == 3
+
+
 def test_npm_is_found_on_windows_without_it_on_the_path(tmp_path, monkeypatch):
     """The PC's scheduled task may run without Node on its PATH: npm.cmd in the install dir."""
-    from escapadinha.website import deploy as site_deploy
-    monkeypatch.setattr(astro.shutil, "which", lambda name: None)
-    monkeypatch.setattr(site_deploy, "NODE_DIRS", [tmp_path])
+    monkeypatch.setattr(node.shutil, "which", lambda name: None)
+    monkeypatch.setattr(node, "NODE_DIRS", [tmp_path])
     (tmp_path / "npm.cmd").write_text("@echo off\n", "utf-8")
+    (tmp_path / "node.exe").write_text("", "utf-8")
     assert astro.npm() == str(tmp_path / "npm.cmd")
+    assert node.tool("node") == str(tmp_path / "node.exe")
     (tmp_path / "npm.cmd").unlink()
     with pytest.raises(astro.BuildError, match="npm not found"):
         astro.npm()
+
+
+# --- one time budget for the full path's Node commands (D35) ---------------------------------
+
+class FakeProcess:
+    """Stands in for subprocess.run under `node.run`: records each command's timeout, and can
+    hang (TimeoutExpired, with the output so far) or fail to start (OSError)."""
+
+    def __init__(self, clock: list[float], takes: float = 0.0, hang: bool = False,
+                 missing: bool = False):
+        self.clock, self.takes, self.hang, self.missing = clock, takes, hang, missing
+        self.timeouts: list[float] = []
+
+    def __call__(self, cmd, *, timeout, **kwargs):
+        import subprocess
+        self.timeouts.append(timeout)
+        if self.missing:
+            raise FileNotFoundError(2, "No such file or directory", cmd[0])
+        if self.hang:
+            self.clock[0] += timeout
+            raise subprocess.TimeoutExpired(cmd, timeout, output=b"x" * 5000 + b"building pages",
+                                            stderr=None)
+        self.clock[0] += self.takes
+        return subprocess.CompletedProcess(cmd, 0, "ok", "")
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(node.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(node, "tool", lambda name: f"/usr/bin/{name}")
+    return now
+
+
+def test_each_node_command_gets_what_is_left_of_the_one_budget(tmp_path, clock, monkeypatch):
+    fake = FakeProcess(clock, takes=300)
+    monkeypatch.setattr(node.subprocess, "run", fake)
+    until = node.deadline()                                     # 20 minutes from now
+    astro._run_npm(tmp_path, "ci", env={}, until=until)
+    astro._run_npm(tmp_path, "run", "build", env={}, until=until)
+    assert fake.timeouts == [node.FULL_PATH_SECONDS, node.FULL_PATH_SECONDS - 300]
+    clock[0] = until + 1                                        # the budget is used up
+    with pytest.raises(astro.BuildError, match="no time left"):
+        astro._run_npm(tmp_path, "run", "build", env={}, until=until)
+    assert len(fake.timeouts) == 2                              # nothing started
+
+
+def test_a_hanging_npm_command_is_a_build_error_with_the_end_of_its_output(tmp_path, clock,
+                                                                           monkeypatch):
+    monkeypatch.setattr(node.subprocess, "run", FakeProcess(clock, hang=True))
+    with pytest.raises(astro.BuildError, match="npm run build timed out") as raised:
+        astro._run_npm(tmp_path, "run", "build", env={}, until=node.deadline())
+    message = str(raised.value)
+    assert message.endswith("building pages") and len(message) < node.OUTPUT_TAIL + 200
+
+
+def test_a_node_tool_that_cannot_start_is_a_build_or_deploy_error(tmp_path, clock, monkeypatch, ctx):
+    monkeypatch.setattr(node.subprocess, "run", FakeProcess(clock, missing=True))
+    with pytest.raises(astro.BuildError, match="npm ci could not start"):
+        astro._run_npm(tmp_path, "ci", env={}, until=node.deadline())
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc")
+    with pytest.raises(site_deploy.DeployError, match="wrangler pages deploy could not start"):
+        site_deploy._wrangler(ctx, "pages", "deploy", until=node.deadline())
+
+
+def test_a_hanging_wrangler_is_a_deploy_error(ctx, clock, monkeypatch):
+    monkeypatch.setattr(node.subprocess, "run", FakeProcess(clock, hang=True))
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc")
+    with pytest.raises(site_deploy.DeployError, match="wrangler pages deploy timed out"):
+        site_deploy._wrangler(ctx, "pages", "deploy", until=node.deadline(60))
 
 
 # --- the build -------------------------------------------------------------------------------
@@ -137,7 +226,7 @@ def test_a_failed_npm_build_stops_with_its_output(ctx, monkeypatch):
     conn = pipeline.open_db(ctx)
     site_data.export_site_data(ctx, conn, site_data.default_dir(ctx), new_links=False)
 
-    def failing(web, *args, env):
+    def failing(web, *args, env, until):
         if args == ("ci",):
             (web / "node_modules").mkdir()
             return
@@ -316,8 +405,8 @@ def wrangler(monkeypatch):
         returncode, stderr = 0, ""
         stdout = "Deployment complete! https://abc123.ondestaanocas.pages.dev"
 
-    def fake(ctx, *args, cwd=None):
-        calls.append({"args": args, "cwd": cwd})
+    def fake(ctx, *args, cwd=None, until=None):
+        calls.append({"args": args, "cwd": cwd, "until": until})
         return Done()
 
     monkeypatch.setattr(site_deploy, "_wrangler", fake)
@@ -330,7 +419,7 @@ def built(ctx, conn, npm) -> Path:
     web_package(ctx.root)
     site_data.export_site_data(ctx, conn, site_data.default_dir(ctx), new_links=False)
     astro.build(ctx, conn)
-    return astro.dist_dir(ctx)
+    return node.dist_dir(ctx)
 
 
 def test_deploy_uploads_the_astro_build_with_its_functions_from_the_web_package(ctx, npm, wrangler):
@@ -357,15 +446,15 @@ def test_a_rebuild_with_only_a_newer_timestamp_is_not_deployed_again(ctx, npm, w
     assert site_deploy.deploy(ctx, conn)[0]
     built(ctx, conn, npm)                         # new generated_at: footer and explorer data
     assert site_deploy.deploy(ctx, conn) == (False, "site unchanged since last deploy, skipped")
-    dados = astro.dist_dir(ctx) / "explorar" / "dados" / "LIS.json"
+    dados = node.dist_dir(ctx) / "explorar" / "dados" / "LIS.json"
     dados.parent.mkdir(parents=True)
     dados.write_text('{"origin":"LIS","generated_at":"2026-10-14T09:01:47Z","rows":[]}', "utf-8")
-    first = site_deploy.content_hash(astro.dist_dir(ctx))
+    first = site_deploy.content_hash(node.dist_dir(ctx))
     dados.write_text('{"origin":"LIS","generated_at":"2026-10-14T11:01:47Z","rows":[]}', "utf-8")
-    assert site_deploy.content_hash(astro.dist_dir(ctx)) == first
-    page = astro.dist_dir(ctx) / "index.html"
+    assert site_deploy.content_hash(node.dist_dir(ctx)) == first
+    page = node.dist_dir(ctx) / "index.html"
     page.write_text(page.read_text("utf-8").replace("</footer>", "</footer><p>novo</p>"), "utf-8")
-    assert site_deploy.content_hash(astro.dist_dir(ctx)) != first
+    assert site_deploy.content_hash(node.dist_dir(ctx)) != first
 
 
 def test_the_footer_timestamp_of_an_astro_page_is_not_content(tmp_path):

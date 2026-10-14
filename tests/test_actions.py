@@ -19,7 +19,7 @@ from escapadinha.models import Photo
 from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LocalObjectStore
 from escapadinha.website import build_site
-from escapadinha.website import astro
+from escapadinha.website import astro, node
 from escapadinha.website import deploy as site_deploy
 from test_pipeline import REPO, EMPTY, ctx, mock_api, mock_links, seed_history  # noqa: F401
 from test_web_build import npm, web_package  # noqa: F401
@@ -75,7 +75,7 @@ def test_routine_run_takes_the_fast_path_when_nothing_changed(home):
     mock_api()
     first = run_cli()
     assert "Path: full (first full path)" in first
-    dist = astro.dist_dir(home)
+    dist = node.dist_dir(home)
     assert (dist / "index.html").exists() and (dist / "_redirects").exists()
     assert not home.site_dir.exists()                      # the legacy Jinja site isn't built
     shutil.rmtree(dist)
@@ -87,6 +87,30 @@ def test_routine_run_takes_the_fast_path_when_nothing_changed(home):
     forced = run_cli("--full")
     assert "Path: full (forced with --full)" in forced
     assert (dist / "index.html").exists()
+
+
+@respx.mock
+def test_the_full_path_shares_one_deadline_between_build_and_deploy(home, npm, monkeypatch):
+    """npm ci, astro build and wrangler each get what is left of one budget (D35), so the full
+    path ends with time for the review snapshot and the database push inside the job."""
+    from escapadinha.website import node
+    mock_api()
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc")
+    deploys = []
+
+    class Done:
+        returncode, stderr, stdout = 0, "", "Deployment complete! https://abc.ondestaanocas.pages.dev"
+
+    monkeypatch.setattr(site_deploy, "_wrangler",
+                        lambda c, *args, cwd=None, until=None: deploys.append(until) or Done())
+    before = node.deadline()
+    run_cli("--full")
+    after = node.deadline()
+    budgets = {c["until"] for c in npm.calls} | set(deploys)
+    assert len(budgets) == 1 and len(deploys) == 1 and npm.ran("run", "build") == 1
+    [until] = budgets
+    assert before <= until <= after
 
 
 @respx.mock
@@ -250,7 +274,7 @@ def deployments(monkeypatch):
         returncode, stderr, stdout = 0, "", "Deployment complete! https://abc.ondestaanocas.pages.dev"
 
     monkeypatch.setattr(site_deploy, "_wrangler",
-                        lambda c, *args, cwd=None: calls.append(args) or Done())
+                        lambda c, *args, cwd=None, until=None: calls.append(args) or Done())
     return calls
 
 
@@ -292,7 +316,7 @@ def test_a_fresh_runner_builds_the_same_site_as_the_pc(tmp_path, bucket, deploym
     export = site_data.export_site_data(runner, conn, site_data.default_dir(runner), now=NOW)
     astro.build(runner, conn)
 
-    pc_dist, runner_dist = astro.dist_dir(pc), astro.dist_dir(runner)
+    pc_dist, runner_dist = node.dist_dir(pc), node.dist_dir(runner)
     assert site_deploy.content_hash(runner_dist) == site_deploy.content_hash(pc_dist)
     redirects = (runner_dist / "_redirects").read_text("utf-8")
     assert (f"/promos/{deal_id}-lisboa-londres-antigo/ /promos/{deal_id}-lisboa-londres/ 301"

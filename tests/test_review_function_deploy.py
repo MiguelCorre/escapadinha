@@ -7,6 +7,7 @@ import pytest
 
 from escapadinha import pipeline, run_path
 from escapadinha.website import deploy as site_deploy
+from escapadinha.website import node
 from test_pipeline import ctx  # noqa: F401
 
 REPO = Path(__file__).parent.parent
@@ -48,8 +49,8 @@ def wrangler(monkeypatch):
         returncode, stderr = 0, ""
         stdout = "Deployment complete! https://abc123.ondestaanocas.pages.dev"
 
-    def fake(ctx, *args, cwd=None):
-        cwd = Path(cwd) if cwd else site_deploy.web_dir(ctx)     # _wrangler's default
+    def fake(ctx, *args, cwd=None, until=None):
+        cwd = Path(cwd) if cwd else node.web_dir(ctx)     # _wrangler's default
         calls.append({"args": args, "cwd": cwd,
                       "files": sorted(p.relative_to(cwd).as_posix() for p in cwd.rglob("*") if p.is_file())})
         return Done()

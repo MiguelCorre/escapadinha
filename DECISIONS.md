@@ -1454,13 +1454,32 @@ so nothing has to be hosted.
   `site crawl`. The shared helpers in `website/__init__.py` (slugs, `is_public`,
   `public_deal_rows`, `deal_image_paths`) and the modules below stay.
 - **`site build` (`website/astro.py`):** `npm ci` only when `web/node_modules` is missing or
-  `package-lock.json` changed since the last install (a stamp in node_modules,
-  `.escapadinha-npm-ci`, holds the lockfile's sha256; deleting node_modules deletes it too);
+  was installed from something else: a stamp in node_modules, `.escapadinha-npm-ci`, holds the
+  lockfile's sha256 **and the Node version, platform and architecture** (`node -e`, e.g.
+  `v22.11.0 linux x64`), since native packages such as esbuild's binary are installed per
+  platform; an upgraded Node on the PC or a node_modules copied from another machine installs
+  again (deleting node_modules deletes the stamp too);
   then `npm run build` with `SITE_DATA_DIR` set to the export's absolute path (a stray variable
   pointing at the fixtures can't be what gets built; the old `web/dist` is removed first, so a
-  failed build never leaves the previous one for the deploy). npm is found like npx: on the
-  PATH (`npm.cmd` through PATHEXT on Windows), else `C:\Program Files\nodejs\npm.cmd`, for the
-  PC's scheduled task (`deploy.node_tool`). Then the pipeline adds what the web package can't:
+  failed build never leaves the previous one for the deploy). The review Function's imports are
+  checked first (`deploy.function_files`, a package import is a `BuildError`), as the deploy does.
+  **Node commands (`website/node.py`):** one small module, imported by both the build and the
+  deploy, finds `npm`/`npx`/`node` (on the PATH, `npm.cmd`/`node.exe` through PATHEXT on Windows,
+  else `C:\Program Files\nodejs\`, for the PC's scheduled task), puts the tool's folder first on
+  the PATH, and runs it (`node.run`). It also holds `web/` and `web/dist` (`node.web_dir`,
+  `dist_dir`) and `BuildError`, so `cli.py` imports the error without the build's imports (PIL,
+  site data). **One time budget:** `run`'s full path takes one deadline (`node.deadline()`,
+  `FULL_PATH_SECONDS` = 20 min) when it starts, and every Node command after it (npm ci, `npm run
+  build`, wrangler) gets what is left of it as its timeout. A command that hangs (or can't start,
+  or finds no time left) is a `BuildError`/`DeployError` with the end of its output, never a raw
+  `TimeoutExpired`; the run fails, `export_review_snapshot` still runs and the database is
+  pushed. Why 20 min: the job has 45 (D25) and the lock 60 (D21); a full path normally needs
+  under 2 (~18 s npm ci, ~8 s build, a deploy of the changed files), the collection before it
+  takes ~2 and the snapshot + push after it under 1, so 20 leaves more than 20 minutes for the
+  rest even when the collection is slow (a test keeps `FULL_PATH_SECONDS` ≤ the job's timeout −
+  20 min). Replaced: separate timeouts of 15 min per npm command and 10 min for wrangler, which
+  could add up to 40 min and let the job be killed before the push. `site build` and `site
+  deploy` run on their own get a budget each. Then the pipeline adds what the web package can't:
   - **promotion images** (D27/D28 open question): for every promotion in `promotions.json`,
     the slides the contract names are converted from the rendered folder
     (`pipeline.deal_folder(..., pipeline.SLIDES)`: on a runner each slide is downloaded once,

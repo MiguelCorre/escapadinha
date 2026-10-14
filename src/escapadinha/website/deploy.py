@@ -16,9 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import shutil
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -27,6 +25,7 @@ import httpx
 
 from escapadinha.config import Context
 from escapadinha.storage import db
+from escapadinha.website import node
 
 # The build's timestamps: the footer ("Atualizado a <span class="num">14/10/2026 às 10:01</span>"
 # in the Astro pages, without the span in the legacy Jinja ones) and the explorer data's
@@ -35,7 +34,6 @@ BUILT_AT = re.compile(rb"Atualizado a (?:<span[^>]*>)?[^<]*")
 GENERATED_AT = re.compile(rb'"generated_at":"[^"]*"')
 FIXTURE = b'data-fixture="true"'     # a build from the committed fixtures (D28): never deployed
 DEPLOYED = "site.deployed"   # meta: {hash, url} of the last deployment (D25)
-NODE_DIRS = [Path(r"C:\Program Files\nodejs")]
 API = "https://api.cloudflare.com/client/v4"
 FUNCTIONS = "functions"          # under the web package (web/functions, D28/D29)
 # Module specifiers a TypeScript source loads: `import … from "x"` / `export … from "x"`,
@@ -64,10 +62,6 @@ def content_hash(site_dir: Path) -> str:
         h.update(path.relative_to(site_dir).as_posix().encode())
         h.update(hashlib.sha256(data).digest())
     return h.hexdigest()
-
-
-def web_dir(ctx: Context) -> Path:
-    return ctx.root / "web"
 
 
 def function_files(web: Path) -> list[Path]:
@@ -112,41 +106,27 @@ def deploy_hash(site_dir: Path, web: Path, files: list[Path] | None = None) -> s
     return h.hexdigest()
 
 
-def node_tool(name: str) -> str | None:
-    """`npm` / `npx` on the PATH (on Windows `which` finds `npm.cmd` through PATHEXT), else
-    `<name>.cmd` in Node's default Windows install folder: the PC's scheduled task may run with
-    a PATH that lacks it. None when Node isn't installed."""
-    found = shutil.which(name)
-    if found:
-        return found
-    for d in NODE_DIRS:
-        candidate = d / f"{name}.cmd"
-        if candidate.exists():
-            return str(candidate)
-    return None
-
-
 def _npx() -> str:
-    found = node_tool("npx")
+    found = node.tool("npx")
     if found is None:
         raise DeployError("npx not found: install Node.js (https://nodejs.org) to deploy the site")
     return found
 
 
-def _wrangler(ctx: Context, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+def _wrangler(ctx: Context, *args: str, cwd: Path | None = None,
+              until: float | None = None) -> subprocess.CompletedProcess:
+    """`npx wrangler@<pinned> <args>` within the deadline `until` (the full path's, D35)."""
     s = ctx.secrets
     if not s.cloudflare_api_token or not s.cloudflare_account_id:
         raise DeployError("CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set (see .env.example)")
-    env = os.environ | {"CLOUDFLARE_API_TOKEN": s.cloudflare_api_token,
-                        "CLOUDFLARE_ACCOUNT_ID": s.cloudflare_account_id,
-                        "WRANGLER_SEND_METRICS": "false"}
-    npx = _npx()
-    env["PATH"] = str(Path(npx).parent) + os.pathsep + env.get("PATH", "")
-    cmd = [npx, "--yes", f"wrangler@{ctx.config.site.wrangler_version}", *args]
+    env = {"CLOUDFLARE_API_TOKEN": s.cloudflare_api_token,
+           "CLOUDFLARE_ACCOUNT_ID": s.cloudflare_account_id, "WRANGLER_SEND_METRICS": "false"}
+    cmd = [_npx(), "--yes", f"wrangler@{ctx.config.site.wrangler_version}", *args]
     # Run inside web/ (wrangler compiles <cwd>/functions), never the repository root, where
     # `pages project create` once mistook content/ + config.yaml for a Hugo project (D15).
-    return subprocess.run(cmd, env=env, cwd=cwd or web_dir(ctx), capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=600)
+    return node.run(cmd, cwd=cwd or node.web_dir(ctx), env=env,
+                    until=node.deadline() if until is None else until, error=DeployError,
+                    what=f"wrangler {' '.join(args[:2])}")
 
 
 def _last_deploy(ctx: Context, conn: sqlite3.Connection) -> dict:
@@ -186,10 +166,11 @@ def fixture_pages(site_dir: Path) -> list[str]:
                   if FIXTURE in p.read_bytes())
 
 
-def deploy(ctx: Context, conn: sqlite3.Connection, force: bool = False) -> tuple[bool, str]:
-    """Upload web/dist and the review Function if either changed. Returns (deployed, message)."""
-    web = web_dir(ctx)
-    site_dir = web / "dist"
+def deploy(ctx: Context, conn: sqlite3.Connection, force: bool = False, *,
+           until: float | None = None) -> tuple[bool, str]:
+    """Upload web/dist and the review Function if either changed. Returns (deployed, message).
+    `until`: the full path's deadline (`node.deadline()`), shared with the build (D35)."""
+    web, site_dir = node.web_dir(ctx), node.dist_dir(ctx)
     if not (site_dir / "index.html").exists():
         raise DeployError(f"{site_dir} is empty: run `escapadinha site build` first")
     fixtures = fixture_pages(site_dir)
@@ -203,7 +184,7 @@ def deploy(ctx: Context, conn: sqlite3.Connection, force: bool = False) -> tuple
         return False, "site unchanged since last deploy, skipped"
     result = _wrangler(ctx, "pages", "deploy", str(site_dir.resolve()),
                        "--project-name", ctx.config.site.cloudflare_project,
-                       "--branch", "main", "--commit-dirty=true", cwd=web)
+                       "--branch", "main", "--commit-dirty=true", cwd=web, until=until)
     output = (result.stdout + result.stderr).strip()
     if result.returncode != 0:
         hint = (" (run `escapadinha site setup` once to create the project)"

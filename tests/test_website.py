@@ -16,6 +16,7 @@ from escapadinha.presentation import SITE_DISCLOSURE
 from escapadinha.storage import db
 from escapadinha.website import build_site, slugify
 from escapadinha.website import deploy as site_deploy
+from escapadinha.website import node
 from test_pipeline import ctx, mock_links, seed_history  # noqa: F401
 from test_review import price_api, rendered_deal
 from test_traceability import build_scenario, store_run
@@ -269,7 +270,7 @@ def test_deploy_skips_unchanged_site(ctx, monkeypatch):
     """The deploy uploads the Astro build (web/dist, D35); the legacy Jinja site is never deployed."""
     conn = pipeline.open_db(ctx)
     build_site(ctx, conn)
-    dist = site_deploy.web_dir(ctx) / "dist"
+    dist = node.dist_dir(ctx)
     dist.mkdir(parents=True)
     (dist / "index.html").write_text("<p>Atualizado a 13/10/2026 às 10:00</p><p>x</p>", "utf-8")
     calls = []
@@ -279,7 +280,7 @@ def test_deploy_skips_unchanged_site(ctx, monkeypatch):
         stdout = "✨ Deployment complete! https://abc123.ondestaanocas.pages.dev"
 
     monkeypatch.setattr(site_deploy, "_wrangler",
-                        lambda c, *args, cwd=None: calls.append(args) or Done())
+                        lambda c, *args, cwd=None, until=None: calls.append(args) or Done())
     assert site_deploy.deploy(ctx, conn) == (True, "https://abc123.ondestaanocas.pages.dev")
     assert site_deploy.deploy(ctx, conn) == (False, "site unchanged since last deploy, skipped")
     assert site_deploy.deploy(ctx, conn, force=True)[0]
@@ -288,7 +289,7 @@ def test_deploy_skips_unchanged_site(ctx, monkeypatch):
 
 def test_deploy_requires_keys(ctx, monkeypatch):
     conn = pipeline.open_db(ctx)
-    dist = site_deploy.web_dir(ctx) / "dist"
+    dist = node.dist_dir(ctx)
     dist.mkdir(parents=True)
     (dist / "index.html").write_text("<p>x</p>", "utf-8")
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)

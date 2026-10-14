@@ -35,7 +35,7 @@ import escapadinha
 from escapadinha import i18n_pt, routes, site_data
 from escapadinha.config import Context
 from escapadinha.storage import db
-from escapadinha.website import deploy as site_deploy
+from escapadinha.website import node
 
 FINGERPRINT = "run.full_path_fingerprint"   # meta key: components at the last full path
 LABELS = {"promotions": "promotions", "site_data": "site data", "routes": "routes",
@@ -88,9 +88,7 @@ def _code_files(ctx: Context) -> list[Path]:
     content = ctx.guides_dir.parent
     if content.is_dir():
         files += [p for p in content.rglob("*") if p.is_file()]
-    web = site_deploy.web_dir(ctx)
-    site_deploy.function_files(web)          # a package import in the Function fails early (D29)
-    files += web_source_files(web)
+    files += web_source_files(node.web_dir(ctx))   # the Function's sources are among them
     # What the Astro build reads from outside web/: the logo (inlined) and the fonts.
     assets = ctx.assets_dir
     files += [p for p in (assets / "logo-light.svg",) if p.is_file()]

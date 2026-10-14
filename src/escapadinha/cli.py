@@ -21,7 +21,8 @@ from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError
-from escapadinha.website.astro import BuildError
+from escapadinha.website import node
+from escapadinha.website.node import BuildError
 from escapadinha.website.deploy import DeployError
 from escapadinha.config import Context
 from escapadinha.storage import db, sync
@@ -352,12 +353,17 @@ def deal_published(deal_id: int, url: Annotated[str | None, typer.Option(help="P
 def site_build() -> None:
     """Build the website (web/dist) from the exported data: npm ci when needed, astro build,
     promotion images, _redirects and _headers. Run `export site-data` first."""
+    _site_build(until=None)
+
+
+def _site_build(until: float | None) -> None:
+    """`site build` within the deadline `until` (the full path's, D35; None: a budget of its own)."""
     from escapadinha.website import astro
 
     ctx, conn = _ctx()
-    summary = astro.build(ctx, conn)
+    summary = astro.build(ctx, conn, until=until)
     pages = ", ".join(f"{n} {kind}" for kind, n in sorted(summary.pages.items()))
-    console.print(f"Site built in [bold]{astro.dist_dir(ctx)}[/] in {summary.seconds} s"
+    console.print(f"Site built in [bold]{node.dist_dir(ctx)}[/] in {summary.seconds} s"
                   + (" (npm ci ran)" if summary.installed else "") + f": {pages}; "
                   f"{summary.images} promotion images, {summary.redirects} redirects, "
                   f"{summary.size_bytes / 1_000_000:.1f} MB")
@@ -432,11 +438,9 @@ def site_preview(port: Annotated[int, typer.Option()] = 8766) -> None:
     import functools
     import http.server
 
-    from escapadinha.website import astro
-
     ctx = Context()
     handler = functools.partial(http.server.SimpleHTTPRequestHandler,
-                                directory=str(astro.dist_dir(ctx)))
+                                directory=str(node.dist_dir(ctx)))
     console.print(f"Site preview at [bold]http://127.0.0.1:{port}[/] (Ctrl+C to stop)")
     http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
 
@@ -481,10 +485,14 @@ def site_setup() -> None:
 def site_deploy(force: Annotated[bool, typer.Option(help="Deploy even if unchanged")] = False) -> None:
     """Upload web/dist and the review Function to Cloudflare Pages if they changed since the
     last deploy (a fixture build is refused)."""
+    _site_deploy(force=force, until=None)
+
+
+def _site_deploy(force: bool, until: float | None) -> None:
     from escapadinha.website.deploy import deploy
 
     ctx, conn = _ctx()
-    deployed, message = deploy(ctx, conn, force=force)
+    deployed, message = deploy(ctx, conn, force=force, until=until)
     console.print(("[green]Deployed:[/] " if deployed else "") + message)
 
 
@@ -741,15 +749,16 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     report.append(f"Path: {decision.name} ({decision.reason})")
     if not decision.full:
         return
+    until = node.deadline()                  # one budget for the full path's Node commands (D35)
     uploaded = pipeline.mirror_local_files(ctx, conn)     # what a runner lacks (D25)
     if uploaded:
         console.print(f"{len(uploaded)} local files uploaded to the object store.")
     if render:
         render_deals()
     export_site_data(out=None, new_links=True)   # → web/src/data (site.data_dir)
-    site_build()                                 # the Astro site → web/dist (D35)
+    _site_build(until)                           # the Astro site → web/dist (D35)
     if _site_configured(ctx):
-        site_deploy()
+        _site_deploy(force=False, until=until)
     else:
         console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
     run_path.record_full_path(ctx, conn)
