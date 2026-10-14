@@ -32,7 +32,15 @@ DEPLOYED = "site.deployed"   # meta: {hash, url} of the last deployment (D25)
 NODE_DIRS = [Path(r"C:\Program Files\nodejs")]
 API = "https://api.cloudflare.com/client/v4"
 FUNCTIONS = "functions"          # under the web package (web/functions, D28/D29)
-_IMPORT = re.compile(r"""^\s*(?:import|export)\b[^"']*?\bfrom\s+["']([^"']+)["']""", re.M)
+# Module specifiers a TypeScript source loads: `import … from "x"` / `export … from "x"`,
+# side-effect `import "x"`, and dynamic `import("x")`.
+_IMPORT = re.compile(r"""^\s*(?:import|export)\b[^"']*?\bfrom\s+["']([^"']+)["']"""
+                     r"""|^\s*import\s+["']([^"']+)["']"""
+                     r"""|\bimport\s*\(\s*["']([^"']+)["']\s*\)""", re.M)
+
+
+def _imports(source: str) -> list[str]:
+    return [next(g for g in m.groups() if g) for m in _IMPORT.finditer(source)]
 
 
 class DeployError(RuntimeError):
@@ -68,7 +76,7 @@ def function_files(web: Path) -> list[Path]:
         if path in seen:
             continue
         seen.add(path)
-        for spec in _IMPORT.findall(path.read_text("utf-8")):
+        for spec in _imports(path.read_text("utf-8")):
             if not spec.startswith("."):
                 raise DeployError(f"{path.relative_to(web).as_posix()} imports the package "
                                   f"'{spec}': the review Function must bundle without node_modules")
@@ -82,10 +90,11 @@ def function_files(web: Path) -> list[Path]:
     return sorted(seen, key=lambda p: p.relative_to(web).as_posix())
 
 
-def deploy_hash(site_dir: Path, web: Path) -> str:
+def deploy_hash(site_dir: Path, web: Path, files: list[Path] | None = None) -> str:
     """The site's content hash plus the Function's sources (line endings normalised, so a
-    Windows checkout and the runner's agree)."""
-    files = function_files(web)
+    Windows checkout and the runner's agree). `files`: `function_files(web)`, when the caller
+    already has them."""
+    files = function_files(web) if files is None else files
     if not files:
         return content_hash(site_dir)
     h = hashlib.sha256(content_hash(site_dir).encode())
@@ -167,13 +176,13 @@ def deploy(ctx: Context, conn: sqlite3.Connection, force: bool = False) -> tuple
     if not (site_dir / "index.html").exists():
         raise DeployError("site/ is empty: run `escapadinha site build` first")
     web = web_dir(ctx)
-    digest = deploy_hash(site_dir, web)
+    functions = function_files(web)          # once: the hash and the staging use the same list
+    digest = deploy_hash(site_dir, web, functions)
     if not force and _last_deploy(ctx, conn).get("hash") == digest:
         return False, "site unchanged since last deploy, skipped"
     args = ("pages", "deploy", str(site_dir.resolve()),
             "--project-name", ctx.config.site.cloudflare_project,
             "--branch", "main", "--commit-dirty=true")
-    functions = function_files(web)
     if functions:
         with tempfile.TemporaryDirectory(prefix="pages-deploy-") as stage:
             _stage_functions(web, functions, Path(stage))

@@ -917,7 +917,9 @@ so nothing has to be hosted.
 - **Deploy wiring:** wrangler compiles `<cwd>/functions` during `pages deploy`, and the deploy ran
   with cwd = `site/`, so Functions were never uploaded. `website/deploy.py` now stages a temporary
   folder with `functions/` and the `web/src/lib/` modules they import (`function_files`: transitive
-  relative imports; a bare package import or a missing file is a `DeployError`), runs wrangler
+  relative imports, whether `import … from`, `export … from`, side-effect `import "./x"` or dynamic
+  `import("./x")`; a bare package import or a missing file is a `DeployError`; listed once per
+  deploy and shared by the hash and the staging), runs wrangler
   there with the site's absolute path, and deletes it. The staging folder holds nothing else, so
   wrangler still never scans the repository (D15), and no `npm ci` is needed on the runner
   (wrangler bundles TypeScript itself; Node 22 is already set up). Rejected: running wrangler from

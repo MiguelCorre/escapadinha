@@ -59,6 +59,39 @@ def test_function_files_are_the_functions_and_what_they_import(tmp_path):
     assert site_deploy.function_files(tmp_path / "nowhere") == []
 
 
+def test_side_effect_and_dynamic_imports_are_staged_too(tmp_path):
+    w = web(tmp_path)
+    (w / "functions/_lib/review/types.ts").write_text(
+        'import "../../../src/lib/polyfill";\n'
+        "export type X = number;\n"
+        'export const later = () => import("../../../src/lib/lazy");\n'
+        "export const again = async () => await import ( './more' );\n", "utf-8")
+    for rel in ("src/lib/polyfill.ts", "src/lib/lazy.ts", "functions/_lib/review/more.ts"):
+        (w / rel).write_text("export {};\n", "utf-8")
+    files = [p.relative_to(w).as_posix() for p in site_deploy.function_files(w)]
+    assert {"src/lib/polyfill.ts", "src/lib/lazy.ts", "functions/_lib/review/more.ts"} <= set(files)
+    assert "src/lib/site-data.ts" not in files
+
+
+@pytest.mark.parametrize("source", ['import "node:crypto";\n', 'const m = await import("zod");\n'])
+def test_package_side_effect_or_dynamic_imports_stop_the_deploy(tmp_path, source):
+    w = web(tmp_path)
+    (w / "functions/_lib/review/types.ts").write_text(source, "utf-8")
+    with pytest.raises(site_deploy.DeployError, match="imports the package"):
+        site_deploy.function_files(w)
+
+
+def test_deploy_lists_the_function_files_once(ctx, wrangler, monkeypatch):
+    web(ctx.root)
+    conn = pipeline.open_db(ctx)
+    build_site(ctx, conn)
+    calls = []
+    real = site_deploy.function_files
+    monkeypatch.setattr(site_deploy, "function_files", lambda w: calls.append(w) or real(w))
+    assert site_deploy.deploy(ctx, conn)[0]
+    assert len(calls) == 1 and len(wrangler) == 1
+
+
 def test_a_missing_import_stops_the_deploy(tmp_path):
     w = web(tmp_path)
     (w / "functions/_lib/review/types.ts").write_text('import { y } from "./gone";\n', "utf-8")
