@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fixtureImages, placeholderSvg } from "../src/lib/fixture-images";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
-import { builtPages, distDir, page, text } from "./html";
+import { brokenLinks, builtPages, distDir, page, text } from "./html";
 
 const BASE = "https://pontonomada.pt";
 const LIVE = "/promos/8-lisboa-madeira/";
@@ -49,14 +49,11 @@ describe("built pages", () => {
     expect(placeholderSvg(slide)).toContain('width="1080" height="1350"');
   });
 
-  it("only link to pages and files that exist", () => {
-    for (const path of builtPages()) {
-      for (const a of page(path).querySelectorAll("a[href^='/'], link[href^='/'], img[src^='/']")) {
-        const target = (a.getAttribute("href") ?? a.getAttribute("src"))!.split("#")[0];
-        const file = target.endsWith("/") ? join(target, "index.html") : target;
-        expect(existsSync(join(distDir(), file)), `${path} links to ${target}`).toBe(true);
-      }
-    }
+  it("only link to pages and files that exist (internal links resolve)", () => {
+    expect(brokenLinks(distDir())).toEqual([]);
+    // The check looked at the new page types' links too (route, origin, destination pages).
+    const links = page("/voos/lisboa-paris/").querySelectorAll("main a[href^='/']").length;
+    expect(links).toBeGreaterThanOrEqual(4);
   });
 });
 

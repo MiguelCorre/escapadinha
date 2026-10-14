@@ -5,7 +5,10 @@
       "url": [
         "http://localhost/",
         "http://localhost/promos/8-lisboa-madeira/",
-        "http://localhost/promos/3-lisboa-paris/"
+        "http://localhost/promos/3-lisboa-paris/",
+        "http://localhost/voos/lisboa-paris/",
+        "http://localhost/partidas/lisboa/",
+        "http://localhost/destinos/paris/"
       ],
       "numberOfRuns": 3,
       "settings": {

@@ -399,9 +399,9 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 |---|---|
 | `meta.json` | Contract version, `generated_at`, latest run id, detector settings, list of files, counts, `fixture` flag |
 | `labels.json` | pt-PT names from `i18n_pt.py` (airlines, airports + remote flag, route kinds, months, disclosures) |
-| `origins.json` | The Portuguese origins (name, slug, active/dormant routes, low prices, live promotions) |
-| `routes.json` | Every route: kind, status, rules, page path, typical low and plain average per departure month (null while the month has too few days), cheapest fresh offer, counts |
-| `destinations.json` | Destination hubs: city, airports, routes from Portugal, photo credit |
+| `origins.json` | The Portuguese origins (name, slug, origin page path `/partidas/<slug>/`, active/dormant routes, low prices, live promotions) |
+| `routes.json` | Every route: kind, status, rules, page path, typical low and plain average per departure month (null while the month has too few days), cheapest fresh offer, calendar (cheapest fresh offer per departure date, D30), counts |
+| `destinations.json` | Destination hubs: city, hub path `/destinos/<slug>/` (cities sharing a slug take their code), airports, routes from Portugal, photo credit |
 | `promotions.json` | Approved deals, live and expired after approval (for `site.expired_promotions_days`, 30, after expiring): offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
 | `low-prices/<ORIGIN>.json` | One origin's low prices for the explorer: compact rows `[obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link]` |
 
@@ -428,7 +428,8 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 The M3 website is a separate npm package in [`web/`](web/) (Astro 7, static output, Tailwind 4
 with the design-system tokens). It reads only the contract JSON, so it builds and tests without
 Python. It is **not live yet**: the Jinja site above stays the live one until the cutover (#23).
-So far: home page and promotion pages (live and expired).
+So far: home page, promotion pages (live and expired), route pages, origin pages and destination
+hubs (D30).
 
 ```bash
 cd web
@@ -456,9 +457,26 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
 - **Pages:** `/` (live promotions, then recently expired ones), `/promos/<id>-<origem>-<destino>/`
   (the path from the contract, same URLs as today), `404.html`, `robots.txt`, `og-default.png`.
   An expired promotion is `noindex`, has no booking button and says why (the recheck's reason).
-- **Prices:** every price element carries `data-obs` / `data-deal` (also on `<head>` when the title
-  shows a price); `web/test/traceability.test.ts` fails on any price string on a built page that
-  isn't an amount of the referenced observation or deal in the contract.
+- **Route, origin and destination pages (D30):** `/voos/<origem>-<destino>/` (the contract's
+  `path`, the Jinja site's URLs): promotions on the route, recent low prices (biggest 5 discounts,
+  by date, each with its found-on date, our first sight and its own partner link, the disclosure
+  under the list), a calendar of the cheapest found price per departure day, the typical low per
+  month ("ainda sem dados suficientes" while a month has too few days), a notice on dormant
+  routes, links to the origin page and the destination hub. `/partidas/<origem>/`: every
+  destination from that airport by kind, with the cheapest price found now. `/destinos/<destino>/`:
+  every Portuguese origin with a route there, its cheapest price and best months (lowest typical
+  lows). Index pages `/partidas/` and `/destinos/` (nav "Destinos"). The itinerary link is a hook
+  (`src/lib/itinerary.ts`, `ItineraryLink.astro`) that renders nothing until #17 fills it.
+- **Scale:** `web/test/scale.test.ts` builds a synthetic dataset the size of the real data
+  (`test/synthetic-data.ts`: 360 routes, 6 origins, 156 destinations, `meta.fixture: true`, made-up
+  prices only ever shown in a temporary build) and checks page counts, the build-time budget
+  (120 s; ~5 s measured for 528 pages), dormant notices, months without data, internal links and
+  price traceability at that size.
+- **Prices:** every price element carries `data-obs` / `data-deal` / `data-route` (also on `<head>`
+  when the title shows a price); `web/test/traceability.test.ts` fails on any price string on a
+  built page that isn't an amount of the referenced observation, deal or route in the contract.
+- **Links:** `web/test/pages.test.ts` fails on any internal link (`a`, `link`, `img`) that doesn't
+  resolve to a built page or file; every route page is linked from its origin page and its hub.
 - **Booking links** come from the contract as given (never built here); `src/lib/cta.ts` shows a
   button only for a live price with a link, always with `labels.disclosure.site` next to it.
 - **pt-PT:** formats in `src/lib/format.ts` (mirrors `i18n_pt.py`: "49,50 €", "sex, 6 nov",
@@ -472,7 +490,8 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
 - **CI:** `.github/workflows/web.yml` runs on pull requests touching `web/`, `contract/`, the
   tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, Lighthouse CI (reports kept as an
   artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all
-  three page types.
+  three page types; on 2026-10-14 (D30) route 0.91–0.93, origin 0.95, destination 0.95–1 (accessibility,
+  best practices and SEO 1), and 0.92–0.98 on the full-size synthetic build's largest pages.
 
 ## Visual directions (M2, issue #11)
 

@@ -64,10 +64,9 @@ const name = `${origin.name} para ${route.city}`;
 
   {cheapest && (
     <p data-obs={cheapest.obs} class="mt-lg max-w-measure">
-      <span class="label text-muted">Mais barato agora</span><br />
-      <span class="num font-display text-price">{eur(cheapest.price)}</span>
-      <span class="num font-semibold">{shortDate(cheapest.departure)} → {shortDate(cheapest.return)}</span>
-      <span class="text-muted">· {nights(cheapest.nights)}</span>
+      <span class="label block text-muted">Mais barato agora</span>
+      <span class="num mt-2xs block font-display text-price">{eur(cheapest.price)}</span>
+      <span class="num mt-xs block font-semibold">{shortDate(cheapest.departure)} → {shortDate(cheapest.return)} <span class="font-normal text-muted">· {nights(cheapest.nights)}</span></span>
       {cheapest.found_date && <span class="block text-small text-muted">Encontrado por um viajante a <span class="num font-semibold text-ink">{numericDate(cheapest.found_date)}</span></span>}
     </p>
   )}

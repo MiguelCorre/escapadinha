@@ -19,6 +19,10 @@ Vocabulário do projeto. Só conceitos do domínio; nada de implementação.
 - **Verificação ao vivo** — o preço da viagem consultado no momento, antes de aprovar. Se mudou, a aprovação é recusada.
 - **Fila de revisão** — as candidatas à espera de decisão, mais as promoções aprovadas por publicar; é o que o Miguel vê no PC ou no telemóvel.
 - **Expirada** — uma promoção cujo preço já não se confirma (subiu, desapareceu, deixou de ser direto ou está demasiado antigo). Mantém-se visível como histórico, sem botão de reserva.
+- **Página de rota** — a página de uma rota (ex.: Lisboa → Paris): preço habitual por mês (ou "ainda sem dados" quando o mês tem poucos dias), calendário dos preços mais baixos, preços baixos recentes e as promoções da rota. Uma rota adormecida mantém a página, com um aviso.
+- **Calendário de preços** — numa página de rota, o preço de ida e volta mais baixo encontrado nos últimos dias para cada dia de partida. Cada dia aponta para a sua observação.
+- **Página de partida** — a página de um aeroporto português (ex.: "Voos desde Lisboa") com todos os destinos que acompanhamos a partir dele e o preço mais baixo encontrado agora.
+- **Página de destino** — a página de uma cidade de destino (ex.: Paris) com todos os aeroportos portugueses de onde se parte para lá, o preço mais baixo de cada um e os **melhores meses** (os meses de partida com o preço habitual mais baixo).
 - **Explorador** — a pesquisa sobre o nosso histórico: "para onde posso ir desde X por menos de Y €", mês mais barato por rota. Mostra preços encontrados, não preços ao vivo.
 - **Pesquisa ao vivo** — o widget do parceiro (Aviasales) para procurar voos com preços atuais; a reserva faz-se no parceiro.
 - **Roteiro** — um plano de viagem para um destino (ex.: 3 dias em Roma), escrito por nós e revisto antes de ir ao ar.
