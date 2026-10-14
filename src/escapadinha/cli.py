@@ -24,7 +24,7 @@ from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError
 from escapadinha.website import node
 from escapadinha.website.node import BuildError
 from escapadinha.website.deploy import DeployError
-from escapadinha.config import Context
+from escapadinha.config import ConfigError, Context
 from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LockHeld
 from escapadinha.storage.s3 import STORE_ERRORS
@@ -823,7 +823,7 @@ def main() -> None:
     try:
         app()
     except (TravelpayoutsError, PhotoSourceError, AffiliateError, ReviewError, DeployError,
-            BuildError, sync.SyncError, FileNotFoundError, KeyError) as exc:
+            BuildError, ConfigError, sync.SyncError, FileNotFoundError, KeyError) as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise SystemExit(2) from None
 

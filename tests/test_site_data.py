@@ -690,7 +690,9 @@ def test_origin_articles_come_from_config(ctx, tmp_path):  # noqa: F811
 # --- site integrations (D34): analytics token, search widget, Instagram handle ----------------
 
 FAKE_TOKEN = "fakeTestToken0000000000000000000"
-FAKE_WIDGET = "https://tp.media/content?fake=test-only&promo_id=0"
+# The ctx fixture has no website Project, so the site uses the Instagram one (584711); its
+# marker is the fake TRAVELPAYOUTS_MARKER 424242. Test values, not a real widget.
+FAKE_WIDGET = "https://tp.media/content?trs=584711&shmarker=424242&fake=test-only&promo_id=0"
 
 
 def test_meta_carries_the_analytics_token_search_widget_and_handle_from_config(ctx, tmp_path):  # noqa: F811
@@ -750,6 +752,55 @@ def test_search_widget_must_be_an_https_travelpayouts_widget_script():
         assert pattern.search(f"https://{host}/content?x=1"), host
     assert not pattern.search("https://example.com/content?x=1")
     assert not pattern.search("https://tp.media.example.com/x")
+
+
+def test_search_widget_must_carry_the_websites_project_and_our_marker(ctx):  # noqa: F811
+    """Host allowlist first; then the widget's affiliate Project (`trs`) must be the website's
+    (`affiliate.project_for("website")`) and, with TRAVELPAYOUTS_MARKER set, its `shmarker` our
+    marker: a widget copied from another account would earn someone else the commissions."""
+    from pydantic import ValidationError
+    from escapadinha.config import AppConfig, ConfigError
+    base = ctx.config.model_dump()
+
+    def load(src: str, website: int | None = None) -> AppConfig:
+        data = {**base, "site": {**base["site"], "search_widget": src},
+                "affiliate": {**base["affiliate"], "projects": {**base["affiliate"]["projects"],
+                                                                 "website": website}}}
+        return AppConfig.model_validate(data)
+
+    assert load(FAKE_WIDGET).site.search_widget == FAKE_WIDGET       # Instagram's, as fallback
+    site_widget = "https://tpwgts.com/content?trs=585209&shmarker=424242&locale=pt"
+    assert load(site_widget, website=585209).site.search_widget == site_widget
+    for bad, why in (("https://tp.media/content?shmarker=424242", "no trs"),
+                     ("https://tp.media/content?trs=111111&shmarker=424242", "trs=111111"),
+                     ("https://tp.media/content?trs=584711&trs=585209", "trs=584711,585209")):
+        with pytest.raises(ValidationError,
+                           match=f"search_widget: it has {why}, not the website's Project trs=584711"):
+            load(bad)
+    with pytest.raises(ValidationError, match="trs=585209"):
+        load(FAKE_WIDGET, website=585209)                    # made for the Instagram Project
+
+    # The marker comes from the secrets (TRAVELPAYOUTS_MARKER=424242 in the fixture).
+    ctx.config.site.search_widget = FAKE_WIDGET
+    assert ctx.search_widget() == FAKE_WIDGET
+    ctx.config.site.search_widget = FAKE_WIDGET.replace("shmarker=424242", "shmarker=424242.site")
+    assert ctx.search_widget()                                # the constructor's sub id form
+    for bad in (FAKE_WIDGET.replace("shmarker=424242", "shmarker=999999"),
+                FAKE_WIDGET.replace("shmarker=424242", "shmarker=4242421"),
+                FAKE_WIDGET.replace("shmarker=424242&", "")):
+        ctx.config.site.search_widget = bad
+        with pytest.raises(ConfigError, match="TRAVELPAYOUTS_MARKER"):
+            ctx.search_widget()
+        conn = pipeline.open_db(ctx)
+        with pytest.raises(ConfigError):                      # never exported
+            site_data.build_export(ctx, conn, db.utcnow(), new_links=False)
+        conn.close()
+
+
+def test_without_a_known_marker_only_the_project_is_checked(ctx, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("TRAVELPAYOUTS_MARKER", "")
+    ctx.config.site.search_widget = FAKE_WIDGET.replace("shmarker=424242", "shmarker=999999")
+    assert ctx.search_widget() == ctx.config.site.search_widget
 
 
 def test_analytics_token_is_a_plain_token():

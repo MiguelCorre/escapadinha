@@ -1342,7 +1342,15 @@ so nothing has to be hosted.
   `src` of the constructor's script; `config.SEARCH_WIDGET_HOSTS` (`tp.media`, `tpwgts.com`,
   `tpembd.com`, `tpemd.com`, `tpscr.com`: the hosts the constructor's script embeds use) and the
   same list in the schema's pattern (a test compares them) accept only an https URL on one of them,
-  with no quote, space or angle bracket. `SearchWidget.astro` renders, on route and destination
+  with no quote, space or angle bracket. **The widget must be ours** (code review, 2026-10-14): the
+  URL's affiliate Project, `trs=`, must equal `affiliate.project_for("website")` (585209; checked
+  when config.yaml loads, `AppConfig`), and its `shmarker=` must be our partner marker, or
+  `<marker>.<sub id>` (the constructor's sub id form). The marker is not in config.yaml: it is the
+  `TRAVELPAYOUTS_MARKER` secret the partner links client already uses (`config.Secrets`), so that
+  half is checked where the secrets are, `Context.search_widget()`, which the export calls; with no
+  marker set (a checkout without `.env`) only the Project is checked. A widget made for the
+  Instagram Project or copied from another account is refused with a `ConfigError` naming what
+  differs (the marker's value is never printed), so it is never exported. `SearchWidget.astro` renders, on route and destination
   pages only, a "Pesquisar outras datas" section near the end of the page: a line saying these
   are the partner's live prices (ours are prices travellers found), a box with the src in
   `data-src` holding a **"Pesquisar voos no Aviasales" button** (`.btn`, the design system's one
@@ -1442,7 +1450,8 @@ so nothing has to be hosted.
   fake DOM: no element created and no script appended before the click, only a click listener,
   one script after it, none on a second click, focus moved to the slot), the JSON-LD traceability case, and Python: the export carries the three
   fields, fixtures never carry the token or the widget, the config refuses an http, foreign-host
-  or quote-carrying widget URL and a non-alphanumeric token, the schema accepts the same hosts.
+  or quote-carrying widget URL, a missing, foreign or repeated `trs` and (with the marker set) a
+  missing or foreign `shmarker`, and a non-alphanumeric token; the schema accepts the same hosts.
 - **Lighthouse:** `/privacidade/` and `/sobre/` added to `web/lighthouserc.json` (12 URLs).
   Local run 2026-10-14 (fixture build, so no widget or beacon; mobile, median of 3; performance /
   accessibility / best practices / SEO): home 0.92, live promotion 0.92, expired 0.94, route 0.93,

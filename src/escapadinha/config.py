@@ -7,7 +7,7 @@ from datetime import time
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import yaml
 
@@ -174,6 +174,33 @@ def host_of(value: str) -> str:
 # constructor ever hands out another host, add it to both.
 SEARCH_WIDGET_HOSTS: tuple[str, ...] = ("tp.media", "tpwgts.com", "tpembd.com", "tpemd.com", "tpscr.com")
 _UNSAFE_URL_CHARS = set(" \t\r\n\"'<>`\\")
+WIDGET_RUNBOOK = "docs/runbooks/search-widget.md"
+
+
+class ConfigError(ValueError):
+    """config.yaml and .env disagree (e.g. the search widget was made for another account)."""
+
+
+def search_widget_problem(src: str, *, project: int | None, marker: str | None) -> str | None:
+    """Why the widget script `src` isn't ours, or None. Its affiliate Project (`trs`) must be the
+    website's (`affiliate.project_for("website")`, D19), so the commissions land there; with our
+    partner marker known (TRAVELPAYOUTS_MARKER), its `shmarker` must be that marker (or
+    `<marker>.<sub id>`, the constructor's sub id form). Checked on top of the host allowlist."""
+    params = parse_qs(urlsplit(src).query)
+    if project is None:
+        return "no affiliate Project for the website (affiliate.projects)"
+    trs = params.get("trs", [])
+    if trs != [str(project)]:
+        found = f"trs={','.join(trs)}" if trs else "no trs"
+        return (f"it has {found}, not the website's Project trs={project} "
+                "(affiliate.project_for('website'))")
+    if marker:
+        shmarker = params.get("shmarker", [])
+        if len(shmarker) != 1 or not (shmarker[0] == marker
+                                      or shmarker[0].startswith(f"{marker}.")):
+            found = "a different shmarker" if shmarker else "no shmarker"
+            return f"it has {found}: the widget must carry our partner marker (TRAVELPAYOUTS_MARKER)"
+    return None
 
 
 class SiteConfig(BaseModel):
@@ -371,6 +398,18 @@ class AppConfig(BaseModel):
     affiliate: AffiliateConfig = AffiliateConfig()
     site: SiteConfig = SiteConfig()
 
+    @model_validator(mode="after")
+    def _widget_for_the_website(self) -> AppConfig:
+        """The search widget's Project is the website's (the marker is checked by
+        `Context.search_widget`, which has the secrets)."""
+        src = self.site.search_widget
+        problem = src and search_widget_problem(
+            src, project=self.affiliate.project_for("website"), marker=None)
+        if problem:
+            raise ValueError(f"site.search_widget: {problem}. Make the widget in Travelpayouts' "
+                             f"constructor with the website's Project ({WIDGET_RUNBOOK})")
+        return self
+
     def origin_name(self, iata: str) -> str:
         return self.origins_pt.get(iata, iata)
 
@@ -396,6 +435,21 @@ class Context:
     @property
     def db_path(self) -> Path:
         return self.root / "data" / "escapadinha.db"
+
+    def search_widget(self) -> str | None:
+        """`site.search_widget`, refused (ConfigError) unless it carries the website's Project
+        and, when TRAVELPAYOUTS_MARKER is set, our marker: a widget copied from another account
+        would earn someone else the commissions (D34)."""
+        src = self.config.site.search_widget
+        if src is None:
+            return None
+        problem = search_widget_problem(
+            src, project=self.config.affiliate.project_for("website"),
+            marker=self.secrets.travelpayouts_marker.strip() or None)
+        if problem:
+            raise ConfigError(f"site.search_widget: {problem}. Make the widget in Travelpayouts' "
+                              f"constructor with the website's Project ({WIDGET_RUNBOOK})")
+        return src
 
     @property
     def remote_store(self) -> bool:

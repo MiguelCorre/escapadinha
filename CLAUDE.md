@@ -55,7 +55,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `data-obs`/`data-deal` (the traceability test checks JSON-LD too); no Offer on an expired
   promotion. Third-party scripts only from the contract's `meta`: the Cloudflare beacon only with
   `analytics_token` (null: the zone's automatic setup measures at the edge), the Aviasales search
-  form only with `search_widget` (from Travelpayouts' widget constructor, never hand-built; route
+  form only with `search_widget` (from Travelpayouts' widget constructor, never hand-built; read it
+  through `Context.search_widget()`, which checks its `trs` and `shmarker` are ours; route
   and destination pages only, loaded by `src/lib/search-widget.ts` only when the visitor presses
   its button: never on scroll or view, the privacy page promises it). Fixtures keep both
   null. The site sets no cookies (no `document.cookie`, no Set-Cookie).

@@ -36,11 +36,17 @@ diz. Falta só o código do widget, que tem de vir do construtor de widgets da T
     search_widget: "https://tpwgts.com/content?currency=eur&trs=...&locale=pt&..."
   ```
 
-- [ ] Confirma que o endereço é aceite: `uv run escapadinha stats` (qualquer comando lê o
-      `config.yaml`). Se o endereço não for `https` ou o domínio não for um dos da Travelpayouts
-      (`tp.media`, `tpwgts.com`, `tpembd.com`, `tpemd.com`, `tpscr.com`), o comando para com uma
-      mensagem sobre `site.search_widget`. Se a Travelpayouts passar a usar outro domínio, diz-me:
-      tem de ser acrescentado em `config.py` e no contrato (`contract/site/v1/meta.schema.json`).
+- [ ] Confirma que o endereço é aceite: `uv run escapadinha export site-data --no-new-links`
+      (lê o `config.yaml` e o `.env`). O comando para com uma mensagem sobre
+      `site.search_widget` se:
+  - o endereço não for `https` ou o domínio não for um dos da Travelpayouts (`tp.media`,
+    `tpwgts.com`, `tpembd.com`, `tpemd.com`, `tpscr.com`). Se a Travelpayouts passar a usar outro
+    domínio, diz-me: tem de ser acrescentado em `config.py` e no contrato
+    (`contract/site/v1/meta.schema.json`);
+  - o `trs=` do endereço não for **585209** (o Projeto do site, `affiliate.projects.website`):
+    escolheste outro Projeto no construtor. Volta ao passo 1;
+  - o `shmarker=` não for o teu marker (o `TRAVELPAYOUTS_MARKER` do `.env` e dos segredos do
+    GitHub): o código não é da tua conta. Volta ao passo 1 com a tua conta.
 - [ ] (Opcional) Vê-o primeiro no teu PC, sem publicar nada:
 
   ```bash
