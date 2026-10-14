@@ -30,10 +30,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - The Astro site in `web/` (D28) reads only the contract JSON from `SITE_DATA_DIR` (default
   `web/src/data`, git-ignored; tests and Lighthouse CI use `contract/site/v1/fixtures`) and
   validates it against the schemas at build time; never import Python output any other way.
-  Same rules as the Jinja site: every price element carries `data-obs`/`data-deal`/`data-route`
+  Every price element carries `data-obs`/`data-deal`/`data-route`
   (`web/test/traceability.test.ts`), booking buttons only via `src/lib/cta.ts` (live + https link,
   with `labels.disclosure.site`), low-price rows only via `src/lib/low-prices.ts` (route pages,
-  explorer, ponte pages and the island share it; no link yet → `NO_LINK_NOTE`), expired promotions `noindex` without a button, pt-PT formats (every month/weekday
+  explorer, ponte pages and the island share it; no link yet → `NO_LINK_NOTE`), expired promotions `noindex` without a button (for `site.expired_promotions_days`, then a 301 to their route page, D35), pt-PT formats (every month/weekday
   word, price, date and trip text) only from `src/lib/format.ts` and day arithmetic only from
   `src/lib/dates.ts` (`web/test/format.test.ts` fails on month or weekday names elsewhere), copy passes `web/test/pt-lint.test.ts`. Styles use only the generated
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
@@ -110,10 +110,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   download), `deal_view` (its photo).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → upkeep → collect → recheck →
   detect → `publish_due` (D32, every run: posting never waits for a full path) →
-  `run_path.decide` → full path only (render → `export site-data` (D27, → `web/src/data`) →
-  `site build` (Astro, D35: npm ci if needed, astro build, promotion images, `_redirects`/
-  `_headers` → `web/dist`) → `site deploy` (`web/dist` + Functions; refuses a fixture build) →
-  `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
+  `run_path.decide` → full path only, its Node commands inside one deadline
+  (`node.deadline()`, D35) (render → `export site-data` (D27, → `web/src/data`; keep the
+  returned `Export`) → `site build` (Astro, D35: npm ci if needed, astro build, promotion images,
+  `_redirects`/`_headers` → `web/dist`; the paths it implies go to `site.paths.pending`) →
+  `site deploy` (`web/dist` + Functions; refuses a fixture build; on success, or skipped as
+  unchanged, commits the pending paths) → `record_full_path(ctx, conn, export)`: the export that
+  went live, never a re-read) → `export_review_snapshot` on every run, even a failed one. The
   full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
   `run_path.fingerprint`, or a routine run won't publish it: the exported contract is (component
   `site_data`, minus the per-run fields `site_data.PER_RUN` lists and `site_data.shown_digest`
@@ -129,7 +132,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
 - No scraping of booking sites or airlines (ToS and legal risk; see DECISIONS D13).
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
-  only shows deals a human approved; expired pages stay `noindex` without a booking link.
+  only shows deals a human approved; expired promotions stay `noindex` without a booking link
+  for `site.expired_promotions_days`, then 301 to their route page (D35).
 - Review decisions (approve, reject, published) are events (D26): writers (`pipeline.approve` /
   `reject` / `mark_published`, the review page, the review Function) only write
   `review/events/pending/`; `review_events.apply_pending` is the only code that changes those
@@ -156,7 +160,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `docs/runbooks/brand-switch.md`; Pages `_redirects` can't match hosts. Page paths need a stable
   key in `website/routing.current_pages` (`deal:`, `route:`, `origin:`, `destination:`) so renamed
   slugs get a 301 (`website/redirects.py`); old URLs of pages that left the site get a rule there
-  too (expired promotions → route, `/guias/` → `legacy_path`). Never let an old URL 404:
+  too (expired promotions → route, `/guias/` → `legacy_path`); a rule only targets a built page
+  (never another rule), and over Cloudflare's 2000 rules the build fails. Never let an old URL 404:
   `tests/test_crawl.py` crawls the old site's URLs on the real Astro build; `site crawl` the live one.
   Destination hubs (D30) keep their published slug: the site data export records
   `destination:<code>` paths in `site.paths` and `website.destination_slugs` reuses them; never
@@ -200,13 +205,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   2000 rules; `commit`: the build's paths join `site.paths` only after the deploy),
   `node.py` (finds npm/npx/node, `run` with the full path's one deadline, `web_dir`/`dist_dir`,
   `BuildError`; light, so the CLI imports it at the top),
-  `routing.py` (the Astro site's `_redirects`/`_headers` from the contract + `site.paths`),
   `crawl.py` (`site crawl`: a sitemap against a build or the live site),
   `images.py` (promotion WebP/thumb/OG), `redirects.py` (rules), `deploy.py` (wrangler in `web/`,
   `function_files`, `deploy_hash`, fixture refusal); `__init__.py` shares with the export
   `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`, ... **Legacy until #23
   phase 2:** `SiteBuilder`/`build_site` + `templates/` (the Jinja site, `site build-jinja`, never
-  deployed); don't extend them.
+  deployed, not part of `run`); don't extend them, and don't read them as the site's rules (the
+  Astro site in `web/` is the site).
 - `src/escapadinha/pontes.py` + `content/holidays.yaml`: Portuguese holidays 2026–2027 and their
   long weekends (D31; pure `long_weekend`/`pontes`, exported as `pontes.json`, past ones too, raw
   values only). The ponte rule (departure and return inside the window) and the weekend rule
