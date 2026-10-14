@@ -1,0 +1,32 @@
+---
+// Every tip that passed the review gate (D33), most recently checked first. Kept out of search
+// engines while it is empty.
+import Base from "../../layouts/Base.astro";
+import ContentList from "../../components/ContentList.astro";
+import { tips } from "../../collections";
+import { BRAND } from "../../lib/brand";
+import { contentPath } from "../../lib/content";
+
+const items = (await tips()).map((e) => ({
+  path: contentPath("tips", e.id),
+  title: e.data.title,
+  description: e.data.description,
+  lastChecked: e.data.last_checked,
+}));
+---
+<Base
+  title={`Dicas de viagem · ${BRAND}`}
+  description="Dicas para viajar mais barato desde Portugal, cada uma com a data em que os factos foram verificados e as fontes oficiais."
+  path="/dicas/"
+  noindex={items.length === 0}
+>
+  <header class="max-w-measure">
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Dicas</h1>
+    <p class="mt-md text-lead text-muted">Hábitos e regras que fazem diferença no preço e na viagem. Cada dica diz quando os factos foram verificados e liga às fontes oficiais.</p>
+  </header>
+  <section class="mt-xl" aria-label="Dicas">
+    {items.length
+      ? <ContentList items={items} />
+      : <p class="notice max-w-measure">Ainda não há dicas publicadas.</p>}
+  </section>
+</Base>

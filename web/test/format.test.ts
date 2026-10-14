@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   dateRange,
+  dayMonthYear,
   discount,
   discountParts,
   discountPercent,
@@ -11,6 +12,7 @@ import {
   eurPlain,
   lisbonTimestamp,
   longDate,
+  monthList,
   monthYear,
   nights,
   numericDate,
@@ -46,6 +48,14 @@ describe("pt-PT formats", () => {
     expect(longDate("2026-11-30")).toBe("segunda-feira, 30 de novembro");
     expect(longDate("2027-02-13")).toBe("sábado, 13 de fevereiro");
     expect(monthYear("2026-10")).toBe("outubro de 2026");
+  });
+
+  it("prints a day with its year, and a list of months in prose", () => {
+    expect(dayMonthYear("2026-10-14")).toBe("14 de outubro de 2026");
+    expect(dayMonthYear("2027-01-05")).toBe("5 de janeiro de 2027");
+    expect(monthList([4, 5, 9])).toBe("abril, maio e setembro");
+    expect(monthList([12, 1])).toBe("dezembro e janeiro");
+    expect(monthList([7])).toBe("julho");
   });
 
   it("shows instants in Lisbon time, summer and winter", () => {

@@ -37,6 +37,15 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
   `tests/test_web_tokens.py` catches drift); `web/test/colours.test.ts` fails on any raw hex or
   rgb()/hsl() colour elsewhere in `web/src/` or `web/functions/`.
+- Itineraries and tips (D33) are MDX in `web/src/content/{itineraries,tips}/` (file name = slug,
+  pages `/roteiros/<slug>/`, `/dicas/<slug>/`), front matter per `src/lib/content.ts`. Only
+  `reviewed: true` is built or listed, and only a human sets it (never mark Claude's drafts
+  reviewed); a reviewed entry needs `last_checked` and an official https source. Pages, listings,
+  itinerary links (and a future sitemap) read entries only through `src/collections.ts` (the
+  gate); drafts show in `astro dev` only. No prices in content: no "€"/"EUR"/euro amounts (the
+  pt-PT lint over all MDX refuses them, plus pt-BR words, "3.5", ISO/English dates, "20 %");
+  prices come from the contract with their `data-obs`. Test-only entries (`fixture: true`) live
+  in `web/test/fixtures/content/` and are built from fixture data only.
 - The review Function (D29, `web/functions/`, TypeScript) is a writer of pending review events
   only: it never changes a status (the applier does, D26). Every request must pass
   `access.verifyAccess` (RS256 Access JWT: signature against the team's certs, `aud` =
@@ -167,9 +176,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
   `generate_fixtures`); schemas + committed fixtures in `contract/site/v1/` (D27)
 - `web/`: the Astro site (D28): `src/pages/` (home, `promos/`, `voos/` route pages, `partidas/`
-  origin pages, `destinos/` hubs, D30), view logic in `src/lib/` (`promotion.ts`, `routes.ts`,
-  `format.ts`, `cta.ts`; `itinerary.ts` is #17's hook), tests in `web/test/` (fixture build,
-  `scale.test.ts` full-size synthetic build, traceability, internal links)
+  origin pages, `destinos/` hubs, D30; `roteiros/`, `dicas/` D33), view logic in `src/lib/`
+  (`promotion.ts`, `routes.ts`, `format.ts`, `cta.ts`, `content.ts` + `itinerary.ts`),
+  `src/content.config.ts` + `src/collections.ts` (MDX collections + review gate), tests in
+  `web/test/` (fixture build, `scale.test.ts` full-size synthetic build, traceability, internal
+  links, `content-pages.test.ts`)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`)
 - `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
   validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a

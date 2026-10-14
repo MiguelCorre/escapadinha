@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import mdx from "@astrojs/mdx";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, fontProviders } from "astro/config";
 import { siteDataPlugin } from "./src/lib/site-data-plugin";
@@ -42,6 +43,8 @@ export default defineConfig({
   trailingSlash: "always",
   build: { format: "directory", inlineStylesheets: "always" },
   fonts,
+  // Itineraries and tips (src/content.config.ts, D33).
+  integrations: [mdx()],
   vite: {
     plugins: [tailwindcss(), siteDataPlugin()],
     // Fonts and logos live in the repository's assets/ (shared with the slides).

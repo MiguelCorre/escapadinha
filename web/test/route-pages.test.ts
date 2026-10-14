@@ -75,10 +75,7 @@ describe("route page", () => {
     expect(cells.length).toBe(10);
     expect(calendar.querySelectorAll("caption").map((c) => text(c))).toContain("novembro de 2026");
   });
-
-  it("does not link an itinerary while there is none (#17 adds them)", () => {
-    expect(doc().querySelector("a[href^='/roteiros/']")).toBeNull();
-  });
+  // The link to the city's itinerary (#17) is tested with the content pages (content-pages.test.ts).
 });
 
 describe("route page with a live promotion and low prices", () => {

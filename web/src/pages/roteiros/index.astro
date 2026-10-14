@@ -1,0 +1,38 @@
+---
+// Every itinerary that passed the review gate (D33), most recently checked first. Kept out of
+// search engines while it is empty.
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import ContentList from "../../components/ContentList.astro";
+import { itineraries } from "../../collections";
+import { BRAND } from "../../lib/brand";
+import { contentPath } from "../../lib/content";
+import { count } from "../../lib/format";
+
+const items = (await itineraries()).map((e) => {
+  const city = data.destinations.destinations.find((d) => d.code === e.data.destination)?.city;
+  return {
+    path: contentPath("itineraries", e.id),
+    title: e.data.title,
+    description: e.data.description,
+    lastChecked: e.data.last_checked,
+    meta: [city, count(e.data.days, "dia", "dias")].filter(Boolean).join(" · "),
+  };
+});
+---
+<Base
+  title={`Roteiros de viagem · ${BRAND}`}
+  description="Roteiros para os destinos com voos baratos desde Portugal, cada um com a data em que os factos foram verificados e as fontes oficiais."
+  path="/roteiros/"
+  noindex={items.length === 0}
+>
+  <header class="max-w-measure">
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Roteiros</h1>
+    <p class="mt-md text-lead text-muted">O que fazer em cada destino, dia a dia. Cada roteiro diz quando os factos foram verificados e liga às fontes oficiais.</p>
+  </header>
+  <section class="mt-xl" aria-label="Roteiros">
+    {items.length
+      ? <ContentList items={items} />
+      : <p class="notice max-w-measure">Ainda não há roteiros publicados.</p>}
+  </section>
+</Base>

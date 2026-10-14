@@ -1,6 +1,8 @@
 # "Guia rápido" carousel content. Written by a human, rendered as-is.
 # Keep 3–8 tips (Instagram carousels max out at 10 slides: cover + tips + CTA).
 # Set reviewed: true only after checking every fact.
+# The website's version is the tip web/src/content/tips/voos-baratos.mdx (D33); this file only
+# feeds the Instagram carousel (`render guide`) and the Jinja site until the cutover (#23).
 slug: voos-baratos-dicas
 kicker: GUIA RÁPIDO
 title: Voos baratos desde Portugal

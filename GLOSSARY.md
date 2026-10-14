@@ -32,8 +32,10 @@ Vocabulário do projeto. Só conceitos do domínio; nada de implementação.
 - **Feriado** — um feriado nacional (Código do Trabalho, art. 234.º). A Terça-Feira de Carnaval é facultativa (art. 235.º): nem todos têm o dia livre. Os feriados municipais não contam.
 - **Ponte** — o fim de semana prolongado que um feriado dá: à segunda ou à sexta junta um dia ao fim de semana; à terça ou à quinta junta dois, tirando o dia útil do meio (a "ponte" propriamente dita). Um feriado à quarta, ao sábado ou ao domingo não dá ponte. Um preço baixo serve uma ponte quando a ida é entre a véspera do primeiro dia livre e o feriado, e a volta entre o feriado e o dia a seguir ao último dia livre.
 - **Pesquisa ao vivo** — o widget do parceiro (Aviasales) para procurar voos com preços atuais; a reserva faz-se no parceiro.
-- **Roteiro** — um plano de viagem para um destino (ex.: 3 dias em Roma), escrito por nós e revisto antes de ir ao ar.
-- **Dica** — um artigo prático e intemporal sobre viajar (bagagem, seguros, eSIM…), também revisto antes de ir ao ar.
-- **Guia** — termo antigo do protótipo para o carrossel "guia rápido" no Instagram; é uma dica em formato de slides.
+- **Roteiro** — um plano de viagem para um destino (ex.: 3 dias em Roma), escrito por nós e revisto antes de ir ao ar. Um por cidade; a página de destino e as páginas de rota dessa cidade ligam para ele. Endereço `/roteiros/<slug>/`.
+- **Dica** — um artigo prático e intemporal sobre viajar (bagagem, seguros, eSIM…), também revisto antes de ir ao ar. Endereço `/dicas/<slug>/`.
+- **Rascunho** — um roteiro ou uma dica ainda não revisto (`reviewed: false`). Não entra no site nem nas listas; só se vê na pré-visualização local, com o aviso "Rascunho".
+- **Factos verificados a** — o dia em que alguém confirmou cada facto de um roteiro ou de uma dica nas fontes oficiais, que o artigo lista no fim. Os artigos não indicam preços: remetem para as fontes.
+- **Guia** — termo antigo do protótipo para o carrossel "guia rápido" no Instagram; é uma dica em formato de slides. No site, o antigo guia passou a ser a dica "Voos baratos desde Portugal".
 - **Longo curso** — destinos fora da Europa/Norte de África, normalmente com escala; têm critérios de promoção próprios.
 - **Aviso de publicidade** (disclosure) — a frase que diz que os links de reserva são de afiliado e que podemos receber uma comissão sem custo extra. Tem duas versões, sempre palavra por palavra: a do site, ao lado de cada botão de reserva, e a dos posts, em cada legenda e no slide final. Onde há botão de reserva há aviso.

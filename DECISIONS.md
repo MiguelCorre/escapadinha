@@ -1152,3 +1152,78 @@ so nothing has to be hosted.
 - **Rejected:** enqueueing in a separate step after the applier (an approval could be applied
   without its posts if the run died in between); posting several Instagram slots in one run;
   cancelling a post whose price was not re-verified (it waits for a run that verifies it).
+
+## D33: Itineraries and tips as reviewed MDX content collections (2026-10-14, #17)
+- **What:** two Astro content collections in the web package, `itineraries` and `tips`, MDX files
+  in `web/src/content/itineraries/` and `web/src/content/tips/` (where the build and #19's drafts
+  both find them). The file name is the slug and the only source of the page path:
+  `/roteiros/<slug>/` and `/dicas/<slug>/` (`content.contentPath`, refuses a non-slug name), plus
+  the listings `/roteiros/` and `/dicas/` (`noindex` while empty) and a "Roteiros e dicas" section
+  on the home page (latest three of each, only when there are any). Hand-chosen slugs are not
+  computed in Python like the contract's paths: they are not data, they are file names. No nav link
+  yet: there is no reviewed content in a real build, and the nav would point at an empty page.
+  `@astrojs/mdx` **8.0.2** (exact, newest release older than two weeks; peer `astro ^7.2.10`) is
+  the only new dependency.
+- **Front matter** (zod schemas in `src/lib/content.ts`, `astro/zod`, a plain module so vitest and
+  tsc check it): `title`, `description` (≤ 200), `last_checked` (YAML date → ISO day),
+  `sources` (`{title, url}`, https only), `best_months` (1–12), `reviewed` (default `false`),
+  `fixture` (default `false`), `legacy_path` (an old site path); itineraries add `destination`
+  (contract city code) and `days` (1–30), tips `topic` (a slug) and `destinations` (codes). A
+  reviewed entry without `last_checked` or without a source fails the build: "nothing I have not
+  read goes live" (story 47) and "state when facts were last checked and link official sources"
+  (story 51) are schema rules, not conventions. Every file, drafts included, is validated on every
+  build, because the loader reads them all; the gate decides only what is built. The spec's
+  "affiliate blocks" (eSIM, insurance, activities) are #18's.
+- **Review gate in one place:** `src/collections.ts` (`itineraries()`, `tips()`) filters with
+  `content.isVisible`: reviewed entries; drafts too in `astro dev` (with a "Rascunho" notice and
+  `noindex`, so Miguel reads them in the local preview); test-only entries (`fixture: true`) only
+  when the site data is fixture data (`meta.fixture`). Every page, listing and the itinerary link
+  read through it; a sitemap (not built yet) must too. The dev check is `import.meta.env.MODE ===
+  "development"`, not `DEV`: Vite derives `DEV` from `NODE_ENV`, which vitest sets to `test`, and
+  the first test build did ship the drafts that way (caught by `content-pages.test.ts`).
+- **Articles** (`ContentArticle.astro`): kicker, title, lead, the MDX body (`.prose` spacing on the
+  tokens), then "Factos verificados a 14 de outubro de 2026" (`format.dayMonthYear`) with a line
+  that hours, rules and prices change, and the sources as plain links (`rel="noopener"`, not
+  sponsored: they are official pages). Itineraries add duration (`count`), best months
+  (`format.monthList`: "abril, maio e setembro") and a link to the destination hub when the city is
+  in the data. No JSON-LD `Article` yet (the SEO work with the sitemap).
+- **Itinerary hook (D30) wired:** `itineraryFor(code, entries)` is now pure over the gated entries
+  (`ItineraryLink.astro` passes `await itineraries()`); one reviewed itinerary per city (two stop
+  the build), and in the dev server a draft shows only where no reviewed one exists. Hubs and route
+  pages of that city render the link (`[data-itinerary]`).
+- **No prices in content** (CLAUDE.md, never fabricate prices): an article can't carry an
+  observation id, so it carries no amount at all. If an article ever needs a price, it must be a
+  contract value rendered by a component with its `data-obs`/`data-route` (the traceability test
+  already walks these pages), never text in the MDX.
+- **pt-PT lint over content:** `web/test/pt-lint.test.ts` lints every MDX file (real, drafts and
+  test-only): front matter values (YAML comments and `last_checked` skipped) and body, URLs
+  removed; the Brazilian and English word lists, plus: "€", "EUR" or a number followed by
+  "euro(s)"; a dot inside a number ("3.5 km"; pt-PT writes "3,5" and "1200"); ISO dates; a
+  capitalised month after a day ("6 de Novembro"); English month names; "20 %"; "9 am"; the pt-BR
+  progressive gerund ("estou visitando" → "estou a visitar"). A seeded "você" fails it (in a
+  string and in a seeded file).
+- **Old guide converted:** `content/guides/voos-baratos-dicas.yaml` (never published: it was
+  `reviewed: false`, with no sources) is now the tip `web/src/content/tips/voos-baratos.mdx` with
+  its five tips as sections, **still a draft** (no `last_checked`, no sources): it renders in the
+  dev server at `/dicas/voos-baratos/` and goes live when Miguel checks it, adds sources and sets
+  `reviewed: true`. Its front matter keeps `legacy_path: /guias/voos-baratos-dicas/` for the
+  cutover (#23) to turn into a 301 (any entry's `legacy_path` → its new path). The Instagram-only
+  fields (kicker, CTA, caption, hashtags) stay in the YAML, which still feeds the carousel
+  renderer (`render guide`) and the Jinja site until #23 retires them.
+- **Fixture content:** `web/test/fixtures/content/` holds a reviewed test itinerary for Paris
+  (`paris-em-3-dias`, PAR is in the fixtures), a reviewed test tip (`dica-de-teste`, two sources)
+  and a draft itinerary for Barcelona, all `fixture: true`, saying in their text that they are test
+  content, with example.com sources. They make the fixture build (and Lighthouse) exercise the
+  pages; a build from real data never includes them. `content-pages.test.ts` checks: pages and
+  listings for reviewed entries; drafts absent from the build, from every page's links and text;
+  the checked date and source links; the MDX body; days, best months and the hub link; the link
+  from `/destinos/paris/` and `/voos/lisboa-paris/`, none from Barcelona's hub (draft only).
+- **Run path:** the Astro site is not deployed by `run` until the cutover; #23 must add the web
+  package's sources, content included, to `run_path._code_files` so a newly reviewed article
+  takes the full path.
+- **Lighthouse:** `/roteiros/paris-em-3-dias/` and `/dicas/dica-de-teste/` added to
+  `web/lighthouserc.json`. Local run 2026-10-14 (fixture build, mobile, median of 3): itinerary,
+  tip and `/roteiros/` 0.95 / 1 / 1 / 1 (performance / accessibility / best practices / SEO), home
+  with the new section 0.94 / 1 / 1 / 1.
+- **Not done here:** related tips on destination hubs (story 36: tips carry `destinations` for it),
+  a nav link, JSON-LD and the sitemap, affiliate blocks (#18), the drafts themselves (#19).

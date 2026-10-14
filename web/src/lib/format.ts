@@ -94,7 +94,18 @@ export function dayMonth(iso: string): string {
   return `${d} de ${MONTHS[m - 1]}`;
 }
 
-/** "6 a 9 de novembro", "27 de novembro a 4 de dezembro"; with years when it crosses one. */
+/** "2026-10-14" -> "14 de outubro de 2026" (e.g. when an article's facts were checked). */
+export function dayMonthYear(iso: string): string {
+  return `${dayMonth(iso)} de ${parts(iso).y}`;
+}
+
+/** [4, 5, 9] -> "abril, maio e setembro" (months 1-12, in the given order). */
+export function monthList(months: readonly number[]): string {
+  const words = months.map((m) => MONTHS[m - 1]);
+  return words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} e ${words.at(-1)}`;
+}
+
+/** "6 a 9 de novembro","27 de novembro a 4 de dezembro"; with years when it crosses one. */
 export function dateRange(start: string, end: string): string {
   const a = parts(start);
   const b = parts(end);

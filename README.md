@@ -468,7 +468,7 @@ The M3 website is a separate npm package in [`web/`](web/) (Astro 7, static outp
 with the design-system tokens). It reads only the contract JSON, so it builds and tests without
 Python. It is **not live yet**: the Jinja site above stays the live one until the cutover (#23).
 So far: home page, promotion pages (live and expired), route pages, origin pages and destination
-hubs (D30), the explorer and the ponte pages (D31).
+hubs (D30), the explorer and the ponte pages (D31), itineraries and tips (D33).
 
 ```bash
 cd web
@@ -504,8 +504,25 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   routes, links to the origin page and the destination hub. `/partidas/<origem>/`: every
   destination from that airport by kind, with the cheapest price found now. `/destinos/<destino>/`:
   every Portuguese origin with a route there, its cheapest price and best months (lowest typical
-  lows). Index pages `/partidas/` and `/destinos/` (nav "Destinos"). The itinerary link is a hook
-  (`src/lib/itinerary.ts`, `ItineraryLink.astro`) that renders nothing until #17 fills it.
+  lows). Index pages `/partidas/` and `/destinos/` (nav "Destinos"). Hubs and route pages link the
+  city's reviewed itinerary when there is one (`src/lib/itinerary.ts`, `ItineraryLink.astro`).
+- **Itineraries and tips (D33):** MDX files in `web/src/content/itineraries/` and
+  `web/src/content/tips/`; the file name is the slug, the page is `/roteiros/<slug>/` or
+  `/dicas/<slug>/`, listed on `/roteiros/` and `/dicas/` and (the latest three of each) on the home
+  page. Front matter (schemas in `src/lib/content.ts`, checked on every build, drafts included):
+  `title`, `description`, `last_checked` (the day every fact was checked), `sources` (`title` +
+  https `url` of the official pages), `best_months` (1–12), `reviewed` (default `false`); an
+  itinerary adds `destination` (the city code, one itinerary per city) and `days`, a tip `topic`
+  and optional `destinations`; `legacy_path` keeps an old site path for the cutover's redirects.
+  **Only `reviewed: true` entries are built**, and a reviewed entry needs `last_checked` and at
+  least one source; drafts show only in the dev server (`npm run dev` / `dev:fixtures`), with a
+  "Rascunho" notice and `noindex`. Each article ends with "Factos verificados a <data>" and its
+  sources. **No prices in content:** the pt-PT lint refuses "€", "EUR" and amounts in euros; link
+  the official source instead. Test-only entries (`fixture: true`) live in
+  `web/test/fixtures/content/` and are built only from fixture data. The old "guia rápido" is now
+  the draft tip `web/src/content/tips/voos-baratos.mdx` (`/dicas/voos-baratos/` once reviewed;
+  `legacy_path: /guias/voos-baratos-dicas/`): to publish it, check the facts, add the sources and
+  `last_checked`, set `reviewed: true`.
 - **Scale:** `web/test/scale.test.ts` builds a synthetic dataset the size of the real data
   (`test/synthetic-data.ts`: 360 routes, 6 origins, 156 destinations, `meta.fixture: true`, made-up
   prices only ever shown in a temporary build) and checks page counts, the build-time budget
@@ -531,7 +548,9 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   button only for a live price with a link, always with `labels.disclosure.site` next to it.
 - **pt-PT:** formats in `src/lib/format.ts` (mirrors `i18n_pt.py`: "49,50 €", "sex, 6 nov",
   "12/10/2026 às 22:17" Lisbon time); `web/test/pt-lint.test.ts` fails on Brazilian words
-  ("você", "celular", "equipe", …) or English UI text in the templates.
+  ("você", "celular", "equipe", …) or English UI text in the templates, and on every itinerary and
+  tip (drafts too) also on euro amounts, decimal points ("3.5 km"), ISO or English dates,
+  capitalised months ("6 de Novembro"), "20 %", "9 am" and the pt-BR gerund ("estou visitando").
 - **Design:** `src/styles/tokens.css` is generated from `docs/design/tokens.json` and replaces
   Tailwind's default colours, fonts, sizes, radii and shadows (`src/lib/tokens.ts` is the same data
   for code: theme-color, the OG image, the review page; no other colour is allowed, a test checks
@@ -542,7 +561,7 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all
   three page types; on 2026-10-14 (D30) route 0.91–0.93, origin 0.95, destination 0.95–1 (accessibility,
   best practices and SEO 1), and 0.92–0.98 on the full-size synthetic build's largest pages; (D31)
-  the explorer 0.92 / 1 / 1 and a ponte page 0.95 / 1 / 1.
+  the explorer 0.92 / 1 / 1 and a ponte page 0.95 / 1 / 1; (D33) the test itinerary and tip 0.95 / 1 / 1.
 
 ## Visual directions (M2, issue #11)
 
@@ -753,7 +772,9 @@ PC sleeps start when it wakes. Output is appended to `logs/run-<date>.log`, endi
 
 ## Guides ("guia rápido")
 
-Add `content/guides/<slug>.yaml` with a title, 3–8 tips, CTA, caption and hashtags (see the
+The website's tips and itineraries are MDX in `web/src/content/` (see "The new site", D33); the
+YAML guides below only feed the Instagram carousel (`render guide`) and the current Jinja site
+until the cutover (#23). Add `content/guides/<slug>.yaml` with a title, 3–8 tips, CTA, caption and hashtags (see the
 sample). Guides are hand-written. Set `reviewed: true` after checking the facts; the CLI
 warns until then. `photo_destination` picks a cached photo (for example `LIS`; add its
 query under `photos.queries` and run `photos fetch --dest LIS`).
