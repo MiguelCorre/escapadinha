@@ -834,6 +834,14 @@ so nothing has to be hosted.
   ≥ 0.9. `is-crawlable` is skipped because the expired page is `noindex` on purpose (vitest
   asserts robots per page type instead). Reports go to an artifact, never to public storage.
   Local run 2026-10-13: 0.94 / 1 / 1 on all three pages (best practices 0.96: the missing images).
+  Local runs 2026-10-14 with the fixture stand-in images: median 0.94 / 1 / 1, best practices 1 on
+  all three. **Known flake, not fixed:** about one run in five on the live promotion page reports
+  CLS 0.46 (performance 0.73–0.78), all of it on the slide strip, which sits below the fold on a
+  phone. It happens with and without the images and with `snap-proximity` too, and a
+  PerformanceObserver in a 412 px frame never sees it, so it looks like Lighthouse's emulation
+  laying the page out at desktop width first (where the strip is the first column) rather than a
+  visitor's shift. A 3-run median fails only if two runs flake (~10 %); re-run the job, and look
+  again with real slides at the cutover (#23).
 - **pt-PT lint:** `web/test/pt-lint.test.ts` scans `src/**/*.astro` and `src/**/*.ts` (comments
   skipped) for an explicit list of Brazilian words and spellings ("você", "celular", "equipe",
   "registro", "ônibus", …) and English UI leftovers ("Book now", "Buy", "Search", …, matched
