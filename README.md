@@ -497,8 +497,9 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
   site (no redirect followed: 200, or a 301 whose target answers 200; anything else is listed
   and the command exits 1). `--base https://<hash>.ondestaanocas.pages.dev` crawls a preview
   deployment instead, `--dist web/dist` a local build with its `_redirects`. During the week
-  after the cutover, run it daily with the old site's sitemap (the Jinja site's, e.g.
-  `site build-jinja` then `--sitemap site/sitemap.xml`).
+  after the cutover (until 2026-10-21) the `crawl` workflow (`.github/workflows/crawl.yml`, daily
+  07:30 UTC) runs it on the live site with the Jinja sitemap saved before the switch,
+  `docs/cutover/jinja-sitemap-2026-10-14.xml`; a red run means an old URL broke.
 
 ### Domain and redirects
 

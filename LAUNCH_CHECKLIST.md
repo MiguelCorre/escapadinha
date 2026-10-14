@@ -19,9 +19,12 @@ The steps before the first public post, in order. Tick them as they're done.
       data, builds `web/dist` and deploys it with the review Function; `_redirects` keeps every old
       URL. The first production deploy happens on the next full path after the merge (or
       `gh workflow run pipeline.yml -f full=true`).
-- [ ] For a week after that first deploy, daily: `uv run escapadinha site crawl --sitemap
-      docs/cutover/jinja-sitemap-2026-10-14.xml` (the live Jinja sitemap saved before the cutover,
-      363 URLs) reports no broken URL.
+- [x] First production deploy of the Astro site: 2026-10-14 (run 38595287906); the live crawl of the
+      old sitemap gave 363/363 ok the same evening.
+- [ ] For a week after that first deploy (until 2026-10-21), daily: `uv run escapadinha site crawl
+      --sitemap docs/cutover/jinja-sitemap-2026-10-14.xml` (the live Jinja sitemap saved before the
+      cutover, 363 URLs) reports no broken URL. `.github/workflows/crawl.yml` runs it every day at
+      07:30 UTC; a red run e-mails the owner.
       Then delete the Jinja site (`SiteBuilder`, `website/templates/`, `site build-jinja`; #23 phase 2).
 - [ ] Put the site in the Instagram bio (https://pontonomada.pt once connected; until then
       https://ondestaanocas.pages.dev, which will redirect).
