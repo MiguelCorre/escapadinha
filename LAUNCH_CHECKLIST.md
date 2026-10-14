@@ -10,7 +10,7 @@ The steps before the first public post, in order. Tick them as they're done.
       `site.base_url`, add the Bulk Redirect: **[docs/runbooks/brand-switch.md](docs/runbooks/brand-switch.md)**
       steps 1–6 (issue #22).
 - [ ] Rename the Instagram handle to match, then a new Travelpayouts Project and `brand.handle`
-      (runbook step 9).
+      (runbook step 9, issue #27; keeping `@ondestaanocas` for now, decided 2026-10-14).
 - [x] Instagram account: https://www.instagram.com/ondestaanocas/ (handle may still change).
 - [ ] Switch it to a **professional** (Business/Creator) account. v2 publishing via the Graph API needs this.
 - [x] Website live at https://ondestaanocas.pages.dev (2026-10-13). Every scheduled run rebuilds it
