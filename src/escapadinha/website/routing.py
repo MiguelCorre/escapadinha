@@ -12,8 +12,15 @@ Every old URL keeps working (301), never shadowing a built page:
   that `legacy_path` (D33), else the tips index `/dicas/`;
 - `site.redirects` from config.
 
-A rule whose target is not a built page is left out (reported), so a redirect never ends in a
-404. Removed pages (a route dropped from config) stay an honest 404, as before.
+A rule whose target is not a built page is left out (reported) before Cloudflare's 2000-rule
+limit counts, so a redirect never ends in a 404; a rule to a path that itself redirects points
+at the final page (no chains). Within 10 % of the limit the build warns; above it the build
+fails (BuildError) rather than drop old links. Removed pages (a route dropped from config) stay
+an honest 404, as before.
+
+The path history the build implies (current paths added, gone promotions folded into their
+route's entry) is stored as pending (`site.paths.pending`) and becomes `site.paths` only once
+the build is live (`commit`, called by `deploy`): a build that never went out records nothing.
 """
 
 from __future__ import annotations
@@ -28,12 +35,16 @@ from escapadinha import pipeline
 from escapadinha.config import Context
 from escapadinha.storage import db
 from escapadinha.website import DESTINATION_KEY, redirects
+from escapadinha.website.node import BuildError
 
 STATIC = ("/", "/sobre/", "/privacidade/")
 CONTENT = {"itineraries": "/roteiros/", "tips": "/dicas/"}   # collection -> listing (D33)
 GUIDE_KEY = "guide:"                                         # the Jinja guides' history keys
 GUIDES = "/guias/"
 TIPS_INDEX = "/dicas/"
+# meta: the path history of the last build, stored as `site.paths` only once it is live (D35)
+PENDING_PATHS = "site.paths.pending"
+WARN_MARGIN = 0.10      # warn when the redirects are within 10 % of Cloudflare's limit
 
 
 def _read(data: Path, name: str) -> dict:
@@ -83,25 +94,43 @@ def legacy_paths(content: Path) -> dict[str, str]:
     return out
 
 
+def fold_gone_promotions(conn: sqlite3.Connection, history: dict[str, list[str]],
+                         current: dict[str, str]) -> dict[str, list[str]]:
+    """The history with every promotion the contract no longer lists folded into its route:
+    the promotion's old paths and its `/promos/<id>` alias become old paths of the route page,
+    where they redirect anyway, and the `deal:<id>` key goes. The history stops growing a key
+    per expired promotion, no build looks those deals up again, and a later route rename takes
+    them along (one 301 to the final page, never a chain). A promotion whose route has no page
+    keeps its entry (no rule: an honest 404, as for the route)."""
+    out = {key: list(paths) for key, paths in history.items()}
+    for key, paths in history.items():
+        if not key.startswith("deal:") or key in current:
+            continue
+        deal_id = int(key.removeprefix("deal:"))
+        found = db.get_deal(conn, deal_id)
+        route_key = found and f"route:{found[1].route_key}"
+        if not route_key or route_key not in current:
+            continue
+        folded = out.setdefault(route_key, [])
+        folded += [p for p in [*paths, f"/promos/{deal_id}"] if p not in folded]
+        del out[key]
+    return out
+
+
 def plan(ctx: Context, conn: sqlite3.Connection, data: Path, dist: Path, *, content: Path
-         ) -> tuple[redirects.RedirectPlan, dict[str, str]]:
-    """The redirect plan and the current pages (stable keys) to add to the history."""
+         ) -> tuple[redirects.RedirectPlan, dict[str, list[str]]]:
+    """The redirect plan, and the path history to store once the build is live (`commit`):
+    the current pages added, gone promotions folded into their routes."""
     current = current_pages(data)
     built = built_pages(dist)
-    history = pipeline.site_paths(ctx, conn)
+    history = fold_gone_promotions(conn, pipeline.site_paths(ctx, conn), current)
     # Targets: the current pages, every built path (so no rule ever hides one), and where the
     # pages of the old site that the contract doesn't name now go.
     targets = dict(current) | {f"built:{p}": p for p in built}
-    for key in history:
-        if key in current:
-            continue
-        if key.startswith("deal:"):
-            found = db.get_deal(conn, int(key.removeprefix("deal:")))
-            route = found and current.get(f"route:{found[1].route_key}")
-            if route:
-                targets[key] = route
-        elif key.startswith(GUIDE_KEY):
-            targets[key] = TIPS_INDEX
+    # A Jinja guide's entry goes to the tips index (below: or where its content went). A
+    # `deal:` entry still in the history has no route page either: no rule (an honest 404).
+    targets |= {key: TIPS_INDEX for key in history
+                if key.startswith(GUIDE_KEY) and key not in current}
     legacy = legacy_paths(content)
     old_paths = dict(history)
     for old, page in legacy.items():
@@ -114,28 +143,43 @@ def plan(ctx: Context, conn: sqlite3.Connection, data: Path, dist: Path, *, cont
             for old in paths:
                 if old in legacy:
                     targets[key] = targets[f"legacy:{old}"]
-    deal_targets = {key.removeprefix("deal:"): path for key, path in targets.items()
-                    if key.startswith("deal:")}
-    aliases = {f"/promos/{deal_id}": path
-               for deal_id, path in sorted(deal_targets.items(), key=lambda kv: -int(kv[0]))}
+    deal_ids = sorted((int(key.removeprefix("deal:")) for key in current
+                       if key.startswith("deal:")), reverse=True)
+    aliases = {f"/promos/{deal_id}": current[f"deal:{deal_id}"] for deal_id in deal_ids}
+    # Only rules to a page of this build, counted after that filter; one per source, chains
+    # collapsed. Over Cloudflare's limit the build fails rather than drop old links silently.
     result = redirects.plan_redirects(targets, old_paths, extra=ctx.config.site.redirects,
-                                      aliases=aliases)
-    kept = []
-    for source, target in result.rules:
-        if target.startswith("/") and target not in built:
-            result.skipped.append(f"{source} -> {target}: {target} is not a page of the build")
-        else:
-            kept.append((source, target))
-    result.rules = kept
-    return result, current
+                                      aliases=aliases, serves=built.__contains__, limit=None)
+    count, limit = len(result.rules), redirects.MAX_STATIC_REDIRECTS
+    if count > limit:
+        raise BuildError(f"{count} redirects, over Cloudflare Pages' limit of {limit} per "
+                         "_redirects file: old links would stop working. Move the oldest to a "
+                         "Bulk Redirect (docs/runbooks/brand-switch.md) or prune site.paths (D35).")
+    if count >= limit * (1 - WARN_MARGIN):
+        result.warnings.append(f"{count} redirects, within {WARN_MARGIN:.0%} of Cloudflare "
+                               f"Pages' limit of {limit}: the build fails above it (D35)")
+    return result, redirects.update_history(history, current)
 
 
 def write(ctx: Context, conn: sqlite3.Connection, data: Path, dist: Path, *, content: Path
           ) -> redirects.RedirectPlan:
-    """Write `_redirects` and `_headers` into the build and remember the current paths."""
-    result, current = plan(ctx, conn, data, dist, content=content)
+    """Write `_redirects` and `_headers` into the build, and the path history this build
+    implies as pending: `commit` stores it once the build is live (`deploy`), so a build that
+    never went live records no path."""
+    result, history = plan(ctx, conn, data, dist, content=content)
     (dist / "_redirects").write_text(result.text(), encoding="utf-8", newline="\n")
     (dist / "_headers").write_text(redirects.headers_text(ctx.config.site), encoding="utf-8",
                                    newline="\n")
-    pipeline.save_site_paths(conn, redirects.update_history(pipeline.site_paths(ctx, conn), current))
+    db.set_meta(conn, PENDING_PATHS, json.dumps(history, sort_keys=True))
     return result
+
+
+def commit(conn: sqlite3.Connection) -> bool:
+    """After a deploy (or one skipped because the live site already is this build): the
+    pending path history becomes `site.paths`. False when there was none."""
+    pending = db.get_meta(conn, PENDING_PATHS)
+    if not pending:
+        return False
+    pipeline.save_site_paths(conn, json.loads(pending))
+    db.delete_meta(conn, PENDING_PATHS)
+    return True

@@ -659,6 +659,11 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.commit()
 
 
+def delete_meta(conn: sqlite3.Connection, key: str) -> None:
+    conn.execute("DELETE FROM meta WHERE key = ?", (key,))
+    conn.commit()
+
+
 # --- partner links (low prices on the website) -------------------------------------
 
 def partner_links(conn: sqlite3.Connection, project_id: int,

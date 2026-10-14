@@ -1517,6 +1517,22 @@ so nothing has to be hosted.
     itinerary whose front matter has that `legacy_path` (D33), else the tips index `/dicas/`
     (also for a history `guide:<slug>` no content names); `site.redirects` from config (one that
     would hide a page is printed and left out). A removed route stays an honest 404 (D19).
+    **Hardened after code review (2026-10-14):** (1) a rule whose target isn't a page of the
+    build is left out *before* the 2000-rule limit counts (it used to be filtered after the
+    cap, so dead rules could take live ones' places); one rule per source; (2) **no chains:** a
+    rule whose target is itself a source (e.g. a `site.redirects` entry to a promotion path that
+    now redirects) points at the final page, a loop is left out (both reported); (3) **no silent
+    drop:** within 10 % of Cloudflare's limit `site build` prints a warning, above it the build
+    fails (`BuildError`) naming the way out (a Bulk Redirect, or pruning `site.paths`), where it
+    used to drop the newest rules; (4) **bounded history:** a promotion the contract no longer
+    lists is folded into its route's `site.paths` entry (its old paths and `/promos/<id>`
+    become old paths of the route page, where they redirect anyway) and its `deal:` key dropped:
+    the history stops growing a key per expired promotion, no build looks those deals up again,
+    and a later route rename takes them straight to the new page (tested); (5) **paths only
+    once live:** `routing.write` stores the build's history as `site.paths.pending`; `deploy`
+    makes it `site.paths` after a successful upload, or when it skips an unchanged site (the live
+    site is that build). A failed deploy, or a run without Cloudflare keys, records no path that
+    never went out (tested). The D30 destination paths the export records are unchanged.
 - **`site deploy`:** uploads `web/dist` (absolute path) with wrangler **running in `web/`**, so
   it compiles `web/functions` directly; the temporary staging folder of D29 is gone. D29 had
   rejected `web/` because its `package.json` might trigger framework auto-detection (the D15

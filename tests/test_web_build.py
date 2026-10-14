@@ -246,7 +246,7 @@ def rules(web: Path) -> dict[str, str]:
 
 
 @respx.mock
-def test_old_promotion_links_and_renamed_slugs_redirect_to_the_current_pages(ctx, npm):
+def test_old_promotion_links_and_renamed_slugs_redirect_to_the_current_pages(ctx, npm, wrangler):
     web = web_package(ctx.root)
     conn = pipeline.open_db(ctx)
     deal_id = approved_deal(ctx, conn)
@@ -268,7 +268,10 @@ def test_old_promotion_links_and_renamed_slugs_redirect_to_the_current_pages(ctx
     assert "/voos/lisboa-desaparecido/" not in r
     assert not any(source in (promo, "/voos/lisboa-londres/", "/") for source in r)  # never a page
     assert summary.redirects == len(r) and summary.skipped_redirects == []
-    # The current paths join the history (stable keys), so a later rename gets its 301.
+    # The current paths join the history (stable keys), so a later rename gets its 301, once
+    # the build is live: not before the deploy.
+    assert promo not in pipeline.site_paths(ctx, conn)[f"deal:{deal_id}"]
+    assert site_deploy.deploy(ctx, conn)[0]
     history = pipeline.site_paths(ctx, conn)
     assert promo in history[f"deal:{deal_id}"] and "/partidas/lisboa/" in history["origin:LIS"]
     assert history["route:LIS-LON"][-1] == "/voos/lisboa-londres/"
@@ -294,6 +297,122 @@ def test_a_promotion_no_longer_in_the_export_redirects_to_its_route(ctx, npm):
     r = rules(web)
     assert r[f"/promos/{deal_id}-lisboa-londres/"] == "/voos/lisboa-londres/"
     assert r[f"/promos/{deal_id}"] == "/voos/lisboa-londres/"
+
+
+@respx.mock
+def test_a_gone_promotion_folds_into_its_route_history_and_chains_collapse(ctx, npm, wrangler):
+    """Once live, a gone promotion's history entry becomes old paths of its route page (no
+    `deal:` key left to grow), the same rules come out of the next build, and a later route
+    rename sends them straight to the new page. A config rule to a path that now redirects
+    points at the final page (no chain)."""
+    web = web_package(ctx.root)
+    conn = pipeline.open_db(ctx)
+    deal_id = approved_deal(ctx, conn)
+    old = f"/promos/{deal_id}-lisboa-londres/"
+    pipeline.save_site_paths(conn, {f"deal:{deal_id}": [old]})
+    db.set_deal_status(conn, deal_id, "expired")
+    conn.execute("UPDATE deals SET last_checked_at = ? WHERE id = ?",
+                 ((db.utcnow() - timedelta(days=40)).isoformat(), deal_id))
+    conn.commit()
+    ctx.config.site.redirects = {"/promo-antiga/": old}      # → a path that itself redirects
+    export = site_data.export_site_data(ctx, conn, site_data.default_dir(ctx), new_links=False)
+    assert export.files["promotions.json"]["promotions"] == []
+    astro.build(ctx, conn)
+    first = rules(web)
+    assert first["/promo-antiga/"] == "/voos/lisboa-londres/"   # collapsed, not → old → route
+    assert all(target not in first for target in first.values())  # no rule targets a rule
+    assert site_deploy.deploy(ctx, conn)[0]
+    history = pipeline.site_paths(ctx, conn)
+    assert f"deal:{deal_id}" not in history
+    assert {old, f"/promos/{deal_id}"} <= set(history["route:LIS-LON"])
+    astro.build(ctx, conn)                                       # the next build: same rules
+    assert rules(web) == first
+    # The route is renamed later: the promotion's old links go straight to the new page.
+    conn.execute("UPDATE routes SET city_pt = 'Londres Centro' "
+                 "WHERE origin = 'LIS' AND destination = 'LON'")
+    conn.commit()
+    site_data.export_site_data(ctx, conn, site_data.default_dir(ctx), new_links=False)
+    astro.build(ctx, conn)
+    renamed = rules(web)
+    new_route = renamed["/voos/lisboa-londres/"]
+    assert new_route != "/voos/lisboa-londres/" and new_route.startswith("/voos/")
+    for source in (old, f"/promos/{deal_id}", "/promo-antiga/"):
+        assert renamed[source] == new_route, source
+
+
+def test_plan_collapses_chains_and_leaves_loops_and_unbuilt_targets_out():
+    from escapadinha.website import redirects
+    pages = {"route:A": "/voos/a/"}
+    history = {"route:A": ["/voos/a-velho/"]}
+    extra = {"/x/": "/voos/a-velho/", "/y/": "/z/", "/z/": "/y/", "/w/": "/nao-existe/"}
+    plan = redirects.plan_redirects(pages, history, extra=extra, aliases={},
+                                    serves={"/voos/a/"}.__contains__, limit=None)
+    assert dict(plan.rules) == {"/x/": "/voos/a/", "/voos/a-velho": "/voos/a/",
+                                "/voos/a-velho/": "/voos/a/"}
+    assert sorted(s.split(":")[-1].strip() for s in plan.skipped) == [
+        "/nao-existe/ is not a page of the build", "a redirect loop", "a redirect loop"]
+
+
+def test_unbuilt_targets_are_left_out_before_the_limit_counts(ctx, npm, monkeypatch):
+    """Rules to pages the build doesn't have never take a place under Cloudflare's limit."""
+    from escapadinha.website import redirects
+    web = web_package(ctx.root)
+    monkeypatch.setattr(redirects, "MAX_STATIC_REDIRECTS", 30)
+    ctx.config.site.redirects = {f"/morto-{i}/": f"/nao-existe-{i}/" for i in range(40)}
+    ctx.config.site.redirects |= {"/antigo/": "/explorar/"}
+    conn = pipeline.open_db(ctx)
+    site_data.export_site_data(ctx, conn, site_data.default_dir(ctx), new_links=False)
+    summary = astro.build(ctx, conn)
+    assert rules(web) == {"/antigo/": "/explorar/"} and summary.redirects == 1
+    assert len(summary.skipped_redirects) == 40 and summary.warnings == []
+
+
+def test_redirects_near_the_limit_warn_and_over_it_fail_the_build(ctx, npm, monkeypatch):
+    from escapadinha.website import redirects
+    web_package(ctx.root)
+    conn = pipeline.open_db(ctx)
+    site_data.export_site_data(ctx, conn, site_data.default_dir(ctx), new_links=False)
+    monkeypatch.setattr(redirects, "MAX_STATIC_REDIRECTS", 20)
+    ctx.config.site.redirects = {f"/antigo-{i}/": "/explorar/" for i in range(19)}
+    summary = astro.build(ctx, conn)                              # 19 of 20: within 10 %
+    assert summary.redirects == 19
+    assert summary.warnings == ["19 redirects, within 10% of Cloudflare Pages' limit of 20: "
+                                "the build fails above it (D35)"]
+    ctx.config.site.redirects = {f"/antigo-{i}/": "/explorar/" for i in range(21)}
+    with pytest.raises(astro.BuildError, match="21 redirects, over Cloudflare Pages' limit of 20"):
+        astro.build(ctx, conn)
+
+
+def test_a_failed_deploy_records_no_path(ctx, npm, monkeypatch):
+    """The path history (`site.paths`) only learns a build's paths once that build is live:
+    a deploy that fails leaves it as it was, so no 301 ever points at a page that never went
+    out; the next successful deploy records them."""
+    web_package(ctx.root)
+    conn = pipeline.open_db(ctx)
+    pipeline.save_site_paths(conn, {"route:LIS-LON": ["/voos/lisboa-londres-antigo/"]})
+    site_data.export_site_data(ctx, conn, site_data.default_dir(ctx), new_links=False)
+    before = pipeline.site_paths(ctx, conn)
+    astro.build(ctx, conn)
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc")
+
+    class Failed:
+        returncode, stdout, stderr = 1, "", "Authentication error"
+
+    monkeypatch.setattr(site_deploy, "_wrangler", lambda c, *a, cwd=None, until=None: Failed())
+    with pytest.raises(site_deploy.DeployError, match="Authentication"):
+        site_deploy.deploy(ctx, conn)
+    assert pipeline.site_paths(ctx, conn) == before
+
+    class Done:
+        returncode, stdout, stderr = 0, "https://abc.ondestaanocas.pages.dev", ""
+
+    monkeypatch.setattr(site_deploy, "_wrangler", lambda c, *a, cwd=None, until=None: Done())
+    assert site_deploy.deploy(ctx, conn)[0]
+    after = pipeline.site_paths(ctx, conn)
+    assert after["route:LIS-LON"] == ["/voos/lisboa-londres-antigo/", "/voos/lisboa-londres/"]
+    assert "/partidas/lisboa/" in after["origin:LIS"]
+    assert db.get_meta(conn, "site.paths.pending") is None
 
 
 def test_old_guides_go_to_the_tip_that_replaced_them_or_the_tips_index(ctx, npm):

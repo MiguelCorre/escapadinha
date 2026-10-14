@@ -369,6 +369,8 @@ def _site_build(until: float | None) -> None:
                   f"{summary.size_bytes / 1_000_000:.1f} MB")
     for skipped in summary.skipped_redirects:
         console.print(f"  [yellow]![/] redirect left out: {escape(skipped)}")
+    for warning in summary.warnings:
+        console.print(f"  [yellow]![/] {escape(warning)}")
     for path in summary.missing_images:
         console.print(f"  [yellow]![/] image missing (slides not rendered or stored): {path}")
     site = ctx.config.site

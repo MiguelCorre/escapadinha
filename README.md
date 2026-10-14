@@ -459,8 +459,13 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
   `data/site_paths.json` is merged in), short `/promos/<id>` links, promotions no longer on the
   site → their route page, the old guides `/guias/<slug>/` → the tip or itinerary whose
   `legacy_path` names them (else `/dicas/`), and `site.redirects` from config. A rule never uses
-  a path that is a page now (Pages applies redirects before files) and never points at a path the
-  build doesn't serve; left-out rules are printed by `site build`.
+  a path that is a page now (Pages applies redirects before files), never points at a path the
+  build doesn't serve (left out before Cloudflare's 2000-rule limit counts) or at another rule
+  (chains collapse to the final page); left-out rules are printed by `site build`. Within 10 % of
+  the limit `site build` warns, above it the build fails instead of dropping old links. The paths
+  a build implies are stored as `site.paths` only once it is live (after `site deploy`, or a
+  deploy skipped as unchanged); a promotion that left the site is folded into its route's
+  history (its old paths and `/promos/<id>` become old paths of the route page).
 
 ### Website data contract v1 (DECISIONS D27)
 

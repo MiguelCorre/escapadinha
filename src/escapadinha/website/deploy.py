@@ -180,7 +180,9 @@ def deploy(ctx: Context, conn: sqlite3.Connection, force: bool = False, *,
                           "real data and run `escapadinha site build`.")
     functions = function_files(web)          # refuses a package import; hashed with the site
     digest = deploy_hash(site_dir, web, functions)
+    from escapadinha.website import routing
     if not force and _last_deploy(ctx, conn).get("hash") == digest:
+        routing.commit(conn)                 # the live site is this build: its paths are live
         return False, "site unchanged since last deploy, skipped"
     result = _wrangler(ctx, "pages", "deploy", str(site_dir.resolve()),
                        "--project-name", ctx.config.site.cloudflare_project,
@@ -192,4 +194,5 @@ def deploy(ctx: Context, conn: sqlite3.Connection, force: bool = False, *,
         raise DeployError(f"wrangler deploy failed{hint}:\n{output[-1500:]}")
     urls = re.findall(r"https://\S+\.pages\.dev\S*", output)
     db.set_meta(conn, DEPLOYED, json.dumps({"hash": digest, "url": urls[-1] if urls else None}))
+    routing.commit(conn)                     # only now are the build's paths live (D35)
     return True, urls[-1] if urls else "deployed"

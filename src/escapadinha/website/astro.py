@@ -46,6 +46,7 @@ class BuildSummary:
     redirects: int = 0
     skipped_redirects: list[str] = field(default_factory=list)
     size_bytes: int = 0
+    warnings: list[str] = field(default_factory=list)          # e.g. redirects near the limit
 
 
 def npm() -> str:
@@ -181,4 +182,4 @@ def build(ctx: Context, conn: sqlite3.Connection, *, until: float | None = None)
     images, missing, plan = finish(ctx, conn, data, dist, content=web / "src" / "content")
     size = sum(p.stat().st_size for p in dist.rglob("*") if p.is_file())
     return BuildSummary(round(time.monotonic() - started, 1), installed, page_counts(dist),
-                        images, missing, len(plan.rules), plan.skipped, size)
+                        images, missing, len(plan.rules), plan.skipped, size, plan.warnings)
