@@ -4,8 +4,8 @@
       "staticDistDir": "./dist",
       "url": [
         "http://localhost/",
-        "http://localhost/promos/3-lisboa-paris/",
-        "http://localhost/promos/2-porto-paris/"
+        "http://localhost/promos/8-lisboa-madeira/",
+        "http://localhost/promos/3-lisboa-paris/"
       ],
       "numberOfRuns": 3,
       "settings": {

@@ -13,12 +13,13 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["code", "city", "city_en", "slug", "kinds", "airports", "routes", "photo"],
+        "required": ["code", "city", "city_en", "slug", "path", "kinds", "airports", "routes", "photo"],
         "properties": {
           "code": {"$ref": "defs.schema.json#/$defs/city"},
           "city": {"type": "string", "minLength": 1},
           "city_en": {"type": ["string", "null"]},
-          "slug": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+          "slug": {"type": "string", "pattern": "^[a-z0-9-]+$", "description": "From the Portuguese city name; cities sharing one take their code too (sao-jose-sjo, D30)."},
+          "path": {"$ref": "defs.schema.json#/$defs/path", "description": "The destination hub (/destinos/<slug>/, D30)."},
           "kinds": {"type": "array", "minItems": 1, "items": {"$ref": "defs.schema.json#/$defs/kind"}},
           "airports": {"type": "array", "items": {"$ref": "defs.schema.json#/$defs/airport"}},
           "routes": {"type": "array", "minItems": 1, "items": {"$ref": "defs.schema.json#/$defs/route_key"}, "description": "Routes from Portuguese origins, by key."},

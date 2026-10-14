@@ -118,7 +118,7 @@ def price_fields(node, path=""):
 CHECKED = {
     "defs": set(),
     "routes": {("/routes/*/months/*/typical_low", "eur"), ("/routes/*/months/*/average", "eur"),
-               ("/routes/*/cheapest", "offer")},
+               ("/routes/*/cheapest", "offer"), ("/routes/*/calendar/*/price", "eur")},
     "promotions": {("/promotions/*/offer", "offer"), ("/promotions/*/typical_low", "eur"),
                    ("/promotions/*/expired/latest/price", "eur")},
     "low-prices": {("/rows/*/2", "eur"), ("/rows/*/10", "eur")},
@@ -158,6 +158,11 @@ def untraced_prices(ctx, conn, out: Path) -> list[str]:
                     bad.append(f"{r['key']} {m['month']} {field}: {m[field]}")
         if r["cheapest"]:
             offer(f"{r['key']} cheapest", r["cheapest"], r["key"])
+        for c in r["calendar"]:
+            offer(f"{r['key']} calendar {c['dep']}", c, r["key"])
+            stored = db.get_observation(conn, c["obs"])
+            if stored.departure_date.isoformat() != c["dep"]:
+                bad.append(f"{r['key']} calendar {c['dep']}: obs {c['obs']} departs another day")
     for p in read(out, "promotions.json")["promotions"]:
         deal, obs = db.get_deal(conn, p["id"])
         offer(f"promotion {p['id']}", p["offer"], obs.route_key)
@@ -394,7 +399,8 @@ def test_low_price_files_stay_inside_the_size_budget(ctx, tmp_path):  # noqa: F8
     assert len(gzip.compress(raw)) < len(raw) / 3                      # gzip-friendly
     assert raw.count(b"\n") == len(doc["rows"]) + 2                    # one row per line
     site_data.export_site_data(ctx, conn, tmp_path / "again", now)
-    assert (tmp_path / "again" / "low-prices" / "LIS.json").read_bytes() == raw   # deterministic    assert validation_errors(out) == []
+    assert (tmp_path / "again" / "low-prices" / "LIS.json").read_bytes() == raw   # deterministic
+    assert validation_errors(out) == []
 
 
 # --- CLI and the run -----------------------------------------------------------------------
@@ -525,3 +531,39 @@ def test_fixtures_show_both_promotion_states_even_without_approved_deals(ctx, tm
     assert validation_errors(out) == []
     raw = pipeline.open_db(ctx).execute("SELECT COUNT(*) FROM deals WHERE status = 'expired'")
     assert raw.fetchone()[0] == 3                                       # the real file unchanged
+
+
+# --- origin pages, destination hubs and the route calendar (#14, D30) -----------------------
+
+def test_origins_and_destinations_carry_their_page_paths(exported):
+    _, _, _, out, _ = exported
+    origins = {o["iata"]: o for o in read(out, "origins.json")["origins"]}
+    assert origins["LIS"]["path"] == "/partidas/lisboa/"
+    assert origins["OPO"]["path"] == "/partidas/porto/"
+    dests = {d["code"]: d for d in read(out, "destinations.json")["destinations"]}
+    assert dests["LON"]["path"] == "/destinos/londres/" and dests["LON"]["slug"] == "londres"
+    assert dests["ROM"]["path"] == "/destinos/roma/"
+
+
+def test_destination_slugs_take_the_code_when_two_cities_share_a_name():
+    from escapadinha.website import destination_slugs
+    assert destination_slugs({"LON": "Londres", "AMS": "Amesterdão"}) == {
+        "LON": "londres", "AMS": "amesterdao"}
+    # Two provider cities with one Portuguese name: both get their code, whatever else exists.
+    assert destination_slugs({"SJO": "São José", "SJC": "São José", "ROM": "Roma"}) == {
+        "SJO": "sao-jose-sjo", "SJC": "sao-jose-sjc", "ROM": "roma"}
+
+
+def test_route_calendar_is_the_cheapest_fresh_offer_per_departure_date(exported):
+    """The calendar of cheapest found prices (story 34): the latest run's fresh offers within
+    the route's rules, the cheapest per departure day, ascending, each with its observation."""
+    _, _, _, out, _ = exported
+    lon = route(out, "LIS-LON")
+    jan = date(db.utcnow().year + 1, 1, 10)
+    # 50 € has a stop on a direct-only route: not in it. 60/80/85,40/95 € are fresh and direct.
+    assert [(c["dep"], c["price"]) for c in lon["calendar"]] == [
+        ((jan + timedelta(days=d)).isoformat(), p) for d, p in [(3, 60), (5, 80), (8, 85.4), (9, 95)]]
+    first = lon["calendar"][0]
+    assert first["obs"] == lon["cheapest"]["obs"]
+    assert first["ret"] == (jan + timedelta(days=7)).isoformat()
+    assert route(out, "OPO-BER")["calendar"] == []

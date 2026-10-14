@@ -21,6 +21,7 @@ import re
 import shutil
 import sqlite3
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -52,6 +53,20 @@ def slugify(text: str) -> str:
 def route_slug(origin_city: str, city_pt: str) -> str:
     """A route page's slug: /voos/<slug>/ ('lisboa-londres')."""
     return f"{slugify(origin_city)}-{slugify(city_pt)}"
+
+
+def origin_slug(origin_city: str) -> str:
+    """An origin page's slug: /partidas/<slug>/ ('lisboa')."""
+    return slugify(origin_city)
+
+
+def destination_slugs(cities: dict[str, str]) -> dict[str, str]:
+    """Destination code -> its hub's slug, /destinos/<slug>/ ('londres'), from the Portuguese
+    city name. Codes whose names share a slug all take their code ('sao-jose-sjo'), so a hub's
+    URL never depends on which of them was discovered first (D30)."""
+    slugs = {code: slugify(city) for code, city in cities.items()}
+    taken = Counter(slugs.values())
+    return {code: f"{s}-{code.lower()}" if taken[s] > 1 else s for code, s in slugs.items()}
 
 
 def promo_slug(deal_id: int, origin_city: str, city_pt: str) -> str:
