@@ -35,15 +35,17 @@ export const DECISION_PT: Record<DecisionType, string> = { approve: "aprovar", r
 /** db.OPEN_STATUSES: deals the live check still prices. */
 export const OPEN_STATUSES: Status[] = ["new", "rendered", "approved"];
 
-export function isDecision(kind: unknown): kind is DecisionType {
-  return typeof kind === "string" && Object.hasOwn(DECISIONS, kind);
+/** The decision a request names, or ReviewError 400 (check_decision's first rule, on its own so
+ * the handler refuses a malformed request before reading the store). */
+export function decisionType(kind: unknown): DecisionType {
+  if (typeof kind === "string" && Object.hasOwn(DECISIONS, kind)) return kind as DecisionType;
+  throw new ReviewError(`Decisão desconhecida: '${String(kind)}'.`, 400);
 }
 
 /** review.check_decision: the status a decision moves a deal to, or ReviewError (pt-PT). */
 export function checkDecision(kind: string, status: Status,
   { affiliateUrl, postUrl }: { affiliateUrl: string | null; postUrl?: string | null }): Status {
-  if (!isDecision(kind)) throw new ReviewError(`Decisão desconhecida: '${kind}'.`, 400);
-  const target = DECISIONS[kind];
+  const target = DECISIONS[decisionType(kind)];
   if (!(TRANSITIONS[status] ?? []).includes(target)) {
     throw new ReviewError(`Não é possível passar de '${STATUS_PT[status] ?? status}' para '${STATUS_PT[target]}'.`);
   }

@@ -210,6 +210,15 @@ describe("requests the Function refuses", () => {
     expect(body.message).toBe(message);
   });
 
+  it("refuses an unknown decision before reading the store", async () => {
+    for (const [snap, id] of [[undefined, 99], [null, 7]] as const) {
+      const w = await world(snap);
+      const { res, body } = await decide(w, { type: "delete", deal_id: id });
+      expect(res.status).toBe(400);
+      expect(body.message).toBe("Decisão desconhecida: 'delete'.");
+    }
+  });
+
   it("refuses posts from another site (CSRF) and non-JSON bodies", async () => {
     const w = await world();
     expect((await decide(w, { type: "reject", deal_id: 7 }, { Origin: "https://evil.example" })).res.status).toBe(403);

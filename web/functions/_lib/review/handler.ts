@@ -14,8 +14,8 @@ import { AccessError, HEADER, verifyAccess } from "./access";
 import { dispatch, newEvent, pendingEvents, readSnapshot, writeEvent } from "./events";
 import { CheckError, liveCheck } from "./live-check";
 import { renderPage } from "./page";
-import { checkDecision, DECISION_PT, isDecision, OPEN_STATUSES, ReviewError, STATUS_PT } from "./rules";
-import type { Deps, Env, LiveCheck, Snapshot, SnapshotDeal } from "./types";
+import { checkDecision, DECISION_PT, decisionType, OPEN_STATUSES, ReviewError, STATUS_PT } from "./rules";
+import type { DecisionType, Deps, Env, LiveCheck, Snapshot, SnapshotDeal } from "./types";
 
 export const DEFAULT_REPOSITORY = "MiguelCorre/escapadinha";
 const NO_STORE = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
@@ -32,6 +32,12 @@ function json(body: Record<string, unknown>, status = 200): Response {
 
 function fail(message: string, status: number, extra: Record<string, unknown> = {}): Response {
   return json({ ok: false, message, ...extra }, status);
+}
+
+/** A rule refused the decision (ReviewError, pt-PT); anything else is a bug and propagates. */
+function refused(exc: unknown): Response {
+  if (exc instanceof ReviewError) return fail(exc.message, exc.status);
+  throw exc;
 }
 
 function refuse(reason: string): Response {
@@ -100,8 +106,12 @@ async function onCheck(request: Request, env: Env, deps: Deps): Promise<Response
 async function onDecision(request: Request, env: Env, deps: Deps, actor: string): Promise<Response> {
   const body = await readBody(request);
   if (body instanceof Response) return body;
-  const kind = body.type;
-  if (!isDecision(kind)) return fail(`Decisão desconhecida: '${String(kind)}'.`, 400);
+  let kind: DecisionType;
+  try {
+    kind = decisionType(body.type);           // a malformed request: 400 before any store read
+  } catch (exc) {
+    return refused(exc);
+  }
   const found = await target(body, env);
   if (found instanceof Response) return found;
   const { snapshot, deal } = found;
@@ -119,8 +129,7 @@ async function onDecision(request: Request, env: Env, deps: Deps, actor: string)
   try {
     checkDecision(kind, deal.status, { affiliateUrl: deal.affiliate_url, postUrl });
   } catch (exc) {
-    if (exc instanceof ReviewError) return fail(exc.message, exc.status);
-    throw exc;
+    return refused(exc);
   }
 
   // pipeline.approve: the live check is the gate; a moved price writes nothing.
