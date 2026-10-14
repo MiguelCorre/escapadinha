@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import respx
 
-from escapadinha import pipeline, site_data
+from escapadinha import pipeline, run_path, site_data
 from escapadinha.storage import db
 from escapadinha.website import astro
 from escapadinha.website import deploy as site_deploy
@@ -237,6 +237,73 @@ def test_config_redirects_are_kept_unless_they_would_hide_a_page(ctx, npm):
     r = rules(web)
     assert r["/antigo/"] == "/explorar/" and "/sobre/" not in r
     assert summary.skipped_redirects == ["/sobre/ -> /: /sobre/ is a page of the site"]
+
+
+# --- the run's full path (run_path fingerprint) -------------------------------------------------
+
+def test_a_change_to_the_web_package_takes_the_full_path(ctx):
+    web = web_package(ctx.root)
+    files = {"src/pages/index.astro": "<p>a</p>", "src/content/tips/dica.mdx": "---\n---\n",
+             "astro.config.ts": "export default {};", "public/favicon.svg": "<svg/>",
+             "package.json": "{}", "src/data/meta.json": "{}", "node_modules/x/index.js": "",
+             "dist/index.html": "<p>built</p>"}
+    for rel, text in files.items():
+        (web / rel).parent.mkdir(parents=True, exist_ok=True)
+        (web / rel).write_text(text, "utf-8")
+    conn = pipeline.open_db(ctx)
+    run_path.record_full_path(ctx, conn)
+    assert not run_path.decide(ctx, conn).full
+    for rel in ("src/pages/index.astro", "src/content/tips/dica.mdx", "astro.config.ts",
+                "public/favicon.svg", "package-lock.json"):
+        (web / rel).write_text((web / rel).read_text("utf-8") + "\n// changed\n", "utf-8")
+        decision = run_path.decide(ctx, conn)
+        assert decision.full and "code" in decision.reason, rel
+        run_path.record_full_path(ctx, conn)
+    # The export's output, installed packages and the build are not sources.
+    for rel in ("src/data/meta.json", "node_modules/x/index.js", "dist/index.html"):
+        (web / rel).write_text("changed", "utf-8")
+    assert not run_path.decide(ctx, conn).full
+
+
+def store_offer(conn, price: float, departure) -> None:
+    """A new completed collection run with one LIS-LON offer (test data only)."""
+    from escapadinha.models import Observation
+    run_id = db.start_run(conn, "test")
+    db.insert_observations(conn, run_id, [Observation(
+        source="test", origin="LIS", destination="LON", origin_airport="LIS",
+        destination_airport="LGW", departure_date=departure,
+        return_date=departure + timedelta(days=3), price=price, currency="EUR", airline="TP",
+        flight_number="1", transfers=0, return_transfers=0, deep_link=None,
+        fetched_at=db.utcnow(), raw_json="{}")])
+    db.finish_run(conn, run_id, status="ok", n_requests=1, n_observations=1, error=None)
+
+
+def test_what_the_exported_data_shows_decides_the_path_not_the_run_bookkeeping(ctx):
+    """A new run that finds the same offers changes generated_at, the run id, the routes'
+    observation counts and last-seen times: none is on the site, so the path stays fast. A
+    new cheapest price is (route, origin and hub pages, calendar): full path."""
+    from datetime import date
+    conn = pipeline.open_db(ctx)
+    store_offer(conn, 120, date(2026, 12, 4))
+    run_path.record_full_path(ctx, conn)
+    store_offer(conn, 120, date(2026, 12, 4))              # the same offer seen again
+    assert run_path.decide(ctx, conn) == run_path.PathDecision(False, "nothing the site shows changed")
+    store_offer(conn, 99, date(2026, 12, 4))               # a cheaper one: the site changes
+    decision = run_path.decide(ctx, conn)
+    assert decision.full and decision.reason == "changed: site data"
+
+
+def test_the_site_never_shows_what_the_fingerprint_leaves_out():
+    """`run_path._shown` drops the run id, routes' observation counts and their last-seen time
+    beyond the day: a page that started showing one would not be refreshed by a routine run."""
+    import re
+    for path in (REPO / "web" / "src").rglob("*"):
+        if path.suffix not in (".astro", ".ts") or path.name == "contract.ts":
+            continue
+        text = path.read_text("utf-8")
+        assert "counts.observations" not in text and not re.search(r"meta\.run\b", text), path
+        for m in re.finditer(r"last_observed_at", text):
+            assert text[m.end():].startswith((" ?", ".slice(0, 10)")), path
 
 
 # --- deploy ------------------------------------------------------------------------------------

@@ -759,11 +759,13 @@ on `ubuntu-latest`: lock → pull the database from R2 → daily backup → (mon
 collect → recheck → detect → publish due posts (D32) → **full path only when needed** → push → unlock.
 
 - **Fast path, full path.** After detection the run compares a fingerprint of what the public
-  outputs show with the one stored at the last full path: promotions (id, status, link), the low
-  prices the route pages list, routes (key, status, name), the Lisbon date, and the code, config
-  and content. If anything changed it takes the full path (render new deals → export the site
+  outputs show with the one stored at the last full path: promotions (id, status, link), the
+  site data exactly as the next build would read it (computed in memory, without the run id,
+  timestamps and counters no page shows), routes (key, status, name), the Lisbon date, and the
+  code, config and content (the Python package, `config.yaml`, `content/`, the web package's
+  sources and lockfile, the logo and fonts). If anything changed it takes the full path (render new deals → export the site
   data → `site build` (Astro) → deploy when the content changed); otherwise it ends there. The log says which and why:
-  `Path: fast (nothing the site shows changed)`, `Path: full (changed: promotions, low prices)`,
+  `Path: fast (nothing the site shows changed)`, `Path: full (changed: promotions, site data)`,
   `Path: full (forced with --full)`. A full path that fails records nothing, so the next run
   tries again. The first run after Lisbon midnight is always full, so typical lows and
   "Atualizado a" are at most a day old.
@@ -799,7 +801,9 @@ collect → recheck → detect → publish due posts (D32) → **full path only 
 
 **Minutes used.** A private repo on GitHub Free gets 2000 Linux minutes a month (public repos are
 not metered). Budget: 12 runs a day × ~2 min ≈ 720 min/month, plus a minute or two for each full
-path that renders (Chromium's system libraries).
+path (npm ci from the cache, the Astro build, the deploy; Chromium's system libraries when it
+renders). Since the cutover about half the runs take the full path, because the site shows every
+route's cheapest current price (D35).
 - One run: *Actions* → the run → *Usage* (under *Run details*) shows its billable time; the
   summary shows our own `Duration`.
 - The month: your account → *Settings* → *Billing and licensing* → *Usage*, filtered on Actions.

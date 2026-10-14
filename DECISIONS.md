@@ -677,7 +677,7 @@ so nothing has to be hosted.
   full-path fingerprint (`run_path`) covers what the Jinja site shows plus the day, so the
   export's extra rows (every low price, not only the 5 per route page) refresh at least daily;
   once the Astro site is the live one (#13) the fingerprint should cover the export itself
-  (e.g. a hash of its files). Tests validate the export with
+  (e.g. a hash of its files): done at the cutover, D35. Tests validate the export with
   `jsonschema` against the committed schemas. **Versioning:** the directory is the major version;
   additive changes (new optional data, new files) stay in v1, anything that breaks a consumer is v2.
 - **Same rules as the Jinja site, not a second implementation:** routes from `routes.all_routes`,
@@ -1492,6 +1492,28 @@ so nothing has to be hosted.
   hash of `web/dist` plus the Function's sources (unchanged → skipped); the build's own
   timestamps don't count: the footer's `Atualizado a <span …>…</span>` and the explorer data's
   `generated_at`.
+- **Full-path fingerprint (`run_path`, D25) covers what the Astro site shows:** the `low_prices`
+  component (the Jinja route pages' five) is replaced by **`site_data`**: the whole contract as
+  the next build would read it, computed in memory at decide time with `site_data.build_export(...,
+  new_links=False)` (stored links only, nothing written; ~0.1 s on the real data), minus what
+  changes on every run but no page shows (`run_path._shown`: `generated_at` and the run id in
+  `meta.json` and the low-price files, each route's observation count, its last-seen time beyond
+  the day, which only a dormant route page shows as a date; a test fails if a page starts
+  reading one of those). The **code** component adds the web package's sources (`web/src`
+  without `web/src/data`, `web/public`, `web/functions`, `astro.config.ts`, `package.json`,
+  `package-lock.json`) and what the build reads from outside `web/` (`assets/logo-light.svg`,
+  `assets/fonts/*.woff2`), so a reviewed article, a template or a dependency change takes the
+  full path; `node_modules`, `dist` and the export don't count. Promotions, routes and the day
+  stay. The first run after the merge takes the full path (the stored fingerprint has no
+  `site_data`). **Cost:** the export carries every route's cheapest fresh offer, calendar and
+  every low price, which move more often than the five low prices per route page did. Replaying
+  the last 13 runs of the real database (2026-10-13/14) the site data changed between 7 of them,
+  the old `low_prices` component in 1: about half of the runs will take the full path (+ npm ci
+  from cache, ~15–20 s astro build, a deploy of the changed files) instead of about one a day.
+  That's still within the Actions budget (D25: ~720 of 2000 min/month for the fast paths); if it
+  isn't, the knob is `_shown` (e.g. leave the calendar to the daily refresh), not the build.
+  Rejected: hashing `web/src/data` after the previous export (a runner has none, CI keeps no
+  files) and comparing built sites (that is the cost the fast path avoids).
 - **CI:** `actions/setup-node` with `cache: npm` keyed on `web/package-lock.json`, so the full
   path's `npm ci` installs from the cache; the fast path never runs npm. Timeout unchanged (45 <
   60 min lock). The PC task needs Node 22+ installed (it already did for wrangler).

@@ -113,7 +113,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `_headers` → `web/dist`) → `site deploy` (`web/dist` + Functions; refuses a fixture build) →
   `record_full_path`) → `export_review_snapshot` on every run, even a failed one. The
   full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
-  `run_path.fingerprint`, or a routine run won't publish it.
+  `run_path.fingerprint`, or a routine run won't publish it: the exported contract is (component
+  `site_data`, minus `run_path._shown`'s per-run fields: never render one of those on a page), and
+  so are the web package's sources (`run_path.web_source_files`).
 - Public deals, page slugs and image paths come from one place (`website.is_public`,
   `public_deal_rows`, `promo_slug`, `route_slug`, `origin_slug`, `destination_slugs`,
   `promo_image_dir`, `deal_image_paths`): the site, the site data export and the review snapshot
@@ -166,7 +168,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/storage/s3.py`: `S3ObjectStore` (R2, conditional-write lock); `sync.py`: database
   pull/push, `run_session` (lock → pull → daily backup → push → unlock), restore, `store check`;
   `mirror.py`: `Mirror` (a local folder also kept under a store prefix: `photos/`, `output/`)
-- `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint`, `record_full_path`)
+- `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint` incl. `site_data_digest`,
+  `record_full_path`)
 - `.github/workflows/pipeline.yml`: 2-hourly `escapadinha run` on Actions; dispatch → `--full` (D25)
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate` (candidates),
   `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)

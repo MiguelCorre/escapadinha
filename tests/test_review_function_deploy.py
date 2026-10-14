@@ -150,5 +150,6 @@ def test_a_function_change_takes_the_full_path(ctx):
     decision = run_path.decide(ctx, conn)
     assert decision.full and "code" in decision.reason
     run_path.record_full_path(ctx, conn)
+    # Since the cutover (D35) the whole web package's sources count, not only the Function's.
     (w / "src/lib/site-data.ts").write_text("// not part of the Function\n", "utf-8")
-    assert not run_path.decide(ctx, conn).full
+    assert run_path.decide(ctx, conn).full
