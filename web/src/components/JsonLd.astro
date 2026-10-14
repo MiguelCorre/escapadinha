@@ -1,0 +1,14 @@
+---
+// One JSON-LD block (D34). `refs` become data-obs / data-deal / data-route on the <script>, so the
+// traceability test checks any price inside against the contract (D2).
+import { jsonLdText } from "../lib/structured-data";
+
+interface Props {
+  data: object;
+  refs?: Record<string, string | number>;
+}
+
+const { data, refs = {} } = Astro.props;
+const attrs = Object.fromEntries(Object.entries(refs).map(([k, v]) => [`data-${k}`, v]));
+---
+<script is:inline type="application/ld+json" {...attrs} set:html={jsonLdText(data)} />

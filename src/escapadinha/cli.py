@@ -21,8 +21,10 @@ from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError
+from escapadinha.website import node
+from escapadinha.website.node import BuildError
 from escapadinha.website.deploy import DeployError
-from escapadinha.config import Context
+from escapadinha.config import ConfigError, Context
 from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LockHeld
 from escapadinha.storage.s3 import STORE_ERRORS
@@ -32,7 +34,8 @@ app =typer.Typer(help="Travel deals from Portugal: collect → detect → render
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
                          no_args_is_help=True)
-site_app = typer.Typer(help="Public website: build, preview, deploy (Cloudflare Pages).",
+site_app = typer.Typer(help="Public website (the Astro package in web/): build, preview, deploy "
+                            "(Cloudflare Pages), crawl.",
                        no_args_is_help=True)
 deal_app = typer.Typer(help="Approval queue actions (same rules as the review page).",
                        no_args_is_help=True)
@@ -348,7 +351,39 @@ def deal_published(deal_id: int, url: Annotated[str | None, typer.Option(help="P
 
 @site_app.command("build")
 def site_build() -> None:
-    """Generate the static site into ./site from the database."""
+    """Build the website (web/dist) from the exported data: npm ci when needed, astro build,
+    promotion images, _redirects and _headers. Run `export site-data` first."""
+    _site_build(until=None)
+
+
+def _site_build(until: float | None):
+    """`site build` within the deadline `until` (the full path's, D35; None: a budget of its own).
+    Returns the `astro.BuildSummary`."""
+    from escapadinha.website import astro
+
+    ctx, conn = _ctx()
+    summary = astro.build(ctx, conn, until=until)
+    pages = ", ".join(f"{n} {kind}" for kind, n in sorted(summary.pages.items()))
+    console.print(f"Site built in [bold]{node.dist_dir(ctx)}[/] in {summary.seconds} s"
+                  + (" (npm ci ran)" if summary.installed else "") + f": {pages}; "
+                  f"{summary.images} promotion images, {summary.redirects} redirects, "
+                  f"{summary.size_bytes / 1_000_000:.1f} MB")
+    for skipped in summary.skipped_redirects:
+        console.print(f"  [yellow]![/] redirect left out: {escape(skipped)}")
+    for warning in summary.warnings:
+        console.print(f"  [yellow]![/] {escape(warning)}")
+    for path in summary.missing_images:
+        console.print(f"  [yellow]![/] image missing (slides not rendered or stored): {path}")
+    site = ctx.config.site
+    if not site.on_final_domain:
+        console.print(f"  [dim]Served at {site.base_url}; final domain {site.domain} not "
+                      f"connected yet (docs/runbooks/brand-switch.md)[/]")
+    return summary
+
+
+@site_app.command("build-jinja")
+def site_build_jinja() -> None:
+    """Legacy (until #23 phase 2): the old Jinja site into ./site. Never deployed any more."""
     from escapadinha.website import build_site
 
     ctx, conn = _ctx()
@@ -373,15 +408,22 @@ def export_site_data(
     new_links: Annotated[bool, typer.Option(help="Create missing partner links (API)")] = True,
 ) -> None:
     """Write the website's JSON data (origins, routes, promotions, low prices per origin, ...)."""
+    _export_site_data(out, new_links)
+
+
+def _export_site_data(out: Path | None, new_links: bool):
+    """`export site-data`; returns the `site_data.Export` written (the full path records it)."""
     from escapadinha import site_data
 
     ctx, conn = _ctx()
     out = out or site_data.default_dir(ctx)
-    counts = site_data.export_site_data(ctx, conn, out, new_links=new_links).counts
+    export = site_data.export_site_data(ctx, conn, out, new_links=new_links)
+    counts = export.counts
     console.print(f"Site data written to [bold]{out}[/]: {counts['routes']} routes, "
                   f"{counts['origins']} origins, {counts['destinations']} destinations, "
                   f"{counts['promotions_live']} live + {counts['promotions_expired']} expired "
                   f"promotions, {counts['low_prices']} low prices")
+    return export
 
 
 @export_app.command("fixtures")
@@ -403,14 +445,43 @@ def export_fixtures(
 
 @site_app.command("preview")
 def site_preview(port: Annotated[int, typer.Option()] = 8766) -> None:
-    """Serve ./site locally (http://127.0.0.1:PORT)."""
+    """Serve the built site (web/dist) locally (http://127.0.0.1:PORT); _redirects not applied."""
     import functools
     import http.server
 
     ctx = Context()
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ctx.site_dir))
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler,
+                                directory=str(node.dist_dir(ctx)))
     console.print(f"Site preview at [bold]http://127.0.0.1:{port}[/] (Ctrl+C to stop)")
     http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
+
+
+@site_app.command("crawl")
+def site_crawl(
+    sitemap: Annotated[str, typer.Option(help="Old sitemap: URL or file "
+                                              "(e.g. a copy of the Jinja site's sitemap.xml)")],
+    base: Annotated[str | None, typer.Option(help="Crawl this host instead of the sitemap's "
+                                                  "(e.g. a preview deployment)")] = None,
+    dist: Annotated[Path | None, typer.Option(help="Check a local build (its _redirects) "
+                                                   "instead of the live site")] = None,
+    pause: Annotated[float, typer.Option(help="Seconds between live requests")] = 0.2,
+) -> None:
+    """Every URL of a sitemap must answer 200, or 301 to a page that answers 200 (D35). Exits 1
+    and lists the others."""
+    from escapadinha.website import crawl
+
+    with httpx.Client(timeout=30, headers={"User-Agent": "escapadinha-crawl"}) as client:
+        urls = crawl.sitemap_urls(sitemap, client)
+        results = (crawl.check_build(urls, dist) if dist
+                   else crawl.check_live(urls, client, base=base, pause=pause))
+    bad = [r for r in results if not r.ok]
+    redirected = sum(r.ok and r.status == 301 for r in results)
+    console.print(f"{len(results)} URLs: {len(results) - len(bad)} ok "
+                  f"({redirected} by a 301), {len(bad)} broken")
+    for r in bad:
+        console.print(f"  [red]✗[/] {escape(r.path)} {r.status} {escape(r.detail)}")
+    if bad:
+        raise typer.Exit(1)
 
 
 @site_app.command("setup")
@@ -423,11 +494,16 @@ def site_setup() -> None:
 
 @site_app.command("deploy")
 def site_deploy(force: Annotated[bool, typer.Option(help="Deploy even if unchanged")] = False) -> None:
-    """Upload ./site to Cloudflare Pages if it changed since the last deploy."""
+    """Upload web/dist and the review Function to Cloudflare Pages if they changed since the
+    last deploy (a fixture build is refused)."""
+    _site_deploy(force=force, until=None)
+
+
+def _site_deploy(force: bool, until: float | None) -> None:
     from escapadinha.website.deploy import deploy
 
     ctx, conn = _ctx()
-    deployed, message = deploy(ctx, conn, force=force)
+    deployed, message = deploy(ctx, conn, force=force, until=until)
     console.print(("[green]Deployed:[/] " if deployed else "") + message)
 
 
@@ -684,23 +760,33 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     report.append(f"Path: {decision.name} ({decision.reason})")
     if not decision.full:
         return
+    until = node.deadline()                  # one budget for the full path's Node commands (D35)
     uploaded = pipeline.mirror_local_files(ctx, conn)     # what a runner lacks (D25)
     if uploaded:
         console.print(f"{len(uploaded)} local files uploaded to the object store.")
     if render:
         render_deals()
-    export_site_data(out=None, new_links=True)
-    site_build()
+    export = _export_site_data(None, new_links=True)   # → web/src/data (site.data_dir)
+    if _site_build(until).installed:             # the Astro site → web/dist (D35)
+        _github_output("npm_ci", "true")         # the workflow saves npm's cache (D35)
     if _site_configured(ctx):
-        site_deploy()
+        _site_deploy(force=False, until=until)
     else:
         console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
-    run_path.record_full_path(ctx, conn)
+    run_path.record_full_path(ctx, conn, export)   # what was exported, built and deployed
 
 
 def _duration(seconds: float) -> str:
     minutes, secs = divmod(round(seconds), 60)
     return f"{minutes} min {secs} s" if minutes else f"{secs} s"
+
+
+def _github_output(name: str, value: str) -> None:
+    """A step output for the workflow (only when Actions sets the file)."""
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{name}={value}\n")
 
 
 def _step_summary(status: str, took: str, report: list[str]) -> None:
@@ -720,8 +806,8 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
             "--full", help="Render, build and deploy even if nothing the site shows changed")] = False,
         ) -> None:
     """Review events → (monthly route discovery) → collect → recheck open deals → detect →
-    publish due posts (D32), then the full path (render new deals → build the site → deploy)
-    only when something it shows changed → review snapshot. What the scheduler runs (GitHub Actions, D25).
+    publish due posts (D32), then the full path (render new deals → export the site data →
+    build the Astro site → deploy) only when something it shows changed → review snapshot. What the scheduler runs (GitHub Actions, D25).
 
     With R2 keys in .env: lock → pull the database → daily backup → steps → push → unlock.
     Another run holding the lock makes this one exit 0 without touching anything.
@@ -757,7 +843,7 @@ def main() -> None:
     try:
         app()
     except (TravelpayoutsError, PhotoSourceError, AffiliateError, ReviewError, DeployError,
-            sync.SyncError, FileNotFoundError, KeyError) as exc:
+            BuildError, ConfigError, sync.SyncError, FileNotFoundError, KeyError) as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise SystemExit(2) from None
 

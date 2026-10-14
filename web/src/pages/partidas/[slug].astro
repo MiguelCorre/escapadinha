@@ -5,6 +5,7 @@
 import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import type { Origin } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { count, eur, shortDate } from "../../lib/format";
@@ -31,7 +32,7 @@ const total = groups.reduce((n, g) => n + g.routes.length, 0);
   description={`Os ${total} destinos que acompanhamos a partir de ${origin.name}, cada um com o preço de ida e volta mais baixo encontrado agora e a página da rota.`}
   path={origin.path}
 >
-  <nav aria-label="Caminho" class="text-small text-muted"><a href="/partidas/">Partidas</a> › {origin.name}</nav>
+  <Breadcrumbs crumbs={[{ name: "Partidas", path: "/partidas/" }, { name: origin.name, path: origin.path }]} />
 
   <header class="mt-lg max-w-measure">
     <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Voos desde {origin.name}</h1>

@@ -4,6 +4,7 @@ import mdx from "@astrojs/mdx";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, fontProviders } from "astro/config";
 import { siteDataPlugin } from "./src/lib/site-data-plugin";
+import { sitemap } from "./src/lib/sitemap";
 
 // Static site from the website data contract (D27, D28). The data directory comes from
 // SITE_DATA_DIR (relative to web/), default web/src/data; `npm run build:fixtures` points it at
@@ -44,8 +45,8 @@ export default defineConfig({
   trailingSlash: "always",
   build: { format: "directory", inlineStylesheets: "always" },
   fonts,
-  // Itineraries and tips (src/content.config.ts, D33).
-  integrations: [mdx()],
+  // Itineraries and tips (src/content.config.ts, D33); sitemap.xml from the built pages (D34).
+  integrations: [mdx(), sitemap()],
   vite: {
     plugins: [tailwindcss(), siteDataPlugin()],
     // Fonts and logos live in the repository's assets/ (shared with the slides).

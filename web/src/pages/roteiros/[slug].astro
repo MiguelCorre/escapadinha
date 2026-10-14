@@ -6,11 +6,13 @@ import type { GetStaticPaths } from "astro";
 import { render } from "astro:content";
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import ContentArticle from "../../components/ContentArticle.astro";
 import { itineraries } from "../../collections";
 import { BRAND } from "../../lib/brand";
 import { contentPath } from "../../lib/content";
 import { count, monthList } from "../../lib/format";
+import { articleLd } from "../../lib/structured-data";
 
 export const getStaticPaths = (async () => {
   return (await itineraries()).map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
@@ -20,13 +22,21 @@ const { entry } = Astro.props;
 const it = entry.data;
 const { Content } = await render(entry);
 const hub = data.destinations.destinations.find((d) => d.code === it.destination);
+const path = contentPath("itineraries", entry.id);
+// Article (D34): by Ponto Nómada, modified when its facts were last checked; none for a draft.
+const article = it.reviewed
+  ? articleLd(data, { title: it.title, description: it.description, path, lastChecked: it.last_checked })
+  : null;
 ---
 <Base
   title={`${it.title} · ${BRAND}`}
   description={it.description}
-  path={contentPath("itineraries", entry.id)}
+  path={path}
   noindex={!it.reviewed}
+  ogType="article"
+  jsonLd={article ? [{ data: article }] : []}
 >
+  <div class="mb-lg"><Breadcrumbs crumbs={[{ name: "Roteiros", path: "/roteiros/" }, { name: it.title, path }]} /></div>
   <ContentArticle kicker="Roteiro" title={it.title} description={it.description} reviewed={it.reviewed}
     lastChecked={it.last_checked} sources={it.sources}>
     <dl slot="meta" class="mt-lg flex flex-wrap gap-x-xl gap-y-xs text-small">

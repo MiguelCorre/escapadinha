@@ -40,6 +40,7 @@ from escapadinha.presentation import (
 )
 from escapadinha.storage import db
 from escapadinha.website import redirects
+from escapadinha.website.images import write_promo_images
 
 LIVE = ("approved", "published")
 
@@ -278,15 +279,9 @@ class SiteBuilder:
         if folder is None:
             return
         dest = promo_image_dir(d.deal.id)
-        d.images = self._images(folder, dest)
-        cover = folder / "slide_01.png"
-        if cover.exists():
-            thumb = self.out / "img" / dest / "thumb.webp"
-            og = self.out / "img" / dest / "og.jpg"
-            with Image.open(cover) as im:
-                rgb = im.convert("RGB")
-                rgb.resize((540, 675), Image.LANCZOS).save(thumb, "WEBP", quality=78, method=6)
-                rgb.save(og, "JPEG", quality=82, optimize=True, progressive=True)
+        written = write_promo_images(folder, self.out / "img" / dest)
+        d.images = [f"/img/{dest}/{name}" for name in written if name.startswith("slide_")]
+        if "og.jpg" in written:
             d.thumb = f"/img/{dest}/thumb.webp"
             d.og_image = f"/img/{dest}/og.jpg"
 

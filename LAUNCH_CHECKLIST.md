@@ -15,9 +15,18 @@ The steps before the first public post, in order. Tick them as they're done.
 - [ ] Switch it to a **professional** (Business/Creator) account. v2 publishing via the Graph API needs this.
 - [x] Website live at https://ondestaanocas.pages.dev (2026-10-13). Every scheduled run rebuilds it
       and deploys when the content changed.
+- [x] Cutover to the Astro site (`web/`, #23 phase 1, D35, 2026-10-14): `run`'s full path exports the
+      data, builds `web/dist` and deploys it with the review Function; `_redirects` keeps every old
+      URL. The first production deploy happens on the next full path after the merge (or
+      `gh workflow run pipeline.yml -f full=true`).
+- [ ] For a week after that first deploy, daily: `uv run escapadinha site crawl --sitemap
+      docs/cutover/jinja-sitemap-2026-10-14.xml` (the live Jinja sitemap saved before the cutover,
+      363 URLs) reports no broken URL.
+      Then delete the Jinja site (`SiteBuilder`, `website/templates/`, `site build-jinja`; #23 phase 2).
 - [ ] Put the site in the Instagram bio (https://pontonomada.pt once connected; until then
       https://ondestaanocas.pages.dev, which will redirect).
-- [ ] Review the "Como funciona" and "Privacidade" texts (`src/escapadinha/website/templates/`).
+- [ ] Review the "Como funciona" and "Privacidade" texts (`web/src/pages/sobre/`,
+      `web/src/pages/privacidade/`).
 
 ## 2. Travelpayouts
 - [x] Project for the Instagram profile: **ID 584711** "Instagram", Content creation, Portuguese (2026-10-12).
@@ -32,7 +41,8 @@ The steps before the first public post, in order. Tick them as they're done.
       Instagram page are up and running.**
 
 ## 3. Content
-- [ ] Review `content/guides/voos-baratos-dicas.yaml`, then set `reviewed: true`.
+- [ ] Review the tip `web/src/content/tips/voos-baratos.mdx` (add sources and `last_checked`),
+      then set `reviewed: true` (its old `/guias/voos-baratos-dicas/` link then 301s to it).
 - [ ] Replace the provisional logo (`assets/logo-light.svg`, `assets/logo-dark.svg`) with the
       designer's (M6); colours and type are the design system (`docs/design/design-system.md`).
 

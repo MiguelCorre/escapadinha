@@ -100,6 +100,7 @@ Podes pedir-me isto ("liga o site ao pontonomada.pt") ou fazer tu:
   ```
 - [ ] Corre:
   ```bash
+  uv run escapadinha export site-data
   uv run escapadinha site build
   uv run escapadinha site deploy --force
   ```
@@ -148,9 +149,11 @@ O `site deploy` continua a funcionar igual: o wrangler envia para o projeto, nã
 
 ## 7. (Opcional) Pesquisa e estatísticas
 
-- [ ] Se ativaste o Cloudflare Web Analytics (`site.analytics_token`): Cloudflare → **Analytics &
-      Logs** → **Web Analytics** → confirma que o site `pontonomada.pt` aparece; se for preciso
-      um site novo, troca o token no `config.yaml`.
+- [ ] Cloudflare Web Analytics: Cloudflare → **Analytics & Logs** → **Web Analytics** → confirma
+      que o site `pontonomada.pt` aparece. Está em configuração automática (a Cloudflare conta as
+      visitas do lado dela, sem nada no código do site), por isso `site.analytics_token` fica `null` (D34); só com a
+      configuração automática desligada é que o token vai para o `config.yaml`. A pesquisa de
+      voos do Aviasales tem o seu guia: [search-widget.md](search-widget.md).
 - [ ] Google Search Console → **Adicionar propriedade** → **Domínio** `pontonomada.pt` → copia o
       registo TXT → Cloudflare → `pontonomada.pt` → **DNS** → **Add record** (Type `TXT`, Name `@`)
       → **Verificar**. Depois **Sitemaps** → `https://pontonomada.pt/sitemap.xml` → **Enviar**.
@@ -175,10 +178,11 @@ a programas, por isso tem de ser já o domínio final.
       instagram: 584711
       website: <ID novo>
   ```
-- [ ] `uv run escapadinha site build` → abre uma promoção ativa em `site/` e confirma que o botão
-      "Ver voo e reservar" tem um link `https://aviasales.tpo.lu/...` (os links do site ficam
-      guardados na base de dados, com `sub_id=site-deal-<id>`). Se um link falhar, o
-      site usa o link da promoção (Projeto do Instagram) e volta a tentar no build seguinte.
+- [ ] `uv run escapadinha export site-data` e `uv run escapadinha site build` → abre uma promoção
+      ativa em `web/dist/promos/` e confirma que o botão de reserva tem um link
+      `https://aviasales.tpo.lu/...` (os links do site são criados pela exportação e ficam
+      guardados na base de dados, com `sub_id=site-deal-<id>`). Se um link falhar, o site usa o
+      link da promoção (Projeto do Instagram) e volta a tentar na exportação seguinte.
 - [ ] `uv run escapadinha site deploy` e faz commit do `config.yaml`.
 - [ ] Marca no `LAUNCH_CHECKLIST.md`: "Create a separate Project for the website".
 

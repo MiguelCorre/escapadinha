@@ -412,7 +412,7 @@ def test_export_command_writes_the_contract_files(ctx, monkeypatch):  # noqa: F8
     conn.close()
     result = CliRunner().invoke(cli.app, ["export", "site-data", "--no-new-links"])
     assert result.exit_code == 0, result.output
-    out = ctx.root / "output" / "site-data" / "v1"                  # site.data_dir
+    out = ctx.root / "web" / "src" / "data"                         # site.data_dir
     assert "10 routes" in result.output and str(out) in result.output.replace("\n", "")
     assert read(out, "meta.json")["counts"]["routes"] == 10 and validation_errors(out) == []
     custom = ctx.root / "web-data"
@@ -432,16 +432,17 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     from escapadinha import run_path
     calls = []
     for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "publish_due",
-                 "render_deals", "export_site_data", "site_build", "site_deploy",
+                 "render_deals", "_export_site_data", "_site_build", "_site_deploy",
                  "export_review_snapshot"):
-        monkeypatch.setattr(cli, name, lambda *a, _n=name, **k: calls.append(_n))
+        monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n)
+                            or SimpleNamespace(installed=False))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
         status="ok", n_requests=1, n_observations=1, n_new=0, errors=[]))
     monkeypatch.setattr(cli, "_ctx", lambda: (None, None))
     monkeypatch.setattr(cli, "_site_configured", lambda ctx: True)
     monkeypatch.setattr(cli.pipeline, "mirror_local_files", lambda ctx, conn: [])
     monkeypatch.setattr(run_path, "record_full_path",
-                        lambda ctx, conn: calls.append("record_full_path"))
+                        lambda ctx, conn, export: calls.append("record_full_path"))
     monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.PathDecision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
     assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
@@ -685,3 +686,171 @@ def test_origin_articles_come_from_config(ctx, tmp_path):  # noqa: F811
         "origins.json"]["origins"]
     assert {o["iata"]: o["article"] for o in origins}.get("LIS") == "a"
     assert all(o["article"] is None for o in origins if o["iata"] != "LIS")
+
+
+# --- site integrations (D34): analytics token, search widget, Instagram handle ----------------
+
+FAKE_TOKEN = "fakeTestToken0000000000000000000"
+# The ctx fixture has no website Project, so the site uses the Instagram one (584711); its
+# marker is the fake TRAVELPAYOUTS_MARKER 424242. Test values, not a real widget.
+FAKE_WIDGET = "https://tp.media/content?trs=584711&shmarker=424242&fake=test-only&promo_id=0"
+
+
+def test_meta_carries_the_analytics_token_search_widget_and_handle_from_config(ctx, tmp_path):  # noqa: F811
+    ctx.config.site.analytics_token = FAKE_TOKEN
+    ctx.config.site.search_widget = FAKE_WIDGET
+    conn = pipeline.open_db(ctx)
+    export = site_data.build_export(ctx, conn, db.utcnow(), new_links=False)
+    meta = export.files["meta.json"]
+    assert meta["analytics_token"] == FAKE_TOKEN
+    assert meta["search_widget"] == FAKE_WIDGET
+    assert meta["instagram_handle"] == ctx.config.brand.handle
+    out = tmp_path / "site-data"
+    export.write(out)
+    assert validation_errors(out) == []
+
+
+def test_meta_says_null_when_analytics_and_widget_are_not_configured(ctx):  # noqa: F811
+    conn = pipeline.open_db(ctx)
+    meta = site_data.build_export(ctx, conn, db.utcnow(), new_links=False).files["meta.json"]
+    assert meta["analytics_token"] is None and meta["search_widget"] is None
+
+
+@respx.mock
+def test_fixtures_never_carry_the_analytics_token_or_the_widget(ctx, tmp_path):  # noqa: F811
+    """A fixture build stays unconfigured (Lighthouse measures the site without third parties)."""
+    mock_links()
+    ctx.config.site.analytics_token = FAKE_TOKEN
+    ctx.config.site.search_widget = FAKE_WIDGET
+    conn = pipeline.open_db(ctx)
+    build_scenario(ctx, conn)
+    conn.close()
+    out = tmp_path / "fixtures"
+    site_data.generate_fixtures(ctx, ctx.db_path, out)
+    meta = read(out, "meta.json")
+    assert meta["analytics_token"] is None and meta["search_widget"] is None
+    assert validation_errors(out) == [] and no_real_links(out) == []
+
+
+def test_committed_fixtures_are_unconfigured():
+    meta = read(FIXTURES, "meta.json")
+    assert meta["analytics_token"] is None and meta["search_widget"] is None
+    assert meta["instagram_handle"].startswith("@")
+
+
+def test_search_widget_must_be_an_https_travelpayouts_widget_script():
+    from pydantic import ValidationError
+    from escapadinha.config import SEARCH_WIDGET_HOSTS, SiteConfig
+    assert SiteConfig(search_widget=FAKE_WIDGET).search_widget == FAKE_WIDGET
+    for bad in ("http://tp.media/content?x=1", "https://example.com/content?x=1",
+                "https://tp.media.example.com/x", "https://tp.media/x\" onload=\"x"):
+        with pytest.raises(ValidationError, match="search_widget"):
+            SiteConfig(search_widget=bad)
+    # The contract's pattern accepts exactly the same hosts.
+    pattern = re.compile(json.loads((CONTRACT / "meta.schema.json").read_text("utf-8"))
+                         ["properties"]["search_widget"]["anyOf"][0]["pattern"])
+    for host in SEARCH_WIDGET_HOSTS:
+        assert pattern.search(f"https://{host}/content?x=1"), host
+    assert not pattern.search("https://example.com/content?x=1")
+    assert not pattern.search("https://tp.media.example.com/x")
+
+
+def test_search_widget_must_carry_the_websites_project_and_our_marker(ctx):  # noqa: F811
+    """Host allowlist first; then the widget's affiliate Project (`trs`) must be the website's
+    (`affiliate.project_for("website")`) and, with TRAVELPAYOUTS_MARKER set, its `shmarker` our
+    marker: a widget copied from another account would earn someone else the commissions."""
+    from pydantic import ValidationError
+    from escapadinha.config import AppConfig, ConfigError
+    base = ctx.config.model_dump()
+
+    def load(src: str, website: int | None = None) -> AppConfig:
+        data = {**base, "site": {**base["site"], "search_widget": src},
+                "affiliate": {**base["affiliate"], "projects": {**base["affiliate"]["projects"],
+                                                                 "website": website}}}
+        return AppConfig.model_validate(data)
+
+    assert load(FAKE_WIDGET).site.search_widget == FAKE_WIDGET       # Instagram's, as fallback
+    site_widget = "https://tpwgts.com/content?trs=585209&shmarker=424242&locale=pt"
+    assert load(site_widget, website=585209).site.search_widget == site_widget
+    for bad, why in (("https://tp.media/content?shmarker=424242", "no trs"),
+                     ("https://tp.media/content?trs=111111&shmarker=424242", "trs=111111"),
+                     ("https://tp.media/content?trs=584711&trs=585209", "trs=584711,585209")):
+        with pytest.raises(ValidationError,
+                           match=f"search_widget: it has {why}, not the website's Project trs=584711"):
+            load(bad)
+    with pytest.raises(ValidationError, match="trs=585209"):
+        load(FAKE_WIDGET, website=585209)                    # made for the Instagram Project
+
+    # The marker comes from the secrets (TRAVELPAYOUTS_MARKER=424242 in the fixture).
+    ctx.config.site.search_widget = FAKE_WIDGET
+    assert ctx.search_widget() == FAKE_WIDGET
+    ctx.config.site.search_widget = FAKE_WIDGET.replace("shmarker=424242", "shmarker=424242.site")
+    assert ctx.search_widget()                                # the constructor's sub id form
+    for bad in (FAKE_WIDGET.replace("shmarker=424242", "shmarker=999999"),
+                FAKE_WIDGET.replace("shmarker=424242", "shmarker=4242421"),
+                FAKE_WIDGET.replace("shmarker=424242&", "")):
+        ctx.config.site.search_widget = bad
+        with pytest.raises(ConfigError, match="TRAVELPAYOUTS_MARKER"):
+            ctx.search_widget()
+        conn = pipeline.open_db(ctx)
+        with pytest.raises(ConfigError):                      # never exported
+            site_data.build_export(ctx, conn, db.utcnow(), new_links=False)
+        conn.close()
+
+
+def test_without_a_known_marker_only_the_project_is_checked(ctx, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("TRAVELPAYOUTS_MARKER", "")
+    ctx.config.site.search_widget = FAKE_WIDGET.replace("shmarker=424242", "shmarker=999999")
+    assert ctx.search_widget() == ctx.config.site.search_widget
+
+
+def _differences(a, b, path: str = "") -> set[str]:
+    """Paths ('routes[].counts.observations') where two export documents differ."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set().union(*(_differences(a.get(k), b.get(k), f"{path}.{k}" if path else k)
+                             for k in a.keys() | b.keys()))
+    if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        return set().union(*(_differences(x, y, f"{path}[]") for x, y in zip(a, b)))
+    return set() if a == b else {path}
+
+
+def test_every_field_a_new_run_changes_is_classified_per_run(ctx):  # noqa: F811
+    """Two exports with the same offers, one collection run apart: the only differences are
+    the fields `site_data.PER_RUN` lists, and `shown_digest` (the full path's fingerprint, D35)
+    ignores them. A new field that changes every run fails here until it is classified there
+    (or made stable), so a routine run never takes the full path for bookkeeping."""
+    from test_web_build import store_offer
+    conn = pipeline.open_db(ctx)
+    seed_history(conn, days=25, price=100)
+    departure = date.today() + timedelta(days=40)
+    store_offer(conn, 70, departure)
+    first = site_data.build_export(ctx, conn, db.utcnow(), new_links=False)
+    store_offer(conn, 70, departure)                             # the same offer seen again
+    second = site_data.build_export(ctx, conn, db.utcnow() + timedelta(seconds=1), new_links=False)
+    assert first.files.keys() == second.files.keys()
+    assert any(f["rows"] for rel, f in first.files.items() if rel.startswith("low-prices/"))
+    unclassified, seen = [], set()
+    for rel in first.files:
+        pattern = "low-prices/*" if rel.startswith("low-prices/") else rel
+        per_run = site_data.PER_RUN.get(pattern, ())
+        for path in _differences(first.files[rel], second.files[rel]):
+            match = next((p for p in per_run if path == p or path.startswith((f"{p}.", f"{p}[]"))),
+                         None)
+            if match is None:
+                unclassified.append(f"{rel}: {path}")
+            seen.add(f"{pattern}: {match}")
+    assert unclassified == [], "classify these in site_data.PER_RUN (or make them stable)"
+    assert {"meta.json: generated_at", "meta.json: run", "low-prices/*: run"} <= seen
+    assert site_data.shown_digest(first) == site_data.shown_digest(second)
+    # Every PER_RUN file exists in the export (a renamed file would silently stop matching).
+    for pattern in site_data.PER_RUN:
+        assert any(rel == pattern or (pattern.endswith("/*") and rel.startswith(pattern[:-1]))
+                   for rel in first.files), pattern
+
+
+def test_analytics_token_is_a_plain_token():
+    from pydantic import ValidationError
+    from escapadinha.config import SiteConfig
+    assert SiteConfig(analytics_token=FAKE_TOKEN).analytics_token == FAKE_TOKEN
+    with pytest.raises(ValidationError, match="analytics_token"):
+        SiteConfig(analytics_token='x"}; alert(1)')

@@ -33,6 +33,14 @@ def test_runs_never_overlap_and_end_before_the_lock_expires():
     assert job["timeout-minutes"] < sync.LOCK_TTL.total_seconds() / 60
 
 
+def test_the_full_paths_node_budget_leaves_room_in_the_job():
+    """The full path's Node commands share one budget (D35); the rest of the job (collection
+    before, review snapshot and database push after) keeps at least 20 minutes."""
+    from escapadinha.website import node
+    [job] = load()["jobs"].values()
+    assert node.FULL_PATH_SECONDS / 60 <= job["timeout-minutes"] - 20
+
+
 def test_every_secret_comes_from_actions_secrets_and_none_is_printed():
     [job] = load()["jobs"].values()
     expected = {name.upper() for name in Secrets.model_fields}
@@ -62,14 +70,27 @@ def test_uv_and_the_browser_download_are_cached():
     assert job["env"]["ESCAPADINHA_INSTALL_BROWSER"] == "1"
 
 
-def test_the_deploy_can_bundle_the_review_function_on_a_fresh_runner():
-    """wrangler (npx, Node 22) bundles web/functions itself: the job checks out the whole repo
-    and needs no npm ci, because the Function imports no npm package (D29)."""
+def test_the_full_path_can_build_and_deploy_the_astro_site_on_a_fresh_runner():
+    """Node 22; the full path's `site build` runs `npm ci` itself (only when it builds, D35), so
+    a fast path never installs anything. npm's download cache is restored (keyed on the web
+    lockfile) and saved only after a full path's npm ci on a miss, never by a fast path.
+    wrangler (npx) bundles web/functions; the Function imports no npm package (D29)."""
     from escapadinha.website import deploy as site_deploy
     [job] = load()["jobs"].values()
     uses = {s.get("uses", "").split("@")[0]: s for s in job["steps"]}
-    assert int(uses["actions/setup-node"]["with"]["node-version"]) >= 22
+    node = uses["actions/setup-node"]["with"]
+    assert int(node["node-version"]) >= 22
+    assert "cache" not in node                       # its post step would save on any miss
+    restore, save = uses["actions/cache/restore"], uses["actions/cache/save"]
+    assert restore["with"]["path"] == save["with"]["path"] == "~/.npm"
+    assert "hashFiles('web/package-lock.json')" in restore["with"]["key"]
+    assert save["with"]["key"] == f"${{{{ steps.{restore['id']}.outputs.cache-primary-key }}}}"
+    [run] = [s for s in job["steps"] if "escapadinha run" in s.get("run", "")]
+    assert f"steps.{run['id']}.outputs.npm_ci == 'true'" in save["if"]
+    assert f"steps.{restore['id']}.outputs.cache-hit != 'true'" in save["if"]
+    steps = job["steps"]
+    assert steps.index(restore) < steps.index(run) < steps.index(save)
     assert "sparse-checkout" not in (uses["actions/checkout"].get("with") or {})
-    assert not any("npm ci" in s.get("run", "") for s in job["steps"])
+    assert not any("npm ci" in s.get("run", "") for s in job["steps"])   # Python decides
     repo_web = WORKFLOW.parent.parent.parent / "web"
     assert site_deploy.function_files(repo_web)      # raises on a package import

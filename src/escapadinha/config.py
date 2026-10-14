@@ -7,7 +7,7 @@ from datetime import time
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import yaml
 
@@ -169,6 +169,40 @@ def host_of(value: str) -> str:
     return (urlsplit(value if "//" in value else f"//{value}").hostname or "").lower()
 
 
+# Hosts Travelpayouts' widget constructor serves its script embeds from (D34). The contract's
+# meta.schema.json `search_widget` pattern lists the same hosts (a test compares them). If the
+# constructor ever hands out another host, add it to both.
+SEARCH_WIDGET_HOSTS: tuple[str, ...] = ("tp.media", "tpwgts.com", "tpembd.com", "tpemd.com", "tpscr.com")
+_UNSAFE_URL_CHARS = set(" \t\r\n\"'<>`\\")
+WIDGET_RUNBOOK = "docs/runbooks/search-widget.md"
+
+
+class ConfigError(ValueError):
+    """config.yaml and .env disagree (e.g. the search widget was made for another account)."""
+
+
+def search_widget_problem(src: str, *, project: int | None, marker: str | None) -> str | None:
+    """Why the widget script `src` isn't ours, or None. Its affiliate Project (`trs`) must be the
+    website's (`affiliate.project_for("website")`, D19), so the commissions land there; with our
+    partner marker known (TRAVELPAYOUTS_MARKER), its `shmarker` must be that marker (or
+    `<marker>.<sub id>`, the constructor's sub id form). Checked on top of the host allowlist."""
+    params = parse_qs(urlsplit(src).query)
+    if project is None:
+        return "no affiliate Project for the website (affiliate.projects)"
+    trs = params.get("trs", [])
+    if trs != [str(project)]:
+        found = f"trs={','.join(trs)}" if trs else "no trs"
+        return (f"it has {found}, not the website's Project trs={project} "
+                "(affiliate.project_for('website'))")
+    if marker:
+        shmarker = params.get("shmarker", [])
+        if len(shmarker) != 1 or not (shmarker[0] == marker
+                                      or shmarker[0].startswith(f"{marker}.")):
+            found = "a different shmarker" if shmarker else "no shmarker"
+            return f"it has {found}: the widget must carry our partner marker (TRAVELPAYOUTS_MARKER)"
+    return None
+
+
 class SiteConfig(BaseModel):
     base_url: str = "https://ondestaanocas.pages.dev"   # canonical URLs, sitemap, OG tags
     domain: str | None = None        # final domain (D19); live once base_url points at it
@@ -176,7 +210,12 @@ class SiteConfig(BaseModel):
     redirects: dict[str, str] = {}   # extra old path -> new path (301), written to _redirects
     cloudflare_project: str = "ondestaanocas"
     wrangler_version: str = "4.149.0"
-    analytics_token: str | None = None   # Cloudflare Web Analytics (cookieless), optional
+    # Cloudflare Web Analytics beacon token (cookieless), optional. Null while the zone's
+    # automatic setup measures at the edge (D34): a token too would count every visit twice.
+    analytics_token: str | None = None
+    # Aviasales search form (D34): the `src` of the script Travelpayouts' widget constructor gives
+    # (Tools → Widgets → Search form, Project "Pontonomada"). Null: no widget anywhere.
+    search_widget: str | None = None
     recent_expired: int = 6              # expired deals listed per route page
     # Low prices on route pages (D24): the biggest discounts per route, each with its own
     # tracked link from the partner links API, created once and stored in `partner_links`.
@@ -186,11 +225,12 @@ class SiteConfig(BaseModel):
     # <= 900 keeps one build under the API's 100 requests/min (10 links per request).
     max_new_links_per_build: int = Field(300, ge=0, le=900)
     # Website data contract v1 (D27): where `export site-data` writes (relative to the
-    # project root) and the row cap of each per-origin low-price file (size budget).
-    data_dir: str = "output/site-data/v1"
+    # project root; the Astro build in web/ reads it, D35) and the row cap of each per-origin
+    # low-price file (size budget).
+    data_dir: str = "web/src/data"
     max_low_prices_per_origin: int = Field(1500, ge=1)
-    # Expired promotions stay in the export this many days after they expired (the Jinja
-    # site's own expired pages are unchanged: they stay, noindex, D27).
+    # Expired promotions stay in the export (and on the site, noindex) this many days after they
+    # expired; afterwards their links 301 to the route page (`website.routing`, D35).
     expired_promotions_days: int = Field(30, ge=0)
 
     @field_validator("base_url")
@@ -199,6 +239,26 @@ class SiteConfig(BaseModel):
         if not v.startswith("https://"):
             raise ValueError("site.base_url must start with https://")
         return v.rstrip("/")
+
+    @field_validator("analytics_token")
+    @classmethod
+    def _plain_token(cls, v: str | None) -> str | None:
+        if v is not None and not (16 <= len(v) <= 64 and v.isascii() and v.isalnum()):
+            raise ValueError("site.analytics_token must be the token Cloudflare shows (letters and digits)")
+        return v
+
+    @field_validator("search_widget")
+    @classmethod
+    def _widget_script(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        parts = urlsplit(v)
+        if (parts.scheme != "https" or parts.hostname not in SEARCH_WIDGET_HOSTS
+                or parts.port is not None or parts.username is not None
+                or any(c in _UNSAFE_URL_CHARS for c in v)):
+            raise ValueError("site.search_widget must be the https script URL from Travelpayouts' "
+                             f"widget constructor (hosts: {', '.join(SEARCH_WIDGET_HOSTS)})")
+        return v
 
     @field_validator("domain")
     @classmethod
@@ -338,6 +398,18 @@ class AppConfig(BaseModel):
     affiliate: AffiliateConfig = AffiliateConfig()
     site: SiteConfig = SiteConfig()
 
+    @model_validator(mode="after")
+    def _widget_for_the_website(self) -> AppConfig:
+        """The search widget's Project is the website's (the marker is checked by
+        `Context.search_widget`, which has the secrets)."""
+        src = self.site.search_widget
+        problem = src and search_widget_problem(
+            src, project=self.affiliate.project_for("website"), marker=None)
+        if problem:
+            raise ValueError(f"site.search_widget: {problem}. Make the widget in Travelpayouts' "
+                             f"constructor with the website's Project ({WIDGET_RUNBOOK})")
+        return self
+
     def origin_name(self, iata: str) -> str:
         return self.origins_pt.get(iata, iata)
 
@@ -363,6 +435,21 @@ class Context:
     @property
     def db_path(self) -> Path:
         return self.root / "data" / "escapadinha.db"
+
+    def search_widget(self) -> str | None:
+        """`site.search_widget`, refused (ConfigError) unless it carries the website's Project
+        and, when TRAVELPAYOUTS_MARKER is set, our marker: a widget copied from another account
+        would earn someone else the commissions (D34)."""
+        src = self.config.site.search_widget
+        if src is None:
+            return None
+        problem = search_widget_problem(
+            src, project=self.config.affiliate.project_for("website"),
+            marker=self.secrets.travelpayouts_marker.strip() or None)
+        if problem:
+            raise ConfigError(f"site.search_widget: {problem}. Make the widget in Travelpayouts' "
+                              f"constructor with the website's Project ({WIDGET_RUNBOOK})")
+        return src
 
     @property
     def remote_store(self) -> bool:

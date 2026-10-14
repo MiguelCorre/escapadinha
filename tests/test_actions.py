@@ -19,8 +19,10 @@ from escapadinha.models import Photo
 from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LocalObjectStore
 from escapadinha.website import build_site
+from escapadinha.website import astro, node
 from escapadinha.website import deploy as site_deploy
 from test_pipeline import REPO, EMPTY, ctx, mock_api, mock_links, seed_history  # noqa: F401
+from test_web_build import npm, web_package  # noqa: F401
 from test_website import approved_deal
 
 UNSET = ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "R2_ENDPOINT", "R2_ACCESS_KEY_ID",
@@ -48,12 +50,14 @@ class FakeRenderer:
 
 
 @pytest.fixture
-def home(ctx, monkeypatch):
-    """The CLI's project root is the test project; discovery already ran this month."""
+def home(ctx, monkeypatch, npm):
+    """The CLI's project root is the test project with a web package (npm faked, D35);
+    discovery already ran this month."""
     monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
     for name in UNSET:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(pipeline, "SlideRenderer", FakeRenderer)
+    web_package(ctx.root)
     conn = pipeline.open_db(ctx)
     db.set_meta(conn, pipeline.DISCOVERED_AT, db.utcnow().isoformat())
     conn.close()
@@ -71,16 +75,56 @@ def test_routine_run_takes_the_fast_path_when_nothing_changed(home):
     mock_api()
     first = run_cli()
     assert "Path: full (first full path)" in first
-    assert (home.site_dir / "index.html").exists()
-    shutil.rmtree(home.site_dir)
+    dist = node.dist_dir(home)
+    assert (dist / "index.html").exists() and (dist / "_redirects").exists()
+    assert not home.site_dir.exists()                      # the legacy Jinja site isn't built
+    shutil.rmtree(dist)
 
     second = run_cli()
     assert "Path: fast (nothing the site shows changed)" in second
-    assert not home.site_dir.exists()                      # no render, build or deploy
+    assert not dist.exists()                               # no render, export, build or deploy
 
     forced = run_cli("--full")
     assert "Path: full (forced with --full)" in forced
-    assert (home.site_dir / "index.html").exists()
+    assert (dist / "index.html").exists()
+
+
+@respx.mock
+def test_the_full_path_shares_one_deadline_between_build_and_deploy(home, npm, monkeypatch):
+    """npm ci, astro build and wrangler each get what is left of one budget (D35), so the full
+    path ends with time for the review snapshot and the database push inside the job."""
+    from escapadinha.website import node
+    mock_api()
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc")
+    deploys = []
+
+    class Done:
+        returncode, stderr, stdout = 0, "", "Deployment complete! https://abc.ondestaanocas.pages.dev"
+
+    monkeypatch.setattr(site_deploy, "_wrangler",
+                        lambda c, *args, cwd=None, until=None: deploys.append(until) or Done())
+    before = node.deadline()
+    run_cli("--full")
+    after = node.deadline()
+    budgets = {c["until"] for c in npm.calls} | set(deploys)
+    assert len(budgets) == 1 and len(deploys) == 1 and npm.ran("run", "build") == 1
+    [until] = budgets
+    assert before <= until <= after
+
+
+@respx.mock
+def test_only_a_full_path_that_ran_npm_ci_asks_the_workflow_to_save_npms_cache(home, monkeypatch,
+                                                                               tmp_path):
+    """`npm_ci=true` in $GITHUB_OUTPUT: the workflow's save step runs on it (D35)."""
+    output = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    mock_api()
+    assert "Path: full" in run_cli()                      # npm ci ran (no node_modules yet)
+    assert output.read_text("utf-8") == "npm_ci=true\n"
+    output.write_text("", "utf-8")
+    assert "Path: fast" in run_cli()
+    assert run_cli("--full") and output.read_text("utf-8") == ""    # installed already
 
 
 @respx.mock
@@ -243,13 +287,19 @@ def deployments(monkeypatch):
     class Done:
         returncode, stderr, stdout = 0, "", "Deployment complete! https://abc.ondestaanocas.pages.dev"
 
-    monkeypatch.setattr(site_deploy, "_wrangler", lambda c, *args: calls.append(args) or Done())
+    monkeypatch.setattr(site_deploy, "_wrangler",
+                        lambda c, *args, cwd=None, until=None: calls.append(args) or Done())
     return calls
 
 
 @respx.mock
-def test_a_fresh_runner_builds_the_same_site_as_the_pc(tmp_path, bucket, deployments):
+def test_a_fresh_runner_builds_the_same_site_as_the_pc(tmp_path, bucket, deployments, npm):
+    """Export + Astro build (D35) on the PC, then on a runner that only has the bucket: the same
+    site (redirect history, cached links, slides), no partner link made twice, no new deploy."""
+    from escapadinha import site_data
+
     pc = project(tmp_path / "pc")
+    web_package(pc.root)
     conn = pipeline.open_db(pc)
     deal_id = approved_deal(pc, conn)
     # What only the PC has: files written before D25, slides, a photo, a rendered guide.
@@ -266,26 +316,29 @@ def test_a_fresh_runner_builds_the_same_site_as_the_pc(tmp_path, bucket, deploym
 
     uploaded = pipeline.mirror_local_files(pc, conn)
     assert len(uploaded) == 1 + 3 + 1 + 1     # photo, deal slides, deal caption, guide slide
-    build_site(pc, conn, now=NOW)
+    site_data.export_site_data(pc, conn, site_data.default_dir(pc), now=NOW)
+    astro.build(pc, conn)
     assert site_deploy.deploy(pc, conn)[0]
     links_made = len(respx.calls)
     conn.close()
     sync.push(bucket, pc.db_path, pc.sync_state_path, owner="pc", log=lambda _: None)
 
     runner = project(tmp_path / "runner")
+    web_package(runner.root)
     sync.pull(bucket, runner.db_path, runner.sync_state_path, log=lambda _: None)
     conn = pipeline.open_db(runner)
-    build_site(runner, conn, now=NOW)
+    export = site_data.export_site_data(runner, conn, site_data.default_dir(runner), now=NOW)
+    astro.build(runner, conn)
 
-    assert site_deploy.content_hash(runner.site_dir) == site_deploy.content_hash(pc.site_dir)
-    redirects = (runner.site_dir / "_redirects").read_text("utf-8")
+    pc_dist, runner_dist = node.dist_dir(pc), node.dist_dir(runner)
+    assert site_deploy.content_hash(runner_dist) == site_deploy.content_hash(pc_dist)
+    redirects = (runner_dist / "_redirects").read_text("utf-8")
     assert (f"/promos/{deal_id}-lisboa-londres-antigo/ /promos/{deal_id}-lisboa-londres/ 301"
             in redirects)                                           # redirect history kept
-    page = (runner.site_dir / "promos" / f"{deal_id}-lisboa-londres" / "index.html").read_text("utf-8")
-    assert f"https://aviasales.tpo.lu/site-old-{deal_id}" in page    # the cached website link
+    [promo] = export.files["promotions.json"]["promotions"]
+    assert promo["booking_link"] == f"https://aviasales.tpo.lu/site-old-{deal_id}"  # cached link
     assert len(respx.calls) == links_made                           # no duplicate partner link
-    assert (runner.site_dir / "img" / "promos" / str(deal_id) / "slide_01.webp").is_file()
-    assert (runner.site_dir / "img" / "guias" / GUIDE / "slide_01.webp").is_file()
+    assert (runner_dist / "img" / "promos" / str(deal_id) / "slide_01.webp").is_file()
     assert site_deploy.deploy(runner, conn) == (False, "site unchanged since last deploy, skipped")
     assert len(deployments) == 1
 

@@ -677,7 +677,7 @@ so nothing has to be hosted.
   full-path fingerprint (`run_path`) covers what the Jinja site shows plus the day, so the
   export's extra rows (every low price, not only the 5 per route page) refresh at least daily;
   once the Astro site is the live one (#13) the fingerprint should cover the export itself
-  (e.g. a hash of its files). Tests validate the export with
+  (e.g. a hash of its files): done at the cutover, D35. Tests validate the export with
   `jsonschema` against the committed schemas. **Versioning:** the directory is the major version;
   additive changes (new optional data, new files) stay in v1, anything that breaks a consumer is v2.
 - **Same rules as the Jinja site, not a second implementation:** routes from `routes.all_routes`,
@@ -752,7 +752,7 @@ so nothing has to be hosted.
 ## D28: Astro site scaffold on the data contract (2026-10-13, #13)
 - **What:** a separate npm package in `web/` (own `package.json` + committed lockfile, exact
   versions, Node 22 in CI) builds the M3 site from the contract JSON only (D27): home page and
-  promotion pages, live and expired. The Jinja site stays the live one until the cutover (#23);
+  promotion pages, live and expired. The Jinja site stays the live one until the cutover (#23, D35);
   `config.yaml` `site.data_dir` is unchanged until then. `web/functions/` is reserved for the
   review Function (#9).
 - **Astro 7.3.5, static output** (`trailingSlash: always`, directory format, so paths are the
@@ -944,7 +944,8 @@ so nothing has to be hosted.
   square cards and buttons, inputs with a 4 px radius and an `ink` border (§2: anything a user must
   see is `ink` or `accent`, `rule` is decorative), notices with the state colour as a left rule
   over its tint. The web fonts aren't served to the Function, so the text stack's Georgia shows.
-- **Deploy wiring:** wrangler compiles `<cwd>/functions` during `pages deploy`, and the deploy ran
+- **Deploy wiring** (the staging folder was replaced at the cutover, D35: wrangler now runs in
+  `web/`): wrangler compiles `<cwd>/functions` during `pages deploy`, and the deploy ran
   with cwd = `site/`, so Functions were never uploaded. `website/deploy.py` now stages a temporary
   folder with `functions/` and the `web/src/lib/` modules they import (`function_files`: transitive
   relative imports, whether `import … from`, `export … from`, side-effect `import "./x"` or dynamic
@@ -1311,5 +1312,327 @@ so nothing has to be hosted.
   `src/lib/related.ts` `tipsFor` over the gated `tips()`, `RelatedTips.astro`); nothing is rendered
   when there are none. The test tip now has `destinations: [PAR]`: `/destinos/paris/` links it,
   Barcelona's and Madeira's hubs show no section.
-- **Not done here:** a nav link, JSON-LD and the sitemap, affiliate blocks (#18), the drafts
-  themselves (#19).
+- **Not done here:** a nav link, JSON-LD and the sitemap (done in D34), affiliate blocks (#18), the
+  drafts themselves (#19).
+
+## D34: SEO, structured data, search widget and analytics (2026-10-14, #16)
+- **What:** the Astro site (D28) gets canonical, OpenGraph and Twitter tags on every page,
+  `sitemap.xml` and `robots.txt`, JSON-LD, the About (`/sobre/`, "Como funciona") and Privacy
+  (`/privacidade/`) pages carried over from the Jinja site and linked from every footer, the
+  Aviasales search form on route and destination pages, and the Cloudflare Web Analytics beacon
+  when a token is configured. The site sets no cookies.
+- **Analytics (decided with Miguel):** Cloudflare Web Analytics already runs in **automatic setup**
+  on the `pontonomada.pt` zone: Cloudflare measures at the edge, with nothing in our build and no
+  cookies (19 page views counted in the 24 h before this ticket; in automatic setup Cloudflare may
+  add its own beacon to the HTML it serves, which is its job, not the build's). So `site.analytics_token` stays
+  `null`: a beacon too would count every visit twice. The code path stays for the day the
+  automatic setup is turned off: with a token every page gets the official snippet
+  (`<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": …}'>`),
+  without one no beacon at all; both are tested. The issue's "Ações do Miguel" step 1 (add a site,
+  paste the token) is therefore not needed. The token is validated (16–64 letters and digits) in
+  `config.py` and in the contract, so it can't break out of the attribute.
+- **Contract, additive within v1:** `meta.json` gets `analytics_token`, `search_widget` (both
+  `null` when unset) and `instagram_handle` (config `brand.handle`, the contact on the About and
+  Privacy pages and the Organization's `sameAs`). Optional in the schema, always written by
+  `export site-data`; **a fixture export always writes `null` for the first two** (a fixture build
+  is unconfigured, so Lighthouse measures the site without third parties). The committed
+  `fixtures/meta.json` got the three fields by hand, the values a regeneration writes (as in D31).
+- **Search widget:** the embed must come from Travelpayouts' widget constructor (we never build
+  `marker=` URLs by hand, Aviasales term 1.4, D12/D19). Config `site.search_widget` holds the
+  `src` of the constructor's script; `config.SEARCH_WIDGET_HOSTS` (`tp.media`, `tpwgts.com`,
+  `tpembd.com`, `tpemd.com`, `tpscr.com`: the hosts the constructor's script embeds use) and the
+  same list in the schema's pattern (a test compares them) accept only an https URL on one of them,
+  with no quote, space or angle bracket. **The widget must be ours** (code review, 2026-10-14): the
+  URL's affiliate Project, `trs=`, must equal `affiliate.project_for("website")` (585209; checked
+  when config.yaml loads, `AppConfig`), and its `shmarker=` must be our partner marker, or
+  `<marker>.<sub id>` (the constructor's sub id form). The marker is not in config.yaml: it is the
+  `TRAVELPAYOUTS_MARKER` secret the partner links client already uses (`config.Secrets`), so that
+  half is checked where the secrets are, `Context.search_widget()`, which the export calls; with no
+  marker set (a checkout without `.env`) only the Project is checked. A widget made for the
+  Instagram Project or copied from another account is refused with a `ConfigError` naming what
+  differs (the marker's value is never printed), so it is never exported. `SearchWidget.astro` renders, on route and destination
+  pages only, a "Pesquisar outras datas" section near the end of the page: a line saying these
+  are the partner's live prices (ours are prices travellers found), a box with the src in
+  `data-src` holding a **"Pesquisar voos no Aviasales" button** (`.btn`, the design system's one
+  button) and an empty slot, a line saying the form only appears after the button is pressed and
+  that the partner may then set cookies (linking to the privacy page), the site disclosure, and
+  the loader. `src/lib/search-widget.ts` adds the `<script async>` inside the slot **only when the
+  visitor presses the button** (once; the slot then reserves 22 rem and takes the focus, the
+  button hides); nothing else (load, scroll, hover, focus) loads it, so no partner request and no
+  partner cookie happens before an explicit action, which is what the privacy page says.
+  Superseded (code review, 2026-10-14): loading it when the box came within 300 px of the viewport
+  (IntersectionObserver, or the first scroll/tap/key press): the privacy page promised cookies only
+  after a click or a search, and a scroll is neither. The component and its script render nothing when
+  the src is null (Astro renders a component's script only where the template renders it; the
+  fixture build has no trace of either, tested), and never on the home page, promotion pages or
+  any other page. Miguel's steps (Tools → Widgets → Search form → Aviasales, Project "Pontonomada"
+  585209, language pt, currency EUR, paste the `src`) are in `docs/runbooks/search-widget.md`.
+  The widget's prices are drawn by the partner inside its own frame, not by us, so they are not
+  ours to trace (D2 covers what our pages show).
+- **No cookies:** the site writes none (no `document.cookie`/`cookieStore` in the built site, in
+  `web/src/` or `web/functions/`, tested; the review Function's responses carry no `Set-Cookie`,
+  and it is the only Function: public pages never go through one). The privacy page says so,
+  describes the cookieless analytics (aggregate, no personal data, hence no consent banner) and
+  that Travelpayouts/Aviasales may set their own cookies only after a click on a booking link or
+  on the search button: the page quotes the button's text from `search-widget.ts`
+  (`SEARCH_BUTTON`), so the two can't drift (tested).
+- **Head tags:** canonical = contract `base_url` + the page path (as before); `og:type` `article`
+  on itineraries and tips, `website` elsewhere; `og:image:alt` (the promotion's headline or the
+  logo card, never a price); `twitter:title`, `twitter:description`, `twitter:image` equal to the
+  OpenGraph ones. Their prices are traced like the title's (`data-deal` on `<head>`).
+- **Sitemap from the built pages:** an Astro integration (`src/lib/sitemap.ts`, `astro:build:done`)
+  reads every built HTML page's `<head>` and lists the canonical URL of each page without
+  `<meta name="robots" content="noindex">`. Each page already decides its own noindex (expired
+  promotions D28, empty or past pontes D31, empty listings and drafts D33, the 404 has no
+  canonical), so the sitemap can't disagree with the pages and no rule is written twice. Rejected:
+  `@astrojs/sitemap` (it lists every route and would need a filter repeating those rules) and an
+  endpoint with its own list. The test compares the sitemap with the set of built pages without
+  noindex. **Fixture build: 31 of 81 HTML pages** (home, 1 live promotion, 10 routes, 3 origins +
+  `/partidas/`, 7 hubs + `/destinos/`, `/explorar/`, 1 itinerary + `/roteiros/`, 1 tip + `/dicas/`,
+  `/sobre/`, `/privacidade/`); out: the expired promotion, the 48 ponte pages (no fixture trip fits
+  a ponte, so all are noindex) and the 404. `robots.txt` is an endpoint (`Allow: /` and
+  `Sitemap: <base_url>/sitemap.xml`), replacing the static `public/robots.txt`.
+- **JSON-LD types** (`src/lib/structured-data.ts`, rendered by `JsonLd.astro`, `<` escaped):
+  - Home: `WebSite` (name, url, `inLanguage` pt-PT, publisher) and `Organization` (name, url,
+    `sameAs` the Instagram profile).
+  - Live promotion: a `Trip` (name = headline, description, url, `tripOrigin` and `itinerary` as
+    `Airport` with `iataCode`, two `subTrip`s "Ida"/"Regresso" with their `departureTime` dates)
+    whose `offers` is an `Offer` (`price` = the offer's price as a number, `priceCurrency` EUR, `url`
+    = the page). Why `Trip`: schema.org `Flight` (a `Trip` subtype) is about one scheduled flight
+    and expects a flight number, departure and arrival times and the airline per leg; the API
+    gives none of that per offer, and making them up would be fabricating. `Offer` is in `Trip`'s
+    `offers` range, and `Trip` in `Offer.itemOffered`'s. No `availability`, `priceValidUntil` or
+    `validFrom`: we don't know them. The block carries the offer's `data-obs` and `data-deal`.
+    **Never on an expired promotion** (breadcrumbs only).
+  - Itineraries and tips: `Article` (headline, description, `inLanguage`, `dateModified` =
+    `last_checked`, author and publisher the Ponto Nómada `Organization`, `mainEntityOfPage`,
+    url, image = the default OG image). No `datePublished`: we don't record one. Drafts get none.
+  - `BreadcrumbList` on promotion, route, origin, destination, itinerary and tip pages, from the
+    same list as the visible trail (`Breadcrumbs.astro`), so they never differ; the last crumb is
+    the page itself (plain text on the page, its URL in the JSON-LD). Route pages now show the
+    route as the last crumb, itineraries and tips got a trail ("Roteiros › …", "Dicas › …"), the
+    promotion trail ends with the headline (remote airport included). "Promoções" is `/` in the
+    JSON-LD (the visible link stays `/#promocoes`).
+- **Validation, two layers:** (1) **compile time:** the builders are typed with **schema-dts
+  2.0.0** (devDependency, types only, nothing shipped; the schema.org vocabulary generated as
+  TypeScript; exact pin, 2.1.0 was 12 days old), so `npm run typecheck` fails on a property
+  schema.org doesn't define for the type or a value of the wrong type (checked with probes: a
+  misspelt `pricee`, `priceCurrrency` and a number as `tripOrigin` all fail). (2) **run time:**
+  `web/test/jsonld.ts` has one JSON Schema per emitted type (ajv 2020, strict), listing exactly the
+  properties we use (`additionalProperties: false`), plus our rules: https URLs on the base,
+  ISO dates, `price` a number > 0, EUR, headline ≤ 110 characters, positions from 1. Every block on
+  every built page must validate (an unknown `@type` fails), and seeded bad blocks must not. Not
+  the online schema.org validator (no network in tests); worth one manual pass on the live site
+  after the cutover (#23). Rejected: a JSON-LD processor with the full schema.org vocabulary file
+  (a several-MB download committed or fetched in tests for the same check schema-dts gives).
+- **Prices in JSON-LD are traced (D2):** `test/trace.ts` now reads every JSON-LD block: each
+  `price`/`lowPrice`/`highPrice` must be a number and an amount of the block's own
+  `data-obs`/`data-deal`/`data-route`, and each price string in its text ("69 €" in the
+  description) is checked like any other; the live promotion page's count went from 6 to 10
+  (Twitter title and description, the offer price and the Trip description). A test also checks
+  the offer price against the fixture (obs 7226, 69 €) and the price the page shows.
+- **About and Privacy:** content from the Jinja `about.html.j2`/`privacy.html.j2`, updated: every
+  watched Portuguese airport (from `origins.json`) instead of "Lisboa e Porto", promotions "within
+  the route's rules" instead of "direct only", the explorer and route pages' low prices, the
+  analytics paragraph always present (the automatic setup measures whether or not a token is set),
+  the search form. Contact: the Instagram handle from the contract. A separate contact page (in
+  the spec's page list) is not made: contact is a section of both pages.
+- **Tests:** `web/test/seo.test.ts` (fixture build: head tags, sitemap and robots, JSON-LD
+  validity and per page type, prices, breadcrumbs against the visible trail and built pages,
+  About/Privacy, no beacon, no widget, no cookie code), `seo-configured.test.ts` (a second build in
+  the global setup, after the first: astro builds of one project can't run at once, they share
+  `.astro/`; fixtures with `analytics_token` `fakeTestToken0000…` and `search_widget`
+  `https://tp.media/content?fake=test-only&promo_id=0`: beacon on every page with the token,
+  widget box on route and hub pages only, a `button.btn` with the partner's name and an empty
+  slot, the partner's URL once and only in `data-src` (no script, iframe, img or link to a partner
+  host), a click-only loader (no IntersectionObserver or scroll listener), the disclosure and the
+  cookie note present, absent from everything else), `search-widget.test.ts` (the loader on a
+  fake DOM: no element created and no script appended before the click, only a click listener,
+  one script after it, none on a second click, focus moved to the slot), the JSON-LD traceability case, and Python: the export carries the three
+  fields, fixtures never carry the token or the widget, the config refuses an http, foreign-host
+  or quote-carrying widget URL, a missing, foreign or repeated `trs` and (with the marker set) a
+  missing or foreign `shmarker`, and a non-alphanumeric token; the schema accepts the same hosts.
+- **Lighthouse:** `/privacidade/` and `/sobre/` added to `web/lighthouserc.json` (12 URLs).
+  Local run 2026-10-14 (fixture build, so no widget or beacon; mobile, median of 3; performance /
+  accessibility / best practices / SEO): home 0.92, live promotion 0.92, expired 0.94, route 0.93,
+  origin 0.95, destination 0.93, explorer 0.92, ponte 0.94, itinerary 0.95, tip 0.94, privacy 0.95,
+  about 0.94 performance, and 1 / 1 / 1 on every URL; all assertions passed.
+- **Not done here:** submitting the sitemap in Google Search Console (runbook brand-switch step 7,
+  after the cutover), the Astro site's `_headers`/`_redirects` and deploy (#23), the widget's
+  real `src` (Miguel, runbook).
+
+## D35: Cutover to the Astro site (2026-10-14, #23)
+- **What:** the Astro site (`web/`, D28–D34) replaces the Jinja site on the Pages project
+  `ondestaanocas` (https://pontonomada.pt, D19). `run`'s full path is now render → `export
+  site-data` into `web/src/data` (config `site.data_dir`, git-ignored) → `site build` (the Astro
+  site, below) → `site deploy` (`web/dist` + the review Function) → `record_full_path`. The Jinja
+  build is no longer part of `run` and nothing deploys it: it stays as `site build-jinja`
+  (`website/__init__.py` `SiteBuilder` + `website/templates/`) only until **phase 2**, which
+  deletes it once the new site has been live for a week with no broken link reported by
+  `site crawl`. The shared helpers in `website/__init__.py` (slugs, `is_public`,
+  `public_deal_rows`, `deal_image_paths`) and the modules below stay.
+- **`site build` (`website/astro.py`):** `npm ci` only when `web/node_modules` is missing or
+  was installed from something else: a stamp in node_modules, `.escapadinha-npm-ci`, holds the
+  lockfile's sha256 **and the Node version, platform and architecture** (`node -e`, e.g.
+  `v22.11.0 linux x64`), since native packages such as esbuild's binary are installed per
+  platform; an upgraded Node on the PC or a node_modules copied from another machine installs
+  again (deleting node_modules deletes the stamp too);
+  then `npm run build` with `SITE_DATA_DIR` set to the export's absolute path (a stray variable
+  pointing at the fixtures can't be what gets built; the old `web/dist` is removed first, so a
+  failed build never leaves the previous one for the deploy). The review Function's imports are
+  checked first (`deploy.function_files`, a package import is a `BuildError`), as the deploy does.
+  **Node commands (`website/node.py`):** one small module, imported by both the build and the
+  deploy, finds `npm`/`npx`/`node` (on the PATH, `npm.cmd`/`node.exe` through PATHEXT on Windows,
+  else `C:\Program Files\nodejs\`, for the PC's scheduled task), puts the tool's folder first on
+  the PATH, and runs it (`node.run`). It also holds `web/` and `web/dist` (`node.web_dir`,
+  `dist_dir`) and `BuildError`, so `cli.py` imports the error without the build's imports (PIL,
+  site data). **One time budget:** `run`'s full path takes one deadline (`node.deadline()`,
+  `FULL_PATH_SECONDS` = 20 min) when it starts, and every Node command after it (npm ci, `npm run
+  build`, wrangler) gets what is left of it as its timeout. A command that hangs (or can't start,
+  or finds no time left) is a `BuildError`/`DeployError` with the end of its output, never a raw
+  `TimeoutExpired`; the run fails, `export_review_snapshot` still runs and the database is
+  pushed. Why 20 min: the job has 45 (D25) and the lock 60 (D21); a full path normally needs
+  under 2 (~18 s npm ci, ~8 s build, a deploy of the changed files), the collection before it
+  takes ~2 and the snapshot + push after it under 1, so 20 leaves more than 20 minutes for the
+  rest even when the collection is slow (a test keeps `FULL_PATH_SECONDS` ≤ the job's timeout −
+  20 min). Replaced: separate timeouts of 15 min per npm command and 10 min for wrangler, which
+  could add up to 40 min and let the job be killed before the push. `site build` and `site
+  deploy` run on their own get a budget each. Then the pipeline adds what the web package can't:
+  - **promotion images** (D27/D28 open question): for every promotion in `promotions.json`,
+    the slides the contract names are converted from the rendered folder
+    (`pipeline.deal_folder(..., pipeline.SLIDES)`: on a runner each slide is downloaded once,
+    D25) into `web/dist/img/promos/<id>/` (`slide_NN.webp`, `thumb.webp`, `og.jpg`;
+    `website/images.py`, shared with the Jinja build); a path that couldn't be written is
+    printed. **Destination photos** are not copied: no page shows one yet (D30), the contract
+    only carries the credit.
+  - **`_redirects` and `_headers`** (`website/routing.py`, the rules of `redirects.py`):
+    `X-Robots-Tag: noindex` on the legacy hosts and per-deployment URLs as before (D19); there
+    were no other headers to keep. Redirects (301, never on a built page, never to a path the
+    build doesn't serve, both with and without the trailing slash):
+    every older path of a page whose path changed, by stable key in `site.paths` (`deal:<id>`,
+    `route:<key>`, `destination:<code>` from D30, and now `origin:<code>`; the build records the
+    current paths, so a later rename gets its 301); `/promos/<id>` short aliases; a promotion the
+    contract no longer lists (expired more than `site.expired_promotions_days` ago: the Jinja
+    site kept those pages forever, D15) → its route page; `/guias/<slug>/` → the reviewed tip or
+    itinerary whose front matter has that `legacy_path` (D33), else the tips index `/dicas/`
+    (also for a history `guide:<slug>` no content names); `site.redirects` from config (one that
+    would hide a page is printed and left out). A removed route stays an honest 404 (D19).
+    **Hardened after code review (2026-10-14):** (1) a rule whose target isn't a page of the
+    build is left out *before* the 2000-rule limit counts (it used to be filtered after the
+    cap, so dead rules could take live ones' places); one rule per source; (2) **no chains:** a
+    rule whose target is itself a source (e.g. a `site.redirects` entry to a promotion path that
+    now redirects) points at the final page, a loop is left out (both reported); (3) **no silent
+    drop:** within 10 % of Cloudflare's limit `site build` prints a warning, above it the build
+    fails (`BuildError`) naming the way out (a Bulk Redirect, or pruning `site.paths`), where it
+    used to drop the newest rules; (4) **bounded history:** a promotion the contract no longer
+    lists is folded into its route's `site.paths` entry (its old paths and `/promos/<id>`
+    become old paths of the route page, where they redirect anyway) and its `deal:` key dropped:
+    the history stops growing a key per expired promotion, no build looks those deals up again,
+    and a later route rename takes them straight to the new page (tested); (5) **paths only
+    once live:** `routing.write` stores the build's history as `site.paths.pending`; `deploy`
+    makes it `site.paths` after a successful upload, or when it skips an unchanged site (the live
+    site is that build). A failed deploy, or a run without Cloudflare keys, records no path that
+    never went out (tested). The D30 destination paths the export records are unchanged.
+- **`site deploy`:** uploads `web/dist` (absolute path) with wrangler **running in `web/`**, so
+  it compiles `web/functions` directly; the temporary staging folder of D29 is gone. D29 had
+  rejected `web/` because its `package.json` might trigger framework auto-detection (the D15
+  failure); checked in wrangler 4.149.0's source: autoconfig runs only for `wrangler deploy` and
+  `wrangler setup`, and `pages deploy` delegates to Workers only for an agent run on a project
+  that doesn't exist and has no Functions, neither of which applies. The Function must still
+  bundle without npm packages (`function_files` refuses a package import, so it never depends on
+  `node_modules` being there). **A fixture build is refused** (any page with
+  `<html data-fixture="true">`, D28), and so is a missing build. The deploy hash is the content
+  hash of `web/dist` plus the Function's sources (unchanged → skipped); the build's own
+  timestamps don't count: the footer's `Atualizado a <span …>…</span>` and the explorer data's
+  `generated_at`.
+- **Full-path fingerprint (`run_path`, D25) covers what the Astro site shows:** the `low_prices`
+  component (the Jinja route pages' five) is replaced by **`site_data`**: the whole contract as
+  the next build would read it, computed in memory at decide time with `site_data.build_export(...,
+  new_links=False)` (stored links only, nothing written; ~0.1 s on the real data), minus what
+  changes on every run but no page shows: `generated_at` and the run id in `meta.json` and the
+  low-price files, each route's observation count, its last-seen time beyond the day, which only
+  a dormant route page shows as a date (a test fails if a page starts reading one of those).
+  They are listed in `site_data.PER_RUN` and dropped by `site_data.shown_digest`, next to the
+  export that writes them, so a new per-run field is classified where it is defined (code
+  review: they were in `run_path._shown`, far from the fields); a test exports twice with the
+  same offers, one run apart, and fails on any difference `PER_RUN` doesn't list. The **code** component adds the web package's sources (`web/src`
+  without `web/src/data`, `web/public`, `web/functions`, `astro.config.ts`, `package.json`,
+  `package-lock.json`) and what the build reads from outside `web/` (`assets/logo-light.svg`,
+  `assets/fonts/*.woff2`), so a reviewed article, a template or a dependency change takes the
+  full path; `node_modules`, `dist` and the export don't count. Promotions, routes and the day
+  stay. The first run after the merge takes the full path (the stored fingerprint has no
+  `site_data`). **Cost:** the export carries every route's cheapest fresh offer, calendar and
+  every low price, which move more often than the five low prices per route page did. Replaying
+  the last 13 runs of the real database (2026-10-13/14) the site data changed between 7 of them,
+  the old `low_prices` component in 1: about half of the runs will take the full path (+ npm ci
+  from cache, ~8 s astro build, a deploy of the changed files) instead of about one a day.
+  That's still within the Actions budget (D25: ~720 of 2000 min/month for the fast paths); if it
+  isn't, the knob is `site_data.shown` (e.g. leave the calendar to the daily refresh), not the build.
+  Rejected: hashing `web/src/data` after the previous export (a runner has none, CI keeps no
+  files) and comparing built sites (that is the cost the fast path avoids).
+  **Recorded from the export that went live** (code review, 2026-10-14): `record_full_path(ctx,
+  conn, export)` takes the `site_data.Export` the full path wrote, built and deployed, and stores
+  its `shown_digest` and its day (`Export.generated_at`); it no longer rebuilds the export at
+  record time. A full path can take minutes (npm ci, build, deploy): an offer that stops being
+  fresh, or a new Lisbon day, in between would otherwise be recorded as published while the site
+  still shows the earlier state, and the next run would wrongly take the fast path (tested with
+  an offer that goes stale between the export and the record).
+- **CI:** `actions/setup-node` (Node 22, no `cache:`), and npm's download cache (`~/.npm`) in
+  two steps: `actions/cache/restore` before the run (key: OS, Node 22, the web lockfile's hash;
+  falls back to the newest cache of an older lockfile), `actions/cache/save` after it, only when
+  the run wrote `npm_ci=true` to `$GITHUB_OUTPUT` (`cli._github_output`: a full path whose npm ci
+  and build succeeded) and the restore missed the exact key. Why not setup-node's `cache: npm`
+  (code review, 2026-10-14): its post step saves whenever the key missed, so a fast path (no npm
+  at all) after a lockfile change would save a nearly empty `~/.npm` under the new key, and every
+  later full path would "hit" it and download everything. The **restore still runs on every
+  run**, fast paths included: the run only knows after detection whether it takes the full path,
+  inside one `escapadinha run` (lock → pull → … → push, D21), and splitting that process around
+  the decision is not worth it. The cost is the download of ~/.npm for this lockfile (~363
+  packages, tens of MB compressed; a few seconds), about 1 % of a ~2-minute fast path; skipping
+  it would make each full path download from the registry instead. The fast path never runs
+  npm. Timeout unchanged (45 < 60 min lock). The PC task needs Node 22+ installed (it already
+  did for wrangler).
+- **CLI:** `site build` (Astro, prints pages per type, images, redirects, size), `site
+  build-jinja` (legacy, never deployed), `site preview` (serves `web/dist`; `_redirects` not
+  applied), `site deploy` (refuses fixtures), `site crawl`.
+- **No old URL may 404 (`website/crawl.py`, `site crawl`):** `check_build` resolves a sitemap's
+  URLs against a build the way Pages does (a `_redirects` rule wins over a file; a redirect must
+  land on a served page, not on another rule), `check_live` asks the live site without following
+  redirects (200, or 301 whose target answers 200; 302/308/404/5xx and chains are reported).
+  `escapadinha site crawl --sitemap <url|file> [--base <host>] [--dist web/dist]` prints the count
+  and every broken URL and exits 1 on any. `tests/test_crawl.py` builds the legacy Jinja site
+  and the **real** Astro site (npm, `web/`, into a temporary folder) from one database, with a
+  promotion that expired 40 days ago (its Jinja page stayed; the contract dropped it) and a
+  reviewed Jinja guide, and crawls every page, sitemap URL and `_redirects` source of the old
+  site: all resolve (skipped when `web/node_modules` is missing). On the real data the live
+  sitemap's 363 URLs resolve on the real-data build (below). Rejected: committing a snapshot of
+  the live sitemap (the Jinja build from the same database is the same list and stays honest as
+  the data changes).
+- **Real-data check (2026-10-14, a read-only copy of the database after run 33, nothing
+  deployed):** export (no new links) 360 routes, 6 origins, 156 destinations, 0 promotions (none
+  approved yet), 7 low prices. `site build`: **627 HTML pages** (360 route, 157 destination hubs
+  + index, 7 origin + index, 96 ponte, home, explorer, `/roteiros/`, `/dicas/`, About, Privacy,
+  404), `sitemap.xml` 528 URLs, 2 redirects (`/guias/voos-baratos-dicas` ±slash → `/dicas/`, the
+  tip still a draft); **17.6 s with `npm ci`, 7.8 s without**; `web/dist` 31.2 MB in 644 files
+  (route pages ~50–60 KB each with inlined CSS and logo). A rebuild with a newer export gave the
+  same deploy hash (would be skipped). The live sitemap (https://pontonomada.pt/sitemap.xml, 363
+  URLs) and the Jinja build's: all 363 resolve on that build (`site crawl --dist`).
+  **Lighthouse** (`lhci` with a temporary config on the real build, mobile, median of 3;
+  performance / accessibility / best practices / SEO): home 0.95/1/1/1, route
+  `/voos/lisboa-londres/` 0.93/1/1/1, origin `/partidas/lisboa/` 0.93/1/1/1, hub
+  `/destinos/londres/` 0.93/1/1/1, explorer 0.92/**0.96**/1/1, ponte
+  `/pontes/1-dezembro-2026/porto/` 0.95/1/1/1; CLS 0 everywhere, FCP 2.4–2.7 s. The explorer's
+  0.96 was `target-size`: with six origins its ponte links wrapped onto two rows with no gap
+  (the fixtures have three). **Fixed (code review, 2026-10-14):** each origin link is an
+  `inline-flex` target of at least 24 × 24 px (`min-h-6 min-w-6`) and wrapped rows get
+  `gap-y-xs` (WCAG 2.5.8; a test checks the classes); re-measured on a fresh real-data build
+  (same copy of the database, 627 pages): home 0.95, route 0.93, origin 0.93, hub 0.93,
+  explorer 0.92, ponte 0.95 performance, and **1 / 1 / 1 accessibility / best practices / SEO on
+  all six** (assertion: accessibility = 1); the fixture `npm run lhci` (12 URLs) passes too. No promotion page could be measured (none in the
+  real data); the fixture runs of D28/D34 cover them, and the slide-strip CLS flake noted in D28
+  is to be checked on the first real promotion.
+- **Phase 2 (not here):** after a week live with `site crawl --sitemap <the old sitemap>`
+  clean, delete `SiteBuilder`/`build_site`, `website/templates/`, `site build-jinja` and their
+  tests; keep the slug helpers (move them out of `website/__init__.py`), `images.py`,
+  `routing.py`, `redirects.py`, `deploy.py`, `crawl.py`. Keep a copy of today's sitemap
+  (`web/dist/sitemap.xml` of the first deploy, or the Jinja one) for that week's crawls.

@@ -26,6 +26,7 @@ fixtures from a read-only copy of the real database.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections import defaultdict
@@ -107,6 +108,47 @@ class Export:
     @property
     def counts(self) -> dict:
         return self.files["meta.json"]["counts"]
+
+    @property
+    def generated_at(self) -> datetime:
+        """The `now` the export was made for (UTC, to the second)."""
+        return datetime.fromisoformat(self.files["meta.json"]["generated_at"].replace("Z", "+00:00"))
+
+
+# --- what a page shows (the full path's fingerprint, D35) -----------------------------------
+
+# Fields that change on every collection run although no page shows them: the run's own
+# bookkeeping. `shown` leaves them out, so the fingerprint `run_path` stores after a full path
+# only moves when a page would. Paths: "file" (`low-prices/*` for each origin's file), then the
+# field, `[]` for every element of a list. Any field a new run changes must be listed here or
+# shown (a test exports twice with the same offers and fails on any other difference), and no
+# page may render one of them (`tests/test_web_build.py` checks the web sources).
+PER_RUN: dict[str, tuple[str, ...]] = {
+    "meta.json": ("generated_at", "run"),                    # the footer's time follows the day
+    "low-prices/*": ("generated_at", "run"),
+    # A route's observation count, and its last-seen time beyond the day (a dormant route page
+    # shows the date, so the day stays in).
+    "routes.json": ("routes[].counts.observations", "routes[].last_observed_at"),
+}
+
+
+def shown(rel: str, doc: dict) -> dict:
+    """An export document without its `PER_RUN` fields (`last_observed_at` kept to the day)."""
+    doc = dict(doc)
+    if rel == "meta.json" or rel.startswith("low-prices/"):
+        doc.pop("generated_at", None)
+        doc.pop("run", None)
+    if rel == "routes.json":
+        doc["routes"] = [{**r, "counts": {k: v for k, v in r["counts"].items() if k != "observations"},
+                          "last_observed_at": (r["last_observed_at"] or "")[:10]}
+                         for r in doc["routes"]]
+    return doc
+
+
+def shown_digest(export: Export) -> str:
+    """A short hash of what the pages built from `export` show (`shown` of every file)."""
+    value = {rel: shown(rel, doc) for rel, doc in export.files.items()}
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
 def default_dir(ctx: Context) -> Path:
@@ -510,6 +552,10 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
     return {
         "version": VERSION, "generated_at": db.utc_iso(now), "fixture": fixture, "run": run,
         "currency": "EUR", "base_url": ctx.config.site.base_url,
+        # Third-party scripts the site may load (D34); a fixture build never gets them.
+        "analytics_token": None if fixture else ctx.config.site.analytics_token,
+        "search_widget": None if fixture else ctx.search_widget(),   # Project + marker checked
+        "instagram_handle": ctx.config.brand.handle,
         "detector": {"low_threshold": det.low_threshold, "threshold": det.threshold,
                      "min_saving_eur": det.min_saving_eur,
                      "min_baseline_days": det.min_baseline_days,

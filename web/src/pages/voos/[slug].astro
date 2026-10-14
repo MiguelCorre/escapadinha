@@ -7,6 +7,8 @@
 import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import SearchWidget from "../../components/SearchWidget.astro";
 import ItineraryLink from "../../components/ItineraryLink.astro";
 import LowPriceList from "../../components/LowPriceList.astro";
 import MonthTable from "../../components/MonthTable.astro";
@@ -47,7 +49,8 @@ const name = `${origin.name} para ${route.city}`;
   description={`Preço mínimo habitual por mês de partida, calendário dos preços mais baixos encontrados e preços baixos recentes de ida e volta de ${name}.`}
   path={route.path}
 >
-  <nav aria-label="Caminho" class="text-small text-muted"><a href={origin.path}>Voos desde {origin.name}</a> › <a href={destination.path}>{route.city}</a></nav>
+  <Breadcrumbs crumbs={[{ name: `Voos desde ${origin.name}`, path: origin.path },
+    { name: route.city, path: destination.path }, { name: `${origin.name} → ${route.city}`, path: route.path }]} />
 
   <header class="mt-lg max-w-measure">
     <p class="label text-accent">{data.labels.kinds[route.kind]}</p>
@@ -115,6 +118,8 @@ const name = `${origin.name} para ${route.city}`;
       <p class="mt-md max-w-measure text-muted">Ainda estamos a recolher dados suficientes para esta rota.</p>
     )}
   </section>
+
+  <SearchWidget about={`de ${name}`} />
 
   {expired.length > 0 && (
     <section class="mt-2xl" aria-labelledby="titulo-expiradas">

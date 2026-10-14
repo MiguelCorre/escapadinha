@@ -129,14 +129,19 @@ site:
   redirects: {}                               # extra "/old/path/": "/new/path/" (301), if ever needed
   cloudflare_project: ondestaanocas           # Pages project names can't be renamed; stays
   wrangler_version: 4.149.0
-  analytics_token: null                       # Cloudflare Web Analytics token (cookieless), optional
+  # Cloudflare Web Analytics (cookieless, D34): null on purpose. The zone's automatic setup already
+  # measures at the edge; a beacon token too would count every visit twice.
+  analytics_token: null
+  # Aviasales search form on route and destination pages (D34): the script src from Travelpayouts'
+  # widget constructor (docs/runbooks/search-widget.md). null: no widget.
+  search_widget: null
   low_prices_per_route: 5                     # low prices listed per route page (biggest discounts)
   max_new_links_per_build: 300                # new low-price links per run, export + build (<= 900: API 100 req/min)
   # Website data contract v1 (DECISIONS D27, contract/site/v1): `export site-data` output and
   # the row cap per origin's low-price file (biggest discounts kept; ~160 bytes per row).
-  data_dir: output/site-data/v1               # web/src/data once the Astro package exists (#13)
+  data_dir: web/src/data                      # read by the Astro build in web/ (D35, git-ignored)
   max_low_prices_per_origin: 1500
-  expired_promotions_days: 30                 # expired promotions kept in the export (Jinja pages stay)
+  expired_promotions_days: 30                 # expired promotions kept on the site; older links 301 to the route (D35)
 
 # Review decisions (DECISIONS D26): an approve event whose live price check is older than this
 # is refused when a run applies it (check the price again); reject/published never expire.

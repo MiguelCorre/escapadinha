@@ -19,6 +19,7 @@ Pure functions: the builder passes paths in and writes the text out.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from escapadinha.config import SiteConfig
@@ -45,29 +46,35 @@ def _sources(path: str) -> list[str]:
 class RedirectPlan:
     rules: list[tuple[str, str]] = field(default_factory=list)   # (source, target), 301
     skipped: list[str] = field(default_factory=list)              # why a wanted rule was left out
+    warnings: list[str] = field(default_factory=list)             # e.g. close to the rule limit
 
     def text(self) -> str:
         return HEADER + "".join(f"{source} {target} 301\n" for source, target in self.rules)
 
 
 def plan_redirects(pages: dict[str, str], history: dict[str, list[str]], *,
-                   extra: dict[str, str], aliases: dict[str, str]) -> RedirectPlan:
-    """pages: stable key ('deal:42') -> current path; history: key -> paths published before."""
+                   extra: dict[str, str], aliases: dict[str, str],
+                   serves: Callable[[str], bool] | None = None,
+                   limit: int | None = MAX_STATIC_REDIRECTS) -> RedirectPlan:
+    """pages: stable key ('deal:42') -> current path; history: key -> paths published before.
+
+    One rule per source (the first wanted wins). A rule whose target is itself a source points
+    at the final target instead (no chains; a loop is left out). `serves`: whether a path is a
+    page of the build; a rule to a path it doesn't serve is left out, before any limit counts.
+    `limit`: rules beyond it are left out (reported); None keeps them all, for a caller that
+    fails the build instead (`website.routing`)."""
     taken = set().union(*(variants(p) for p in pages.values())) if pages else set()
-    plan, seen = RedirectPlan(), set()
+    plan = RedirectPlan()
+    wanted: dict[str, str] = {}
 
     def add(source: str, target: str, *, explicit: bool = False) -> None:
-        if source in seen or source == target:
+        if source in wanted or source == target:
             return
         if source in taken:
             if explicit:
                 plan.skipped.append(f"{source} -> {target}: {source} is a page of the site")
             return
-        if len(plan.rules) >= MAX_STATIC_REDIRECTS:
-            plan.skipped.append(f"{source} -> {target}: over the {MAX_STATIC_REDIRECTS}-rule limit")
-            return
-        seen.add(source)
-        plan.rules.append((source, target))
+        wanted[source] = target
 
     for source, target in extra.items():
         add(source, target, explicit=True)
@@ -82,6 +89,20 @@ def plan_redirects(pages: dict[str, str], history: dict[str, list[str]], *,
     for alias, target in aliases.items():
         for source in _sources(alias):
             add(source, target)
+    for source, target in wanted.items():
+        final, hops = target, {source}
+        while final in wanted and final not in hops:     # collapse a chain to its end
+            hops.add(final)
+            final = wanted[final]
+        if final in hops:
+            plan.skipped.append(f"{source} -> {target}: a redirect loop")
+        elif serves is not None and final.startswith("/") and not serves(final):
+            plan.skipped.append(f"{source} -> {final}: {final} is not a page of the build")
+        else:
+            plan.rules.append((source, final))
+    if limit is not None and len(plan.rules) > limit:
+        plan.skipped += [f"{s} -> {t}: over the {limit}-rule limit" for s, t in plan.rules[limit:]]
+        plan.rules = plan.rules[:limit]
     return plan
 
 

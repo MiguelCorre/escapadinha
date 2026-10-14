@@ -48,6 +48,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `posting.py` | Posting queue rules (D32): pure daily-slot allocation, re-verification verdict, publishers (dry run) |
 | `pipeline.py` | Wires the DB to each step; `cli.py` exposes them |
 | `site_data.py` | Website data contract v1: JSON export for the Astro site + fixtures (`contract/site/v1/`) |
+| `website/` | `astro.py` (`site build`: npm, astro build, images), `routing.py` (`_redirects`/`_headers`), `deploy.py` (wrangler); the legacy Jinja site until #23 phase 2 |
 
 ## Setup
 
@@ -87,8 +88,8 @@ uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you
 uv run escapadinha render deals            # renders deals with status 'new' → 'rendered'
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
-uv run escapadinha export site-data        # website data contract v1 (JSON) → output/site-data/v1
-uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → publish due posts, then render → export → site → deploy only if something changed → review snapshot
+uv run escapadinha export site-data        # website data contract v1 (JSON) → web/src/data
+uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → publish due posts, then render → export → site build (Astro) → deploy only if something changed → review snapshot
 uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled
 uv run escapadinha run --full              # the same, always with render → export → site build → deploy
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
@@ -196,6 +197,12 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 - `site.data_dir: output/site-data/v1` (where `export site-data` writes; `web/src/data` once the
   Astro package exists), `site.max_low_prices_per_origin: 1500` (row cap per low-price file) and
   `site.expired_promotions_days: 30` (expired promotions stay in the export this long).
+- `site.search_widget: null` (D34): the Aviasales search form's script `src` from Travelpayouts'
+  widget constructor (https, a Travelpayouts widget host, the website's Project as `trs=` and,
+  when `TRAVELPAYOUTS_MARKER` is set, our marker as `shmarker=`: validated); set it by following
+  [docs/runbooks/search-widget.md](docs/runbooks/search-widget.md). `site.analytics_token: null`:
+  Cloudflare Web Analytics runs in the zone's automatic setup, so no beacon token (it would count
+  visits twice). Both go to the website contract's `meta.json` (null in fixtures).
 - `collector.market: pt` and `collector.booking_base: https://www.aviasales.pt` use prices from
   the Portuguese market, and links open in euros with a 24h clock. Aviasales' UI is English/Russian only.
 
@@ -364,66 +371,101 @@ behind Access. The step-by-step test from the phone (pt-PT) is
 [`docs/runbooks/review-phone.md`](docs/runbooks/review-phone.md).
 
 The code is in `web/functions/` (TypeScript, no npm dependencies) and is tested with the web
-package (`cd web && npm test`). It ships with every `site deploy`: wrangler runs in a temporary
-folder holding `functions/` and the `web/src/lib/` modules they import, and the deploy hash (and
-the run's code fingerprint) include those files, so a Function change redeploys.
+package (`cd web && npm test`). It ships with every `site deploy`: wrangler runs in `web/` and
+compiles `web/functions/` (relative imports only, no npm package: a package import stops the
+deploy), and the deploy hash (and the run's code fingerprint) include those files, so a
+Function change redeploys.
 
 ## Public website
 
-The website is static and generated from the database into `site/` (git-ignored). It's the
-Instagram "link na bio". The brand is **Ponto Nómada** (Instagram still `@ondestaanocas` until renamed) and the site is hosted on
-Cloudflare Pages. It's **live at https://ondestaanocas.pages.dev** (since 2026-10-13) until the
-final domain **pontonomada.pt** (D19, registered 2026-10-13 at PTisp) is connected. The switch is guided in
-[docs/runbooks/brand-switch.md](docs/runbooks/brand-switch.md) (pt-PT).
+The website is the Astro package in [`web/`](web/) (see "The Astro package" below), built from
+the website data contract (JSON) that the pipeline exports. It's the Instagram "link na bio". The
+brand is **Ponto Nómada** (Instagram still `@ondestaanocas` until renamed); it's **live at
+https://pontonomada.pt** on Cloudflare Pages (project `ondestaanocas`; the old
+`ondestaanocas.pages.dev` and `www` hosts 301 there, D19). It replaced the first site, built with
+Jinja from the database, on 2026-10-14 (the cutover, #23, D35).
 
 ```bash
-uv run escapadinha site build     # generate ./site
-uv run escapadinha site preview   # http://127.0.0.1:8766
-uv run escapadinha site setup     # one-time: create the Cloudflare Pages project (REST API)
-uv run escapadinha site deploy    # upload if the content changed (--force to always upload)
+uv run escapadinha export site-data   # the contract JSON → web/src/data (site.data_dir)
+uv run escapadinha site build         # npm ci if needed, astro build → web/dist, images, _redirects, _headers
+uv run escapadinha site preview       # http://127.0.0.1:8766 (web/dist; _redirects not applied)
+uv run escapadinha site setup         # one-time: create the Cloudflare Pages project (REST API)
+uv run escapadinha site deploy        # upload web/dist + the review Function if they changed (--force to always)
+uv run escapadinha site build-jinja   # legacy: the old Jinja site into ./site, never deployed (until #23 phase 2)
+uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # every URL: 200 or a 301 to a 200
 ```
 
-| Page | What it shows |
+| Pages | |
 |---|---|
-| `/` | Live deals (approved or published, not expired), routes, reviewed guides |
-| `/promos/<id>-<origem>-<destino>/` | Slides, details, "Ver voo e reservar" (tracked link, `rel="sponsored nofollow"`) |
-| `/voos/<origem>-<destino>/` | Live deals, recent low prices (found date, tracked link, disclosure), typical low per departure month (real data), recent expired deals |
-| `/guias/<slug>/` | Only guides with `reviewed: true` |
-| `/sobre/`, `/privacidade/`, `404.html`, `sitemap.xml`, `robots.txt` | |
+| `/` | Live promotions, then recently expired ones, latest itineraries and tips |
+| `/promos/<id>-<origem>-<destino>/` | A promotion: slides, details, booking button (live only), expiry notice (expired: `noindex`) |
+| `/voos/<origem>-<destino>/` | A route: promotions, recent low prices, calendar, typical low per month (D30) |
+| `/partidas/<origem>/`, `/destinos/<destino>/` | Origin pages and destination hubs (+ index pages) |
+| `/explorar/`, `/pontes/<feriado>-<ano>/<origem>/` | Explorer and long weekends (D31) |
+| `/roteiros/<slug>/`, `/dicas/<slug>/` | Reviewed itineraries and tips (D33) |
+| `/sobre/`, `/privacidade/`, `404.html`, `sitemap.xml`, `robots.txt` | (D34) |
+| `/review` | The review queue (Pages Function behind Access, D29) |
 | `_redirects`, `_headers` | Cloudflare Pages rules (not pages), see "Domain and redirects" |
 
-- **Only approved deals go public.** A deal that expires after approval keeps its page, so
-  shared links don't break. That page says the deal expired, drops the booking button, is
-  marked `noindex` and is left out of the sitemap. Deals that expired or were rejected before
-  approval never appear.
-- **Low prices** (D24) appear on route pages without review: the latest completed run's low
-  prices, at most `site.low_prices_per_route` (biggest discounts), listed by departure date with
-  "encontrado a" (the day a traveller found it) and "visto por nós a" (our first sighting, Lisbon
-  time). A live promotion's own offer is not repeated there. The home page lists promotions only.
+- **Only approved deals go public**; an expired one keeps its page for
+  `site.expired_promotions_days` (30) after it expired, `noindex` and without a booking button;
+  after that its links 301 to its route page. Deals that expired or were rejected before approval
+  never appear.
 - **Traceable prices:** every element showing a price carries `data-obs`, `data-deal` or
-  `data-route`; `tests/test_traceability.py` checks each price string against them (D2).
-- **Images:** slides become WebP (1080 px), plus a 540 px thumbnail and a JPEG for Open Graph.
-- **Run integration:** `escapadinha run` rebuilds the site on its full path only (something the
-  site shows changed, see [GitHub Actions](#github-actions-decisions-d25)). It deploys only when
-  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set and the content changed since the
-  last deploy (the footer's "Atualizado a" timestamp is ignored; the last content hash is kept in
-  the database). Deploys use `npx wrangler@<site.wrangler_version>`, so Node.js is required.
-- **To review before going live:** the "Como funciona" and "Privacidade" texts.
+  `data-route` (`web/test/traceability.test.ts`, D2).
+- **Images:** `site build` converts each promotion's rendered slides into
+  `web/dist/img/promos/<id>/` (`slide_NN.webp` 1080 px, `thumb.webp` 540 px, `og.jpg`), the paths
+  `promotions.json` names; on a CI runner the slides come from the object store (each once).
+- **`site build`** (`website/astro.py`) runs `npm ci` only when `web/node_modules` is missing or
+  was installed from another `package-lock.json` or by another Node version, platform or
+  architecture (a stamp in node_modules), then `npm run build` with `SITE_DATA_DIR`
+  = the export, and refuses to go on without an export. It prints pages per type, images,
+  redirects and the size (real data, 2026-10-14: 627 pages, 31 MB, ~8 s, ~18 s with `npm ci`).
+  Node 22+ is required (on Windows `npm.cmd` is found on the PATH or in `C:\Program Files\nodejs`,
+  `website/node.py`). On `run`'s full path npm ci, the build and the deploy share one 20-minute
+  budget (`node.FULL_PATH_SECONDS`): a command that hangs fails the run with the end of its
+  output, leaving time to push the database inside the job (D35).
+- **`site deploy`** uploads `web/dist` with `npx wrangler@<site.wrangler_version>` running in
+  `web/`, so the review Function (`web/functions/`) ships in the same deployment. It refuses a
+  fixture build (`<html data-fixture="true">`) and skips the upload when the content hash (the
+  build plus the Function's sources, ignoring the build's own timestamps) is the last deploy's
+  (kept in the database, `meta` `site.deployed`).
+- **Run integration:** `escapadinha run` exports, builds and deploys on its full path only
+  (something the site shows changed, see [GitHub Actions](#github-actions-decisions-d25)), and
+  deploys only when `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set.
+- **Legacy Jinja site:** `src/escapadinha/website/__init__.py` (`SiteBuilder`) and
+  `website/templates/` stay buildable (`site build-jinja`) for a week after the cutover, then
+  are deleted (#23 phase 2). Nothing deploys them.
+- **Old URLs:** `site crawl --sitemap <url or file>` checks every URL of a sitemap on the live
+  site (no redirect followed: 200, or a 301 whose target answers 200; anything else is listed
+  and the command exits 1). `--base https://<hash>.ondestaanocas.pages.dev` crawls a preview
+  deployment instead, `--dist web/dist` a local build with its `_redirects`. During the week
+  after the cutover, run it daily with the old site's sitemap (the Jinja site's, e.g.
+  `site build-jinja` then `--sitemap site/sitemap.xml`).
 
 ### Domain and redirects
 
-- `site.base_url` is the one switch: canonical URLs, Open Graph, sitemap and robots.txt use it.
-  `site.domain` names the final domain; `site build` reminds you while `base_url` isn't on it.
+- `site.base_url` is the one switch: canonical URLs, Open Graph, sitemap and robots.txt use it
+  (through `meta.base_url` of the contract). `site.domain` names the final domain; `site build`
+  reminds you while `base_url` isn't on it.
 - **Old host → new domain** is a Cloudflare **Bulk Redirect** (account level, free, set up once
   by hand), because Pages `_redirects` can't match on the host (D19). It keeps path and query,
   so every old link opens the same page on the new domain.
 - **`_headers`** (generated): `X-Robots-Tag: noindex` on `site.legacy_hosts` other than the
   `base_url` host, and on per-deployment `<hash>.<project>.pages.dev` URLs.
-- **`_redirects`** (generated, 301): `site.redirects` from config, every older path of a page whose
-  slug changed (history in the database, `meta` key `site.paths`; an old `data/site_paths.json`
-  is merged in), and short `/promos/<id>` links. A rule never
-  uses a path that is a page now (Pages applies redirects before files); skipped config rules are
-  printed by `site build`.
+- **`_redirects`** (generated by `site build`, `website/routing.py`, 301): every older path of a
+  page whose path changed (history in the database, `meta` key `site.paths`, by stable key:
+  `deal:<id>`, `route:<key>`, `destination:<code>`, `origin:<code>`; an old
+  `data/site_paths.json` is merged in), short `/promos/<id>` links, promotions no longer on the
+  site → their route page, the old guides `/guias/<slug>/` → the tip or itinerary whose
+  `legacy_path` names them (else `/dicas/`), and `site.redirects` from config. A rule never uses
+  a path that is a page now (Pages applies redirects before files), never points at a path the
+  build doesn't serve (left out before Cloudflare's 2000-rule limit counts) or at another rule
+  (chains collapse to the final page); left-out rules are printed by `site build`. Within 10 % of
+  the limit `site build` warns, above it the build fails instead of dropping old links. The paths
+  a build implies are stored as `site.paths` only once it is live (after `site deploy`, or a
+  deploy skipped as unchanged); a promotion that left the site is folded into its route's
+  history (its old paths and `/promos/<id>` become old paths of the route page).
 
 ### Website data contract v1 (DECISIONS D27)
 
@@ -432,7 +474,7 @@ The Astro site (M3, `web/`, see below) is built from JSON files only. Their shap
 the tests validate every export against the schemas.
 
 ```bash
-uv run escapadinha export site-data                 # → site.data_dir (output/site-data/v1)
+uv run escapadinha export site-data                 # → site.data_dir (web/src/data)
 uv run escapadinha export site-data --out DIR --no-new-links   # no partner-links API request
 uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the committed fixtures
 ```
@@ -453,26 +495,26 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 - **Traceable:** every price sits next to its observation id; typical lows and averages next to
   their route (recomputable); a promotion's typical low is its deal's stored baseline.
 - **Links:** only from the partner links API (`pipeline.low_price_links` / `website_links`); the
-  export creates missing ones (from the run's link budget, D24) so `site build` right after
-  reuses them and only gets what the export left of the budget.
+  export creates missing ones (from the run's link budget, D24); the Astro build only reads them.
 - **Size budget:** a low-price file holds at most `site.max_low_prices_per_origin` (1500) rows,
   biggest discounts kept, ~135 bytes per row (tested ≤ 160), one row per line, sorted and
   deterministic (stable diffs, gzip ~4× smaller).
-- **Run integration:** the full path of `run` (D25) exports right before `site build` (written to
-  the local disk, not to R2).
+- **Run integration:** the full path of `run` (D25) exports into `web/src/data` right before
+  `site build` (the local disk, not R2; git-ignored).
 - **Fixtures** (`contract/site/v1/fixtures/`, committed): ~10 routes from 3 origins of the real
   database, opened read-only and copied into memory. Booking links become
   `https://example.com/parceiro/<sub_id>`, photographers' names a placeholder. When no deal was
   approved yet, the copy marks the newest deal live and an expired one as approved before it
   expired, so both promotion states exist (`meta.fixture: true`: never deploy them).
 
-### The new site: Astro package `web/` (DECISIONS D28)
+### The Astro package `web/` (DECISIONS D28)
 
 The M3 website is a separate npm package in [`web/`](web/) (Astro 7, static output, Tailwind 4
 with the design-system tokens). It reads only the contract JSON, so it builds and tests without
-Python. It is **not live yet**: the Jinja site above stays the live one until the cutover (#23).
-So far: home page, promotion pages (live and expired), route pages, origin pages and destination
-hubs (D30), the explorer and the ponte pages (D31), itineraries and tips (D33).
+Python. It is the live site since the cutover (#23, D35): home page, promotion pages (live and
+expired), route pages, origin pages and destination hubs (D30), the explorer and the ponte pages
+(D31), itineraries and tips (D33), SEO (D34). The pipeline builds it with `escapadinha site build`
+(above); the npm commands below are for working on it.
 
 ```bash
 cd web
@@ -491,15 +533,35 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   `npm test` builds the same way. Plain `npm run build` is the build from real data: it reads
   `web/src/data` (or `SITE_DATA_DIR`) and **fails on purpose** while that folder is empty, so a
   site is never built from nothing or silently from the fixtures. To fill it, export the data from
-  the repository root: `uv run escapadinha export site-data --out web/src/data`, then
-  `cd web && npm run build`.
+  the repository root: `uv run escapadinha export site-data` (writes `web/src/data`), then
+  `cd web && npm run build`, or `uv run escapadinha site build` for the whole step.
 - **Data:** `SITE_DATA_DIR` (relative to `web/`) names the contract directory; without it the
   build reads `web/src/data` and stops with a clear message when it is missing. Every file is
   validated against `contract/site/v1/*.schema.json` (ajv) before any page renders; a mismatch
   fails the build naming the file and the field. A fixture build carries `<html data-fixture>`.
 - **Pages:** `/` (live promotions, then recently expired ones), `/promos/<id>-<origem>-<destino>/`
-  (the path from the contract, same URLs as today), `404.html`, `robots.txt`, `og-default.png`.
-  An expired promotion is `noindex`, has no booking button and says why (the recheck's reason).
+  (the path from the contract, same URLs as today), `/sobre/` ("Como funciona") and
+  `/privacidade/` (linked from every footer), `404.html`, `robots.txt`, `sitemap.xml`,
+  `og-default.png`. An expired promotion is `noindex`, has no booking button and says why (the
+  recheck's reason).
+- **SEO (D34):** every page has its canonical URL (contract `base_url` + path), OpenGraph and
+  Twitter tags (`og:type` `article` on itineraries and tips). `sitemap.xml` is written after the
+  build from the built pages themselves (`src/lib/sitemap.ts`): every page with a canonical URL
+  and without `noindex`, so expired promotions, empty or past pontes, empty listings and drafts
+  leave it by themselves (fixture build: 31 of 81 pages). `robots.txt` points at it. JSON-LD
+  (`src/lib/structured-data.ts`): `WebSite` + `Organization` on the home page, `Trip` with an
+  `Offer` on live promotions (the offer's own price, `data-obs`/`data-deal` on the block, never
+  on an expired one), `Article` on itineraries and tips (`dateModified` = `last_checked`), and a
+  `BreadcrumbList` with the visible trail (`Breadcrumbs.astro`) on promotion, route, origin,
+  destination, itinerary and tip pages. Checked twice: `npm run typecheck` against the schema.org
+  vocabulary (`schema-dts`), `web/test/seo.test.ts` with a JSON Schema per type (`test/jsonld.ts`).
+- **Search widget and analytics (D34):** with `meta.search_widget` (config `site.search_widget`)
+  route and destination pages get "Pesquisar outras datas": a "Pesquisar voos no Aviasales"
+  button; the partner's script (`src/lib/search-widget.ts`) is added only when the visitor presses
+  it (nothing from the partner loads before, as the privacy page says); never on the home page or
+  promotions; nothing at all while unset (the fixture build). With `meta.analytics_token` every
+  page gets Cloudflare's beacon script; null now (automatic setup at the edge). The site sets no
+  cookies (a test fails on `document.cookie` in the build or the sources).
 - **Route, origin and destination pages (D30):** `/voos/<origem>-<destino>/` (the contract's
   `path`, the Jinja site's URLs): promotions on the route, recent low prices (biggest 5 discounts,
   by date, each with its found-on date, our first sight and its own partner link, the disclosure
@@ -548,7 +610,8 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   holidays 2026–2027, Código do Trabalho art. 234.º/235.º; add the next year's dates before 2028).
 - **Prices:** every price element carries `data-obs` / `data-deal` / `data-route` (also on `<head>`
   when the title shows a price); `web/test/traceability.test.ts` fails on any price string on a
-  built page that isn't an amount of the referenced observation, deal or route in the contract.
+  built page that isn't an amount of the referenced observation, deal or route in the contract,
+  JSON-LD included (every `price` and every price string in a block, against the block's own refs).
 - **Links:** `web/test/pages.test.ts` fails on any internal link (`a`, `link`, `img`) that doesn't
   resolve to a built page or file; every route page is linked from its origin page and its hub.
 - **Booking links** come from the contract as given (never built here); `src/lib/cta.ts` shows a
@@ -572,7 +635,9 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all
   three page types; on 2026-10-14 (D30) route 0.91–0.93, origin 0.95, destination 0.95–1 (accessibility,
   best practices and SEO 1), and 0.92–0.98 on the full-size synthetic build's largest pages; (D31)
-  the explorer 0.92 / 1 / 1 and a ponte page 0.95 / 1 / 1; (D33) the test itinerary and tip 0.95 / 1 / 1.
+  the explorer 0.92 / 1 / 1 and a ponte page 0.95 / 1 / 1; (D33) the test itinerary and tip 0.95 / 1 / 1;
+  (D34, 12 URLs with `/privacidade/` and `/sobre/`) performance 0.92–0.95, accessibility, best
+  practices and SEO 1 everywhere.
 
 ## Visual directions (M2, issue #11)
 
@@ -613,7 +678,7 @@ like `https://aviasales.tpo.lu/UQWMX2Ed`, and carries `sub_id=deal-<id>` so the 
 stats per deal. It's stored on the deal and reused on later renders.
 
 The **website** uses its own Project once `affiliate.projects.website` is set (until then it shows
-the deal's link). Its links are created at `site build` with `sub_id=site-deal-<id>` and cached
+the deal's link). Its links are created by `export site-data` with `sub_id=site-deal-<id>` and cached
 per Project in the database (`meta` key `site.links`, so a CI runner reuses them; an old
 `data/site_links.json` is merged in). A website link that fails falls back to the deal's own
 tracked link and is retried on the next build. A Project's URL can't change once it joined a
@@ -624,9 +689,8 @@ program, so a new domain or handle means a new Project (runbook steps 8–9).
 survives a CI runner; rows older than 30 days are pruned). A build only asks the API for low
 prices without a stored link, biggest discounts first, within one budget per collection run:
 `site.max_new_links_per_build` (300 = 30 requests; the API allows 100 requests/min, 10 links
-each) for the run's site data export and site build together (the export goes first). The rest,
-and failures, wait for the next run and are shown meanwhile without a booking button. `site build` prints
-how many were created and how many still have no link.
+each) for the run's site data export. The rest, and failures, wait for the next full path and
+are shown meanwhile without a booking button ("Ligação de reserva disponível em breve.").
 
 If conversion fails, the deal keeps **no** link. `affiliate_error` explains why, the CLI warns,
 and the next render retries. There is deliberately no fallback to a hand-built `marker=` URL,
@@ -713,11 +777,14 @@ on `ubuntu-latest`: lock → pull the database from R2 → daily backup → (mon
 collect → recheck → detect → publish due posts (D32) → **full path only when needed** → push → unlock.
 
 - **Fast path, full path.** After detection the run compares a fingerprint of what the public
-  outputs show with the one stored at the last full path: promotions (id, status, link), the low
-  prices the route pages list, routes (key, status, name), the Lisbon date, and the code, config
-  and content. If anything changed it takes the full path (render new deals → site build →
-  deploy when the content changed); otherwise it ends there. The log says which and why:
-  `Path: fast (nothing the site shows changed)`, `Path: full (changed: promotions, low prices)`,
+  outputs show with the one stored at the last full path (from the export it deployed, not
+  re-read afterwards): promotions (id, status, link), the
+  site data exactly as the next build would read it (computed in memory, without the run id,
+  timestamps and counters no page shows), routes (key, status, name), the Lisbon date, and the
+  code, config and content (the Python package, `config.yaml`, `content/`, the web package's
+  sources and lockfile, the logo and fonts). If anything changed it takes the full path (render new deals → export the site
+  data → `site build` (Astro) → deploy when the content changed); otherwise it ends there. The log says which and why:
+  `Path: fast (nothing the site shows changed)`, `Path: full (changed: promotions, site data)`,
   `Path: full (forced with --full)`. A full path that fails records nothing, so the next run
   tries again. The first run after Lisbon midnight is always full, so typical lows and
   "Atualizado a" are at most a day old.
@@ -730,7 +797,10 @@ collect → recheck → detect → publish due posts (D32) → **full path only 
 - **Caches.** uv's cache (setup-uv) and the Chromium download (`~/.cache/ms-playwright`, keyed on
   `uv.lock`). Chromium and its system libraries are installed only when slides are rendered
   (`ESCAPADINHA_INSTALL_BROWSER=1`: `playwright install --with-deps chromium` the first time a
-  renderer opens), so the fast path never pays for it. Node 22 runs `npx wrangler`.
+  renderer opens), so the fast path never pays for it. Node 22 for the full path's `npm ci`, the
+  Astro build and `npx wrangler`; the fast path never runs npm. npm's download cache (`~/.npm`,
+  keyed on `web/package-lock.json`) is restored on every run (a few seconds) and saved only after
+  a full path that ran `npm ci` on a cache miss (`npm_ci=true` in `$GITHUB_OUTPUT`, D35).
 - **Secrets:** repo → *Settings* → *Secrets and variables* → *Actions* → *New repository
   secret*, one per `.env` key: `TRAVELPAYOUTS_TOKEN`, `TRAVELPAYOUTS_MARKER`, `PIXABAY_API_KEY`,
   `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`,
@@ -751,7 +821,9 @@ collect → recheck → detect → publish due posts (D32) → **full path only 
 
 **Minutes used.** A private repo on GitHub Free gets 2000 Linux minutes a month (public repos are
 not metered). Budget: 12 runs a day × ~2 min ≈ 720 min/month, plus a minute or two for each full
-path that renders (Chromium's system libraries).
+path (npm ci from the cache, the Astro build, the deploy; Chromium's system libraries when it
+renders). Since the cutover about half the runs take the full path, because the site shows every
+route's cheapest current price (D35).
 - One run: *Actions* → the run → *Usage* (under *Run details*) shows its billable time; the
   summary shows our own `Duration`.
 - The month: your account → *Settings* → *Billing and licensing* → *Usage*, filtered on Actions.
@@ -783,9 +855,9 @@ PC sleeps start when it wakes. Output is appended to `logs/run-<date>.log`, endi
 
 ## Guides ("guia rápido")
 
-The website's tips and itineraries are MDX in `web/src/content/` (see "The new site", D33); the
-YAML guides below only feed the Instagram carousel (`render guide`) and the current Jinja site
-until the cutover (#23). Add `content/guides/<slug>.yaml` with a title, 3–8 tips, CTA, caption and hashtags (see the
+The website's tips and itineraries are MDX in `web/src/content/` (see "The Astro package", D33);
+the YAML guides below only feed the Instagram carousel (`render guide`) (and the legacy Jinja
+build until #23 phase 2; its old `/guias/<slug>/` URLs 301 to the tip naming them in `legacy_path`). Add `content/guides/<slug>.yaml` with a title, 3–8 tips, CTA, caption and hashtags (see the
 sample). Guides are hand-written. Set `reviewed: true` after checking the facts; the CLI
 warns until then. `photo_destination` picks a cached photo (for example `LIS`; add its
 query under `photos.queries` and run `photos fetch --dest LIS`).
@@ -821,7 +893,8 @@ uv run pytest -m "not browser"
   both the local store and `S3ObjectStore` on moto's in-process S3 mock: no network, no bucket.
 - `test_actions.py` drives `escapadinha run` as Actions does (fast/full path, a failing route,
   the step summary) and builds the site on a "fresh runner" that only has the bucket, checking
-  it is byte-for-byte the PC's site; `test_workflow.py` checks the workflow file (triggers,
+  it is byte-for-byte the PC's site (npm faked: `test_web_build.FakeNpm` writes a page per
+  contract path); `test_workflow.py` checks the workflow file (triggers,
   concurrency, timeout below the lock TTL, secrets never printed).
 - `fixtures/discovery/` holds real catalogue and supplement payloads recorded on 2026-10-13,
   trimmed to the rows the tests need (`RECORDED.txt` lists the URLs and what was kept).
@@ -835,7 +908,12 @@ uv run pytest -m "not browser"
   when a schema gains a price field the checker doesn't know), and tests the size budget.
 - `test_web_tokens.py` fails when `web/src/styles/tokens.css` or `web/src/lib/tokens.ts` no longer
   matches `docs/design/tokens.json` (run `npm run tokens` in `web/`).
-- The web package has its own tests: `cd web && npm test` (see "The new site"), including the
+- `test_web_build.py`: `site build` (npm ci only when needed, the export's path, promotion
+  images, `_redirects`/`_headers` for renamed, dropped and old guide pages, config rules, the
+  full path's time budget with a fake clock and subprocess) and
+  `site deploy` (from `web/`, refuses a fixture build, skips a rebuild that only moved
+  timestamps), with npm and wrangler faked.
+- The web package has its own tests: `cd web && npm test` (see "The Astro package"), including the
   review Function's (`web/test/review/`: Access token checks, events validated against
   `contract/review/v1/event.schema.json`, the dispatch, the page).
 - `test_live_check_cases.py` and `web/test/review/live-check.test.ts` run the same cases
@@ -846,8 +924,11 @@ uv run pytest -m "not browser"
   `check_decision` and the Function's `rules.ts` against `contract/review/v1/fixtures/review-rules.json`.
 - `web/test/colours.test.ts` fails on a raw colour (hex, `rgb()`, `hsl()`) in `web/src/` or
   `web/functions/` outside the generated `tokens.css` / `tokens.ts`.
-- `test_review_function_deploy.py`: `site deploy` uploads the Function with the site, a Function
-  change redeploys and takes the full path.
+- `test_crawl.py`: the crawl against a build and the live site (respx), and the cutover's check:
+  the legacy Jinja site and the real Astro build (npm) from one database, every old URL a page
+  or a 301 to one (skipped without `web/node_modules`).
+- `test_review_function_deploy.py`: `site deploy` uploads the Function with the Astro build, a
+  Function change redeploys and takes the full path.
 - `test_posting.py`: slot allocation and the daily cap with an injected `now` (summer/winter time,
   both clock-change Sundays, Lisbon vs UTC midnight), the upgrade from `schema_v5.sql`/`schema_v7.sql`,
   queueing on an applied approval, the publish step (dry run, expiry/rejection cancels, waiting

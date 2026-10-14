@@ -12,7 +12,9 @@
         "http://localhost/explorar/",
         "http://localhost/pontes/1-dezembro-2026/porto/",
         "http://localhost/roteiros/paris-em-3-dias/",
-        "http://localhost/dicas/dica-de-teste/"
+        "http://localhost/dicas/dica-de-teste/",
+        "http://localhost/privacidade/",
+        "http://localhost/sobre/"
       ],
       "numberOfRuns": 3,
       "settings": {

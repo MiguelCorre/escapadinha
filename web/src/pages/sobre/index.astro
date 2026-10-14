@@ -1,0 +1,52 @@
+---
+// "Como funciona" (D34): how prices are found, which ones become promotions, how they are checked
+// and how the site earns money. Carried over from the Jinja site's /sobre/ page, now for every
+// Portuguese airport we watch, with the route pages' low prices and the explorer.
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import { BRAND } from "../../lib/brand";
+import { CTA_TEXT } from "../../lib/cta";
+import { instagramUrl } from "../../lib/structured-data";
+
+const handle = data.meta.instagram_handle;
+const instagram = instagramUrl(handle);
+const origins = data.origins.origins.map((o) => o.name);
+const originText = origins.length > 1 ? `${origins.slice(0, -1).join(", ")} e ${origins.at(-1)}` : origins[0];
+---
+<Base
+  title={`Como funciona · ${BRAND}`}
+  description="Como encontramos e verificamos os preços e as promoções de voos que publicamos, e como ganhamos dinheiro."
+  path="/sobre/"
+>
+  <article class="prose max-w-measure">
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Como funciona</h1>
+    <p class="text-lead text-muted">Acompanhamos voos de ida e volta a partir de {originText}. Cada preço que mostramos passa pelos mesmos passos antes de chegar aqui{instagram ? <> ou ao Instagram <a href={instagram}>{handle}</a></> : ""}.</p>
+
+    <h2>1. Recolhemos preços reais</h2>
+    <p>Várias vezes por dia consultamos os preços mais baixos que viajantes encontraram no Aviasales para as rotas que acompanhamos, para os próximos meses. Guardamos cada preço com a data em que foi encontrado. Nunca inventamos nem estimamos preços.</p>
+
+    <h2>2. Só destacamos o que é mesmo barato</h2>
+    <p>Para cada rota e mês de partida calculamos o <strong>preço mínimo habitual</strong>: a mediana dos preços mais baixos encontrados em cada dia. Uma promoção é um preço recente bem abaixo desse valor, dentro das regras da rota (por exemplo, só voos diretos).</p>
+    <p>Nas páginas de cada rota e no <a href="/explorar/">explorador</a> mostramos também os <strong>preços baixos</strong>: preços encontrados nos últimos dias claramente abaixo do mínimo habitual. Ao contrário das promoções, aparecem automaticamente, sem revisão, cada um com a data em que foi encontrado.</p>
+
+    <h2>3. Verificamos antes e depois de publicar</h2>
+    <p>Uma pessoa revê cada promoção e o preço é confirmado no momento da aprovação. Depois disso continua a ser verificado regularmente. Se subir ou desaparecer, a promoção é marcada como expirada e deixa de ter ligação de reserva.</p>
+
+    <h2>4. Como ganhamos dinheiro</h2>
+    <p>Os botões "{CTA_TEXT}" são links de afiliado (através da Travelpayouts). Se reservares por eles, podemos receber uma pequena comissão. O preço para ti é o mesmo. Não vendemos bilhetes: a reserva, o pagamento e o apoio ao cliente são do site parceiro.</p>
+
+    <h2>Antes de reservar</h2>
+    <ul>
+      <li>Os preços mudam muito depressa e podem já não estar disponíveis.</li>
+      <li>Confirma o aeroporto de chegada: alguns voos baratos usam aeroportos longe da cidade (indicamos sempre quando é o caso).</li>
+      <li>Confirma o que inclui a tarifa (bagagem de mão, mala de porão, lugar).</li>
+    </ul>
+
+    {instagram && (
+      <>
+        <h2>Contacto</h2>
+        <p>Envia-nos mensagem no Instagram <a href={instagram}>{handle}</a>.</p>
+      </>
+    )}
+  </article>
+</Base>
