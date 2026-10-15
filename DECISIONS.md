@@ -2098,3 +2098,60 @@ so nothing has to be hosted.
   `direct` field in the snapshot (the query already carries it, and the Function must not
   rebuild the query); changing only the collection (the live check would disagree with the
   recheck).
+
+## D42: Far months and never-seen routes once a day (2026-10-16, #44)
+- **The change:** a collection run is either **the day's pass** or a **regular run**. The day's
+  pass is the first run at or after `collector.daily_pass_hour` (6, Lisbon) of each Lisbon day,
+  or any run when no pass was ever recorded. It asks every active route for
+  `collector.daily_months_ahead` (6) departure months. A regular run asks only the routes that
+  have returned a price (`last_observed_at` set), for `months_ahead` (3) months. Recommendations
+  4 and 7 of `docs/research/2026-10-15-data-reliability.md`.
+- **Why the far months:** a typical low is per departure month and looks back 90 days. Without
+  months 4–6, Christmas/New Year, Carnaval (2027-02-09) and Easter (2027-03-28) start with about
+  7 days of history when they enter the 3-month window; with them, 30–45 days. Far months are
+  thin (LIS-BCN: 10 / 2 / 2 offers for Jan / Feb / Mar against 24 for November), and the cache
+  keeps a found day for about 7 days, so one pass a day misses only the offers replaced within
+  the same day.
+- **Why never-seen routes once a day:** 121 of the 360 active routes had never returned a price in
+  57 runs, 34 % of every run's requests, and dormancy waits 30 days (D23). Such a route is now
+  probed once a day until its first price, then asked on every run like any other.
+- **Requests per day** (12 runs, 360 active routes, 121 never seen): before, 360 × 3 × 12 =
+  **12,960**. After, the pass 360 × 6 = 2,160 plus 11 regular runs × 239 × 3 = 7,887: **10,047**
+  (−2,913, −22 %), plus one request per run for each open promotion in a far month. At the ~5
+  runs a day GitHub's cron really gives (research, item 5): 5,400 → 5,028. Break-even is 4 runs a
+  day; below that the pass costs more than it saves. Once those 121 routes are dormant (30 days
+  after the 2026-10-13 discovery) the saving is gone and the far months cost their own 717
+  requests a day: 239 × 3 × 12 = 8,604 → 9,321 (+8 %), still under today's 12,960. The pass
+  makes twice today's requests per run (2,160, about 4 min under the 550/min cap); a regular run
+  a third fewer (717 instead of 1,080).
+- **One place decides:** `collector/plan.py` (pure): `daily_pass_due(last, now, hour)` (Lisbon
+  days through `i18n_pt.LISBON`, the clock passed in) and `plan(routes, today=, daily=, …)` →
+  `Plan` (tasks in request order, `waiting` never-seen routes, far `deal_months`).
+  `runner.collect` runs a `Plan`; `pipeline.run_collect(ctx, conn, now=)` builds it and records
+  the pass in meta `collector.daily_pass` = `{"day", "run"}` (CI keeps no files, D25), unless
+  every request failed, so the next run is the pass again. It works at any cadence (2 h, or the
+  ~5 h the GitHub cron gives today): "the first run after 06:00" happens every day.
+- **Open promotions in a far month** are asked on every run (only their route-month), so the
+  recheck still judges every open promotion on every run against prices asked for its month
+  (D13). Without it a regular run would expire a far-month promotion for "a viagem já não
+  aparece" (the run has other prices for the route, not that month), and a due post needs a check
+  under `posting.max_check_age_hours` (D32).
+- **The site shows the newest prices of each route-month:** the latest run's, and for the months
+  after the regular window, the latest pass's or newer (`pipeline.latest_offers` →
+  `db.latest_offers`), for the calendar, the cheapest offer and the low prices in the export. The
+  rules (freshness, typical lows, tiers) are unchanged. Reading only the latest run would show
+  far months for one run a day and drop them at the next: two changes of the site data a day,
+  each a full path (D25) for nothing. Detection stays on the run's own offers (D18): far-month
+  candidates come from the pass, and the low-price link budget stays per run.
+- **Dormancy unchanged (D23):** 30 days without a price. A run only judges routes it asked for
+  (`routes.mark_dormant(spare=)`): a never-seen route that a discovery reactivates is probed by
+  the next daily pass, not put back to sleep by a run that skipped it.
+- **Run log:** `collect` and the Actions summary say which pass ran and its request count, e.g.
+  `daily pass: months 1–6 of 360 routes · 2160 requests` and `regular pass: months 1–3 of 239
+  routes + 1 far month of open promotions; 121 never-seen routes wait for the daily pass · 718
+  requests`.
+- **Rejected:** months 4–6 on every run (+1,080 requests on each of 12 runs; Actions minutes near
+  the 2,000 free ones); a separate cron for the pass (GitHub's cron drifts by hours; the first
+  run after a Lisbon hour needs nothing new); rechecking far-month promotions only on the pass (a
+  due post would wait up to a day); a `fetch_runs` column for the pass (meta is the bookkeeping
+  place, and only the latest pass matters).

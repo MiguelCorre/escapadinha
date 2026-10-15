@@ -29,9 +29,11 @@ def ctx(tmp_path, monkeypatch):
     # The real config, minus the curated long-haul list: tests that need long-haul routes
     # add their own, so route counts here stay the 10 seeded routes. No website Project either:
     # tests that need one set it, so link assertions don't follow the repo's real Project id
-    # (nor the search widget, which must carry that Project).
+    # (nor the search widget, which must carry that Project). The day's pass asks the same months
+    # as every run, so a run here is routes × 3 requests (the far months: test_daily_pass.py).
     config = yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))
     config["routes"]["long_haul"] = []
+    config["collector"]["daily_months_ahead"] = config["collector"]["months_ahead"]
     config["affiliate"]["projects"]["website"] = None
     config["site"]["search_widget"] = None   # the real widget carries the real Project
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True), "utf-8")

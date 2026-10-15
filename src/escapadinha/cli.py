@@ -88,7 +88,7 @@ def _collect():
     """Collect and report; a request that fails is listed and the others go on (D25)."""
     ctx, conn = _ctx()
     summary = pipeline.run_collect(ctx, conn)
-    console.print(f"Run #{summary.run_id}: [bold]{summary.status}[/] · "
+    console.print(f"Run #{summary.run_id}: [bold]{summary.status}[/] · {summary.plan.describe()} · "
                   f"{summary.n_requests} requests · {summary.n_observations} offers "
                   f"({summary.n_new} new, {summary.n_repeated} seen before) · "
                   f"archive {summary.archive_key or '[red]missing[/]'}")
@@ -822,7 +822,8 @@ def _run_steps(render: bool, full: bool, report: list[str]) -> None:
 def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     routes_upkeep()
     summary = _collect()
-    report.append(f"Collection: {summary.status}, {summary.n_requests} requests, "
+    report.append(f"Collection: {summary.status}, {summary.plan.describe()}, "
+                  f"{summary.n_requests} requests, "
                   f"{summary.n_observations} offers ({summary.n_new} new)"
                   + (f", {len(summary.errors)} failed" if summary.errors else ""))
     if summary.status == "failed":           # every request failed: the run fails (exit 1)

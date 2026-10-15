@@ -224,6 +224,7 @@ def test_collect_runs_requests_concurrently_and_stores_in_request_order(ctx):
     import time
 
     from escapadinha.collector.base import Fetched
+    from escapadinha.collector.plan import plan
     from escapadinha.collector.runner import collect
 
     class SlowSource:
@@ -248,8 +249,8 @@ def test_collect_runs_requests_concurrently_and_stores_in_request_order(ctx):
     conn = pipeline.open_db(ctx)
     active = routes.active_routes(conn, ctx.config.routes)
     source = SlowSource()
-    summary = collect(conn, source, active, today=date(2026, 10, 13), months_ahead=3,
-                      store=ctx.object_store, workers=8)
+    asked = plan(active, today=date(2026, 10, 13), daily=True, months_ahead=3, daily_months_ahead=3)
+    summary = collect(conn, source, asked, store=ctx.object_store, workers=8)
     assert source.peak > 1 and summary.n_requests == 30 and summary.status == "partial"
     assert len(summary.errors) == 6 and all("PAR" in e for e in summary.errors)
     from escapadinha import archive

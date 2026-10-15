@@ -17,6 +17,7 @@ from escapadinha import (archive, detector, discovery, i18n_pt, instagram, posti
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.articles import Article
 from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
+from escapadinha.collector import plan as collector_plan
 from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.base import Fetched, departure_months
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
@@ -52,21 +53,52 @@ def lisbon_today() -> date:
 
 # --- collect ------------------------------------------------------------------
 
-def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
-    return collect(conn, price_source(ctx), routes.active_routes(conn, ctx.config.routes),
-                   today=lisbon_today(), months_ahead=ctx.config.collector.months_ahead,
-                   store=ctx.object_store, workers=ctx.config.collector.workers)
+DAILY_PASS = "collector.daily_pass"   # meta: the latest daily pass, {"day": Lisbon date, "run": id} (D42)
+
+
+def run_collect(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None) -> RunSummary:
+    """One collection run: the day's pass when due (D42), else every run's months. A daily pass
+    is recorded unless every request failed (the next run tries again)."""
+    now = now or db.utcnow()
+    c = ctx.config.collector
+    last = db.get_meta_json(conn, DAILY_PASS).get("day")
+    daily = collector_plan.daily_pass_due(date.fromisoformat(last) if last else None, now,
+                                          c.daily_pass_hour)
+    today = now.astimezone(i18n_pt.LISBON).date()
+    deal_months = {(o.route_key, o.departure_date.replace(day=1)) for _, o in db.open_deals(conn)}
+    asked = collector_plan.plan(routes.active_routes(conn, ctx.config.routes), today=today,
+                                daily=daily, months_ahead=c.months_ahead,
+                                daily_months_ahead=c.daily_months_ahead, deal_months=deal_months)
+    summary = collect(conn, price_source(ctx), asked, store=ctx.object_store, workers=c.workers)
+    if daily and summary.status != "failed":
+        db.set_meta(conn, DAILY_PASS, json.dumps({"day": today.isoformat(), "run": summary.run_id}))
+    return summary
+
+
+def latest_offers(ctx: Context, conn: sqlite3.Connection,
+                  now: datetime) -> tuple[int | None, list[Observation]]:
+    """The latest completed run and the newest prices of every route-month (D42): that run's,
+    and for the far months only the day's pass asks for, the latest pass's (or newer)."""
+    run_id = db.latest_completed_run_id(conn)
+    if run_id is None:
+        return None, []
+    last = db.get_meta_json(conn, DAILY_PASS)
+    today = now.astimezone(i18n_pt.LISBON).date()
+    far_from = departure_months(today, ctx.config.collector.months_ahead + 1)[-1]  # month 4
+    return run_id, db.latest_offers(conn, run_id, (last["run"], far_from) if last else None)
 
 
 def run_dormancy(ctx: Context, conn: sqlite3.Connection, summary: RunSummary,
                  now: datetime | None = None) -> list[Route]:
     """After a collection: routes without prices for `dormant_after_days` go dormant.
 
-    Skipped when the whole run failed (an API outage must not put every route to sleep).
+    Skipped when the whole run failed (an API outage must not put every route to sleep). A
+    route the run didn't ask for (never seen, between daily passes, D42) waits for its probe.
     """
     if summary.status == "failed":
         return []
-    return routes.mark_dormant(conn, ctx.config.routes, now or db.utcnow())
+    return routes.mark_dormant(conn, ctx.config.routes, now or db.utcnow(),
+                               spare={r.key for r in summary.plan.waiting})
 
 
 # --- discover routes ------------------------------------------------------------

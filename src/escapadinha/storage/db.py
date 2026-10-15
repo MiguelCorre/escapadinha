@@ -275,6 +275,23 @@ def observations_seen_since(conn: sqlite3.Connection, run_id: int) -> list[Obser
     return [_row_to_observation(r) for r in rows]
 
 
+def latest_offers(conn: sqlite3.Connection, run_id: int,
+                  far: tuple[int, date] | None = None) -> list[Observation]:
+    """The newest prices: the offers of run `run_id` or later (`observations_seen_since`) and,
+    with `far` = (a daily pass's run id, first day of the far months), the offers departing from
+    that day on that the pass or a later run returned. Far months are asked only on the day's
+    pass (D42): a run in between keeps showing that pass's prices for them."""
+    if far is None:
+        return observations_seen_since(conn, run_id)
+    rows = conn.execute(
+        """SELECT * FROM price_observations
+           WHERE last_run_id >= ? OR (last_run_id >= ? AND departure_date >= ?)
+           ORDER BY origin, destination, price""",
+        (run_id, far[0], far[1].isoformat()),
+    )
+    return [_row_to_observation(r) for r in rows]
+
+
 def route_history(conn: sqlite3.Connection, origin: str, destination: str, *,
                   since: datetime, exclude_run_id: int | None) -> list[Observation]:
     rows = conn.execute(

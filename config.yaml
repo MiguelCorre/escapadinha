@@ -9,11 +9,20 @@ brand:
 collector:
   source: travelpayouts
   currency: eur
-  months_ahead: 3            # number of departure months fetched, starting with the current month
+  # Departure months, starting with the current month (DECISIONS D42). Every run asks the routes
+  # that have returned a price for months_ahead months; once a Lisbon day, the first run at or
+  # after daily_pass_hour (Lisbon) is the day's pass: every active route, daily_months_ahead
+  # months, including the routes that never returned a price (only then, until their first).
+  # Far months build typical lows months before departure (Christmas, Carnaval, Easter) for
+  # about the requests the never-seen routes used to cost on every run. The far month of an
+  # open promotion is asked on every run, so its recheck never waits for the day's pass.
+  months_ahead: 3
+  daily_months_ahead: 6
+  daily_pass_hour: 6
   limit_per_request: 100      # max offers returned per route/month call
   market: pt                  # prices found on the Portuguese Aviasales market
   booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
-  requests_per_minute: 550    # client-side cap (API limit 600/min); a run is ~routes x months_ahead calls
+  requests_per_minute: 550    # client-side cap (API limit 600/min); a run is ~routes x months calls
   workers: 8                  # concurrent requests, under the same per-minute cap (~2 min per run)
 
 # Two tiers (DECISIONS D24), both against the route's typical LOW for that departure month:
