@@ -186,9 +186,14 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   event (`pipeline.price_now`, stores nothing); the applier re-checks every transition, refuses
   approvals whose check is older than `review.approve_max_age_hours` (passed in as
   `approve_max_age`), and archives refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
-  them only with a new version, except optional fields a reader can do without (D29's
-  `transfers`, D40's `baseline`: the Function handles their absence, and the new `*_eur` field is
-  taught to `test_review_events.SNAPSHOT_PRICES`). Render (new → rendered), rechecks and the
+  them only with a new version. One exception: an optional **snapshot** field the Function can do
+  without (D29's `transfers`, D40's `baseline`) joins v1, though the schema before it refuses a
+  snapshot that has it (`additionalProperties: false`). That is allowed only because the review
+  Function never validates the snapshot at run time (it reads the JSON as is; keep it so:
+  `web/test/review/page.test.ts` serves a snapshot with unknown keys) and handles the field's
+  absence; a reader that validates the snapshot, or any change to the events (the applier
+  validates them), needs a v2. A new `*_eur` field is taught to
+  `test_review_events.SNAPSHOT_PRICES`. Render (new → rendered), rechecks and the
   queue's re-evaluation (D40) stay pipeline-owned.
 - Posting queue (D32, `posting_queue`): only an applied approve event queues posts, in the
   applier's transaction (`plan_posts` passed into `apply_pending`). Slot rules stay pure in

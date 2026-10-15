@@ -4,7 +4,7 @@ import { parse, type HTMLElement } from "node-html-parser";
 import { describe, expect, it } from "vitest";
 import { handle } from "../../functions/_lib/review/handler";
 import { TOKENS } from "../../src/lib/tokens";
-import { deal, get, schemaErrors, snapshot, world } from "./helpers";
+import { deal, get, post, schemaErrors, snapshot, world } from "./helpers";
 
 async function open(snap: Record<string, any> | null = snapshot(), setup?: (w: Awaited<ReturnType<typeof world>>) => void) {
   const w = await world(snap);
@@ -70,6 +70,20 @@ describe("queue page", () => {
       const { doc } = await open(snap);
       expect(txt(doc.querySelector('[data-deal="7"]'))).toContain("−44% vs. mínimo habitual 104 € (21 dias)");
     }
+  });
+
+  it("reads the snapshot as is, never against the schema, so a newer snapshot's keys don't break it", async () => {
+    // Optional snapshot fields join v1 (D29's transfers, D40's baseline) only because the Function
+    // never validates the snapshot at run time: the schema before such a field refuses a snapshot
+    // that has it (additionalProperties: false), and an older Function must still serve it.
+    const snap = snapshot({ queue: [deal(7, { added_later: { days: 3 } })], added_later: true });
+    expect(schemaErrors("snapshot", snap)).not.toEqual([]);
+    const { res, doc, w } = await open(snap);
+    expect(res.status).toBe(200);
+    expect(txt(doc.querySelector('[data-deal="7"]'))).toContain("Lisboa → Londres (Gatwick)");
+    const decided = await handle(post("/review/decision", { type: "reject", deal_id: 7 }, w.token), w.env, w.deps);
+    expect(decided.status).toBe(200);
+    expect(w.store.keys("review/events/pending/")).toHaveLength(1);
   });
 
   it("offers only what the deal's status allows", async () => {

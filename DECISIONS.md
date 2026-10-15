@@ -2193,10 +2193,15 @@ so nothing has to be hosted.
 - **Review snapshot (contract v1) and both review pages:** each deal gets `baseline: {span_days,
   lowest_eur, lowest_observation_id, highest_eur, highest_observation_id}` or null.
   **Versioning:** the contract's shapes change only with a new version; this is an optional
-  field, added within v1 like D29's `transfers`, because no reader can break. The Function
-  doesn't validate the snapshot at run time (an older Function ignores the key), and a newer
-  Function reading an older snapshot (key absent) shows the days only, as for null. Events are
-  unchanged. A v2 would need a second snapshot or a lock-step deploy for no gain. New check:
+  field, added within v1 like D29's `transfers`, because no reader can break. Strictly, the deal
+  object has `additionalProperties: false`, so a new snapshot **fails the pre-D40 schema**: v1
+  can take the field only because the Function doesn't validate the snapshot at run time (an
+  older Function ignores the key) and a newer Function reading an older snapshot (key absent)
+  shows the days only, as for null. Review of M1 (2026-10-16): kept as the minimal honest option
+  (a v2 would need a second snapshot or a lock-step deploy for no gain), with the condition made
+  explicit in CLAUDE.md and held by a test (`web/test/review/page.test.ts`: a snapshot with keys
+  the schema refuses still renders and still takes a decision). A reader that validates the
+  snapshot would need a v2. Events are unchanged. New check:
   `tests/test_review_events.py::untraced_prices` traces every price of a snapshot (the deal's
   observation, its stored typical low, the recheck price backed by a stored observation, the
   baseline's two observations), and `SNAPSHOT_PRICES` fails on a new `*_eur` field in the schema
