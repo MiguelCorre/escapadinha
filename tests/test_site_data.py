@@ -479,7 +479,8 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
         monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n)
                             or SimpleNamespace(installed=False))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
-        status="ok", n_requests=1, n_observations=1, n_new=0, errors=[]))
+        status="ok", n_requests=1, n_observations=1, n_new=0, errors=[],
+        plan=SimpleNamespace(describe=lambda: "daily pass")))
     monkeypatch.setattr(cli, "_ctx", lambda: (None, None))
     monkeypatch.setattr(cli, "_site_configured", lambda ctx: True)
     monkeypatch.setattr(cli.pipeline, "mirror_local_files", lambda ctx, conn: [])

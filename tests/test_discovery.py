@@ -3,7 +3,7 @@ photos for new destinations. Every payload here is a trimmed real response (fixt
 
 import json
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -14,8 +14,10 @@ from typer.testing import CliRunner
 
 from escapadinha import cli, discovery, pipeline, routes
 from escapadinha.collector import catalogue
+from escapadinha.collector.plan import Plan
 from escapadinha.collector.travelpayouts import API_URL, RateLimiter
 from escapadinha.config import AppConfig, Context
+from escapadinha.i18n_pt import LISBON
 from escapadinha.models import Observation
 from escapadinha.photos import SEARCH_URL
 from escapadinha.storage import db
@@ -336,8 +338,9 @@ def test_dormant_after_30_days_without_prices_then_reactivated_by_discovery(dctx
     # Seeded routes no source returns this time (e.g. LIS-ROM) stay dormant.
     assert pipeline.route_for(dctx, conn, "LIS-ROM").status == "dormant"
     active = routes.active_routes(conn, dctx.config.routes)
-    summary = pipeline.run_collect(dctx, conn)
-    assert summary.n_requests == 3 * len(active)
+    day_pass = datetime.combine(later.astimezone(LISBON).date(), time(7), tzinfo=LISBON)
+    summary = pipeline.run_collect(dctx, conn, now=day_pass)   # FAO-FMM was never seen: the
+    assert summary.plan.daily and summary.n_requests == 3 * len(active)   # day's pass asks it
 
     # That run is the probe: a route that got prices stays, one without goes back to sleep.
     _observe(conn, "LIS", "LON", later + timedelta(minutes=30))
@@ -348,7 +351,7 @@ def test_dormant_after_30_days_without_prices_then_reactivated_by_discovery(dctx
 
 def test_failed_collection_puts_nothing_to_sleep(ctx):
     conn = pipeline.open_db(ctx)
-    failed = pipeline.RunSummary(1, "failed", 30, 0, 0, 0, None, ["down"])
+    failed = pipeline.RunSummary(1, "failed", 30, 0, 0, 0, None, ["down"], Plan(True, (), ()))
     assert pipeline.run_dormancy(ctx, conn, failed, db.utcnow() + timedelta(days=400)) == []
 
 

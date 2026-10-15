@@ -72,12 +72,21 @@ class Brand(BaseModel):
 class CollectorConfig(BaseModel):
     source: str = "travelpayouts"
     currency: str = "eur"
-    months_ahead: int = Field(3, ge=1, le=12)
+    months_ahead: int = Field(3, ge=1, le=12)          # departure months every run asks for
+    daily_months_ahead: int = Field(6, ge=1, le=12)    # ... and the day's pass (D42)
+    daily_pass_hour: int = Field(6, ge=0, le=23)       # Lisbon: the first run from then is the pass
     limit_per_request: int = Field(100, ge=1, le=1000)
     market: str | None = "pt"                     # Aviasales market whose searches feed the cache
     booking_base: str = "https://www.aviasales.pt"  # booking site linked from posts (EUR, EU formats)
     requests_per_minute: int = Field(550, ge=1)   # client-side cap; the API allows 600/min
     workers: int = Field(8, ge=1, le=32)          # concurrent requests (same per-minute cap)
+
+    @model_validator(mode="after")
+    def _daily_pass_asks_more(self):
+        if self.daily_months_ahead < self.months_ahead:
+            raise ValueError("collector.daily_months_ahead must be >= collector.months_ahead "
+                             "(the day's pass asks every run's months and the farther ones)")
+        return self
 
 
 class DetectorConfig(BaseModel):

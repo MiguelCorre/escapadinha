@@ -21,7 +21,7 @@ row, its first run and the archive object: price → deal → observation → ru
 ```
 Travelpayouts catalogues ──routes discover──▶ routes table (monthly; dormant after 30 days without prices)
                                                    │ active routes
-Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 2 h)
+Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 2 h; months 4–6 once a day, D42)
                        └──────▶ data/objects/archive/runs/<run>.json.gz (raw responses)
                                    │
                                recheck  open deals: same trip still ≤ price, fresh, direct?
@@ -38,7 +38,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 
 | Module | Role |
 |---|---|
-| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited; asked with the route's rules, `direct=true` on nonstop-only routes), `runner.collect` (route × month loop), `catalogue.py` (discovery downloads) |
+| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited; asked with the route's rules, `direct=true` on nonstop-only routes), `plan.py` (pure: which route-months a run asks for, the day's pass, D42), `runner.collect` (runs a plan), `catalogue.py` (discovery downloads) |
 | `discovery.py` | Pure: catalogues + supplements → direct routes with kind and pt-PT name |
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups); `mirror.py` (photos and rendered slides in the store) |
@@ -84,7 +84,7 @@ traffic rules that **Instagram/social media** traffic is allowed before posting.
 uv run escapadinha routes discover         # find direct routes from the 6 airports (+ photos for new destinations)
 uv run escapadinha routes discover --dry-run --no-photos   # show what would change, store nothing
 uv run escapadinha routes list             # every route + active/dormant counts per origin (pt-PT)
-uv run escapadinha collect                 # active routes × 3 departure months (~1080 calls at 360 routes)
+uv run escapadinha collect                 # routes with prices × 3 departure months; the day's first run from 06:00 Lisbon: every active route × 6 (D42)
 uv run escapadinha recheck                 # re-verifies open deals against the latest run
 uv run escapadinha detect                  # latest run: low prices + promotion candidates per route
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
@@ -124,19 +124,44 @@ catalogue names (e.g. `HAM: Hamburgo`; the catalogue says "Finkenwerder").
 **Dormancy:** after each collection that didn't fail completely, an active route with no price
 seen for `dormant_after_days` (30; counted from its newest sighting, or from `discovered_at` if
 it never had one) becomes `adormecida` and is not collected. The next discovery that finds it
-again reactivates it; the following collection is its probe: with prices it stays, without it
-goes back to sleep. Nothing is deleted. Excluded routes are left alone.
+again reactivates it; the following collection that asks for it is its probe (for a route that
+never had a price, the next daily pass: a run that didn't ask for a route never puts it to
+sleep): with prices it stays, without it goes back to sleep. Nothing is deleted. Excluded routes
+are left alone.
 
 **Photos:** every destination of an active route gets a Pixabay photo automatically (query:
 `photos.queries` override, else the English city name), at most `photos.max_per_run` (40) per
 discovery or run, so ~160 destinations take four runs. Failures are retried next time.
 
-**Budget:** a run makes one request per active route and departure month. On 2026-10-13 that
-was 360 routes × 3 = 1080 requests in 5 min 40 s one at a time (≈190/min, latency-bound); with
+### What a run collects: the day's pass (DECISIONS D42)
+Every run asks the routes that have returned a price for the next 3 departure months
+(`collector.months_ahead`). Once a Lisbon day, the first run at or after 06:00 Lisbon
+(`collector.daily_pass_hour`; the very first run too, when no pass was ever recorded) is **the
+day's pass**: it asks every active route for 6 months (`collector.daily_months_ahead`):
+- **months 4–6** build typical lows months before departure (Christmas, Carnaval, Easter), so a
+  month enters the 3-month window with 30–45 days of history instead of ~7. The cache keeps a
+  found day for about 7 days, so once a day misses little;
+- **routes that never returned a price** (no `last_observed_at`; 121 of 360 on 2026-10-15) are
+  asked only by the pass, until their first price; then every run asks them.
+
+The far month of an open promotion is asked on every run, so its recheck never waits for the pass.
+The site shows each route-month's newest prices: for months 4–6, those of the latest pass (or
+newer), so a run between two passes changes nothing on the site. The pass is kept in the `meta`
+table (`collector.daily_pass`: Lisbon day and run id); a pass where every request failed doesn't
+count, and the next run tries again. `collect` and the Actions summary say which pass ran:
+`daily pass: months 1–6 of 360 routes · 2160 requests` or `regular pass: months 1–3 of 239
+routes; 121 never-seen routes wait for the daily pass · 717 requests`.
+
+**Budget:** one request per asked route and departure month. On 2026-10-13 a run was 360
+routes × 3 = 1080 requests in 5 min 40 s one at a time (≈190/min, latency-bound); with
 `collector.workers: 8` in flight they take ~2 min, bound by the limit. The source allows 600/min;
 `collector.requests_per_minute: 550` caps it client-side and a 429 still waits and retries.
-At 12 runs/day that's ~13k requests/day and ~38 billed runner-minutes/day (GitHub rounds each job
-up to the minute), ≈ 1150 min/month of the 2000 free ones (D41; see *Minutes used* below).
+Per day at 12 runs (D42): before the daily pass 360 × 3 × 12 = 12,960 requests; with it, one pass
+of 360 × 6 = 2,160 and 11 runs of 239 × 3 = 717: 10,047. It saves requests from 4 runs a day up
+(GitHub's cron gives about 5: 5,400 → 5,028). Once the never-seen routes are dormant the far
+months cost about 717 requests a day of their own.
+Billed runner time is ~38 min/day (GitHub rounds each job up to the minute), ≈ 1150
+min/month of the 2000 free ones (D41; see *Minutes used* below).
 
 Output for review lives in `output/<YYYY-MM-DD>/`:
 - `deal-<ORIG>-<DEST>-<id>/slide_01.png … slide_03.png`: cover, details, CTA + disclosure
@@ -151,7 +176,9 @@ offers). An offer is identified by source, route, departure/return timestamps, a
 number, price and found date. A repeat updates `last_seen_at`, `last_run_id` and `seen_count`
 (once per run); `run_id` and `fetched_at` keep the first sighting. `collect` prints new vs.
 repeated offers, `stats` the seen counts. "The prices of the latest run" are the offers whose
-`last_run_id` is that run or later (a live check counts as a sighting).
+`last_run_id` is that run or later (a live check counts as a sighting). The site reads each
+route-month's newest prices: the latest run's, and for the months only the day's pass asks for,
+the latest pass's or later (`pipeline.latest_offers`, D42).
 
 Raw responses leave the database: each run (including live checks) writes
 `archive/runs/<run id>.json.gz` through the `ObjectStore` interface (`storage/objects.py`:
@@ -183,8 +210,9 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
     see "Routes are discovered".
   - `seed`: the 10 original routes (city codes like `LON`, `PAR` work), inserted once into an
     empty table. Changing it later has no effect; discovery adds the rest.
-- `collector`: `months_ahead` (3 = this month + 2), currency, `requests_per_minute` (550).
-  Nights come from each route's rules.
+- `collector`: `months_ahead` (3 = this month + 2, every run), `daily_months_ahead` (6, the
+  day's pass) and `daily_pass_hour` (6, Lisbon: the day's first run from then is the pass; D42),
+  currency, `requests_per_minute` (550). Nights come from each route's rules.
 - `photos`: `queries` (Pixabay search per destination code) and `max_per_run` (40).
 - `posting` (D32): `instagram_slots` (Lisbon time, default `09:00`, `13:00`, `19:00`),
   `max_per_day` (3 Instagram posts per Lisbon day), `max_check_age_hours` (6: a due post waits
@@ -1039,7 +1067,8 @@ no `schedule`. Every routine run is a `workflow_dispatch` with `full: false`:
 **Minutes used.** A private repo on GitHub Free gets 2000 Linux minutes a month (public repos are
 not metered), and **GitHub rounds each job up to the whole minute**. Measured on 10-13..15: a
 pipeline run takes 1.7–3.4 min of wall time and bills 2–4 minutes (one took 6.2 and billed 7),
-3.2 on average. So
+3.2 on average (the day's pass a few minutes longer, the other runs about a third
+shorter, D42). So
 12 runs a day ≈ **1150 min/month**, plus review-triggered runs, the fallback's checks (≤ 4 a day,
 1 min each) and the daily crawl while it lasts; the Web CI on pull requests bills 7–10 min a run.
 That fits only while Web CI stays under ~600 a month. Out of minutes, GitHub stops Actions in a

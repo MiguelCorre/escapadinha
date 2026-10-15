@@ -164,7 +164,8 @@ def test_a_failing_route_never_fails_the_run_and_the_summary_says_so(home, monke
     assert "LIS-LON" in out and "boom" in out
     text = summary.read_text("utf-8")
     assert text.startswith("### Escapadinha run: ok")
-    assert "- Collection: partial, 30 requests, 0 offers (0 new), 6 failed" in text   # LIS- and OPO-LON
+    assert ("- Collection: partial, daily pass: months 1–3 of 10 routes, 30 requests, 0 offers "
+            "(0 new), 6 failed") in text                  # LIS- and OPO-LON; which pass (D42)
     assert "- Path: full (first full path)" in text and "- Duration: " in text
 
 

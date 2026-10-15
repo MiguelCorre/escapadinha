@@ -111,15 +111,26 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   callable). Test the upgrade from real old schemas (`tests/fixtures/schema_v5.sql`, `schema_v7.sql`).
   Pipeline bookkeeping (e.g. last discovery time) goes in the `meta` key/value table.
 - Observations are deduplicated (`dedup_key`); never assume one row per run. Use
-  `observations_seen_since(run_id)` for a run's prices. Raw payloads live only in the run archive
+  `observations_seen_since(run_id)` for a run's prices (detection, recheck) and
+  `pipeline.latest_offers` for the newest prices of every route-month (the site export: months
+  4–6 come from the latest daily pass, D42). Raw payloads live only in the run archive
   (`archive.py` via `ObjectStore`), never in the hot table.
+- What a collection run asks for (D42) is decided only by `collector/plan.py` (pure:
+  `daily_pass_due` with `now` passed in and Lisbon days, `plan` → `Plan`); `runner.collect` runs
+  a `Plan`. The day's pass (first run at or after `collector.daily_pass_hour` each Lisbon day,
+  meta `collector.daily_pass`, recorded by `pipeline.run_collect` unless every request failed)
+  asks every active route for `daily_months_ahead` months; other runs ask only routes with a
+  `last_observed_at` for `months_ahead` months, plus the far month of every open promotion (the
+  recheck judges every open deal on every run). Dormancy never judges a route the run didn't ask
+  for (`mark_dormant(spare=)`).
 - Objects go through `ctx.object_store` (R2 when the `R2_*` keys are set, else `data/objects/`);
   never write the bucket or `data/objects/` directly. Every `ObjectStore` implementation passes
   `tests/test_objects.py` (S3 runs on moto, no network). The database file is only uploaded via
   `storage/sync.py` (backup-API snapshot under the run lock), never the live file (D21).
 - CI keeps no files between runs (D21, D25). Anything a run needs from an earlier run lives in the
   database (`meta`: `site.paths` (+ `site.paths.pending` between build and deploy), `site.links`,
-  `site.deployed`, `site.link_budget`, `site.article_links`, the run-path fingerprint) or goes
+  `site.deployed`, `site.link_budget`, `site.article_links`, the run-path fingerprint,
+  `collector.daily_pass`) or goes
   through a `storage.mirror.Mirror` (`pipeline.photo_files` / `output_files`): upload when made,
   `file`/`folder` to read (downloads when missing). Never read `output/` or `assets/photos/`
   directly; use `pipeline.deal_folder` / `guide_folder` (pass `files=` the glob you read, e.g.
@@ -136,7 +147,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `redact`. The Worker stays plain JS without npm packages or a URL, deployed by hand with the
   pinned wrangler (the pipeline's Cloudflare token is Pages-only).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
-  collection > 3 h ago) → upkeep → collect → recheck →
+  collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → recheck →
   detect → `publish_due` (D32, every run: posting never waits for a full path) →
   `run_path.decide` → full path only, its Node commands inside one deadline
   (`node.deadline()`, D35) (render → `export site-data` (D27, → `web/src/data`; keep the
@@ -253,7 +264,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Update README.md, CLAUDE.md and DECISIONS.md in the same commit as a feature.
 
 ## Layout
-- `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `runner.collect`, `catalogue.py`
+- `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `plan.py` (the day's pass,
+  D42), `runner.collect` (runs a `Plan`), `catalogue.py`
 - `src/escapadinha/discovery.py`: pure `Catalogue.from_payloads` + `discover` → `Found` routes with kind
 - `src/escapadinha/routes.py`: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`,
   `all_routes`/`active_routes`/`get_route`
