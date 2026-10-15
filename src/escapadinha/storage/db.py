@@ -11,7 +11,7 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo, Post
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -111,6 +111,8 @@ MIGRATIONS = {
          "ALTER TABLE posting_queue ADD COLUMN story_attempts INTEGER NOT NULL DEFAULT 0",
          "ALTER TABLE posting_queue ADD COLUMN story_note TEXT",
          "ALTER TABLE posting_queue ADD COLUMN caption TEXT"],
+    # Telegram publisher (D38): the channel message's id (its link is `result_url`).
+    12: ["ALTER TABLE posting_queue ADD COLUMN message_id TEXT"],
 }
 
 
@@ -514,7 +516,7 @@ def _row_to_post(row: sqlite3.Row) -> Post:
         media_id=row["media_id"], story_status=row["story_status"],
         story_container_id=row["story_container_id"], story_media_id=row["story_media_id"],
         story_attempts=row["story_attempts"], story_note=row["story_note"],
-        caption=row["caption"])
+        caption=row["caption"], message_id=row["message_id"])
 
 
 def posts(conn: sqlite3.Connection, *statuses: str) -> list[Post]:
@@ -546,6 +548,23 @@ def settle_post(conn: sqlite3.Connection, post_id: int, status: str, *, at: date
     conn.commit()
 
 
+def deal_posts(conn: sqlite3.Connection, deal_id: int) -> list[Post]:
+    """A promotion's queue rows, one per channel."""
+    rows = conn.execute("SELECT * FROM posting_queue WHERE deal_id = ? ORDER BY due_at, id",
+                        (deal_id,))
+    return [_row_to_post(r) for r in rows]
+
+
+def requeue_post(conn: sqlite3.Connection, post_id: int, *, why: str) -> None:
+    """A cancelled post queued again (Miguel's `queue retry`, D38): as if new, attempts reset,
+    `why` in last_error; its due time stays, so it is due at once."""
+    conn.execute("""UPDATE posting_queue SET status = 'queued', settled_at = NULL,
+                    publisher = NULL, result_url = NULL, reason = NULL, attempts = 0,
+                    last_error = ?, message_id = NULL WHERE id = ? AND status = 'cancelled'""",
+                 (why, post_id))
+    conn.commit()
+
+
 def post_waits(conn: sqlite3.Connection, post_id: int, why: str, *, failed: bool) -> int:
     """A queued post stays queued: `why` it waits; a publisher error (`failed`) also counts an
     attempt. Returns the attempts so far."""
@@ -556,10 +575,10 @@ def post_waits(conn: sqlite3.Connection, post_id: int, why: str, *, failed: bool
                         (post_id,)).fetchone()["attempts"]
 
 
-# What a publisher records while it works (Instagram, D36): set as soon as known and committed
-# at once, so a retry after a crash or a timeout resumes instead of posting twice.
+# What a publisher records while it works (Instagram D36, Telegram D38): set as soon as known
+# and committed at once, so a retry after a crash or a timeout resumes instead of posting twice.
 POST_PROGRESS = ("container_id", "media_id", "story_status", "story_container_id",
-                 "story_media_id", "story_note", "caption")
+                 "story_media_id", "story_note", "caption", "message_id")
 
 
 def save_post_progress(conn: sqlite3.Connection, post_id: int, **fields: str | None) -> None:

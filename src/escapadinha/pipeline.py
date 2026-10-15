@@ -12,7 +12,8 @@ from pathlib import Path, PureWindowsPath
 
 import httpx
 
-from escapadinha import archive, detector, discovery, i18n_pt, posting, review_events, routes
+from escapadinha import (archive, detector, discovery, i18n_pt, instagram, posting, review_events,
+                         routes, telegram)
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.articles import Article
 from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
@@ -519,45 +520,129 @@ def _message(ctx: Context, conn: sqlite3.Connection, post: Post, deal: Deal,
                            view.price, text, deal.affiliate_url)
 
 
+@dataclass(frozen=True)
+class PublisherSetup:
+    """What a publisher factory gets (`PUBLISHERS`): one run's context, database, HTTP client,
+    clock, log and sleeper."""
+
+    ctx: Context
+    conn: sqlite3.Connection
+    http: httpx.Client
+    now: datetime
+    log: Callable[[str], None]
+    sleep: Callable[[float], None]
+
+
+def _site_images(setup: PublisherSetup) -> dict:
+    """The promotion's public JPEGs and their HEAD check, as both real publishers take them."""
+    from escapadinha.website import image_problem, public_jpeg_urls   # imports this module
+    return {"image_urls": lambda deal: public_jpeg_urls(setup.ctx, deal),
+            "check_image": lambda url: image_problem(setup.http, url),
+            "save": lambda post_id, **fields: db.save_post_progress(setup.conn, post_id, **fields)}
+
+
+def _instagram_publisher(s: PublisherSetup) -> posting.Publisher:
+    """Instagram (D36): needs both INSTAGRAM_* secrets and a usable token (refreshed here when
+    due, every run, so a quiet week never lets it expire); else `Paused`."""
+    secrets, api = s.ctx.secrets, s.ctx.config.instagram
+    if not secrets.instagram_configured:
+        return instagram.Paused("À espera do token: faltam INSTAGRAM_ACCESS_TOKEN e/ou "
+                                f"INSTAGRAM_ACCOUNT_ID (.env ou secrets do GitHub, "
+                                f"{instagram.RUNBOOK}).")
+    try:
+        token, problem = instagram.ensure_token(
+            secrets.instagram_access_token.strip(), api, conn=s.conn, store=s.ctx.object_store,
+            http=s.http, now=s.now, log=s.log)
+    except Exception as exc:                # e.g. the store unreachable: never stops the run
+        token, problem = None, (f"Não foi possível ler ou guardar o token do Instagram "
+                                f"({type(exc).__name__}); as publicações esperam.")
+    if token is None:
+        s.log(f"Instagram: {problem}")
+        return instagram.Paused(problem)
+    return instagram.InstagramPublisher(
+        instagram.Graph(s.http, api, token), secrets.instagram_account_id.strip(),
+        **_site_images(s), now=s.now, images_wait=timedelta(hours=api.images_wait_hours),
+        sleep=s.sleep, log=s.log, token_state=lambda problem: instagram.token_state(s.conn, problem))
+
+
+def _telegram_publisher(s: PublisherSetup) -> posting.Publisher:
+    """Telegram (D38): needs both TELEGRAM_* secrets, the channel an @handle or a numeric id;
+    else `Paused` (posts wait, the run goes on)."""
+    secrets = s.ctx.secrets
+    if not secrets.telegram_configured:
+        return posting.Paused("telegram", "À espera do bot: faltam TELEGRAM_BOT_TOKEN e/ou "
+                                          "TELEGRAM_CHANNEL (.env ou secrets do GitHub, "
+                                          f"{telegram.RUNBOOK}).")
+    malformed = telegram.channel_problem(secrets.telegram_channel)
+    if malformed:
+        s.log(f"Telegram: {malformed}")
+        return posting.Paused("telegram", malformed)
+    return telegram.TelegramPublisher(
+        telegram.BotApi(s.http, secrets.telegram_bot_token.strip()),
+        secrets.telegram_channel.strip(),
+        store=s.ctx.object_store, **_site_images(s), now=s.now,
+        images_wait=timedelta(hours=s.ctx.config.telegram.images_wait_hours), log=s.log,
+        problem=lambda reason: telegram.problem_state(s.conn, reason))
+
+
+@dataclass(frozen=True)
+class PublisherKind:
+    """One publisher name of `posting.publishers` (config's `PublisherName`): how a run builds
+    it, and what `queue list` says about it (pt-PT notices: a token, a channel, a send to
+    confirm)."""
+
+    build: Callable[[PublisherSetup], posting.Publisher]
+    notices: Callable[[Context, sqlite3.Connection], list[str]] = lambda ctx, conn: []
+
+
+# The one place a publisher is registered (a test checks config's `PublisherName` against it).
+PUBLISHERS: dict[str, PublisherKind] = {
+    "dry-run": PublisherKind(lambda s: posting.DryRunPublisher(s.log)),
+    "instagram": PublisherKind(_instagram_publisher,
+                               lambda ctx, conn: instagram.notices(conn)),
+    "telegram": PublisherKind(_telegram_publisher,
+                              lambda ctx, conn: telegram.notices(
+                                  conn, ctx.object_store, ctx.secrets.telegram_channel)),
+}
+
+
 def publishers_for(ctx: Context, conn: sqlite3.Connection, http: httpx.Client, *,
                    now: datetime, log: Callable[[str], None],
                    sleep: Callable[[float], None]) -> dict[str, posting.Publisher]:
-    """channel -> publisher, from `posting.publishers` in config. `instagram` needs both
-    INSTAGRAM_* secrets and a usable token (refreshed here when due, every run, so a quiet week
-    never lets it expire); without them the channel is `Paused`: its due posts wait, never
-    settled by a dry run, so no slot is lost (D36)."""
-    from escapadinha import instagram
-    from escapadinha.website import public_jpeg_urls      # imports this module
-    out: dict[str, posting.Publisher] = {}
-    for channel, name in ctx.config.posting.publishers.items():
-        if name != "instagram":
-            out[channel] = posting.DryRunPublisher(log)
-            continue
-        secrets, api = ctx.secrets, ctx.config.instagram
-        if not secrets.instagram_configured:
-            out[channel] = instagram.Paused(
-                "À espera do token: faltam INSTAGRAM_ACCESS_TOKEN e/ou INSTAGRAM_ACCOUNT_ID "
-                f"(.env ou secrets do GitHub, {instagram.RUNBOOK}).")
-            continue
-        try:
-            token, problem = instagram.ensure_token(
-                secrets.instagram_access_token.strip(), api, conn=conn, store=ctx.object_store,
-                http=http, now=now, log=log)
-        except Exception as exc:                # e.g. the store unreachable: never stops the run
-            token, problem = None, (f"Não foi possível ler ou guardar o token do Instagram "
-                                    f"({type(exc).__name__}); as publicações esperam.")
-        if token is None:
-            log(f"Instagram: {problem}")
-            out[channel] = instagram.Paused(problem)
-            continue
-        out[channel] = instagram.InstagramPublisher(
-            instagram.Graph(http, api, token), secrets.instagram_account_id.strip(),
-            image_urls=lambda deal: public_jpeg_urls(ctx, deal),
-            check_image=lambda url: instagram.image_problem(http, url),
-            save=lambda post_id, **fields: db.save_post_progress(conn, post_id, **fields),
-            now=now, images_wait=timedelta(hours=api.images_wait_hours), sleep=sleep, log=log,
-            token_state=lambda problem: instagram.token_state(conn, problem))
-    return out
+    """channel -> publisher, from `posting.publishers` in config, built by `PUBLISHERS`. A real
+    publisher without its secrets (or token) is paused: its due posts wait, never settled by a
+    dry run, so no post is lost (D36, D38)."""
+    setup = PublisherSetup(ctx, conn, http, now, log, sleep)
+    return {channel: PUBLISHERS[name].build(setup)
+            for channel, name in ctx.config.posting.publishers.items()}
+
+
+def publisher_notices(ctx: Context, conn: sqlite3.Connection) -> list[str]:
+    """What `queue list` says about the configured publishers (pt-PT)."""
+    names = dict.fromkeys(ctx.config.posting.publishers.values())
+    return [notice for name in names for notice in PUBLISHERS[name].notices(ctx, conn)]
+
+
+def retry_post(ctx: Context, conn: sqlite3.Connection, deal_id: int, channel: str, *,
+               now: datetime | None = None) -> str:
+    """`escapadinha queue retry`: Miguel checked the channel after a send whose answer was lost
+    (D38) and the message isn't there: put the cancelled post back in the queue. Written to the
+    object store; without R2 applied at once, with R2 by the next run (which owns the database).
+    Raises `telegram.RetryRefused` (pt-PT) when there is nothing to put back."""
+    now = now or db.utcnow()
+    if channel != "telegram":
+        raise telegram.RetryRefused("Só as publicações do Telegram voltam à fila assim (o "
+                                    "Instagram encontra sozinho um post perdido).")
+    deal, _ = db.get_deal(conn, deal_id)
+    if deal.status not in WHATSAPP_STATUSES:
+        raise telegram.RetryRefused(f"deal {deal_id}: a promoção já não está aprovada "
+                                    f"({STATUS_PT[deal.status]}): não volta à fila.")
+    telegram.request_retry(ctx.object_store, deal, now=now)
+    if ctx.remote_store:
+        return (f"deal {deal_id}: pedido registado; a próxima execução põe a publicação do "
+                "Telegram de novo na fila.")
+    telegram.apply_retries(conn, ctx.object_store, log=lambda line: None)
+    return f"deal {deal_id}: a publicação do Telegram voltou à fila e sai na próxima execução."
 
 
 def _run_stories(ctx: Context, conn: sqlite3.Connection, publishers: dict[str, posting.Publisher],
@@ -611,9 +696,14 @@ def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
     post per run, so a backlog never goes out in a burst. A publisher error leaves the post
     queued; `posting.max_attempts` errors cancel it; a `PublishWait` (images not deployed yet,
     API limit, token, no secrets) waits without counting one. A real Instagram post writes a
-    `published` decision and leaves its story pending, posted right after (`_run_stories`, D36)."""
+    `published` decision and leaves its story pending, posted right after (`_run_stories`, D36);
+    a Telegram message (D38) only settles its row (message link in `result_url`)."""
     now = now or db.utcnow()
     cfg = ctx.config.posting
+    try:                              # Miguel's `queue retry` requests (D38) first
+        telegram.apply_retries(conn, ctx.object_store, log=log)
+    except Exception as exc:          # the store unreachable: never stops the run
+        log(f"Telegram: os pedidos de `queue retry` não foram lidos ({type(exc).__name__}).")
     with httpx.Client(timeout=30) as http:
         publishers = publishers or publishers_for(ctx, conn, http, now=now, log=log, sleep=sleep)
         max_check_age = timedelta(hours=cfg.max_check_age_hours)

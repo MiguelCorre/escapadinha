@@ -40,7 +40,8 @@ def ctx(tmp_path, monkeypatch):
     shutil.copytree(REPO / "content", tmp_path / "content")
     monkeypatch.setenv("TRAVELPAYOUTS_TOKEN", "test-token")
     monkeypatch.setenv("TRAVELPAYOUTS_MARKER", "424242")
-    for name in ("INSTAGRAM_ACCESS_TOKEN", "INSTAGRAM_ACCOUNT_ID"):   # dry run unless a test sets them
+    for name in ("INSTAGRAM_ACCESS_TOKEN", "INSTAGRAM_ACCOUNT_ID",    # publishers wait unless
+                 "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHANNEL"):           # a test sets them
         monkeypatch.delenv(name, raising=False)
     return Context(root=tmp_path)
 

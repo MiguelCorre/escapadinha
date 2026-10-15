@@ -40,10 +40,17 @@ class Secrets(BaseSettings):
     # Instagram publisher (D36), optional: without both, due Instagram posts wait.
     instagram_access_token: str = ""  # long-lived token (Instagram Login), docs/runbooks/instagram.md
     instagram_account_id: str = ""    # the professional account's Instagram user id
+    # Telegram publisher (D38), optional: without both, due Telegram posts wait.
+    telegram_bot_token: str = ""      # from @BotFather, docs/runbooks/telegram.md
+    telegram_channel: str = ""        # the public channel's @handle (checked by the publisher)
 
     @property
     def instagram_configured(self) -> bool:
         return bool(self.instagram_access_token.strip() and self.instagram_account_id.strip())
+
+    @property
+    def telegram_configured(self) -> bool:
+        return bool(self.telegram_bot_token.strip() and self.telegram_channel.strip())
 
     @property
     def r2_configured(self) -> bool:
@@ -408,7 +415,7 @@ class ReviewConfig(BaseModel):
     approve_max_age_hours: float = Field(24, gt=0)
 
 
-PublisherName = Literal["dry-run", "instagram"]
+PublisherName = Literal["dry-run", "instagram", "telegram"]
 
 
 # The Graph API host per login flow (D36): the only place it is written.
@@ -438,6 +445,17 @@ class InstagramConfig(BaseModel):
         return self.login == "instagram"
 
 
+# The Telegram Bot API host (D38): the only place it is written.
+TELEGRAM_API = "https://api.telegram.org"
+
+
+class TelegramConfig(BaseModel):
+    """The Telegram publisher (D38). `images_wait_hours`: how long after it was due a post may
+    wait for its cover JPEG to be live on the site before each further wait counts as a failed
+    attempt (as Instagram's, D36)."""
+    images_wait_hours: float = Field(24, gt=0)
+
+
 class PostingConfig(BaseModel):
     """Posting queue (D32): when approved promotions go out, and through which publisher."""
     # Instagram daily slots, Lisbon time ("HH:MM"), and the most posts a Lisbon day gets.
@@ -448,7 +466,8 @@ class PostingConfig(BaseModel):
     max_check_age_hours: float = Field(6, gt=0)
     max_attempts: int = Field(5, ge=1)       # a publisher error this often cancels the post
     # channel (posting.CHANNELS) -> publisher; a channel left out gets the dry run. `instagram`
-    # (instagram channel only) makes due posts wait while the INSTAGRAM_* secrets are unset.
+    # and `telegram` (each on its own channel only) make due posts wait while their secrets
+    # (INSTAGRAM_*, TELEGRAM_*) are unset.
     publishers: dict[str, PublisherName] = {channel: "dry-run" for channel in POST_CHANNELS}
 
     @field_validator("instagram_slots")
@@ -472,10 +491,10 @@ class PostingConfig(BaseModel):
         if unknown:
             raise ValueError(f"posting.publishers: unknown channel(s) {unknown}, "
                              f"use {list(POST_CHANNELS)}")
-        wrong = sorted(c for c, name in v.items() if name == "instagram" and c != "instagram")
-        if wrong:
-            raise ValueError(f"posting.publishers: the instagram publisher only posts to the "
-                             f"instagram channel, not {wrong}")
+        for channel, name in sorted(v.items()):
+            if name != "dry-run" and name != channel:
+                raise ValueError(f"posting.publishers: the {name} publisher only posts to the "
+                                 f"{name} channel, not {channel!r}")
         return {**{channel: "dry-run" for channel in POST_CHANNELS}, **v}
 
     @property
@@ -488,6 +507,7 @@ class AppConfig(BaseModel):
     review: ReviewConfig = ReviewConfig()
     posting: PostingConfig = PostingConfig()
     instagram: InstagramConfig = InstagramConfig()
+    telegram: TelegramConfig = TelegramConfig()
     collector: CollectorConfig = CollectorConfig()
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()

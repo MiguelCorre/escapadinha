@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 import yaml
 from jinja2 import Environment, PackageLoader
 from PIL import Image
@@ -148,8 +149,22 @@ def deal_jpeg_paths(ctx: Context, deal: Deal) -> list[str]:
 
 
 def public_jpeg_urls(ctx: Context, deal: Deal) -> list[str]:
-    """`deal_jpeg_paths` on the live site (`site.base_url`): what Meta fetches (D36)."""
+    """`deal_jpeg_paths` on the live site (`site.base_url`): what Meta and Telegram fetch
+    (D36, D38)."""
     return [f"{ctx.config.site.base_url}{path}" for path in deal_jpeg_paths(ctx, deal)]
+
+
+def image_problem(http: httpx.Client, url: str) -> str | None:
+    """None when `url` is live for a publisher that fetches it (Meta, Telegram): a HEAD
+    answers 200, following redirects but only over https; else what is wrong ('404',
+    'redirecionado para http://…', 'sem resposta')."""
+    try:
+        response = http.head(url, follow_redirects=True)
+    except httpx.HTTPError:
+        return "sem resposta"
+    if response.url.scheme != "https":
+        return f"redirecionado para {response.url}"
+    return None if response.status_code == 200 else str(response.status_code)
 
 
 @dataclass

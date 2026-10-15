@@ -10,6 +10,7 @@ from datetime import datetime, time, timezone
 
 import pytest
 import respx
+import yaml
 
 from escapadinha import pipeline, posting
 from escapadinha.presentation import DISCLOSURE
@@ -24,11 +25,17 @@ SLOTS = [time(9), time(13), time(19)]
 
 @pytest.fixture(autouse=True)
 def dry_run_channels(request):
-    """D32's queue rules are tested with both channels on the dry-run publisher (config.yaml
-    has `instagram: instagram`, which waits without its secrets, D36: test_instagram.py)."""
+    """D32's queue rules are tested with both channels on the dry-run publisher, in this
+    context and in the CLI's (config.yaml has `instagram: instagram` and `telegram: telegram`,
+    which wait without their secrets: test_instagram.py, test_telegram.py)."""
     if "ctx" in request.fixturenames:
         ctx = request.getfixturevalue("ctx")
-        ctx.config.posting.publishers = {channel: "dry-run" for channel in posting.CHANNELS}
+        dry = {channel: "dry-run" for channel in posting.CHANNELS}
+        ctx.config.posting.publishers = dry
+        path = ctx.root / "config.yaml"
+        config = yaml.safe_load(path.read_text("utf-8"))
+        config["posting"]["publishers"] = dry
+        path.write_text(yaml.safe_dump(config, allow_unicode=True), "utf-8")
 
 
 def utc(*args) -> datetime:
@@ -132,16 +139,17 @@ def test_upgrade_from_real_old_schemas_adds_the_posting_queue(ctx, fixture, vers
     old.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 11
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 12
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     assert _queue_shape(conn) == _queue_shape(fresh)
     assert ("ix_posting_due", 0) in _queue_shape(conn)[1]
     columns = [c[0] for c in _queue_shape(conn)[0]]
     assert "checked_at" in columns
-    # v11 (D36): the Instagram publisher's progress per row.
-    assert columns[-8:] == ["container_id", "media_id", "story_status", "story_container_id",
-                            "story_media_id", "story_attempts", "story_note", "caption"]
+    # v11 (D36): the Instagram publisher's progress per row; v12 (D38): the Telegram message.
+    assert columns[-9:] == ["container_id", "media_id", "story_status", "story_container_id",
+                            "story_media_id", "story_attempts", "story_note", "caption",
+                            "message_id"]
     for c in (conn, fresh):
         c.execute("PRAGMA foreign_keys = OFF")          # only the channel CHECK can refuse it
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
@@ -176,6 +184,32 @@ def test_upgrade_from_v10_keeps_queued_posts_and_adds_the_progress_columns(ctx):
     [post] = db.posts(conn)
     assert (post.status, post.attempts, post.media_id, post.story_status, post.story_attempts) \
         == ("queued", 2, None, None, 0)
+
+
+def test_upgrade_from_v11_keeps_posts_and_adds_the_telegram_message_id(ctx):
+    """The real database is v11 (D36): its rows survive migration 12 with no message id."""
+    import sqlite3
+    from pathlib import Path
+    ctx.db_path.parent.mkdir(parents=True, exist_ok=True)
+    old = sqlite3.connect(ctx.db_path)
+    old.executescript((Path(__file__).parent / "fixtures" / "schema_v7.sql").read_text("utf-8"))
+    old.execute("PRAGMA user_version = 7")
+    old.commit()
+    old.close()
+    conn = db.connect(ctx.db_path)
+    for version in (8, 9, 10, 11):                      # what a v11 database went through
+        for step in db.MIGRATIONS[version]:
+            conn.execute(step)
+    conn.execute("PRAGMA user_version = 11")
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("INSERT INTO posting_queue (deal_id, channel, due_at, created_at, status, "
+                 "publisher, media_id) VALUES (1, 'instagram', '2026-12-01T09:00:00+00:00', "
+                 "'2026-12-01T07:00:00+00:00', 'published', 'instagram', '1789')")
+    conn.commit()
+    db.init(conn)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
+    [post] = db.posts(conn)
+    assert (post.status, post.media_id, post.message_id) == ("published", "1789", None)
 
 
 def test_the_channel_check_in_sql_is_posting_channels():

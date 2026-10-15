@@ -30,7 +30,7 @@ from escapadinha.storage.objects import LockHeld
 from escapadinha.storage.s3 import STORE_ERRORS
 
 app =typer.Typer(help="Travel deals from Portugal: collect → detect → render → post (Instagram "
-                       "via the Graph API once its secrets are set; Telegram a dry run).",
+                       "via the Graph API, Telegram via the Bot API, once their secrets are set).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
@@ -306,6 +306,7 @@ def deal_check(deal_id: int) -> None:
     recheck expires a deal whose price moved)."""
     ctx, conn = _ctx()
     _print_check(*pipeline.live_check(ctx, conn, deal_id))
+    _print_posts(conn, deal_id)
 
 
 def _print_decision(ctx, conn, decision: pipeline.ReviewResult) -> None:
@@ -686,13 +687,47 @@ def export_review_snapshot() -> None:
                   f"aprovados, {len(snap['pending_events'])} decisões pendentes.")
 
 
+def _post_state(post) -> str:
+    """A queue row in pt-PT: status, publisher, why it waits or was cancelled, the story, the
+    post's link."""
+    state = posting.STATUS_PT_POST[post.status]
+    if post.publisher:
+        state += f" ({post.publisher})"
+    if post.status == "cancelled":
+        state += f": {post.reason}"
+    elif post.status == "queued" and post.last_error:
+        state += f": {post.last_error}"
+    if post.story_status:                    # Instagram (D36): the story after the carousel
+        story = {"pending": "por publicar", "published": "publicada",
+                 "skipped": "não sai"}[post.story_status]
+        state += f" · story {story}" + (f": {post.story_note}" if post.story_note
+                                        and post.story_status != "published" else "")
+    if post.result_url:
+        state += f" · {post.result_url}"
+    return state
+
+
+def _other_links(conn, post) -> str:
+    """The links of the promotion's posts already out on its other channels."""
+    return "".join(f" · {posting.CHANNEL_PT[p.channel]}: {p.result_url}"
+                   for p in db.deal_posts(conn, post.deal_id) if p.id != post.id and p.result_url)
+
+
+def _print_posts(conn, deal_id: int) -> None:
+    """A promotion's posts (D32): when each goes out, or how it went, with its link."""
+    for post in db.deal_posts(conn, deal_id):
+        state = (f"agendada para {pt.lisbon_timestamp(post.due_at)}"
+                 + (f": {post.last_error}" if post.last_error else "")
+                 if post.status == "queued" else _post_state(post))
+        console.print(f"  {posting.CHANNEL_PT[post.channel]}: {escape(state)}")
+
+
 @queue_app.command("list")
 def queue_list(show_all: Annotated[bool, typer.Option("--all", help="Also published and cancelled posts")] = False) -> None:
     """Upcoming posts (Lisbon time), and why a due one waits."""
-    from escapadinha import instagram
-
     ctx, conn = _ctx()
-    for notice in instagram.notices(conn):      # the token: refreshed, invalid, valid until
+    # Instagram's token; Telegram's channel or token refused, sends to confirm (D36, D38).
+    for notice in pipeline.publisher_notices(ctx, conn):
         console.print(f"[yellow]![/] {escape(notice)}")
     queued = db.posts(conn, "queued")
     shown = db.posts(conn) if show_all else queued
@@ -703,24 +738,24 @@ def queue_list(show_all: Annotated[bool, typer.Option("--all", help="Also publis
     for post in shown:
         deal, obs = db.get_deal(conn, post.deal_id)
         view = pipeline.text_view(ctx, conn, deal, obs)
-        state = posting.STATUS_PT_POST[post.status]
-        if post.publisher:
-            state += f" ({post.publisher})"
-        if post.status == "cancelled":
-            state += f": {post.reason}"
-        elif post.status == "queued" and post.last_error:
-            state += f": {post.last_error}"
-        if post.story_status:                    # Instagram (D36): the story after the carousel
-            story = {"pending": "por publicar", "published": "publicada",
-                     "skipped": "não sai"}[post.story_status]
-            state += f" · story {story}" + (f": {post.story_note}" if post.story_note
-                                            and post.story_status != "published" else "")
-        if post.result_url:
-            state += f" · {post.result_url}"
-        state = escape(state)
+        state = escape(_post_state(post) + _other_links(conn, post))
         console.print(f"  {posting.CHANNEL_PT[post.channel]:<9} deal {post.deal_id} "
                       f"{view.origin_city} → {view.destination_headline} {view.price} "
                       f"{pt.lisbon_timestamp(post.due_at)} · {state}")
+
+
+@queue_app.command("retry")
+def queue_retry(deal_id: int, channel: Annotated[str, typer.Argument(help="telegram")]) -> None:
+    """Put back a Telegram post cancelled because Telegram's answer was lost (D38), once you
+    checked the channel and the message isn't there."""
+    from escapadinha import telegram
+
+    ctx, conn = _ctx()
+    try:
+        console.print(pipeline.retry_post(ctx, conn, deal_id, channel))
+    except telegram.RetryRefused as exc:
+        console.print(f"[red]Não reposta:[/] {escape(str(exc))}")
+        raise typer.Exit(1) from None
 
 
 @instagram_app.command("token")

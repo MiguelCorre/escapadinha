@@ -4,8 +4,9 @@ Graph API (content publishing), Instagram API with Instagram Login by default; t
 version come from config `instagram` (`InstagramConfig.host`, `api_version`):
 
 1. the slides' JPEG copies on the public site (`website.public_jpeg_urls`) must answer 200 to a
-   HEAD (redirects followed, https only); otherwise the post waits for the deploy, without
-   counting an attempt until `instagram.images_wait_hours` after its slot;
+   HEAD (`website.image_problem`: redirects followed, https only); otherwise the post waits for
+   the deploy, without counting an attempt until `instagram.images_wait_hours` after its slot
+   (`posting.live_images`, shared with Telegram);
 2. `content_publishing_limit` must leave room for the carousel and its story, else it waits;
 3. a carousel already on the account with this post's caption (a run that died after
    `media_publish`) is adopted, never posted again. The caption is the one stored at the first
@@ -41,7 +42,9 @@ import httpx
 from escapadinha import i18n_pt
 from escapadinha.config import InstagramConfig
 from escapadinha.models import Deal, Post
-from escapadinha.posting import Message, Published, PublishCancel, PublishWait, publisher_actor
+from escapadinha import posting
+from escapadinha.posting import (Message, Published, PublishCancel, PublishWait,
+                                 RetryableSendError, publisher_actor)
 from escapadinha.storage import db
 from escapadinha.storage.objects import ObjectStore
 
@@ -84,7 +87,7 @@ class GraphError(Exception):
         super().__init__(f"{message} ({detail})" if detail else message)
 
 
-class InstagramError(RuntimeError):
+class InstagramError(RetryableSendError):
     """A failure the run retries (attempt counted, D32)."""
 
 
@@ -116,9 +119,6 @@ class Graph:
     def __init__(self, http: httpx.Client, api: InstagramConfig, token: str):
         self.http, self.api, self.token = http, api, token
 
-    def _redact(self, text: str) -> str:
-        return text.replace(self.token, "***") if self.token else text
-
     def call(self, method: str, path: str, *, versioned: bool = True, **params: str) -> dict:
         host = self.api.host
         url = f"{host}/{self.api.api_version}/{path}" if versioned else f"{host}/{path}"
@@ -137,7 +137,8 @@ class Graph:
         error = body.get("error") if isinstance(body, dict) else None
         if response.status_code >= 400 or error is not None:
             error = error if isinstance(error, dict) else {}
-            message = self._redact(str(error.get("message") or "erro sem mensagem"))
+            message = posting.redact(str(error.get("message") or "erro sem mensagem"),
+                                     self.token)
             raise GraphError(message, status=response.status_code, code=error.get("code"),
                              subcode=error.get("error_subcode"))
         if not isinstance(body, dict):
@@ -149,18 +150,6 @@ class Graph:
 
     def post(self, path: str, **params: str) -> dict:
         return self.call("POST", path, **params)
-
-
-def image_problem(http: httpx.Client, url: str) -> str | None:
-    """None when `url` is live for Meta: a HEAD answers 200, following redirects but only
-    over https; else what is wrong ('404', 'redirecionado para http://…', 'sem resposta')."""
-    try:
-        response = http.head(url, follow_redirects=True)
-    except httpx.HTTPError:
-        return "sem resposta"
-    if response.url.scheme != "https":
-        return f"redirecionado para {response.url}"
-    return None if response.status_code == 200 else str(response.status_code)
 
 
 def caption_key(text: str | None) -> str:
@@ -287,23 +276,11 @@ class InstagramPublisher:
         return signal
 
     def _live_images(self, deal: Deal, post: Post | None) -> list[str]:
-        """The slides' public JPEG URLs, once every one is live (the deploy that carries them
-        may still be to come: a new approval's full path runs after the publish step). Waiting
-        is free until `images_wait` after the post's slot, then each wait is a failure, so
-        D32's max_attempts ends a post whose images never arrive."""
-        urls = self.image_urls(deal)
-        if not urls:
-            raise PublishCancel("A promoção não tem slides renderizados.")
-        for url in urls[:MAX_CHILDREN]:
-            problem = self.check_image(url)
-            if problem:
-                if post is not None and self.now - post.due_at > self.images_wait:
-                    hours = i18n_pt.number(self.images_wait.total_seconds() / 3600)
-                    raise InstagramError(f"As imagens continuam sem estar no site mais de "
-                                         f"{hours} h depois da hora marcada ({url} → {problem}).")
-                raise PublishWait(f"As imagens ainda não estão no site ({url} → {problem}): "
-                                  "espera pelo próximo deploy.")
-        return urls
+        """The slides' public JPEG URLs once all are live (`posting.live_images`); the wait is
+        bounded from the post's slot, never for the story."""
+        return posting.live_images(self.image_urls(deal)[:MAX_CHILDREN], self.check_image,
+                                   due_at=post.due_at if post else None, now=self.now,
+                                   wait=self.images_wait)
 
     def _check_quota(self, needed: int) -> None:
         body = self.graph.get(f"{self.account}/content_publishing_limit",
@@ -355,17 +332,12 @@ class InstagramPublisher:
             return None
 
 
-class Paused:
+class Paused(posting.Paused):
     """The instagram channel while it can't post (no secrets, no usable token): every due post
-    waits, no attempt counted, the reason in `queue list`."""
-
-    name = "instagram"
+    and story waits, no attempt counted, the reason in `queue list`."""
 
     def __init__(self, reason: str):
-        self.reason = reason
-
-    def publish(self, message: Message) -> Published:
-        raise PublishWait(self.reason)
+        super().__init__("instagram", reason)
 
     def publish_story(self, post: Post, deal: Deal) -> str | None:
         raise PublishWait(self.reason)
