@@ -473,8 +473,9 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
 
     from escapadinha import run_path
     calls = []
-    for name in ("apply_review_events", "_warn_if_late", "routes_upkeep", "recheck_cmd", "detect",
-                 "publish_due", "render_deals", "_export_site_data", "_site_build", "_site_deploy",
+    for name in ("apply_review_events", "_warn_if_late", "routes_upkeep",
+                 "_warn_if_daily_pass_missed", "recheck_cmd", "detect", "publish_due",
+                 "render_deals", "_export_site_data", "_site_build", "_site_deploy",
                  "export_review_snapshot"):
         monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n)
                             or SimpleNamespace(installed=False))
@@ -488,18 +489,20 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
                         lambda ctx, conn, export: calls.append("record_full_path"))
     monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.PathDecision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
-    assert calls == ["apply_review_events", "warn_if_late", "routes_upkeep", "recheck_cmd",
-                     "detect", "publish_due", "render_deals", "export_site_data", "site_build",
-                     "site_deploy", "record_full_path",
-                     "export_review_snapshot"]                 # D25, D26, D27, D32, D41
+    assert calls == ["apply_review_events", "warn_if_late", "routes_upkeep",
+                     "warn_if_daily_pass_missed", "recheck_cmd", "detect", "publish_due",
+                     "render_deals", "export_site_data", "site_build", "site_deploy",
+                     "record_full_path",
+                     "export_review_snapshot"]                 # D25, D26, D27, D32, D41, D42
     calls.clear()
     cli._run_steps(render=False, full=True, report=[])
     assert calls[-5:] == ["export_site_data", "site_build", "site_deploy", "record_full_path",
                           "export_review_snapshot"]
     calls.clear()
     cli._run_steps(render=True, full=False, report=[])                 # fast path: no export
-    assert calls == ["apply_review_events", "warn_if_late", "routes_upkeep", "recheck_cmd",
-                     "detect", "publish_due", "export_review_snapshot"]   # posting on the fast path too
+    assert calls == ["apply_review_events", "warn_if_late", "routes_upkeep",
+                     "warn_if_daily_pass_missed", "recheck_cmd", "detect", "publish_due",
+                     "export_review_snapshot"]                 # posting on the fast path too
 
 
 # --- committed fixtures -----------------------------------------------------------------------
