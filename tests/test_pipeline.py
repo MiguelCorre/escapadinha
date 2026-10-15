@@ -208,6 +208,51 @@ def test_migrates_v1_database(tmp_path):
     assert columns(conn) == columns(fresh)
 
 
+def _deal_columns(conn) -> dict[str, tuple]:
+    """name -> (type, not null, default, primary key) of `deals`, and its foreign keys."""
+    columns = {r[1]: tuple(r)[2:] for r in conn.execute("PRAGMA table_info(deals)")}
+    keys = sorted((r[3], r[2], r[4]) for r in conn.execute("PRAGMA foreign_key_list(deals)"))
+    return {**columns, "foreign keys": tuple(keys)}
+
+
+@pytest.mark.parametrize("fixture, version", [("schema_v5.sql", 5), ("schema_v7.sql", 7)])
+def test_upgrade_from_real_old_schemas_gives_deals_the_baseline_columns(tmp_path, fixture, version):
+    """v13 (D40) on the real old schemas: a deal detected before keeps its row with no stored
+    baseline range, and `deals` ends up as a fresh install has it (types, keys)."""
+    import sqlite3
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript((REPO / "tests" / "fixtures" / fixture).read_text("utf-8"))
+    old.execute("INSERT INTO fetch_runs (id, source, started_at, status) "
+                "VALUES (1, 'test', '2026-10-14T01:00:00+00:00', 'ok')")
+    seen = "2026-10-14T01:00:00+00:00"
+    row = {"id": 1, "run_id": 1, "source": "test", "origin": "LIS", "destination": "BCN",
+           "departure_date": "2026-11-18", "return_date": "2026-11-25", "nights": 7,
+           "price": 51, "currency": "EUR", "fetched_at": seen,
+           **({"raw_json": "{}"} if version < 7 else
+              {"last_run_id": 1, "last_seen_at": seen, "dedup_key": "k"})}
+    old.execute(f"INSERT INTO price_observations ({', '.join(row)}) "
+                f"VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
+    old.execute("INSERT INTO deals (id, observation_id, rule, baseline_median, sample_size, "
+                "discount_pct, threshold, detected_at, status) VALUES (4, 1, 'median', 76, 6, "
+                "0.33, 0.3, '2026-10-14T01:01:35+00:00', 'rendered')")
+    old.execute(f"PRAGMA user_version = {version}")
+    old.commit()
+    old.close()
+
+    conn = db.connect(path)
+    db.init(conn)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 13
+    fresh = db.connect(tmp_path / "fresh.db")
+    db.init(fresh)
+    assert _deal_columns(conn) == _deal_columns(fresh)
+    deal, obs = db.get_deal(conn, 4)
+    assert (deal.status, deal.baseline_median, deal.sample_size, obs.price) == ("rendered", 76, 6, 51)
+    assert (deal.baseline_span_days, deal.baseline_lowest_obs_id,
+            deal.baseline_highest_obs_id) == (None, None, None)
+    assert pipeline.baseline_range(conn, deal) is None      # the review shows the days only
+
+
 @respx.mock
 def test_failed_affiliate_link_is_recorded_without_fallback(ctx):
     conn = pipeline.open_db(ctx)

@@ -2183,7 +2183,9 @@ so nothing has to be hosted.
   At detection a deal stores `baseline_span_days` and the observation ids of those two daily lows
   (`baseline_lowest_obs_id`, `baseline_highest_obs_id`; schema v13: `SCHEMA_VERSION` 13,
   `schema.sql`, migration 13 = three `ALTER TABLE deals ADD COLUMN`, tested through every
-  migration from v1 against a fresh install). Ids, not prices: the prices are read from those
+  migration from v1, and from the real old schemas `tests/fixtures/schema_v5.sql` and
+  `schema_v7.sql` with a deal row, against a fresh install: column types, defaults and foreign
+  keys of `deals`, the old deal kept with NULLs). Ids, not prices: the prices are read from those
   observations (`pipeline.baseline_range`), so they trace to `price_observations.id` (D2).
   Deals detected before keep NULLs: no range was stored, and recomputing one would mix in later
   days. Rejected: computing the range when the snapshot is made (it would drift from the typical
