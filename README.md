@@ -407,7 +407,7 @@ token that never expires (runbook).
 ### Telegram (DECISIONS D38)
 
 With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` (the public channel's @handle, e.g.
-`@pontonomada`, or its numeric id: anything else stops the run when the secrets load) set (`.env` and
+`@pontonomada`, or its numeric id: anything else pauses Telegram, with a notice) set (`.env` and
 Actions secrets; setup in [docs/runbooks/telegram.md](docs/runbooks/telegram.md)), a promotion's
 Telegram post goes out on the first run after its approval through the Bot API (`sendPhoto`):
 
@@ -1134,7 +1134,7 @@ uv run pytest -m "not browser"
   1024 UTF-16 caption limit, the token in no log, reason, database row or stored object,
   `queue retry` (local at once, with R2 by the next run, refused without a lost send, never
   requeueing a later cancellation), the link in `queue list` and `deal check`, the config
-  validator, the publisher registry, the channel secret's check, missing secrets → wait. The
+  validator, the publisher registry, a malformed or missing channel secret → wait (the run still collects). The
   error texts follow the Bot API's (refused channel → wait, permanent → cancel, transient photo
   → retry). The schema v12 upgrade is in `test_posting.py`.
 

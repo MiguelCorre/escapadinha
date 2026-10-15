@@ -17,6 +17,7 @@ from escapadinha import pipeline, review_events, telegram
 from escapadinha.presentation import DISCLOSURE
 from escapadinha.storage import db
 from test_pipeline import ctx  # noqa: F401
+from test_web_build import npm  # noqa: F401
 from test_posting import APPLIED, approve_event, approved, by_channel, cli, publish, second_deal, utc
 
 TOKEN = "123456789:AAtest-secret-bot-token"
@@ -518,13 +519,45 @@ def test_every_publisher_name_in_config_has_one_factory():
 
 @pytest.mark.parametrize("channel", ["@pontonomada", " @pontonomada_promos ", "-1001234567890"])
 def test_the_channel_secret_is_a_handle_or_a_numeric_id(channel):
-    from escapadinha.config import Secrets
-    assert Secrets(_env_file=None, telegram_channel=channel).telegram_channel == channel.strip()
+    assert telegram.channel_problem(channel) is None
 
 
-@pytest.mark.parametrize("channel", ["pontonomada", "https://t.me/pontonomada", "@pt", "@1abc"])
-def test_any_other_channel_secret_is_refused_when_the_secrets_load(channel):
-    from pydantic import ValidationError
+BAD_CHANNELS = ["pontonomada", "https://t.me/pontonomada", "@pt", "@1abc"]
+
+
+@pytest.mark.parametrize("channel", BAD_CHANNELS)
+def test_any_other_channel_secret_is_a_problem_but_the_secrets_still_load(channel):
     from escapadinha.config import Secrets
-    with pytest.raises(ValidationError, match="TELEGRAM_CHANNEL tem de ser o @handle do canal"):
-        Secrets(_env_file=None, telegram_channel=channel)
+    assert telegram.channel_problem(channel).startswith(
+        "TELEGRAM_CHANNEL tem de ser o @handle do canal público")
+    assert Secrets(_env_file=None, telegram_channel=channel).telegram_channel == channel
+
+
+def test_a_malformed_channel_pauses_telegram_but_the_run_goes_on(ctx, monkeypatch, npm):
+    """A typo in TELEGRAM_CHANNEL never stops collection, detection or the site: the run goes
+    on, the Telegram post waits (no attempt, nothing sent) and `queue list` says what to fix."""
+    from test_pipeline import mock_api, mock_links
+    from test_review import rendered_deal
+    from test_web_build import web_package
+    from test_website import real_slides
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "pontonomada")            # no @
+    with respx.mock:                                 # any call to Telegram would fail the test
+        web_package(ctx.root)
+        conn = pipeline.open_db(ctx)
+        deal_id = rendered_deal(ctx, conn)
+        real_slides(conn, deal_id)
+        db.set_meta(conn, pipeline.DISCOVERED_AT, db.utcnow().isoformat())
+        approve_event(ctx.object_store, deal_id, checked=db.utcnow())
+        mock_api()
+        mock_links()
+        runs = conn.execute("SELECT COUNT(*) FROM fetch_runs").fetchone()[0]
+        out = cli(ctx, monkeypatch, "run", "--no-render")
+        assert "Detection for run" in out and "Path:" in out            # collected, detected, on
+        assert conn.execute("SELECT COUNT(*) FROM fetch_runs").fetchone()[0] == runs + 1
+        problem = telegram.channel_problem("pontonomada")
+        assert f"publicação Telegram deal {deal_id}: à espera ({problem})" in out
+        post = by_channel(conn)["telegram"]
+        assert (post.status, post.attempts, post.last_error) == ("queued", 0, problem)
+        assert out.count(problem) >= 1
+        assert f"! {problem}" in cli(ctx, monkeypatch, "queue", "list")   # the notice on top

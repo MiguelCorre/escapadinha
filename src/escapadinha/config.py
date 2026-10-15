@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 from datetime import time
 from functools import cached_property
 from pathlib import Path
@@ -43,20 +42,7 @@ class Secrets(BaseSettings):
     instagram_account_id: str = ""    # the professional account's Instagram user id
     # Telegram publisher (D38), optional: without both, due Telegram posts wait.
     telegram_bot_token: str = ""      # from @BotFather, docs/runbooks/telegram.md
-    telegram_channel: str = ""        # the public channel's @handle; the bot is its admin
-
-    @field_validator("telegram_channel")
-    @classmethod
-    def _telegram_chat(cls, v: str) -> str:
-        """The Bot API's `chat_id`: the channel's @handle (a Telegram username: 5 to 32
-        letters, digits or _, starting with a letter) or its numeric id. Checked here, so a
-        typo stops the run with the reason instead of failing every post."""
-        v = v.strip()
-        if v and not re.fullmatch(r"@[A-Za-z][A-Za-z0-9_]{4,31}|-?\d+", v):
-            raise ValueError(f"TELEGRAM_CHANNEL tem de ser o @handle do canal público (por "
-                             f"exemplo @pontonomada) ou o id numérico do canal, não {v!r} "
-                             "(docs/runbooks/telegram.md).")
-        return v
+    telegram_channel: str = ""        # the public channel's @handle (checked by the publisher)
 
     @property
     def instagram_configured(self) -> bool:

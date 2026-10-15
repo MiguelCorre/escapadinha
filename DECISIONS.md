@@ -1911,12 +1911,15 @@ so nothing has to be hosted.
   the host only in `config.TELEGRAM_API`), form fields `chat_id` (= `TELEGRAM_CHANNEL`), `photo`
   (a URL Telegram fetches) and `caption`. Config `posting.publishers.telegram: telegram`;
   `PublisherName` gained `telegram` and the validator now says a real publisher (anything but
-  `dry-run`) posts only to its own channel. **The channel secret is checked when the secrets
-  load** (`Secrets._telegram_chat`): an @handle (a Telegram username: 5–32 letters, digits or
-  `_`, starting with a letter) or a numeric id, else the run stops at once with "TELEGRAM_CHANNEL
-  tem de ser o @handle do canal público …"; no guessing (`pontonomada`, a t.me link are
-  refused). A typo stops every run until fixed, the price of failing loudly rather than posting
-  nowhere.
+  `dry-run`) posts only to its own channel. **The channel secret is checked by the publisher
+  factory** (`telegram.channel_problem`): an @handle (a Telegram username: 5–32 letters, digits
+  or `_`, starting with a letter) or a numeric id; no guessing (`pontonomada`, a t.me link are
+  refused). A malformed one **pauses Telegram** like a missing secret: due posts wait (no
+  attempt counted, nothing sent) with "TELEGRAM_CHANNEL tem de ser o @handle do canal público …"
+  as their reason, in the run log and as a `queue list` notice. Code review: a first version
+  validated it when `Secrets` load, which stopped the whole run (collection, detection, the
+  site) over an optional channel's typo; tested now that a run with a bad channel still
+  collects and its Telegram post waits.
 - **When:** D32 queues Telegram at the approval's application ("immediately") and that stays; the
   photo, though, is the cover slide's JPEG on the public site (`website.public_jpeg_urls(…)[0]`,
   the image D36 already deploys for Meta, so one image path serves both), and the publish step

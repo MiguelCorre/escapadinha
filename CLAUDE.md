@@ -168,7 +168,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Telegram publisher (D38, `telegram.py`): Bot API `sendPhoto` only through `BotApi` (host
   `config.TELEGRAM_API`; the token is in the URL path: errors by type only, any text redacted,
   never a log, the database or CI output; httpx logs URLs at INFO, so never turn that on);
-  `chat_id` is `TELEGRAM_CHANNEL`, validated when `Secrets` load (@handle or numeric id). Photo
+  `chat_id` is `TELEGRAM_CHANNEL`, checked by the factory (`telegram.channel_problem`: @handle
+  or numeric id; malformed → Telegram paused with a notice, never a stopped run). Photo
   = the cover of `website.public_jpeg_urls`, caption = the post's text, never cut (over 1024
   UTF-16 units: cancel). Before the request a record goes to the object store
   (`telegram.record_key`), after it the message id: a send whose answer was lost

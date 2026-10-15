@@ -82,9 +82,11 @@ promoção que expire ou seja rejeitada entretanto cancela a sua publicação, c
 ## Se algo correr mal
 
 - *"À espera do bot: faltam …"*: falta um dos dois secrets (passo 4).
-- *"TELEGRAM_CHANNEL tem de ser o @handle do canal público …"* (a execução para logo no
-  início): o `TELEGRAM_CHANNEL` tem de ser o @handle do passo 1, com o @ (`@pontonomada`), ou o
-  id numérico do canal; nem o link `t.me/…` nem o nome sem @. Corrige o `.env` e o secret.
+- *"TELEGRAM_CHANNEL tem de ser o @handle do canal público …"* (no topo do `queue list` e no
+  registo da execução): o `TELEGRAM_CHANNEL` tem de ser o @handle do passo 1, com o @
+  (`@pontonomada`), ou o id numérico do canal; nem o link `t.me/…` nem o nome sem @. O resto do
+  pipeline continua (recolha, site, Instagram); só as publicações do Telegram esperam, sem
+  contar como falhas. Corrige o `.env` e o secret: a execução seguinte publica-as.
 - *"O Telegram recusou o canal (…): confirma que o canal … existe e que o bot é administrador
   com permissão para publicar"*: o canal não existe com esse @handle, ou o bot não é
   administrador com **Publicar mensagens** (passo 3). **Nada se perde:** as publicações ficam à

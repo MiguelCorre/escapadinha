@@ -566,14 +566,20 @@ def _instagram_publisher(s: PublisherSetup) -> posting.Publisher:
 
 
 def _telegram_publisher(s: PublisherSetup) -> posting.Publisher:
-    """Telegram (D38): needs both TELEGRAM_* secrets; else `Paused`."""
+    """Telegram (D38): needs both TELEGRAM_* secrets, the channel an @handle or a numeric id;
+    else `Paused` (posts wait, the run goes on)."""
     secrets = s.ctx.secrets
     if not secrets.telegram_configured:
         return posting.Paused("telegram", "À espera do bot: faltam TELEGRAM_BOT_TOKEN e/ou "
                                           "TELEGRAM_CHANNEL (.env ou secrets do GitHub, "
                                           f"{telegram.RUNBOOK}).")
+    malformed = telegram.channel_problem(secrets.telegram_channel)
+    if malformed:
+        s.log(f"Telegram: {malformed}")
+        return posting.Paused("telegram", malformed)
     return telegram.TelegramPublisher(
-        telegram.BotApi(s.http, secrets.telegram_bot_token.strip()), secrets.telegram_channel,
+        telegram.BotApi(s.http, secrets.telegram_bot_token.strip()),
+        secrets.telegram_channel.strip(),
         store=s.ctx.object_store, **_site_images(s), now=s.now,
         images_wait=timedelta(hours=s.ctx.config.telegram.images_wait_hours), log=s.log,
         problem=lambda reason: telegram.problem_state(s.conn, reason))

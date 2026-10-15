@@ -43,6 +43,7 @@ The message never marks the promotion published (Instagram is its main channel, 
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -136,6 +137,19 @@ class BotApi:
             raise NoAnswer(f"resposta da API sem resultado (HTTP {response.status_code})",
                            sent=True)
         return result
+
+
+def channel_problem(channel: str) -> str | None:
+    """None when `TELEGRAM_CHANNEL` can be the Bot API's `chat_id`: the channel's @handle (a
+    Telegram username: 5 to 32 letters, digits or _, starting with a letter) or its numeric id;
+    else what to fix (pt-PT). No guessing: a malformed one pauses the channel (posts wait), it
+    never stops the run."""
+    channel = channel.strip()
+    if re.fullmatch(r"@[A-Za-z][A-Za-z0-9_]{4,31}|-?\d+", channel):
+        return None
+    return (f"TELEGRAM_CHANNEL tem de ser o @handle do canal público (por exemplo @pontonomada) "
+            f"ou o id numérico do canal, não {channel!r}: corrige o .env e o secret do GitHub "
+            f"({RUNBOOK}); as publicações esperam.")
 
 
 def message_link(sent: dict) -> str | None:
@@ -346,10 +360,11 @@ def problem_state(conn, reason: str | None) -> None:
 
 
 def notices(conn, store: ObjectStore, chat: str) -> list[str]:
-    """What `queue list` says about the channel (pt-PT): a refused channel or token, and every
-    send to confirm."""
+    """What `queue list` says about the channel (pt-PT): a malformed `chat` (TELEGRAM_CHANNEL),
+    a refused channel or token, and every send to confirm."""
     reason = db.get_meta(conn, PROBLEM_META)
-    out = [reason] if reason else []
+    malformed = channel_problem(chat) if chat.strip() else None
+    out = [r for r in (malformed, reason) if r]
     for record in unconfirmed(store):
         started = i18n_pt.lisbon_timestamp(datetime.fromisoformat(record["started_at"]))
         out.append(f"Envio ao Telegram por confirmar: deal {record['deal_id']} ({started}). "
