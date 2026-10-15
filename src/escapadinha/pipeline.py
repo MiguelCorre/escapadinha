@@ -84,8 +84,9 @@ def latest_offers(ctx: Context, conn: sqlite3.Connection,
         return None, []
     last = db.get_meta_json(conn, DAILY_PASS)
     today = now.astimezone(i18n_pt.LISBON).date()
-    far_from = departure_months(today, ctx.config.collector.months_ahead + 1)[-1]  # month 4
-    return run_id, db.latest_offers(conn, run_id, (last["run"], far_from) if last else None)
+    far_from = collector_plan.first_far_month(today, ctx.config.collector.months_ahead)
+    return run_id, db.newest_observations(conn, run_id,
+                                          (last["run"], far_from) if last else None)
 
 
 # The schedule dispatches a run every 2 h (D41); its skips leave at most 2 h 45 min between runs.

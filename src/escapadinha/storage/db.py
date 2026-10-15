@@ -295,8 +295,8 @@ def observations_seen_since(conn: sqlite3.Connection, run_id: int) -> list[Obser
     return [_row_to_observation(r) for r in rows]
 
 
-def latest_offers(conn: sqlite3.Connection, run_id: int,
-                  far: tuple[int, date] | None = None) -> list[Observation]:
+def newest_observations(conn: sqlite3.Connection, run_id: int,
+                        far: tuple[int, date] | None = None) -> list[Observation]:
     """The newest prices: the offers of run `run_id` or later (`observations_seen_since`) and,
     with `far` = (a daily pass's run id, first day of the far months), the offers departing from
     that day on that the pass or a later run returned. Far months are asked only on the day's

@@ -126,7 +126,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   4–6 come from the latest daily pass, D42). Raw payloads live only in the run archive
   (`archive.py` via `ObjectStore`), never in the hot table.
 - What a collection run asks for (D42) is decided only by `collector/plan.py` (pure:
-  `daily_pass_due` with `now` passed in and Lisbon days, `plan` → `Plan`); `runner.collect` runs
+  `daily_pass_due` with `now` passed in and Lisbon days, `plan` → `Plan`, `first_far_month`: where
+  the far months start, for the plan and `pipeline.latest_offers`); `runner.collect` runs
   a `Plan`. The day's pass (first run at or after `collector.daily_pass_hour` each Lisbon day,
   meta `collector.daily_pass`, recorded by `pipeline.run_collect` unless every request failed)
   asks every active route for `daily_months_ahead` months; other runs ask only routes with a

@@ -2374,7 +2374,9 @@ so nothing has to be hosted.
   regular runs of ~2.2, ~1,000 a month with the review-triggered runs.
 - **One place decides:** `collector/plan.py` (pure): `daily_pass_due(last, now, hour)` (Lisbon
   days through `i18n_pt.LISBON`, the clock passed in) and `plan(routes, today=, daily=, …)` →
-  `Plan` (tasks in request order, `waiting` never-seen routes, far `deal_months`).
+  `Plan` (tasks in request order, `waiting` never-seen routes, `n_far_deal_months`), and where
+  the far months start, `first_far_month` (month `months_ahead` + 1, also what
+  `pipeline.latest_offers` reads from the pass; one function since the review of M1).
   `runner.collect` runs a `Plan`; `pipeline.run_collect(ctx, conn, now=)` builds it and records
   the pass in meta `collector.daily_pass` = `{"day", "run"}` (CI keeps no files, D25), unless
   every request failed, so the next run is the pass again. It works at any cadence (the Worker's
@@ -2387,7 +2389,7 @@ so nothing has to be hosted.
   under `posting.max_check_age_hours` (D32).
 - **The site shows the newest prices of each route-month:** the latest run's, and for the months
   after the regular window, the latest pass's or newer (`pipeline.latest_offers` →
-  `db.latest_offers`), for the calendar, the cheapest offer and the low prices in the export. The
+  `db.newest_observations`), for the calendar, the cheapest offer and the low prices in the export. The
   rules (freshness, typical lows, tiers) are unchanged. Reading only the latest run would show
   far months for one run a day and drop them at the next: two changes of the site data a day,
   each a full path (D25) for nothing. Detection stays on the run's own offers (D18): far-month

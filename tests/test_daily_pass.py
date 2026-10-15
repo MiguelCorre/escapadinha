@@ -52,6 +52,23 @@ def api(answer=offer):
     return respx.get(API_URL).mock(side_effect=lambda r: httpx.Response(200, json=answer(r.url.params)))
 
 
+def test_far_months_start_after_every_runs_months_and_open_promotions_count_them():
+    """One place says where the far months begin (month `months_ahead` + 1): the plan asks them
+    on the day's pass, and the site reads them from it (`pipeline.latest_offers`)."""
+    from escapadinha.collector import plan
+    from escapadinha.models import Route, RouteRules
+    assert plan.first_far_month(date(2026, 10, 16), 3) == date(2027, 1, 1)
+    assert plan.first_far_month(date(2026, 12, 31), 3) == date(2027, 3, 1)
+    route = Route(origin="LIS", destination="LON", city_pt="Londres", kind="europe",
+                  rules=RouteRules(), last_observed_at=utc(10, 15, 3))
+    regular = plan.plan([route], today=date(2026, 10, 16), daily=False, months_ahead=3,
+                        daily_months_ahead=6,
+                        deal_months=[("LIS-LON", date(2027, 2, 1)), ("LIS-LON", date(2026, 12, 1))])
+    assert [m for _, m in regular.tasks][-1] == date(2027, 2, 1)
+    assert regular.n_far_deal_months == 1          # December is asked on every run anyway
+    assert regular.describe() == "regular pass: months 1–3 of 1 route + 1 far month of open promotions"
+
+
 def test_the_daily_pass_asks_at_least_every_runs_months():
     with pytest.raises(ValidationError, match="daily_months_ahead"):
         CollectorConfig(months_ahead=4, daily_months_ahead=3)
