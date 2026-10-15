@@ -152,7 +152,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `redact`. The Worker stays plain JS without npm packages or a URL, deployed by hand with the
   pinned wrangler (the pipeline's Cloudflare token is Pages-only).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
-  collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → recheck →
+  collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → missed-pass warning
+  (`pipeline.missed_daily_pass_warning`, last recorded pass > 30 h ago) → recheck →
   detect (+ `run_reevaluate`, D40) → `publish_due` (D32, every run: posting never waits for a full path) →
   `run_path.decide` → full path only, its Node commands inside one deadline
   (`node.deadline()`, D35) (render → `export site-data` (D27, → `web/src/data`; keep the

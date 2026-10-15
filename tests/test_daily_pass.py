@@ -3,6 +3,7 @@
 Through the pipeline seam (`pipeline.run_collect` with the clock passed in) on a mocked API.
 """
 
+import json
 from datetime import date, datetime, time, timedelta, timezone
 
 import httpx
@@ -182,3 +183,34 @@ def test_the_site_shows_the_far_months_of_the_last_daily_pass_until_the_next_one
     assert after_pass == ["2026-11", "2026-12", "2027-01", "2027-02", "2027-03"]   # Oct 10 is past
     pipeline.run_collect(ctx, conn, now=utc(10, 15, 7))     # Oct → Dec only
     assert lis_lon(utc(10, 15, 7, 5)) == (after_pass, shown)
+
+
+# --- the run log's warning when the day's pass went missing ---------------------------------
+
+def recorded_pass(conn, started: datetime) -> int:
+    """A daily pass as `run_collect` records it: its run and meta `collector.daily_pass`."""
+    cur = conn.execute("INSERT INTO fetch_runs (source, started_at, scope, status) "
+                       "VALUES ('travelpayouts', ?, 'full', 'ok')", (started.isoformat(),))
+    day = started.astimezone(LISBON).date().isoformat()
+    db.set_meta(conn, pipeline.DAILY_PASS, json.dumps({"day": day, "run": cur.lastrowid}))
+    return cur.lastrowid
+
+
+def test_no_warning_without_a_recorded_pass_or_within_30_hours(ctx):
+    conn = pipeline.open_db(ctx)
+    now = utc(10, 16, 12)
+    assert pipeline.missed_daily_pass_warning(ctx, conn, now) is None   # the next run is the pass
+    recorded_pass(conn, now - timedelta(hours=30))      # yesterday's 07:00, today's still to come
+    assert pipeline.missed_daily_pass_warning(ctx, conn, now) is None
+
+
+def test_a_last_daily_pass_more_than_30_hours_old_is_a_warning(ctx):
+    """The day's pass (months 4-6, never-seen routes) went missing: no run after 06:00 Lisbon
+    recorded one, e.g. every request of it failed."""
+    ctx = configure(ctx, months_ahead=3, daily_months_ahead=6, daily_pass_hour=6)
+    conn = pipeline.open_db(ctx)
+    run_id = recorded_pass(conn, utc(10, 15, 5, 17))    # 06:17 Lisbon on the 15th
+    assert pipeline.missed_daily_pass_warning(ctx, conn, utc(10, 16, 11, 22)) == (
+        f"the last daily pass (#{run_id}, 2026-10-15) started 30 h 05 min ago, more than 30 h: "
+        "months 4–6 and the never-seen routes were not asked since. A pass where every request "
+        "failed is not recorded: check the runs after 06:00 Lisbon (D42).")

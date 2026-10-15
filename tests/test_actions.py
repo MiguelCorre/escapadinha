@@ -206,6 +206,29 @@ def test_a_collection_where_every_request_failed_fails_the_job(home, monkeypatch
     assert json.loads(home.object_store.get("review/snapshot.json"))["version"] == 1
 
 
+@respx.mock
+def test_a_run_long_after_the_last_daily_pass_warns_in_its_log(home, monkeypatch, tmp_path):
+    """D42: the day's pass went missing (here every request of this run failed, so it recorded
+    none); the run log and its summary say so."""
+    mock_api()
+    assert "Warning: the last daily pass" not in run_cli()   # the first run is the pass
+    conn = pipeline.open_db(home)
+    run_id = json.loads(db.get_meta(conn, pipeline.DAILY_PASS))["run"]
+    two_days_ago = db.utcnow() - timedelta(days=2)
+    conn.execute("UPDATE fetch_runs SET started_at = ? WHERE id = ?",
+                 (two_days_ago.isoformat(), run_id))
+    day = two_days_ago.astimezone(pipeline.i18n_pt.LISBON).date().isoformat()
+    db.set_meta(conn, pipeline.DAILY_PASS, json.dumps({"day": day, "run": run_id}))
+    every = {r.destination for r in routes.active_routes(conn, home.config.routes)}
+    conn.close()
+    summary = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    api(failing=every)
+    out = run_cli(code=1)
+    assert f"Warning: the last daily pass (#{run_id}, {day}) started 48 h" in out
+    assert f"- Warning: the last daily pass (#{run_id}, {day})" in summary.read_text("utf-8")
+
+
 class PhotoUploadFails(LocalObjectStore):
     """A bucket whose first photo upload fails (an R2 hiccup); everything else works."""
 

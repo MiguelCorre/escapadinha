@@ -106,6 +106,30 @@ def late_run_warning(conn: sqlite3.Connection, now: datetime) -> str | None:
             "scheduler Worker (docs/runbooks/agendamento.md).")
 
 
+# A day's pass is the first run at or after `daily_pass_hour` (D42): about 24 h apart, 26 h when
+# that hour's run is late, 25 h across the autumn clock change. 30 h means a Lisbon day went by
+# without one.
+DAILY_PASS_WARNING = timedelta(hours=30)
+
+
+def missed_daily_pass_warning(ctx: Context, conn: sqlite3.Connection, now: datetime) -> str | None:
+    """The run log's warning when the last recorded daily pass (meta `collector.daily_pass`)
+    started more than `DAILY_PASS_WARNING` before `now`: far months and never-seen routes went
+    a day without a request. Checked after the collection, so a run that is the pass and records
+    it never warns. None without a recorded pass (the next run is one)."""
+    last = db.get_meta_json(conn, DAILY_PASS)
+    started = db.run_started_at(conn, last["run"]) if last else None
+    if started is None or now - started <= DAILY_PASS_WARNING:
+        return None
+    hours, minutes = divmod(int((now - started).total_seconds() // 60), 60)
+    c = ctx.config.collector
+    return (f"the last daily pass (#{last['run']}, {last['day']}) started {hours} h {minutes:02d} "
+            f"min ago, more than {DAILY_PASS_WARNING // timedelta(hours=1)} h: months "
+            f"{c.months_ahead + 1}–{c.daily_months_ahead} and the never-seen routes were not "
+            "asked since. A pass where every request failed is not recorded: check the runs "
+            f"after {c.daily_pass_hour:02d}:00 Lisbon (D42).")
+
+
 def run_dormancy(ctx: Context, conn: sqlite3.Connection, summary: RunSummary,
                  now: datetime | None = None) -> list[Route]:
     """After a collection: routes without prices for `dormant_after_days` go dormant.

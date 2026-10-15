@@ -831,13 +831,23 @@ def _run_steps(render: bool, full: bool, report: list[str]) -> None:
     export_review_snapshot()                    # last, on the fast and the full path (D26)
 
 
-def _warn_if_late(report: list[str]) -> None:
-    """The previous run more than 3 h before this one: the schedule missed a run (D41)."""
-    _, conn = _ctx()
-    warning = pipeline.late_run_warning(conn, db.utcnow())
+def _warn(warning: str | None, report: list[str]) -> None:
+    """A warning in the run log and the run's summary."""
     if warning:
         console.print(f"[yellow]Warning:[/] {escape(warning)}")
         report.append(f"Warning: {warning}")
+
+
+def _warn_if_late(report: list[str]) -> None:
+    """The previous run more than 3 h before this one: the schedule missed a run (D41)."""
+    _, conn = _ctx()
+    _warn(pipeline.late_run_warning(conn, db.utcnow()), report)
+
+
+def _warn_if_daily_pass_missed(report: list[str]) -> None:
+    """The last recorded daily pass more than 30 h ago (D42); after this run's collection."""
+    ctx, conn = _ctx()
+    _warn(pipeline.missed_daily_pass_warning(ctx, conn, db.utcnow()), report)
 
 
 def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
@@ -848,6 +858,7 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
                   f"{summary.n_requests} requests, "
                   f"{summary.n_observations} offers ({summary.n_new} new)"
                   + (f", {len(summary.errors)} failed" if summary.errors else ""))
+    _warn_if_daily_pass_missed(report)
     if summary.status == "failed":           # every request failed: the run fails (exit 1)
         raise typer.Exit(1)
     recheck_cmd()

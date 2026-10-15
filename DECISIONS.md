@@ -2378,6 +2378,16 @@ so nothing has to be hosted.
   `daily pass: months 1–6 of 360 routes · 2160 requests` and `regular pass: months 1–3 of 239
   routes + 1 far month of open promotions; 121 never-seen routes wait for the daily pass · 718
   requests`.
+- **A missed pass warns (review of M1, 2026-10-16):** after the collection, the run log and the
+  Actions summary warn when the last recorded pass (meta `collector.daily_pass`, its run's
+  `started_at`) started more than 30 h before (`pipeline.missed_daily_pass_warning`,
+  `DAILY_PASS_WARNING`): "Warning: the last daily pass (#57, 2026-10-15) started 30 h 05 min ago,
+  more than 30 h: months 4–6 and the never-seen routes were not asked since. A pass where every
+  request failed is not recorded: check the runs after 06:00 Lisbon (D42)." Passes are about
+  24 h apart (26 h when the 06:00 run is late, 25 h across the autumn clock change), so 30 h
+  means a Lisbon day went by without one; checked after the collection, a run that is the pass
+  never warns. No recorded pass, no warning (the next run is the pass). Like D41's late-run
+  warning, it only shows in the log and the summary.
 - **Rejected:** months 4–6 on every run (+1,080 requests on each of 12 runs; Actions minutes near
   the 2,000 free ones); a separate cron for the pass (GitHub's cron drifts by hours; the first
   run after a Lisbon hour needs nothing new); rechecking far-month promotions only on the pass (a

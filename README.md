@@ -152,7 +152,9 @@ newer), so a run between two passes changes nothing on the site. The pass is kep
 table (`collector.daily_pass`: Lisbon day and run id); a pass where every request failed doesn't
 count, and the next run tries again. `collect` and the Actions summary say which pass ran:
 `daily pass: months 1–6 of 360 routes · 2160 requests` or `regular pass: months 1–3 of 239
-routes; 121 never-seen routes wait for the daily pass · 717 requests`.
+routes; 121 never-seen routes wait for the daily pass · 717 requests`. When the last recorded
+pass started more than 30 h ago, `run` warns after the collection, in the log and the summary:
+`Warning: the last daily pass (#57, 2026-10-15) started 30 h 05 min ago, more than 30 h: …`.
 
 **Budget:** one request per asked route and departure month. On 2026-10-13 a run was 360
 routes × 3 = 1080 requests in 5 min 40 s one at a time (≈190/min, latency-bound); with
@@ -1069,7 +1071,8 @@ no `schedule`. Every routine run is a `workflow_dispatch` with `full: false`:
   you. With a working Worker it never dispatches (a skipped tick leaves at most 2 h 45 min).
 - **The run log** warns when the previous collection started more than 3 h before this run:
   `Warning: the previous run (#57) started 5 h 07 min ago, more than 3 h: the 2-hourly schedule
-  missed a run. …` (also in the run's summary).
+  missed a run. …` (also in the run's summary). It also warns when the last daily pass is more
+  than 30 h old (D42, see *What a run collects*).
 - **Pause everything:** `gh workflow disable pipeline.yml` (the Worker and the fallback skip a
   disabled workflow); `gh workflow enable pipeline.yml` to resume.
 - **Deploy (by hand, rarely):** from `workers/scheduler`, `npx --yes wrangler@4.149.0 login`, then

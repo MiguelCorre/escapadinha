@@ -207,6 +207,11 @@ def latest_collection_start(conn: sqlite3.Connection) -> tuple[int, datetime] | 
     return (row["id"], datetime.fromisoformat(row["started_at"])) if row else None
 
 
+def run_started_at(conn: sqlite3.Connection, run_id: int) -> datetime | None:
+    row = conn.execute("SELECT started_at FROM fetch_runs WHERE id = ?", (run_id,)).fetchone()
+    return datetime.fromisoformat(row["started_at"]) if row else None
+
+
 def latest_completed_run_id(conn: sqlite3.Connection) -> int | None:
     row = conn.execute(
         """SELECT id FROM fetch_runs WHERE status IN ('ok', 'partial') AND scope = 'full'
