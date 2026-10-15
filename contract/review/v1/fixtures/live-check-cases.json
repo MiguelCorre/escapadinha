@@ -1,5 +1,5 @@
 {
-  "description": "Shared cases of the approval live check (D26, D29): a snapshot deal, the provider payload of its route-month (prices_for_dates) and the expected result. tests/test_live_check_cases.py runs them through the pipeline (travelpayouts.parse_response + recheck.recheck), web/test/review/live-check.test.ts through the review Function's port; both must agree. A deal with 'transfers' and 'return_transfers' (the snapshot's stop counts, null = unknown) is judged on them; a deal without them is an older snapshot that only says 'direct', which stands for the counts: true = 0 and 0, false = 1 and 1, null = unknown.",
+  "description": "Shared cases of the approval live check (D26, D29): a snapshot deal, the provider payload of its route-month (prices_for_dates) and the expected result. tests/test_live_check_cases.py runs them through the pipeline (travelpayouts.parse_response + recheck.recheck), web/test/review/live-check.test.ts through the review Function's port; both must agree. A deal with 'transfers' and 'return_transfers' (the snapshot's stop counts, null = unknown) is judged on them; a deal without them is an older snapshot that only says 'direct', which stands for the counts: true = 0 and 0, false = 1 and 1, null = unknown. 'failures' are provider failures, 'queries' the request both sides send (D39).",
   "defaults": {
     "now": "2026-10-14T09:30:00Z",
     "deal": {
@@ -153,6 +153,32 @@
        "expected": "Não foi possível verificar o preço agora: o Travelpayouts não respondeu."},
       {"name": "no API token", "token": "",
        "expected": "Não foi possível verificar o preço agora: falta o token do Travelpayouts (TRAVELPAYOUTS_TOKEN)."}
+    ]
+  },
+  "queries": {
+    "description": "The provider request that prices a deal's route-month (D39). The pipeline builds it from the route's rules and the collector config (collector.travelpayouts.request_params: the collection, so the recheck, and pipeline.price_now ask with it) and the review snapshot carries it as live_check.query; the review Function sends it as is (string values on the wire). A route that takes only nonstop flights both ways (direct_only, or max_transfers 0) asks with direct=true, because the cache keeps one offer per date pair, the cheapest, and a cheaper offer with a stop would hide the nonstop fare; any other route keeps the plain call.",
+    "collector": {"currency": "eur", "limit": 1000, "market": "pt"},
+    "cases": [
+      {"name": "direct-only route (europe, domestic): nonstop fares only",
+       "origin": "LIS", "destination": "LON", "month": "2026-11",
+       "rules": {"direct_only": true, "max_transfers": 0, "min_nights": 2, "max_nights": 10, "max_offer_age_days": 3},
+       "expected": {"origin": "LIS", "destination": "LON", "departure_at": "2026-11", "one_way": "false", "currency": "eur",
+                    "sorting": "price", "unique": "false", "limit": 1000, "direct": "true", "market": "pt"}},
+      {"name": "a stop limit of 0 takes nothing else either",
+       "origin": "LIS", "destination": "NYC", "month": "2026-12",
+       "rules": {"direct_only": false, "max_transfers": 0, "min_nights": 5, "max_nights": 21, "max_offer_age_days": 3},
+       "expected": {"origin": "LIS", "destination": "NYC", "departure_at": "2026-12", "one_way": "false", "currency": "eur",
+                    "sorting": "price", "unique": "false", "limit": 1000, "direct": "true", "market": "pt"}},
+      {"name": "long-haul: one stop allowed, the plain call",
+       "origin": "LIS", "destination": "NYC", "month": "2026-12",
+       "rules": {"direct_only": false, "max_transfers": 1, "min_nights": 7, "max_nights": 21, "max_offer_age_days": 3},
+       "expected": {"origin": "LIS", "destination": "NYC", "departure_at": "2026-12", "one_way": "false", "currency": "eur",
+                    "sorting": "price", "unique": "false", "limit": 1000, "market": "pt"}},
+      {"name": "no stop limit: the plain call",
+       "origin": "OPO", "destination": "TYO", "month": "2027-01",
+       "rules": {"direct_only": false, "max_transfers": null, "min_nights": 7, "max_nights": 21, "max_offer_age_days": 3},
+       "expected": {"origin": "OPO", "destination": "TYO", "departure_at": "2027-01", "one_way": "false", "currency": "eur",
+                    "sorting": "price", "unique": "false", "limit": 1000, "market": "pt"}}
     ]
   }
 }
