@@ -44,8 +44,8 @@ The steps before the first public post, in order. Tick them as they're done.
       Instagram page are up and running.**
 
 ## 3. Content
-- [ ] Review the tip `web/src/content/tips/voos-baratos.mdx` (add sources and `last_checked`),
-      then set `reviewed: true` (its old `/guias/voos-baratos-dicas/` link then 301s to it).
+- [x] Review the tip `web/src/content/tips/voos-baratos.mdx` (add sources and `last_checked`),
+      then set `reviewed: true` (its old `/guias/voos-baratos-dicas/` link then 301s to it). Approved by Miguel 2026-10-15.
 - [ ] Replace the provisional logo (`assets/logo-light.svg`, `assets/logo-dark.svg`) with the
       designer's (M6); colours and type are the design system (`docs/design/design-system.md`).
 
