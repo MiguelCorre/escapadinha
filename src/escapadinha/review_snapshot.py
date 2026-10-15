@@ -110,9 +110,10 @@ def _slides(ctx: Context, rendered: _Rendered, deal: Deal, store_keys: list[str]
             for stem in sorted(rendered.stems(deal) | set(by_stem))]
 
 
-def _baseline(r: pipeline.BaselineRange | None) -> dict | None:
+def baseline_json(r: pipeline.BaselineRange | None) -> dict | None:
     """How solid the typical low is (D40): span and the extreme daily lows with their
-    observation ids (traceability, D2)."""
+    observation ids (traceability, D2). The contract's shape; the local review page adds the
+    prices in pt-PT (`web.deal_json`)."""
     if r is None:
         return None
     return {"span_days": r.span_days,
@@ -152,7 +153,7 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "discount_pct": view.discount_pct,
         "typical_low_eur": deal.baseline_median,
         "baseline_days": deal.sample_size,
-        "baseline": _baseline(pipeline.baseline_range(conn, deal)),
+        "baseline": baseline_json(pipeline.baseline_range(conn, deal)),
         "found_date": obs.found_date.isoformat() if obs.found_date else None,
         "found_on": view.found_on,
         "fetched_at": db.utc_iso(obs.fetched_at),

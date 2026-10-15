@@ -110,8 +110,8 @@ function card(d) {
   // dearest daily low (each on its observation). Deals detected before D40: days only.
   const b = d.baseline;
   const lows = b
-    ? `${d.baseline_days} dias em ${b.span_days + 1}, de <span data-obs="${b.lowest_obs}">${esc(b.lowest)}</span>`
-      + ` a <span data-obs="${b.highest_obs}">${esc(b.highest)}</span>`
+    ? `${d.baseline_days} dias em ${b.span_days + 1}, de <span data-obs="${b.lowest_observation_id}">${esc(b.lowest)}</span>`
+      + ` a <span data-obs="${b.highest_observation_id}">${esc(b.highest)}</span>`
     : `${d.baseline_days} dias`;
   const deal = d.rule === "median" && d.discount_pct
     ? `−${d.discount_pct}% vs. mínimo habitual ${esc(d.typical_low)} (${lows})`

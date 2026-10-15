@@ -44,6 +44,13 @@ describe("typicalLowRule", () => {
     // An export made before D40 has no min_dates_per_day: every day counted.
     expect(typicalLowRule({ min_baseline_days: 4 })).toBe(
       "Precisamos de pelo menos 4 dias de dados num mês antes de dizer o que é habitual.");
+    // Typed with the contract's meta.detector: a misspelt setting fails `npm run typecheck`.
+    // @ts-expect-error min_baseline_day is not a detector setting
+    expect(typicalLowRule({ min_baseline_day: 7 })).toContain("undefined");
+  });
+
+  it("reads the fixtures' detector settings", () => {
+    expect(typicalLowRule(fixtures.meta.detector)).toContain("pelo menos 7 dias");
   });
 });
 

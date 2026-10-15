@@ -157,10 +157,11 @@ def test_page_and_queue(web, ctx):
     assert d["affiliate_url"].startswith("https://aviasales.tpo.lu/")
     # How solid the typical low is (D40), each extreme daily low with its observation.
     assert (d["typical_low"], d["baseline_days"]) == ("101 €", 22)
-    lows = d["baseline"]
+    lows = d["baseline"]                  # the review snapshot's shape, plus the pt-PT prices
     assert (lows["span_days"], lows["lowest"], lows["highest"]) == (21, "100 €", "102 €")
-    assert [db.get_observation(conn, lows[k]).price for k in ("lowest_obs", "highest_obs")] \
-        == [100, 102]
+    assert (lows["lowest_eur"], lows["highest_eur"]) == (100, 102)
+    assert [db.get_observation(conn, lows[f"{k}_observation_id"]).price
+            for k in ("lowest", "highest")] == [100, 102]
     slide = client.get(d["slides"][0])
     assert slide.status_code == 200 and slide.content == PNG
 
