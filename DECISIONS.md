@@ -2308,8 +2308,11 @@ so nothing has to be hosted.
 - **Actions minutes** (private repo, GitHub Free: 2000 Linux min/month; **each job is rounded up
   to the whole minute**). Measured with `gh run list` and the jobs API over 10-13..15:
   - **Pipeline:** 19 runs, 1.7–6.2 min of wall time (median 2.3), billed 2–7 min, **3.2 on
-    average**. 12 runs a day × 3.2 × 30 ≈ **1150**, plus about one review-triggered run a day
-    (≈ 100): **~1250**.
+    average**, each asking 1,080 route-months. 12 such runs a day would be 12 × 3.2 × 30 ≈ 1150.
+    With D42 (review of M1, 2026-10-16) a day has **one pass** of 2,160 requests (+2 min at the
+    550/min cap: ~4.3 min of wall time, **~5 billed**) and **11 regular runs** of 717 (−0.7 min,
+    about a third shorter: **~2.2 billed**, most under 2 min of wall time): 5 + 11 × 2.2 ≈ 29 a
+    day ≈ **880**, plus about one review-triggered run a day (a full path, ≈ 100): **~1,000**.
   - **Fallback:** ≤ 4 checks a day × 1 min ≈ **≤ 120**. GitHub ran about 5 of the 12 daily
     2-hourly crons, so probably ~60.
   - **Crawl** (`crawl.yml`, daily during the cutover week, deleted in #23 phase 2): 3 min a day,
@@ -2317,14 +2320,15 @@ so nothing has to be hosted.
   - **Web CI** (pull requests touching `web/`, Lighthouse included): **7–10 min a run**. There were
     11 runs in the last two days (76 min), which is ~1100 a month at this development pace and
     ~270 at one a day.
-  - **Total ≈ 1400 + Web CI: within 2000 only while Web CI stays under ~600 a month** (about two
-    web PRs a day). The 5.5-hourly cron used ~400 a month for the pipeline; a real 2 h almost
-    triples that. Past the allowance, GitHub Free without a payment method (or with the default
-    $0 budget) **stops Actions in private repositories until the month ends, and the pipeline
-    with it**. Knobs, cheapest first:
-    1. a fast path under 2 min of wall time bills 2 instead of 3 (−360);
+  - **Total ≈ 1,200 + Web CI: within 2000 only while Web CI stays under ~800 a month** (about
+    three web PRs a day). The 5.5-hourly cron used ~400 a month for the pipeline; a real 2 h with
+    the daily pass is about 2.5 times that. Past the allowance, GitHub Free without a payment
+    method (or with the default $0 budget) **stops Actions in private repositories until the
+    month ends, and the pipeline with it**. Knobs, cheapest first:
+    1. keep the regular runs under 2 min of wall time (each one over bills 3 instead of 2; D42's
+       717 requests bring most of them there);
     2. drop the ticks at 02:17 and 04:17 UTC (`17 0,6-22/2 * * *`; nights are quiet, research §4),
-       −190;
+       −130;
     3. Lighthouse in Web CI only when pages change;
     4. a spending budget or GitHub Pro (3000).
 
@@ -2352,20 +2356,23 @@ so nothing has to be hosted.
   probed once a day until its first price, then asked on every run like any other.
 - **Requests per day** (12 runs, 360 active routes, 121 never seen): before, 360 × 3 × 12 =
   **12,960**. After, the pass 360 × 6 = 2,160 plus 11 regular runs × 239 × 3 = 7,887: **10,047**
-  (−2,913, −22 %), plus one request per run for each open promotion in a far month. At the ~5
-  runs a day GitHub's cron really gives (research, item 5): 5,400 → 5,028. Break-even is 4 runs a
-  day; below that the pass costs more than it saves. Once those 121 routes are dormant (30 days
+  (−2,913, −22 %), plus one request per run for each open promotion in a far month. The schedule
+  is the Worker's 2 h (D41; GitHub's cron, which gave ~5 runs a day, only backs it up now).
+  Break-even is 4 runs a day (4,320 → 4,311), the fallback's cadence if the Worker is down;
+  below that the pass costs more than it saves. Once those 121 routes are dormant (30 days
   after the 2026-10-13 discovery) the saving is gone and the far months cost their own 717
   requests a day: 239 × 3 × 12 = 8,604 → 9,321 (+8 %), still under today's 12,960. The pass
   makes twice today's requests per run (2,160, about 4 min under the 550/min cap); a regular run
-  a third fewer (717 instead of 1,080).
+  a third fewer (717 instead of 1,080). In Actions minutes (D41): one pass of ~5 billed and 11
+  regular runs of ~2.2, ~1,000 a month with the review-triggered runs.
 - **One place decides:** `collector/plan.py` (pure): `daily_pass_due(last, now, hour)` (Lisbon
   days through `i18n_pt.LISBON`, the clock passed in) and `plan(routes, today=, daily=, …)` →
   `Plan` (tasks in request order, `waiting` never-seen routes, far `deal_months`).
   `runner.collect` runs a `Plan`; `pipeline.run_collect(ctx, conn, now=)` builds it and records
   the pass in meta `collector.daily_pass` = `{"day", "run"}` (CI keeps no files, D25), unless
-  every request failed, so the next run is the pass again. It works at any cadence (2 h, or the
-  ~5 h the GitHub cron gives today): "the first run after 06:00" happens every day.
+  every request failed, so the next run is the pass again. It works at any cadence (the Worker's
+  2 h, D41, or the fallback's 6 h while the Worker is down): "the first run after 06:00" happens
+  every day.
 - **Open promotions in a far month** are asked on every run (only their route-month), so the
   recheck still judges every open promotion on every run against prices asked for its month
   (D13). Without it a regular run would expire a far-month promotion for "a viagem já não

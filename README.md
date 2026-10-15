@@ -162,10 +162,11 @@ routes × 3 = 1080 requests in 5 min 40 s one at a time (≈190/min, latency-bou
 `collector.requests_per_minute: 550` caps it client-side and a 429 still waits and retries.
 Per day at 12 runs (D42): before the daily pass 360 × 3 × 12 = 12,960 requests; with it, one pass
 of 360 × 6 = 2,160 and 11 runs of 239 × 3 = 717: 10,047. It saves requests from 4 runs a day up
-(GitHub's cron gives about 5: 5,400 → 5,028). Once the never-seen routes are dormant the far
-months cost about 717 requests a day of their own.
-Billed runner time is ~38 min/day (GitHub rounds each job up to the minute), ≈ 1150
-min/month of the 2000 free ones (D41; see *Minutes used* below).
+(4,320 → 4,311 at 4, the fallback's cadence if the scheduler Worker is down, D41). Once the
+never-seen routes are dormant the far months cost about 717 requests a day of their own.
+Billed runner time is ~33 min/day (GitHub rounds each job up to the minute: the pass ~5, each
+regular run ~2.2, plus review-triggered runs), ≈ 1000 min/month of the 2000 free ones (D41; see
+*Minutes used* below).
 
 Output for review lives in `output/<YYYY-MM-DD>/`:
 - `deal-<ORIG>-<DEST>-<id>/slide_01.png … slide_03.png`: cover, details, CTA + disclosure
@@ -1082,14 +1083,15 @@ no `schedule`. Every routine run is a `workflow_dispatch` with `full: false`:
 - **Tests:** `node --test` in `workers/scheduler` (no dependencies; `uv run pytest` runs it too).
 
 **Minutes used.** A private repo on GitHub Free gets 2000 Linux minutes a month (public repos are
-not metered), and **GitHub rounds each job up to the whole minute**. Measured on 10-13..15: a
-pipeline run takes 1.7–3.4 min of wall time and bills 2–4 minutes (one took 6.2 and billed 7),
-3.2 on average (the day's pass a few minutes longer, the other runs about a third
-shorter, D42). So
-12 runs a day ≈ **1150 min/month**, plus review-triggered runs, the fallback's checks (≤ 4 a day,
-1 min each) and the daily crawl while it lasts; the Web CI on pull requests bills 7–10 min a run.
-That fits only while Web CI stays under ~600 a month. Out of minutes, GitHub stops Actions in a
-private repo until the month ends, and the pipeline with it: D41 lists the knobs.
+not metered), and **GitHub rounds each job up to the whole minute**. Measured on 10-13..15,
+before the daily pass (1,080 requests a run): a pipeline run took 1.7–3.4 min of wall time and
+billed 2–4 minutes (one took 6.2 and billed 7), 3.2 on average. With D42 a day has one pass of
+2,160 requests (~4 min of them, ~5 billed) and 11 regular runs of 717 (about a third shorter,
+~2.2 billed), so the pipeline uses ≈ **1000 min/month** with about one review-triggered run a
+day, plus the fallback's checks (≤ 4 a day, 1 min each) and the daily crawl while it lasts; the
+Web CI on pull requests bills 7–10 min a run. That fits only while Web CI stays under ~800 a
+month. Out of minutes, GitHub stops Actions in a private repo until the month ends, and the
+pipeline with it: D41 lists the knobs.
 - One run: *Actions* → the run → *Usage* (under *Run details*) shows its billable time; the
   summary shows our own `Duration`.
 - The month: your account → *Settings* → *Billing and licensing* → *Usage*, filtered on Actions.
@@ -1106,8 +1108,9 @@ powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1              
 powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -EveryHours 1
 powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister
 ```
-Each run takes about 2 minutes (8 requests at a time, D24) and makes one API call per active
-route and month (1080 at 360 routes; plus ~25 once a month for discovery). Runs missed while the
+Each run takes about 2 minutes (8 requests at a time, D24; the day's pass about 4) and makes one
+API call per asked route and month (D42, at 360 routes: 2,160 on the day's pass, ~717 on the
+others; plus ~25 once a month for discovery). Runs missed while the
 PC sleeps start when it wakes. Output is appended to `logs/run-<date>.log`, ending with
 `---- exit N ----`.
 

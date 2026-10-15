@@ -132,8 +132,9 @@ Quando as duas execuções estiverem no `gh run list`, diz-me e eu fecho o #43.
   execução: o Worker não lança outra nos 45 minutos seguintes.
 - **Mudar o Worker** (raro): depois de o código mudar em `workers/scheduler/`, na pasta,
   `npx --yes wrangler@4.149.0 deploy` (com `login` antes, se fizeste `logout`). O segredo mantém-se.
-- **Minutos do GitHub Actions:** cada execução do pipeline conta 2 a 4 minutos (o GitHub arredonda
-  cada job ao minuto), cerca de 1150 por mês, mais o CI do site. O plano grátis dá 2000 por mês;
+- **Minutos do GitHub Actions:** cada execução do pipeline conta cerca de 2 minutos e a recolha
+  diária, uma vez por dia, cerca de 5 (o GitHub arredonda cada job ao minuto): cerca de 1000 por
+  mês, mais o CI do site. O plano grátis dá 2000 por mês;
   se acabarem, o GitHub deixa de correr o pipeline até ao mês seguinte. Vê o consumo em github.com
   → **Settings** → **Billing and licensing** → **Usage** (filtra por *Actions*) e avisa-me se
   passar de 1500 antes do fim do mês (as opções estão na decisão D41).
