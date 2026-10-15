@@ -96,8 +96,8 @@ describe("paths", () => {
 });
 
 describe("itinerary for a destination", () => {
-  const entry = (id: string, destination: string, reviewed = true) =>
-    ({ id, data: { title: `Roteiro ${id}`, destination, reviewed } });
+  const entry = (id: string, destination: string, reviewed = true, fixture = false) =>
+    ({ id, data: { title: `Roteiro ${id}`, destination, reviewed, fixture } });
 
   it("links the destination's itinerary, or nothing", () => {
     const entries = [entry("paris-em-3-dias", "PAR"), entry("roma-em-2-dias", "ROM")];
@@ -108,6 +108,20 @@ describe("itinerary for a destination", () => {
   it("prefers the reviewed one over a draft (dev server), and refuses two reviewed ones", () => {
     expect(itineraryFor("PAR", [entry("rascunho", "PAR", false), entry("paris", "PAR")])!.path).toBe("/roteiros/paris/");
     expect(() => itineraryFor("PAR", [entry("a", "PAR"), entry("b", "PAR")])).toThrow(/PAR/);
+  });
+
+  it("in a fixture build, prefers the test-only one over a real reviewed one for the same city", () => {
+    // Only a fixture build passes test-only entries (the review gate), so approving a real
+    // itinerary for a city the test content uses never stops the fixture build.
+    const fixture = entry("teste", "PAR", true, true);
+    expect(itineraryFor("PAR", [entry("paris-real", "PAR"), fixture])!.path).toBe("/roteiros/teste/");
+    expect(itineraryFor("PAR", [fixture, entry("paris-real", "PAR")])!.path).toBe("/roteiros/teste/");
+  });
+
+  it("still refuses two reviewed real ones, or two reviewed test-only ones, for a city", () => {
+    const fixture = (id: string) => entry(id, "PAR", true, true);
+    expect(() => itineraryFor("PAR", [fixture("t"), entry("a", "PAR"), entry("b", "PAR")])).toThrow(/a, b/);
+    expect(() => itineraryFor("PAR", [fixture("t1"), fixture("t2"), entry("a", "PAR")])).toThrow(/t1, t2/);
   });
 });
 

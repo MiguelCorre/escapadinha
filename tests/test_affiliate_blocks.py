@@ -276,8 +276,12 @@ def test_committed_fixtures_carry_the_affiliate_blocks_of_the_fixture_content():
 
 
 def test_fixture_data_links_the_test_only_articles_to_placeholders(ctx):  # noqa: F811
+    """Only the test-only articles: approving a real one never changes the committed fixtures
+    (in a fixture build a real article's blocks render nothing, with the build's warning)."""
     configure(ctx, PROGRAMMES)
     write_article(ctx, "itineraries", "teste", fixture_copy(ITINERARY), folder="test/fixtures/content")
+    write_article(ctx, "itineraries", "roma-em-3-dias", ITINERARY)          # real, reviewed
+    write_article(ctx, "tips", "internet-em-viagem", TIP)                   # real, reviewed
     conn = pipeline.open_db(ctx)
     doc = site_data.build_export(ctx, conn, new_links=False, fixture=True).files["affiliates.json"]
     assert doc["links"] == [

@@ -45,7 +45,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `reviewed: true` is built or listed, and only a human sets it (never mark Claude's drafts
   reviewed); a reviewed entry needs `last_checked` and an official https source. Pages, listings,
   itinerary links read entries only through `src/collections.ts` (the
-  gate); drafts show in `astro dev` only. No prices in content: no "€"/"EUR"/euro amounts (the
+  gate); drafts show in `astro dev` only. A fixture build builds the real reviewed entries too;
+  there a test-only itinerary wins over a real one for its city (`itineraryFor`), and the fixture
+  export links only test-only articles' affiliate blocks: approving real content must never break
+  the fixture build, a web test or the committed fixtures (tests read real entries from the files). No prices in content: no "€"/"EUR"/euro amounts (the
   pt-PT lint over all MDX refuses them, plus pt-BR words, "3.5", ISO/English dates, "20 %");
   prices come from the contract with their `data-obs`. Test-only entries (`fixture: true`) live
   in `web/test/fixtures/content/` and are built from fixture data only.

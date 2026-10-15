@@ -57,7 +57,7 @@ describe("affiliate blocks", () => {
   it("renders nothing for a configured programme whose link is not created yet, and the build warns", () => {
     expect(configuredPage().querySelector('[data-affiliate="activities"]')).toBeNull();
     expect(inject("configuredBuildLog")).toMatch(/itineraries\/paris-em-3-dias: activities block not shown: no tracked link yet/);
-    expect(inject("buildLog")).not.toMatch(/activities block not shown/);
+    expect(inject("buildLog")).not.toMatch(/paris-em-3-dias: activities block not shown/);
   });
 
   it("adds no block to articles without one", () => {
@@ -72,7 +72,7 @@ describe("affiliate blocks", () => {
     expect(text(insurance)).toContain(DISCLOSURE);
     expect(blocks(configured.querySelector("article")!).map((b) => b.getAttribute("data-affiliate")))
       .toEqual(["esim", "insurance"]);
-    expect(inject("configuredBuildLog")).not.toMatch(/insurance block not shown/);
+    expect(inject("configuredBuildLog")).not.toMatch(/paris-em-3-dias: insurance block not shown/);
   });
 });
 

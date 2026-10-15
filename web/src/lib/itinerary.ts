@@ -13,17 +13,24 @@ export interface ItineraryRef {
 
 export interface ItineraryEntry {
   id: string;
-  data: { title: string; destination: string; reviewed: boolean };
+  data: { title: string; destination: string; reviewed: boolean; fixture: boolean };
 }
 
 /** The itinerary for a destination city code, or null. One reviewed itinerary per city: two stop
- * the build. In the dev server a draft shows only where no reviewed one exists. */
+ * the build. A test-only one (`fixture: true`) wins over a real one: the review gate passes
+ * test-only entries only in a fixture build, so approving a real itinerary for a city the test
+ * content uses never breaks it (two real or two test-only ones still stop the build). In the dev
+ * server a draft shows only where no reviewed one exists. */
 export function itineraryFor(destination: string, entries: readonly ItineraryEntry[]): ItineraryRef | null {
   const mine = entries.filter((e) => e.data.destination === destination);
-  const reviewed = mine.filter((e) => e.data.reviewed);
-  if (reviewed.length > 1) {
-    throw new Error(`two reviewed itineraries for ${destination}: ${reviewed.map((e) => e.id).join(", ")}`);
-  }
-  const entry = reviewed[0] ?? mine[0];
+  const reviewed = (fixture: boolean) => {
+    const found = mine.filter((e) => e.data.reviewed && e.data.fixture === fixture);
+    if (found.length > 1) {
+      throw new Error(`two reviewed itineraries for ${destination}: ${found.map((e) => e.id).join(", ")}`);
+    }
+    return found[0];
+  };
+  const real = reviewed(false);
+  const entry = reviewed(true) ?? real ?? mine[0];
   return entry ? { path: contentPath("itineraries", entry.id), title: entry.data.title } : null;
 }
