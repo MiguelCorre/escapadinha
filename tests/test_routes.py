@@ -131,12 +131,14 @@ def _seed_tyo(conn, *, days: int, price: float):
     now = db.utcnow()
     db.insert_observations(conn, run_id, [
         Observation(source="test", origin="LIS", destination="TYO", origin_airport="LIS",
-                    destination_airport="NRT", departure_date=date(2026, 11, 1) + timedelta(days=i),
-                    return_date=date(2026, 11, 11) + timedelta(days=i), price=price, currency="EUR",
-                    airline="TP", flight_number="1", transfers=1, return_transfers=1, deep_link=None,
+                    destination_airport="NRT",
+                    departure_date=date(2026, 11, 1) + timedelta(days=i + k),
+                    return_date=date(2026, 11, 11) + timedelta(days=i + k),
+                    price=price + 50 * k, currency="EUR", airline="TP", flight_number="1",
+                    transfers=1, return_transfers=1, deep_link=None,
                     fetched_at=now - timedelta(days=i + 4), raw_json="{}")
-        for i in range(days)])
-    db.finish_run(conn, run_id, status="ok", n_requests=0, n_observations=days, error=None)
+        for i in range(days) for k in (0, 1)])                    # 2 departure dates a day (D40)
+    db.finish_run(conn, run_id, status="ok", n_requests=0, n_observations=2 * days, error=None)
 
 
 @respx.mock
@@ -148,7 +150,7 @@ def test_long_haul_route_uses_its_kind_rules_end_to_end(ctx):
     assert (tyo.rules.direct_only, tyo.rules.max_transfers, tyo.rules.min_nights,
             tyo.rules.max_nights) == (False, 1, 7, 21)
 
-    _seed_tyo(conn, days=6, price=800)
+    _seed_tyo(conn, days=10, price=800)                    # mature for promotions (D40)
     payload = _tyo_payload((520, "2026-11-10", "2026-11-20", 1, 1),    # one stop each way: ok
                            (400, "2026-11-12", "2026-11-22", 2, 1),    # two stops out: never
                            (300, "2026-11-14", "2026-11-18", 0, 0))    # 4 nights: not collected

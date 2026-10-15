@@ -121,6 +121,10 @@ class Deal:
     review_note: str | None = None
     published_at: datetime | None = None
     post_url: str | None = None
+    # The typical low behind it, for the reviewer (D40); None for deals detected before.
+    baseline_span_days: int | None = None       # first to last baseline day
+    baseline_lowest_obs_id: int | None = None   # observation of the cheapest daily low
+    baseline_highest_obs_id: int | None = None  # observation of the dearest daily low
 
 
 @dataclass(frozen=True)

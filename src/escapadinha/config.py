@@ -82,13 +82,21 @@ class CollectorConfig(BaseModel):
 
 class DetectorConfig(BaseModel):
     """Two tiers (D24): low prices (>= low_threshold below the typical low, automatic on the
-    site) and promotion candidates (>= threshold AND >= min_saving_eur below, reviewed)."""
+    site) and promotion candidates (>= threshold AND >= min_saving_eur below, reviewed).
+
+    A typical low is mature (D40) after enough daily lows, counting only days that saw at
+    least `min_dates_per_day` departure dates: `min_baseline_days` for low prices and the
+    site's typical lows, `min_baseline_days_promo` spanning `min_baseline_span_days` (first to
+    last day) for promotion candidates."""
 
     threshold: float = Field(0.30, gt=0, lt=1)
     min_saving_eur: float = Field(15, ge=0)
     low_threshold: float = Field(0.15, gt=0, lt=1)
     lookback_days: int = Field(90, ge=1)
-    min_baseline_days: int = Field(4, ge=1)
+    min_dates_per_day: int = Field(2, ge=1)
+    min_baseline_days: int = Field(7, ge=1)
+    min_baseline_days_promo: int = Field(10, ge=1)
+    min_baseline_span_days: int = Field(9, ge=0)
     dedupe_days: int = Field(7, ge=0)
     max_deals_per_route: int = Field(1, ge=1)
     max_offer_age_days: int = Field(3, ge=0)
@@ -98,6 +106,10 @@ class DetectorConfig(BaseModel):
         if self.low_threshold > self.threshold:
             raise ValueError("detector.low_threshold must be <= detector.threshold "
                              "(every promotion candidate is also a low price)")
+        if self.min_baseline_days_promo < self.min_baseline_days:
+            raise ValueError("detector.min_baseline_days_promo must be >= "
+                             "detector.min_baseline_days (every promotion candidate is also "
+                             "a low price)")
         return self
 
 

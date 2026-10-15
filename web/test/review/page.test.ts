@@ -4,7 +4,7 @@ import { parse, type HTMLElement } from "node-html-parser";
 import { describe, expect, it } from "vitest";
 import { handle } from "../../functions/_lib/review/handler";
 import { TOKENS } from "../../src/lib/tokens";
-import { deal, get, snapshot, world } from "./helpers";
+import { deal, get, schemaErrors, snapshot, world } from "./helpers";
 
 async function open(snap: Record<string, any> | null = snapshot(), setup?: (w: Awaited<ReturnType<typeof world>>) => void) {
   const w = await world(snap);
@@ -34,7 +34,8 @@ describe("queue page", () => {
     expect(card.getAttribute("data-obs")).toBe("1007");
     const t = txt(card);
     for (const piece of ["Lisboa → Londres (Gatwick)", "58 €", "20 a 23 de novembro · 3 noites", "TAP Air Portugal",
-      "voos diretos", "Gatwick", "−44% vs. mínimo habitual 104 € (21 dias)", "encontrado a 14/10/2026",
+      "voos diretos", "Gatwick", "−44% vs. mínimo habitual 104 € (21 dias em 24, de 89 € a 131 €)",
+      "encontrado a 14/10/2026",
       "verificado a 14/10/2026 às 09:17", "por rever"]) {
       expect(t).toContain(piece);
     }
@@ -44,6 +45,31 @@ describe("queue page", () => {
     expect(actions).toEqual(expect.arrayContaining(["check", "approve", "reject"]));
     expect(txt(card.querySelector('button[data-act="check"]'))).toBe("Verificar preço");
     expect(card.querySelector("[data-result]")).not.toBeNull();
+  });
+
+  it("shows how solid the typical low is, each extreme daily low on its observation (D40)", async () => {
+    const baseline = { span_days: 11, lowest_eur: 54, lowest_observation_id: 2001, highest_eur: 110.5,
+      highest_observation_id: 2002 };
+    const snap = snapshot({ queue: [deal(7, { typical_low_eur: 99, baseline_days: 10, discount_pct: 41, baseline })] });
+    expect(schemaErrors("snapshot", snap)).toEqual([]);
+    const { doc } = await open(snap);
+    const card = doc.querySelector('[data-deal="7"]')!;
+    expect(txt(card)).toContain("−41% vs. mínimo habitual 99 € (10 dias em 12, de 54 € a 110,50 €)");
+    expect(txt(card.querySelector('[data-obs="2001"]'))).toBe("54 €");
+    expect(txt(card.querySelector('[data-obs="2002"]'))).toBe("110,50 €");
+  });
+
+  it("shows only the days for a deal without a stored range or from an older snapshot", async () => {
+    const { baseline: _, ...before } = deal(7);                     // a snapshot made before D40
+    const older = snapshot({ queue: [before] });
+    expect(schemaErrors("snapshot", snapshot())).toEqual([]);
+    expect(schemaErrors("snapshot", older)).toEqual([]);
+    const none = snapshot({ queue: [deal(7, { baseline: null })] });
+    expect(schemaErrors("snapshot", none)).toEqual([]);
+    for (const snap of [older, none]) {
+      const { doc } = await open(snap);
+      expect(txt(doc.querySelector('[data-deal="7"]'))).toContain("−44% vs. mínimo habitual 104 € (21 dias)");
+    }
   });
 
   it("offers only what the deal's status allows", async () => {

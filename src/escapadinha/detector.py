@@ -5,16 +5,20 @@ month: the median of daily lows (for each day, the cheapest price travellers fou
 that route and month). Each run yields two tiers (D24):
 
 - **low prices**: fresh offers at least `low_threshold` below the typical low. Shown on
-  the route pages automatically, never reviewed, so they need a mature baseline.
+  the route pages automatically, never reviewed, so they need a mature baseline
+  (`min_baseline_days` daily lows).
 - **promotion candidates**: fresh offers at least `threshold` AND `min_saving_eur` below
   the typical low, one per route per run, deduplicated over `dedupe_days`. They become
-  deals for human review. While a route's history is short only an explicit per-route
-  `price_cap` can make a candidate.
+  deals for human review, so they need a typical low mature for promotions
+  (`min_baseline_days_promo` daily lows spanning `min_baseline_span_days`, D40). Until then
+  only an explicit per-route `price_cap` can make a candidate.
 
 Comparing against daily lows (not against all fares) matters: the cheapest dates of a
 route are always far below the median of all fares, so that rule flags almost every
 route on every run. Daily lows are keyed by the day a traveller found the price (from
 the source cache), so a fresh install has about a week of baseline from its first run.
+A day counts only if its offers have `min_dates_per_day` different departure dates: a
+day with one searched date is three times as likely to be a high outlier (D40).
 
 Days inside the freshness window (the last `max_offer_age_days`) are candidates, older
 days form the baseline, so a candidate never pulls its own baseline down.
@@ -45,9 +49,11 @@ EPS = 1e-9
 @dataclass(frozen=True)
 class Baseline:
     median: float | None      # median of daily lowest prices
-    sample_size: int          # number of days with a low
+    sample_size: int          # number of days with a low (days that count, D40)
     span_days: int            # first to last baseline day
     mean: float | None = None  # plain average of the same daily lows: context only (D27)
+    lowest: Observation | None = None    # the cheapest daily low (shown to the reviewer, D40)
+    highest: Observation | None = None   # the dearest daily low
 
 
 @dataclass(frozen=True)
@@ -110,17 +116,24 @@ def is_fresh(o: Observation, cfg: DetectorConfig, now: datetime) -> bool:
     return day_key(o) >= fresh_since(cfg, now)
 
 
-def baseline(history: list[Observation], *, since: date, before: date) -> Baseline:
-    """Median of daily lows over days in [since, before)."""
-    lows: dict[date, float] = {}
+def baseline(history: list[Observation], *, since: date, before: date,
+             min_dates: int = 1) -> Baseline:
+    """Median of daily lows over days in [since, before). A day counts only when its offers
+    have at least `min_dates` different departure dates (D40)."""
+    by_day: dict[date, list[Observation]] = defaultdict(list)
     for o in history:
-        day = day_key(o)
-        if since <= day < before:
-            lows[day] = min(o.price, lows.get(day, o.price))
+        if since <= day_key(o) < before:
+            by_day[day_key(o)].append(o)
+    lows = {day: min(offers, key=lambda o: (o.price, o.departure_date, o.id or 0))
+            for day, offers in sorted(by_day.items())
+            if len({o.departure_date for o in offers}) >= min_dates}
     if not lows:
         return Baseline(median=None, sample_size=0, span_days=0)
-    return Baseline(median=statistics.median(lows.values()), sample_size=len(lows),
-                    span_days=(max(lows) - min(lows)).days, mean=statistics.fmean(lows.values()))
+    prices = [o.price for o in lows.values()]
+    return Baseline(median=statistics.median(prices), sample_size=len(lows),
+                    span_days=(max(lows) - min(lows)).days, mean=statistics.fmean(prices),
+                    lowest=min(lows.values(), key=lambda o: o.price),
+                    highest=max(lows.values(), key=lambda o: o.price))
 
 
 def month_baselines(history: list[Observation], cfg: DetectorConfig, now: datetime,
@@ -130,19 +143,28 @@ def month_baselines(history: list[Observation], cfg: DetectorConfig, now: dateti
         by_month[month_key(o)].append(o)
     since = now.date() - timedelta(days=cfg.lookback_days)
     before = fresh_since(cfg, now)
-    return {m: baseline(obs, since=since, before=before) for m, obs in by_month.items()}
+    return {m: baseline(obs, since=since, before=before, min_dates=cfg.min_dates_per_day)
+            for m, obs in by_month.items()}
 
 
 def is_mature(base: Baseline, cfg: DetectorConfig) -> bool:
-    """Enough days of lows to trust the typical low."""
+    """Enough daily lows to trust the typical low: low prices and the site's typical lows."""
     return base.median is not None and base.sample_size >= cfg.min_baseline_days
+
+
+def is_mature_for_promotions(base: Baseline, cfg: DetectorConfig) -> bool:
+    """Enough daily lows, spread over enough days, to propose a promotion (D40)."""
+    return (base.median is not None and base.sample_size >= cfg.min_baseline_days_promo
+            and base.span_days >= cfg.min_baseline_span_days)
 
 
 def evaluate(candidate: Observation, base: Baseline, cfg: DetectorConfig,
              price_cap: float | None) -> Decision:
-    """Promotion candidate or not: `threshold` and `min_saving_eur` below the typical low."""
-    if not is_mature(base, cfg):
-        why = f"baseline {base.sample_size}/{cfg.min_baseline_days} days"
+    """Promotion candidate or not: `threshold` and `min_saving_eur` below a typical low that
+    is mature for promotions."""
+    if not is_mature_for_promotions(base, cfg):
+        why = (f"baseline {base.sample_size}/{cfg.min_baseline_days_promo} days, "
+               f"span {base.span_days}/{cfg.min_baseline_span_days} days")
         if price_cap is not None and candidate.price <= price_cap:
             return Decision("deal", "price_cap", None, f"{why}; price <= cap {price_cap:g}")
         return Decision("insufficient_history", None, None, why)

@@ -55,9 +55,9 @@ def seeded(ctx):
     """7 baseline days for LIS-LON November (daily lows 100/101/102 -> typical low 101) and a
     latest run with a direct low (58), a direct non-low (140) and a cheap non-direct offer (40)."""
     conn = pipeline.open_db(ctx)
-    history = [obs(100 + i % 3, fetched=NOW - timedelta(days=i + 5),
-                   found=(NOW - timedelta(days=i + 5)).date(), dep=date(2026, 11, 3 + i))
-               for i in range(7)]
+    history = [obs(100 + i % 3 + 30 * k, fetched=NOW - timedelta(days=i + 5),     # 2 dates a day
+                   found=(NOW - timedelta(days=i + 5)).date(), dep=date(2026, 11, 3 + i + 10 * k))
+               for i in range(7) for k in (0, 1)]
     run(conn, history)
     fresh = NOW - timedelta(hours=1)
     latest = run(conn, [obs(58, fetched=fresh, found=NOW.date()),

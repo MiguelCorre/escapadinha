@@ -25,7 +25,12 @@ detector:
   min_saving_eur: 15         # ... and typical_low - price >= this many euros
   low_threshold: 0.15        # low price when price <= typical_low * (1 - low_threshold)
   lookback_days: 90          # days of daily lows used for the typical low
-  min_baseline_days: 4       # need this many days with a low before trusting it
+  # A mature typical low (D40): a day's low counts only if that day saw >= min_dates_per_day
+  # different departure dates (one-date days are 3x as likely to be high outliers).
+  min_dates_per_day: 2
+  min_baseline_days: 7       # low prices and the site's typical lows need this many daily lows
+  min_baseline_days_promo: 10  # promotion candidates need this many daily lows ...
+  min_baseline_span_days: 9    # ... with the first and last this many days apart
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
   max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
   max_offer_age_days: 3      # candidates: prices found in the last N days; older days = baseline

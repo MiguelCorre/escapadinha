@@ -139,7 +139,7 @@ def test_upgrade_from_real_old_schemas_adds_the_posting_queue(ctx, fixture, vers
     old.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 12
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 13
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     assert _queue_shape(conn) == _queue_shape(fresh)
@@ -207,7 +207,7 @@ def test_upgrade_from_v11_keeps_posts_and_adds_the_telegram_message_id(ctx):
                  "'2026-12-01T07:00:00+00:00', 'published', 'instagram', '1789')")
     conn.commit()
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     [post] = db.posts(conn)
     assert (post.status, post.media_id, post.message_id) == ("published", "1789", None)
 

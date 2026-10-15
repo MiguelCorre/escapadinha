@@ -202,7 +202,11 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
     `price ≤ typical_low × (1 − 0.30)` **and** `typical_low − price ≥ 15 €`.
   - `low_threshold: 0.15`: a low price needs `price ≤ typical_low × (1 − 0.15)` (must be ≤ `threshold`).
   - `lookback_days: 90` is how far back daily lows count.
-  - `min_baseline_days: 4` is how many days with a low are needed before a month's typical low is trusted.
+  - A month's typical low is **mature** (D40) after enough daily lows, counting only days that
+    saw `min_dates_per_day: 2` different departure dates (one-date days are three times as likely
+    to be high outliers): `min_baseline_days: 7` for low prices and the site's typical lows,
+    `min_baseline_days_promo: 10` spanning `min_baseline_span_days: 9` (first to last day) for
+    promotion candidates (`min_baseline_days_promo ≥ min_baseline_days` is enforced).
   - `max_offer_age_days: 3` defines the freshness window. Prices travellers found in the last
     3 days are candidates, and older days form the baseline.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
@@ -245,12 +249,23 @@ that day. Each run yields two outputs:
 - **Low prices** (*preços baixos*): fresh offers at least `low_threshold` (15 %) below the typical
   low, one per trip dates. Not reviewed: the route pages list the latest run's low prices
   automatically, each with its found date and its own tracked link. They need a mature
-  typical low (`min_baseline_days`); a `price_cap_eur` never makes a low price.
+  typical low (`min_baseline_days` daily lows); a `price_cap_eur` never makes a low price.
 - **Promotion candidates**: fresh offers at least `threshold` (30 %) **and** `min_saving_eur`
   (15 €) below the typical low, at most `max_deals_per_route` per route per run, not the same
   trip again within `dedupe_days` unless cheaper, never an offer that already is a deal. They
   become deals in status `new` for review. The 15 € floor keeps small-fare routes out of the
-  queue: on a 40 € route, 26 € is 35 % off but saves 14 €, so it is only a low price.
+  queue: on a 40 € route, 26 € is 35 % off but saves 14 €, so it is only a low price. They need
+  a typical low mature for promotions: `min_baseline_days_promo` (10) daily lows spanning
+  `min_baseline_span_days` (9) days.
+
+**A mature typical low (D40).** A day's low counts only when that day saw `min_dates_per_day`
+(2) different departure dates. With 4-day baselines 7 of the first 11 deals were not 30 % below
+once more days were known (research `docs/research/2026-10-15-data-reliability.md`). On the
+database of 2026-10-15 (runs 19–57) the old rules gave 8 candidates and 32 low prices on 10
+routes; these give none of either until the busiest route-months reach 10 counted days (from
+about 20–25 October). The reviewer sees each deal's baseline: "−39% vs. mínimo habitual 99 €
+(10 dias em 12, de 54 € a 110 €)", i.e. 10 daily lows over a 12-day window, the cheapest and
+dearest of them (each traced to its observation).
 
 `detect` prints both per route (column "Lows" and the deals created).
 
@@ -259,8 +274,9 @@ median of all fares, so that rule flags almost every route on every run. On the 
 it flagged 9 of 10 routes.
 
 The source cache records when each price was found and covers about a week, so baselines
-exist from the **first run**. Until a month has `min_baseline_days` daily lows, `detect` reports
-**warming up** and flags nothing. The one exception is a route with an explicit
+exist from the **first run**. Until a month's typical low is mature for promotions, `detect`
+reports **warming up** (column "Baseline": days counted / `min_baseline_days_promo`, and the
+span) and flags no promotion. The one exception is a route with an explicit
 `price_cap_eur` (`rule = price_cap`); the caption then makes no "% below" claim.
 
 Every deal names its arrival airport. Remote airports (for example Paris-**Beauvais**,
@@ -274,8 +290,9 @@ uv run escapadinha review            # opens http://127.0.0.1:8765 (local only; 
 
 The page (in Portuguese) has four tabs: **Por rever**, **Aprovados**, **Publicados** and **Fechados**
 (expired or rejected). Each deal shows its three slides, the caption with a copy button, the
-affiliate link, and the facts behind it: price, typical low, discount, arrival airport,
-found/checked dates and the last recheck.
+affiliate link, and the facts behind it: price, typical low (with its days, their window and the
+cheapest and dearest daily low, D40), discount, arrival airport, found/checked dates and the last
+recheck.
 
 - **Verificar preço agora** fetches that route and month from the API now and rechecks the deal
   (without R2 keys: stored as a `live_check` run, a moved price expires the deal; with R2 keys

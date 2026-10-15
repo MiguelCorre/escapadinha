@@ -155,8 +155,43 @@ def test_page_and_queue(web, ctx):
     assert d["id"] == deal_id and d["headline"] == "Lisboa → Londres" and d["price"] == "58 €"
     assert d["caption"] == "legenda de teste" and len(d["slides"]) == 3
     assert d["affiliate_url"].startswith("https://aviasales.tpo.lu/")
+    # How solid the typical low is (D40), each extreme daily low with its observation.
+    assert (d["typical_low"], d["baseline_days"]) == ("101 €", 22)
+    lows = d["baseline"]
+    assert (lows["span_days"], lows["lowest"], lows["highest"]) == (21, "100 €", "102 €")
+    assert [db.get_observation(conn, lows[k]).price for k in ("lowest_obs", "highest_obs")] \
+        == [100, 102]
     slide = client.get(d["slides"][0])
     assert slide.status_code == 200 and slide.content == PNG
+
+
+@pytest.mark.browser
+@respx.mock
+def test_the_queue_card_shows_how_solid_the_typical_low_is(web, ctx):
+    """The card as the page's script draws it (Chromium, requests answered by the app): days in
+    their window and the extreme daily lows, each price on its observation (D40)."""
+    from playwright.sync_api import sync_playwright
+    client, conn = web
+    deal_id = rendered_deal(ctx, conn)
+    deal = db.get_deal(conn, deal_id)[0]
+
+    def serve(route):
+        r = client.get(route.request.url.removeprefix("http://review.test"))
+        route.fulfill(status=r.status_code, body=r.content,
+                      headers={"content-type": r.headers["content-type"]})
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page()
+        page.route("http://review.test/**", serve)
+        page.goto("http://review.test/")
+        card = page.locator(f'[data-deal="{deal_id}"]')
+        text = " ".join(card.inner_text().split())
+        lowest = card.locator(f'[data-obs="{deal.baseline_lowest_obs_id}"]').inner_text()
+        highest = card.locator(f'[data-obs="{deal.baseline_highest_obs_id}"]').inner_text()
+        browser.close()
+    assert "vs. mínimo habitual 101 € (22 dias em 22, de 100 € a 102 €)" in text
+    assert [" ".join(s.split()) for s in (lowest, highest)] == ["100 €", "102 €"]
 
 
 @respx.mock

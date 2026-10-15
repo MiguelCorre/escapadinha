@@ -41,6 +41,16 @@ def pending_json(event: review_events.Event) -> dict:
             "created_at": pt.lisbon_timestamp(event.created_at)}
 
 
+def baseline_json(r: pipeline.BaselineRange | None) -> dict | None:
+    """How solid the typical low is (D40): span and the extreme daily lows, pt-PT, each with
+    its observation id (the page puts it on the price's `data-obs`)."""
+    if r is None:
+        return None
+    return {"span_days": r.span_days,
+            "lowest": pt.eur(r.lowest.price), "lowest_obs": r.lowest.id,
+            "highest": pt.eur(r.highest.price), "highest_obs": r.highest.id}
+
+
 def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observation,
               pending: list[review_events.Event] = ()) -> dict:
     route = pipeline.route_for(ctx, conn, obs.route_key)
@@ -64,6 +74,7 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "discount_pct": view.discount_pct,
         "typical_low": None if deal.baseline_median is None else pt.eur(deal.baseline_median),
         "baseline_days": deal.sample_size,
+        "baseline": baseline_json(pipeline.baseline_range(conn, deal)),
         "found_on": view.found_on,
         "checked_at": view.checked_at,
         "last_checked_at": pt.lisbon_timestamp(deal.last_checked_at) if deal.last_checked_at else None,

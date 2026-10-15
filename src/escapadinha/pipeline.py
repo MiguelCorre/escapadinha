@@ -185,12 +185,42 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
         deal_ids = [
             db.insert_deal(conn, observation_id=f.observation.id, rule=f.decision.rule,
                            baseline_median=f.baseline.median, sample_size=f.baseline.sample_size,
-                           discount_pct=f.decision.discount_pct, threshold=cfg.threshold)
+                           discount_pct=f.decision.discount_pct, threshold=cfg.threshold,
+                           **_baseline_columns(f.baseline))
             for f in found.candidates
         ]
         open_offers = [o for o in offers if o.id not in taken]
         results.append(_summarise(route, open_offers, history, found, deal_ids, cfg, now))
     return run_id, results
+
+
+@dataclass(frozen=True)
+class BaselineRange:
+    """A deal's typical low as the reviewer sees it (D40), next to `sample_size` days."""
+
+    span_days: int              # first to last baseline day
+    lowest: Observation         # the cheapest daily low
+    highest: Observation        # the dearest daily low
+
+
+def baseline_range(conn: sqlite3.Connection, deal: Deal) -> BaselineRange | None:
+    """The span and extreme daily lows stored with the deal, read from their observations;
+    None for a deal detected before D40 or without a typical low (price cap)."""
+    ids = (deal.baseline_lowest_obs_id, deal.baseline_highest_obs_id)
+    if deal.baseline_span_days is None or None in ids:
+        return None
+    lowest, highest = (db.get_observation(conn, i) for i in ids)
+    return BaselineRange(deal.baseline_span_days, lowest, highest)
+
+
+def _baseline_columns(base: detector.Baseline) -> dict:
+    """What a deal stores of its typical low for the reviewer (D40): span and the
+    observations of the extreme daily lows (none without a baseline, e.g. a price cap)."""
+    if base.median is None:
+        return {}
+    return {"baseline_span_days": base.span_days,
+            "baseline_lowest_obs_id": base.lowest.id if base.lowest else None,
+            "baseline_highest_obs_id": base.highest.id if base.highest else None}
 
 
 def _summarise(route: Route, offers: list[Observation], history: list[Observation],

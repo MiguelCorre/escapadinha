@@ -231,7 +231,7 @@ def test_routes_carry_typical_lows_averages_status_and_counts(ctx, tmp_path):  #
     assert lon["path"] == "/voos/lisboa-londres/" and lon["kind"] == "europe"
     assert lon["rules"] == {"direct_only": True, "min_nights": 2, "max_nights": 10,
                             "max_transfers": 0}
-    assert lon["counts"]["observations"] == 25 and lon["status"] == "active"
+    assert lon["counts"]["observations"] == 50 and lon["status"] == "active"   # 2 a day
     assert route(out, "LIS-BCN")["months"] == [
         {"month": f"{jan:%Y-%m}", "typical_low": None, "average": None, "days": 2}]
     assert route(out, "OPO-BER")["status"] == "dormant"
@@ -392,6 +392,26 @@ def test_export_and_site_build_share_one_new_link_budget_per_run(ctx, tmp_path):
     assert len(low_link_requests()) == 4                      # a new run, a new budget
 
 
+def test_a_month_shows_its_typical_low_only_once_mature(ctx, tmp_path):  # noqa: F811
+    """D40: seven daily lows, counting only days that saw two departure dates; the route page
+    reads both numbers from meta to say what "ainda sem dados suficientes" means."""
+    conn = pipeline.open_db(ctx)
+    jan = date(db.utcnow().year + 1, 1, 10)
+    one_date = offer("LIS", "BCN", 30, found_ago=11, dep=jan)     # a 7th, cheap day: one date
+    store_run(conn, history("LIS", "BCN", [40] * 6, jan) + [one_date]
+              + history("LIS", "ROM", [50] * 7, jan))
+    out = tmp_path / "data"
+    site_data.export_site_data(ctx, conn, out, new_links=False)
+    month = f"{jan:%Y-%m}"
+    assert route(out, "LIS-BCN")["months"] == [
+        {"month": month, "typical_low": None, "average": None, "days": 6}]
+    assert route(out, "LIS-ROM")["months"] == [
+        {"month": month, "typical_low": 50, "average": 50, "days": 7}]
+    det = read(out, "meta.json")["detector"]
+    assert (det["min_baseline_days"], det["min_dates_per_day"]) == (7, 2)
+    assert validation_errors(out) == []
+
+
 # --- size budget (D27) --------------------------------------------------------------------
 
 @respx.mock
@@ -399,7 +419,7 @@ def test_low_price_files_stay_inside_the_size_budget(ctx, tmp_path):  # noqa: F8
     mock_links()
     conn = pipeline.open_db(ctx)
     jan = date(db.utcnow().year + 1, 1, 10)
-    store_run(conn, history("LIS", "LON", [100] * 6, jan))           # typical low 100 € in Jan
+    store_run(conn, history("LIS", "LON", [100] * 7, jan))           # typical low 100 € in Jan
     trips = [offer("LIS", "LON", 60 + (day * 9 + n) % 25 + 0.5 * (n % 2), found_ago=n % 3,
                    dep=jan + timedelta(days=day), nights=n)
              for day in range(22) for n in range(2, 11)]                # 198 trips, all -15 %+

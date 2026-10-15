@@ -47,19 +47,22 @@ def ctx(tmp_path, monkeypatch):
 
 
 def seed_history(conn, *, days: int, price: float):
-    """Synthetic past observations for LIS-LON (test data only)."""
+    """Synthetic past observations for LIS-LON (test data only): one per day at the day's
+    low (`price` + 0..2) and a dearer one on the next departure date, so every day counts
+    towards the typical low (two departure dates, D40)."""
     run_id = db.start_run(conn, "test")
     now = db.utcnow()
     db.insert_observations(conn, run_id, [
         Observation(source="test", origin="LIS", destination="LON", origin_airport="LIS",
-                    destination_airport="LGW", departure_date=date(2026, 11, 1) + timedelta(days=i),
-                    return_date=date(2026, 11, 5) + timedelta(days=i), price=price + i % 3,
-                    currency="EUR", airline="TP", flight_number="1", transfers=0,
-                    return_transfers=0, deep_link=None, fetched_at=now - timedelta(days=i + 1),
-                    raw_json="{}")
-        for i in range(days)
+                    destination_airport="LGW",
+                    departure_date=date(2026, 11, 1) + timedelta(days=i + k),
+                    return_date=date(2026, 11, 5) + timedelta(days=i + k),
+                    price=price + i % 3 + 20 * k, currency="EUR", airline="TP",
+                    flight_number="1", transfers=0, return_transfers=0, deep_link=None,
+                    fetched_at=now - timedelta(days=i + 1), raw_json="{}")
+        for i in range(days) for k in (0, 1)
     ])
-    db.finish_run(conn, run_id, status="ok", n_requests=0, n_observations=days, error=None)
+    db.finish_run(conn, run_id, status="ok", n_requests=0, n_observations=2 * days, error=None)
 
 
 def mock_api():
@@ -104,6 +107,11 @@ def test_collect_and_detect(ctx):
     deal, obs = db.get_deal(conn, by_route["LIS-LON"].deal_ids[0])
     assert obs.price == 58 and obs.run_id == summary.run_id     # traceable to this run
     assert deal.rule == "median" and deal.sample_size == 22   # seeded days older than 3 days
+    # What the reviewer sees (D40): the days' span and the extreme daily lows, by observation.
+    lowest, highest = (db.get_observation(conn, i)
+                       for i in (deal.baseline_lowest_obs_id, deal.baseline_highest_obs_id))
+    assert (deal.baseline_span_days, lowest.price, highest.price) == (21, 100, 102)
+    assert lowest.route_key == highest.route_key == "LIS-LON"
 
     # Running detection again on the same run must not flag the same trip twice.
     _, again = pipeline.run_detect(ctx, conn, run_id)
@@ -189,6 +197,13 @@ def test_migrates_v1_database(tmp_path):
     assert obs.price == 80 and obs.found_date is None
     deal, _ = db.get_deal(conn, 1)
     assert deal.status == "new" and deal.affiliate_url is None
+    # v13 (D40): an old deal has no stored baseline range; the columns match a fresh install.
+    assert (deal.baseline_span_days, deal.baseline_lowest_obs_id,
+            deal.baseline_highest_obs_id) == (None, None, None)
+    fresh = db.connect(tmp_path / "fresh.db")
+    db.init(fresh)
+    columns = lambda c: {r[1] for r in c.execute("PRAGMA table_info(deals)")}  # noqa: E731
+    assert columns(conn) == columns(fresh)
 
 
 @respx.mock
