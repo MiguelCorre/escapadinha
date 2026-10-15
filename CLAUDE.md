@@ -84,7 +84,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - The website data contract is versioned: change `contract/site/v1/*.schema.json` together with
   `site_data.py`, keep changes additive within v1 (a breaking change is `v2/`), and regenerate the
   committed fixtures with `escapadinha export fixtures` (read-only DB copy, anonymous links and
-  credits). Fixtures are test data (`meta.fixture: true`), never deployed.
+  credits). Fixtures are test data (`meta.fixture: true`), never deployed. Hand-edit a committed
+  fixture only to add an additive field, with the value a regeneration would write, when
+  regenerating would drop states the web tests build from (D34's meta fields, D37's
+  `affiliates.json`, D40's `meta.detector.min_dates_per_day` + `min_baseline_days: 7`); say so
+  in the DECISIONS entry. Until baselines mature the export has no low prices, so the full
+  regeneration waits for #52 (the months inside are still the pre-D40 export).
 - Two tiers (D24): **low prices** (`low_threshold`, automatic on route pages, mature baseline
   only) and **promotion candidates** (`threshold` AND `min_saving_eur`, become deals for review).
   Only candidates create deals; the home page shows promotions only.

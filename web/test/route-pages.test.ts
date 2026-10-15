@@ -61,7 +61,12 @@ describe("route page", () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]).toContain("outubro de 2026");
     expect(rows[0]).toContain("ainda sem dados");
+    expect(rows[0]).toContain("1 de 7 dias");          // meta.detector.min_baseline_days (D40)
     expect(rows[0]).not.toMatch(/€/);
+    // Which days count (D40): the fixtures' meta.detector has min_dates_per_day (added by hand).
+    expect(text(doc().querySelector("main")!)).toContain(
+      "Precisamos de pelo menos 7 dias de dados num mês, contando só os dias com preços para 2 ou mais "
+      + "datas de partida, antes de dizer o que é habitual.");
     expect(rows[1]).toContain("novembro de 2026");
     expect(rows[1]).toContain("102 €");
     expect(rows[2]).toContain("101,50 €");

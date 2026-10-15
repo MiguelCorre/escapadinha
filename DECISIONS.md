@@ -2219,7 +2219,14 @@ so nothing has to be hosted.
   database gives 0 low prices and almost no typical low, which would drop the low-price states
   the web tests build from. They stay as exported at run 30 under the old rules (still valid:
   the field is optional, and their meta without it is the pre-D40 case the site handles).
-  Regenerate them once baselines mature.
+  Regenerate them once baselines mature. **Review of M1 (2026-10-16):** without the field the
+  fixture build never drew the D40 sentence, so `fixtures/meta.json` `detector` got
+  `min_dates_per_day: 2` and `min_baseline_days: 7` **by hand** (additive, the values a
+  regeneration writes, as in D34 and D37); `web/test/route-pages.test.ts` checks the sentence
+  and "1 de 7 dias". The months inside are still the run-30 export, so a few typical lows rest
+  on 4–6 days under a meta that asks for 7 (test data, never deployed). The full regeneration
+  waits for mature baselines: #52, which also adds a check that every fixture typical low has
+  `min_baseline_days` days.
 - **Tests:** detector (the dates rule, 10 days, the span, 7 days for low prices and the price-cap
   path, the extreme daily lows, the config's nesting); `run_detect` stores the range; the schema
   upgrade; the snapshot, the local page's JSON and card, the Function's card; the export (6
