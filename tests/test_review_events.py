@@ -35,6 +35,51 @@ def validate(name: str, data: dict) -> None:
     validator.validate(data)
 
 
+# Never fabricate prices (D2) in the snapshot: every `*_eur` field of a deal and what it traces
+# to. A new price field in snapshot.schema.json fails `test_every_snapshot_price_field_is_traced`
+# until it is taught here.
+SNAPSHOT_PRICES = {"price_eur", "typical_low_eur", "last_seen_price_eur", "lowest_eur",
+                   "highest_eur"}
+
+
+def untraced_prices(conn, snap: dict) -> list[str]:
+    """Prices in the snapshot's deals that don't trace to stored data: the deal's observation,
+    its stored typical low, its recheck price (a stored observation of the trip has it), and
+    the baseline's extreme daily lows (their observations, D40)."""
+    bad = []
+    for tab in ("queue", "approved", "published", "closed"):
+        for d in snap[tab]:
+            deal, obs = db.get_deal(conn, d["id"])
+            seen = d["live_check"]["last_seen_price_eur"]
+            checks = [("price_eur", d["price_eur"],
+                       d["observation_id"] == obs.id and d["price_eur"] == obs.price),
+                      ("typical_low_eur", d["typical_low_eur"],
+                       d["typical_low_eur"] == deal.baseline_median),
+                      ("last_seen_price_eur", seen, seen == deal.last_seen_price
+                       and db.trip_observation_at(conn, obs, seen) is not None)]
+            for side in ("lowest", "highest") if d.get("baseline") else ():
+                price, oid = d["baseline"][f"{side}_eur"], d["baseline"][f"{side}_observation_id"]
+                checks.append((f"{side}_eur", price, db.get_observation(conn, oid).price == price))
+            bad += [f"deal {d['id']} {name} {price}" for name, price, ok in checks
+                    if price is not None and not ok]
+    return bad
+
+
+def test_every_snapshot_price_field_is_traced():
+    names: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            names.update(k for k in node.get("properties", {}) if k.endswith("_eur"))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+    walk(schema("snapshot"))
+    assert names == SNAPSHOT_PRICES
+
+
 def test_schemas_are_valid_draft_2020_12():
     for name in ("event", "snapshot"):
         jsonschema.Draft202012Validator.check_schema(schema(name))
@@ -334,6 +379,14 @@ def test_snapshot_follows_a_deal_from_queue_to_published(remote):
     # The observation's stop counts, for the Function's stop limit (D29).
     obs = db.get_deal(conn, deal_id)[1]
     assert (d["transfers"], d["return_transfers"]) == (obs.transfers, obs.return_transfers) == (0, 0)
+    # How solid the typical low is (D40): days, span and the extreme daily lows, each traced
+    # to its observation.
+    assert (d["typical_low_eur"], d["baseline_days"]) == (101, 22)
+    lows = d["baseline"]
+    assert (lows["span_days"], lows["lowest_eur"], lows["highest_eur"]) == (21, 100, 102)
+    for side in ("lowest", "highest"):
+        assert db.get_observation(conn, lows[f"{side}_observation_id"]).price == lows[f"{side}_eur"]
+    assert untraced_prices(conn, snap) == []
     [p] = snap["pending_events"]
     assert p == approval.event.to_json()
 

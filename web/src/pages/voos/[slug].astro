@@ -18,7 +18,7 @@ import type { Route } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { eur, nights, numericDate, shortDate } from "../../lib/format";
 import { promotionView } from "../../lib/promotion";
-import { routeLowPrices, rulesText } from "../../lib/routes";
+import { routeLowPrices, rulesText, typicalLowRule } from "../../lib/routes";
 
 export const getStaticPaths = (() => {
   return data.routes.routes.map((route) => {
@@ -112,7 +112,7 @@ const name = `${origin.name} para ${route.city}`;
     {route.months.length ? (
       <>
         <MonthTable route={route} minDays={det.min_baseline_days} />
-        <p class="mt-xs max-w-measure text-small text-muted">Mediana dos preços mais baixos encontrados em cada dia, por pessoa, ida e volta; a média dos mesmos dias fica como contexto. Precisamos de pelo menos {det.min_baseline_days} dias de dados num mês antes de dizer o que é habitual. Não é uma garantia de preço.</p>
+        <p class="mt-xs max-w-measure text-small text-muted">Mediana dos preços mais baixos encontrados em cada dia, por pessoa, ida e volta; a média dos mesmos dias fica como contexto. {typicalLowRule(det)} Não é uma garantia de preço.</p>
       </>
     ) : (
       <p class="mt-md max-w-measure text-muted">Ainda estamos a recolher dados suficientes para esta rota.</p>

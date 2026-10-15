@@ -34,7 +34,8 @@ repeats the trace.
 - Candidates are days inside `max_offer_age_days`, and the baseline uses only older days,
   so a candidate never lowers its own baseline.
 - The baseline is "insufficient" below `min_baseline_days`. During that time only an
-  explicit per-route `price_cap_eur` can flag a deal.
+  explicit per-route `price_cap_eur` can flag a deal. (Since D40 promotions need their own,
+  stricter maturity, and only days with two departure dates count.)
 - Known bias: the cache keeps fewer old prices, so early baselines are a little noisy. Our
   own runs fill this in over time.
 
@@ -455,7 +456,8 @@ so nothing has to be hosted.
   queue. The spec (#1, stories 17–22) splits a run's output in two, both measured against the
   same typical low (D3, unchanged).
 - **Low prices** (`detector.low_prices`): fresh offers within the route's rules at least
-  `low_threshold` (0.15) below a **mature** typical low (≥ `min_baseline_days`), one per trip
+  `low_threshold` (0.15) below a **mature** typical low (≥ `min_baseline_days`; since D40, 7 daily
+  lows from days with two departure dates, and promotion candidates need 10 spanning 9), one per trip
   dates (the cheapest), biggest discount first. No price-cap path: without a typical low there is
   nothing to be "low" against, and they go out without review. Offers that already are deals still
   count (a low price is not a post).
@@ -707,7 +709,8 @@ so nothing has to be hosted.
   arrival airport is always present (D11).
 - **Plain average:** `routes[].months[].average` = mean of the same daily lows as the typical low
   (`Baseline.mean`), context only (story 19). Typical low and average are `null` while a month has
-  fewer than `min_baseline_days` days, so the site says "ainda sem dados" instead of a number.
+  fewer than `min_baseline_days` days (counted as D40 says), so the site says "ainda sem dados"
+  instead of a number.
   Route `cheapest` = cheapest offer within the rules in the latest run, found within the freshness
   window (origin pages' "a partir de"). A route-page price calendar was left out of v1 (see open
   questions); it can be added as an optional field or file.
@@ -2104,6 +2107,87 @@ so nothing has to be hosted.
   `direct` field in the snapshot (the query already carries it, and the Function must not
   rebuild the query); changing only the collection (the live check would disagree with the
   recheck).
+
+## D40: Promotions wait for a mature typical low; the reviewer sees the baseline (2026-10-15, #42)
+- **Why:** the data-reliability research (`docs/research/2026-10-15-data-reliability.md`,
+  recommendations 2 and 3). With 4–6-day baselines, 7 of the first 11 deals were not 30 % below
+  the typical low once more days were known, and every discount fell (by 7 points in the
+  median): the selection effect of small samples, where a deal fires when a thin baseline
+  happens to be high. 45 % of baseline days saw a single departure date, and those days are a
+  high outlier (above 1.25× the month's median) 24 % of the time, against 8 %.
+- **Rules** (config `detector`, `DetectorConfig`, passed into the pure detector like the rest):
+  - **A daily low counts** only if that day's usable offers for the route-month (within the
+    route's rules) have at least `min_dates_per_day` (2) different departure dates.
+  - **Low prices and every typical low the site shows** (route pages' months, the low-price rows'
+    `typical`, the explorer) need `min_baseline_days` (7, was 4) counted days: `is_mature`.
+  - **Promotion candidates** need `min_baseline_days_promo` (10) counted days whose first and last
+    are at least `min_baseline_span_days` (9) days apart: `is_mature_for_promotions`. Until then
+    only a route's `price_cap_eur` makes a candidate (D3, unchanged); `detect` shows "warming up"
+    with days/10 and the span.
+  - Unchanged: `threshold` 0.30, `min_saving_eur` 15, `low_threshold` 0.15, the median, the
+    90-day lookback, the freshness window. `min_baseline_days_promo ≥ min_baseline_days` is
+    enforced, so the tiers still nest (every candidate is also a low price).
+  - **The span is a guard, redundant at the defaults:** 10 different days always span at least 9.
+    It stays a setting of its own (the research's weekday/weekend cycle) so lowering the day count
+    can't drop it. No minimum of observations (two dates a day already means two rows a day) and
+    no outlier trimming (the median resists one bad day, the dates rule removes most of them).
+- **Replay** (read-only copy of `data/escapadinha.db`: `mode=ro`, copied into memory, migrated
+  there; runs 19–57 as in the research, offers present at run r = rows with
+  `run_id ≤ r ≤ last_run_id`; the script and its output are in the PR):
+
+  | Rule | Candidates, runs 19–57 | Low prices at run 57 | Route-months mature for promotions |
+  |---|---|---|---|
+  | Before (4 days, every day counts) | 8 (3 hold ≥ 30 % against today's median, 7 ≥ 20 %) | 32 on 10 routes | 30 |
+  | 7 days, every day counts | 0 | 5 on 2 routes (LIS-BCN, OPO-PAR) | 4 |
+  | **D40** (2 dates a day; 7 / 10 spanning 9) | **0** | **0** | **0** (7 have ≥ 5 counted days) |
+
+  The "before" rows reproduce the research (276 route-months with usable rows, 217 with a
+  baseline day, 30 / 15 / 4 at ≥ 4 / 5 / 7 days; one-date days 161 of 356). Up to run 58, the same.
+- **Cost (agreed in #42):** no promotions and, today, no low prices either (the research's "5 on
+  2 routes" was the 7-day rule without the dates filter). Route pages say "ainda sem dados
+  suficientes" until a month has 7 counted days. Busy route-months should qualify from about
+  20–25 October, sooner with the nonstop fares of #41. The 6 deals waiting for review were
+  detected under the old rules; they stay in the queue and show "(N dias)".
+- **The reviewer sees the baseline:** "−39% vs. mínimo habitual 99 € (10 dias em 12, de 54 € a
+  110 €)": 10 daily lows over a 12-day window (span + 1), the cheapest and the dearest of them.
+  At detection a deal stores `baseline_span_days` and the observation ids of those two daily lows
+  (`baseline_lowest_obs_id`, `baseline_highest_obs_id`; schema v13: `SCHEMA_VERSION` 13,
+  `schema.sql`, migration 13 = three `ALTER TABLE deals ADD COLUMN`, tested through every
+  migration from v1 against a fresh install). Ids, not prices: the prices are read from those
+  observations (`pipeline.baseline_range`), so they trace to `price_observations.id` (D2).
+  Deals detected before keep NULLs: no range was stored, and recomputing one would mix in later
+  days. Rejected: computing the range when the snapshot is made (it would drift from the typical
+  low the deal was judged against).
+- **Review snapshot (contract v1) and both review pages:** each deal gets `baseline: {span_days,
+  lowest_eur, lowest_observation_id, highest_eur, highest_observation_id}` or null.
+  **Versioning:** the contract's shapes change only with a new version; this is an optional
+  field, added within v1 like D29's `transfers`, because no reader can break. The Function
+  doesn't validate the snapshot at run time (an older Function ignores the key), and a newer
+  Function reading an older snapshot (key absent) shows the days only, as for null. Events are
+  unchanged. A v2 would need a second snapshot or a lock-step deploy for no gain. New check:
+  `tests/test_review_events.py::untraced_prices` traces every price of a snapshot (the deal's
+  observation, its stored typical low, the recheck price backed by a stored observation, the
+  baseline's two observations), and `SNAPSHOT_PRICES` fails on a new `*_eur` field in the schema
+  until it is taught there. On both pages each extreme price sits in a `<span data-obs="<id>">`
+  inside the card (`data-deal`; the local page's card gained it). Tests:
+  `web/test/review/page.test.ts` (with the field, null, and absent; snapshots validated with ajv)
+  and, for the local page drawn by its script, a browser test in `tests/test_review.py`.
+- **Site contract v1:** `meta.detector.min_dates_per_day` (optional, added within v1). The route
+  page explains "ainda sem dados suficientes" with it (`routes.typicalLowRule`: "…pelo menos 7
+  dias de dados num mês, contando só os dias com preços para 2 ou mais datas de partida…"; an
+  older export without it gets the old sentence). Typical lows follow the new maturity through
+  `detector.is_mature`; nothing new changes per run, and `config.yaml` is already code in
+  `run_path.fingerprint`, so the first run with these rules takes the full path and publishes
+  the emptier pages. **Committed fixtures not regenerated:** `export fixtures` on today's
+  database gives 0 low prices and almost no typical low, which would drop the low-price states
+  the web tests build from. They stay as exported at run 30 under the old rules (still valid:
+  the field is optional, and their meta without it is the pre-D40 case the site handles).
+  Regenerate them once baselines mature.
+- **Tests:** detector (the dates rule, 10 days, the span, 7 days for low prices and the price-cap
+  path, the extreme daily lows, the config's nesting); `run_detect` stores the range; the schema
+  upgrade; the snapshot, the local page's JSON and card, the Function's card; the export (6
+  counted days plus a one-date day: no typical low; 7: shown). Test histories now see two
+  departure dates a day (`seed_history`, `test_traceability.history`, …), like real data.
 
 ## D41: A real 2-hourly schedule: a Cloudflare Worker dispatches the pipeline (2026-10-15, #43)
 - **Why:** GitHub's `schedule` is best effort. The cron `17 */2 * * *` fired 9 times on

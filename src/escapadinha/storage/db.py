@@ -11,7 +11,7 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo, Post
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -113,6 +113,13 @@ MIGRATIONS = {
          "ALTER TABLE posting_queue ADD COLUMN caption TEXT"],
     # Telegram publisher (D38): the channel message's id (its link is `result_url`).
     12: ["ALTER TABLE posting_queue ADD COLUMN message_id TEXT"],
+    # Mature typical lows (D40): what the reviewer sees of a deal's baseline. Deals detected
+    # before keep NULLs (their baseline was never stored beyond the median and days).
+    13: ["ALTER TABLE deals ADD COLUMN baseline_span_days INTEGER",
+         "ALTER TABLE deals ADD COLUMN baseline_lowest_obs_id INTEGER "
+         "REFERENCES price_observations(id)",
+         "ALTER TABLE deals ADD COLUMN baseline_highest_obs_id INTEGER "
+         "REFERENCES price_observations(id)"],
 }
 
 
@@ -339,13 +346,16 @@ def recently_flagged_offers(conn: sqlite3.Connection, origin: str, destination: 
 
 def insert_deal(conn: sqlite3.Connection, *, observation_id: int, rule: str,
                 baseline_median: float | None, sample_size: int, discount_pct: float | None,
-                threshold: float) -> int:
+                threshold: float, baseline_span_days: int | None = None,
+                baseline_lowest_obs_id: int | None = None,
+                baseline_highest_obs_id: int | None = None) -> int:
     cur = conn.execute(
         """INSERT INTO deals (observation_id, rule, baseline_median, sample_size,
-                              discount_pct, threshold, detected_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                              discount_pct, threshold, detected_at, baseline_span_days,
+                              baseline_lowest_obs_id, baseline_highest_obs_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (observation_id, rule, baseline_median, sample_size, discount_pct, threshold,
-         _ts(utcnow())),
+         _ts(utcnow()), baseline_span_days, baseline_lowest_obs_id, baseline_highest_obs_id),
     )
     conn.commit()
     return cur.lastrowid
@@ -367,6 +377,9 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
         output_path=row["output_path"],
         reviewed_at=_dt(row["reviewed_at"]), review_note=row["review_note"],
         published_at=_dt(row["published_at"]), post_url=row["post_url"],
+        baseline_span_days=row["baseline_span_days"],
+        baseline_lowest_obs_id=row["baseline_lowest_obs_id"],
+        baseline_highest_obs_id=row["baseline_highest_obs_id"],
     )
 
 

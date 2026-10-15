@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { LowPriceRow, Route, SiteData } from "../src/lib/contract";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import {
-  bestMonths, calendarMonths, monthRows, originGroups, routeLowPrices, rulesText,
+  bestMonths, calendarMonths, monthRows, originGroups, routeLowPrices, rulesText, typicalLowRule,
 } from "../src/lib/routes";
 
 const fixtures = loadSiteData(FIXTURES_DIR);
@@ -33,6 +33,17 @@ describe("monthRows", () => {
       { month: "2026-11", label: "novembro de 2026", typicalLow: "87 €", average: "95,50 €", days: "6 dias" },
       { month: "2026-12", label: "dezembro de 2026", typicalLow: null, average: null, days: "2 de 4 dias" },
     ]);
+  });
+});
+
+describe("typicalLowRule", () => {
+  it("says how many days a month needs, and which days count (D40)", () => {
+    expect(typicalLowRule({ min_baseline_days: 7, min_dates_per_day: 2 })).toBe(
+      "Precisamos de pelo menos 7 dias de dados num mês, contando só os dias com preços para 2 ou mais "
+      + "datas de partida, antes de dizer o que é habitual.");
+    // An export made before D40 has no min_dates_per_day: every day counted.
+    expect(typicalLowRule({ min_baseline_days: 4 })).toBe(
+      "Precisamos de pelo menos 4 dias de dados num mês antes de dizer o que é habitual.");
   });
 });
 

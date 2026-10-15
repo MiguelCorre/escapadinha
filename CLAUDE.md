@@ -88,6 +88,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Two tiers (D24): **low prices** (`low_threshold`, automatic on route pages, mature baseline
   only) and **promotion candidates** (`threshold` AND `min_saving_eur`, become deals for review).
   Only candidates create deals; the home page shows promotions only.
+- Mature typical lows (D40): a daily low counts only if that day saw `min_dates_per_day`
+  departure dates; low prices and every typical low the site shows need `min_baseline_days`
+  (`detector.is_mature`), promotion candidates `min_baseline_days_promo` spanning
+  `min_baseline_span_days` (`detector.is_mature_for_promotions`; else only a route's
+  `price_cap_eur`). All from config `detector`, passed in. A deal stores its baseline's span and
+  the observation ids of its cheapest/dearest daily low (`pipeline.baseline_range`); the review
+  snapshot and both review pages show them, each price on its `data-obs`.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
   passed in too; never read a global `direct_only` or nights range. The same for the collector
@@ -162,7 +169,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   event (`pipeline.price_now`, stores nothing); the applier re-checks every transition, refuses
   approvals whose check is older than `review.approve_max_age_hours` (passed in as
   `approve_max_age`), and archives refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
-  them only with a new version. Render (new → rendered) and rechecks stay pipeline-owned.
+  them only with a new version, except optional fields a reader can do without (D29's
+  `transfers`, D40's `baseline`: the Function handles their absence, and the new `*_eur` field is
+  taught to `test_review_events.SNAPSHOT_PRICES`). Render (new → rendered) and rechecks stay
+  pipeline-owned.
 - Posting queue (D32, `posting_queue`): only an applied approve event queues posts, in the
   applier's transaction (`plan_posts` passed into `apply_pending`). Slot rules stay pure in
   `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). Channels are named only in
@@ -260,8 +270,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   (`tick`, `settings`, `recentRun`, `redact`), `src/index.js` (the Worker's `scheduled`),
   `src/fallback.js` (the Actions fallback's entry, exit codes), `test/` (node:test); runbook
   `docs/runbooks/agendamento.md`
-- `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate` (candidates),
-  `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
+- `src/escapadinha/detector.py`: daily-low `baseline` per route+month (days with 2+ departure
+  dates, cheapest/dearest daily low), `is_mature` / `is_mature_for_promotions` (D40), `evaluate`
+  (candidates), `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,

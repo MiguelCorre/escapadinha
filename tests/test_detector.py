@@ -11,8 +11,12 @@ from escapadinha.models import Observation, RouteRules
 
 NOW = datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc)
 TODAY = NOW.date()
+# The rules before D40 (every day counts, 4 days for both tiers): the median, threshold and
+# per-route tests below don't depend on the maturity rules, which have their own tests.
 CFG = DetectorConfig(threshold=0.30, lookback_days=90, min_baseline_days=4, dedupe_days=7,
-                     max_offer_age_days=3)
+                     max_offer_age_days=3, min_dates_per_day=1, min_baseline_days_promo=4,
+                     min_baseline_span_days=0)
+RULES = DetectorConfig()          # the shipped maturity rules (D40)
 
 
 def obs(price, *, found_ago=0, dep=date(2026, 11, 6), nights=4, oid=None, fetched_ago=0.0,
@@ -346,3 +350,76 @@ def test_small_fare_route_gets_low_prices_but_no_candidate():
     """A 40 € route: 26 € is a low price (-35 %) but saves only 14 €, so no promotion."""
     found = detect([obs(26, oid=1)], lows([40] * 5), [], CFG, None, NOW, max_deals=1)
     assert [lp.observation.id for lp in found.low_prices] == [1] and found.candidates == []
+
+
+# --- a mature typical low (D40) ------------------------------------------------------------------
+
+def days(prices, *, first_ago=4, dates=2, dep=date(2026, 11, 6)):
+    """One day per price, found `first_ago`, `first_ago + 1`, ... days ago, each day with
+    `dates` departure dates: the day's low (`price`) and dearer offers on later dates."""
+    return [obs(p + 10 * k, found_ago=first_ago + i, dep=dep + timedelta(days=k))
+            for i, p in enumerate(prices) for k in range(dates)]
+
+
+def test_a_daily_low_counts_only_when_that_day_saw_two_departure_dates():
+    """A day with one searched date is three times as likely to be a high outlier."""
+    counted = days([100, 90])                                          # 4 and 5 days ago
+    one_date = [obs(50, found_ago=6), obs(55, found_ago=6, nights=3)]  # two offers, one date
+    base = month_baselines(counted + one_date, RULES, NOW)[(2026, 11)]
+    assert (base.sample_size, base.median) == (2, 95)
+    every_day = RULES.model_copy(update={"min_dates_per_day": 1})
+    assert month_baselines(counted + one_date, every_day, NOW)[(2026, 11)].sample_size == 3
+
+
+def test_promotion_candidates_need_ten_daily_lows():
+    offer = obs(60, oid=1, dep=date(2026, 11, 20))                     # -40 % and 40 €
+    assert detect([offer], days([100] * 9), [], RULES, None, NOW, 1).candidates == []
+    [flag] = detect([offer], days([100] * 10), [], RULES, None, NOW, 1).candidates
+    assert (flag.baseline.sample_size, flag.baseline.span_days) == (10, 9)
+    d = evaluate(offer, Baseline(100, 9, 12), RULES, price_cap=None)
+    assert d.kind == "insufficient_history" and "9/10 days" in d.reason
+
+
+def test_promotion_candidates_need_their_days_to_span_nine_days():
+    """At the shipped 10 days the span follows (10 different days span at least 9); it still
+    holds when fewer days are asked for."""
+    fewer = RULES.model_copy(update={"min_baseline_days_promo": 7})
+    offer = obs(60, oid=1, dep=date(2026, 11, 20))
+    close = days([100] * 7)                                            # 4..10 days ago: span 6
+    spread = days([100] * 4) + days([100] * 3, first_ago=11)           # 4..7, 11..13: span 9
+    assert detect([offer], close, [], fewer, None, NOW, 1).candidates == []
+    assert len(detect([offer], spread, [], fewer, None, NOW, 1).candidates) == 1
+    d = evaluate(offer, Baseline(100, 7, 6), fewer, price_cap=None)
+    assert d.kind == "insufficient_history" and "span 6/9 days" in d.reason
+
+
+def test_low_prices_need_seven_daily_lows_a_promotion_more():
+    offer = obs(60, oid=1, dep=date(2026, 11, 20))
+    assert detect([offer], days([100] * 6), [], RULES, None, NOW, 1) == Detection([], [])
+    found = detect([offer], days([100] * 7), [], RULES, None, NOW, 1)
+    assert [lp.observation.id for lp in found.low_prices] == [1] and found.candidates == []
+    # Not mature for promotions: only an explicit route price cap makes a candidate.
+    [flag] = detect([offer], days([100] * 7), [], RULES, 70, NOW, 1).candidates
+    assert flag.decision.rule == "price_cap"
+
+
+def test_promotion_maturity_never_asks_for_fewer_days_than_low_prices():
+    """Every promotion candidate is also a low price, so its baseline must be mature for both."""
+    with pytest.raises(ValueError, match="min_baseline_days_promo"):
+        DetectorConfig(min_baseline_days=7, min_baseline_days_promo=5)
+    shipped = DetectorConfig()
+    assert (shipped.min_dates_per_day, shipped.min_baseline_days, shipped.min_baseline_days_promo,
+            shipped.min_baseline_span_days) == (2, 7, 10, 9)
+
+
+def test_the_typical_low_keeps_its_lowest_and_highest_daily_low_with_their_observations():
+    """What the reviewer sees next to a promotion, each price traced to its observation."""
+    history = [obs(p + 10 * k, found_ago=4 + i, dep=date(2026, 11, 6) + timedelta(days=k),
+                   oid=10 * i + k)
+               for i, p in enumerate([99, 54, 110, 120]) for k in range(2)]
+    history.append(obs(30, found_ago=9, oid=99))                       # one date: not counted
+    base = month_baselines(history, RULES, NOW)[(2026, 11)]
+    assert (base.median, base.sample_size, base.span_days) == (104.5, 4, 3)
+    assert (base.lowest.id, base.lowest.price) == (10, 54)
+    assert (base.highest.id, base.highest.price) == (30, 120)
+    assert baseline([], since=TODAY, before=TODAY).lowest is None

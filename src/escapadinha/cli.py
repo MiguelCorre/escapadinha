@@ -117,11 +117,12 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
     labels = {"deals": "[green]deal[/]", "no_deal": "no deal",
               "insufficient_history": "[yellow]warming up[/]", "no_data": "[dim]no data[/]",
               "no_fresh": "[dim]no fresh[/]"}
-    need = ctx.config.detector.min_baseline_days
+    need = ctx.config.detector.min_baseline_days_promo     # promotions' maturity (D40)
     for r in results:
         best = "–" if r.best is None else f"{r.best.price:g} € ({r.best.departure_date:%d/%m})"
         low = "–" if r.baseline is None or r.baseline.median is None else f"{r.baseline.median:g} €"
-        days = "–" if r.baseline is None else f"{r.baseline.sample_size}/{need} days"
+        days = ("–" if r.baseline is None
+                else f"{r.baseline.sample_size}/{need} days, span {r.baseline.span_days}")
         table.add_row(r.route, str(r.fresh), best, low, days, labels.get(r.status, r.status),
                       str(r.low_prices or "–"), ", ".join(map(str, r.deal_ids)) or "–")
     console.print(table)
@@ -155,11 +156,17 @@ def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
     console.print(f"{r.key}: {row['n']} distinct offers, seen {row['sightings']} times in total "
                   f"(most repeated: {row['max_seen']} runs), "
                   f"{row['min_price']:g}–{row['max_price']:g} €")
-    console.print(f"Typical low per departure month (median of daily lows, "
-                  f"needs {ctx.config.detector.min_baseline_days} days):")
+    det = ctx.config.detector
+    console.print(f"Typical low per departure month (median of daily lows; a day counts with "
+                  f"{det.min_dates_per_day}+ departure dates; low prices need "
+                  f"{det.min_baseline_days} days, promotions {det.min_baseline_days_promo} "
+                  f"spanning {det.min_baseline_span_days}):")
     for (year, month), base in sorted(pipeline.current_baselines(ctx, conn, r).items()):
         low = "–" if base.median is None else f"{base.median:g} €"
-        console.print(f"  {year}-{month:02d}: {low} from {base.sample_size} days")
+        spread = (f", daily lows {base.lowest.price:g}–{base.highest.price:g} €"
+                  if base.lowest and base.highest else "")
+        console.print(f"  {year}-{month:02d}: {low} from {base.sample_size} days "
+                      f"(span {base.span_days}){spread}")
 
 
 @routes_app.command("list")

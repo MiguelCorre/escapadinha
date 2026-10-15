@@ -36,6 +36,14 @@ export function monthRows(route: Route, minDays: number): MonthRow[] {
   }));
 }
 
+/** What "ainda sem dados suficientes" means, from `meta.detector` (D27, D40): the daily lows a
+ * month needs and, when more than one, the departure dates a day must have seen to count. */
+export function typicalLowRule(det: Record<string, number | undefined>): string {
+  const dates = det.min_dates_per_day ?? 1;
+  const which = dates > 1 ? `, contando só os dias com preços para ${dates} ou mais datas de partida,` : "";
+  return `Precisamos de pelo menos ${det.min_baseline_days} dias de dados num mês${which} antes de dizer o que é habitual.`;
+}
+
 export interface BestMonth {
   month: string;
   label: string;

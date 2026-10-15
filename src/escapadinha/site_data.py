@@ -589,6 +589,7 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
         "detector": {"low_threshold": det.low_threshold, "threshold": det.threshold,
                      "min_saving_eur": det.min_saving_eur,
                      "min_baseline_days": det.min_baseline_days,
+                     "min_dates_per_day": det.min_dates_per_day,
                      "max_offer_age_days": det.max_offer_age_days,
                      "lookback_days": det.lookback_days},
         "files": {"origins": "origins.json", "routes": "routes.json",
