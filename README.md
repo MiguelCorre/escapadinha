@@ -135,8 +135,8 @@ discovery or run, so ~160 destinations take four runs. Failures are retried next
 was 360 routes × 3 = 1080 requests in 5 min 40 s one at a time (≈190/min, latency-bound); with
 `collector.workers: 8` in flight they take ~2 min, bound by the limit. The source allows 600/min;
 `collector.requests_per_minute: 550` caps it client-side and a 429 still waits and retries.
-At 12 runs/day that's ~13k requests/day and ~24 runner-minutes/day, ≈ 720 min/month of the 2000
-free ones (D24's Actions budget; see *Minutes used* below).
+At 12 runs/day that's ~13k requests/day and ~38 billed runner-minutes/day (GitHub rounds each job
+up to the minute), ≈ 1150 min/month of the 2000 free ones (D41; see *Minutes used* below).
 
 Output for review lives in `output/<YYYY-MM-DD>/`:
 - `deal-<ORIG>-<DEST>-<id>/slide_01.png … slide_03.png`: cover, details, CTA + disclosure
@@ -921,24 +921,24 @@ rules* → add rule, prefix `backups/`, *Delete objects* after **30 days**. Noth
 bucket expires.
 
 **Restore from a backup:**
-1. Stop the scheduled runs (`gh workflow disable pipeline.yml`, and on the PC
-   `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister`) and check
-   that `uv run escapadinha store status` shows `lock: free`.
+1. Stop the scheduled runs (`gh workflow disable pipeline.yml`: the scheduler Worker and its
+   fallback leave a disabled workflow alone, D41) and check that
+   `uv run escapadinha store status` shows `lock: free`.
 2. `uv run escapadinha store restore 2026-10-13` (dates are listed by `store status`). The current
    local file is kept as `data/escapadinha.db.local-<time>`.
 3. Check it (`uv run escapadinha stats LIS-LON`, `uv run escapadinha review`), then
    `uv run escapadinha store push`. It becomes the next generation; runs pull it from then on.
-4. Turn the schedule back on (`gh workflow enable pipeline.yml`; on the PC
-   `scripts\register-task.ps1`, see below).
+4. Turn the schedule back on (`gh workflow enable pipeline.yml`).
 
 Without the CLI: download `backups/<date>/escapadinha.db` from the R2 dashboard to
 `data/escapadinha.db`, then `uv run escapadinha store push --force`.
 
 ## GitHub Actions (DECISIONS D25)
 
-`.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours (cron `17 */2 * * *`, UTC)
-on `ubuntu-latest`: lock → pull the database from R2 → daily backup → (monthly discovery) →
-collect → recheck → detect → publish due posts (D32) → **full path only when needed** → push → unlock.
+`.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours, dispatched by the scheduler
+Worker (see *Schedule* below, D41), on `ubuntu-latest`: lock → pull the database from R2 → daily
+backup → (monthly discovery) → collect → recheck → detect → publish due posts (D32) → **full path
+only when needed** → push → unlock.
 
 - **Fast path, full path.** After detection the run compares a fingerprint of what the public
   outputs show with the one stored at the last full path (from the export it deployed, not
@@ -985,29 +985,49 @@ collect → recheck → detect → publish due posts (D32) → **full path only 
   ```
   `repository_dispatch` events of type `review-decision` or `full-run` always take the full path.
 
+### Schedule (DECISIONS D41)
+
+GitHub's own cron is best effort (the 2-hourly one fired 4.4–6.8 h apart), so `pipeline.yml` has
+no `schedule`. Every routine run is a `workflow_dispatch` with `full: false`:
+- **The scheduler Worker** (`workers/scheduler/`, Cloudflare Workers free plan): a Cron Trigger
+  `17 */2 * * *` (UTC) dispatches `pipeline.yml` on `master`, unless a run of it was created in the
+  last 45 minutes (a review decision, a manual run, the fallback) or the workflow is disabled. One
+  line per tick in its Workers Logs: dispatched, skipped (and which run served the tick), or why
+  the dispatch failed. The token is the Worker secret `GITHUB_ACTIONS_TOKEN` (fine-grained,
+  this repository only, Actions: Read and write); it never reaches a log.
+- **The fallback** (`.github/workflows/pipeline-fallback.yml`): GitHub's cron every 6 h runs the
+  same tick with Node and its own `GITHUB_TOKEN`, and dispatches only when no run started in the
+  last 3 h, i.e. when the Worker missed its runs. Then the job fails on purpose, so GitHub e-mails
+  you. With a working Worker it never dispatches (a skipped tick leaves at most 2 h 45 min).
+- **The run log** warns when the previous collection started more than 3 h before this run:
+  `Warning: the previous run (#57) started 5 h 07 min ago, more than 3 h: the 2-hourly schedule
+  missed a run. …` (also in the run's summary).
+- **Pause everything:** `gh workflow disable pipeline.yml` (the Worker and the fallback skip a
+  disabled workflow); `gh workflow enable pipeline.yml` to resume.
+- **Deploy (by hand, rarely):** from `workers/scheduler`, `npx --yes wrangler@4.149.0 login`, then
+  `npx --yes wrangler@4.149.0 deploy`, and once `npx --yes wrangler@4.149.0 secret put
+  GITHUB_ACTIONS_TOKEN`. The pipeline's Cloudflare token can only deploy Pages, so there is no CI
+  job for it. Step by step, with the token and the check: **[docs/runbooks/agendamento.md](docs/runbooks/agendamento.md)**.
+- **Tests:** `node --test` in `workers/scheduler` (no dependencies; `uv run pytest` runs it too).
+
 **Minutes used.** A private repo on GitHub Free gets 2000 Linux minutes a month (public repos are
-not metered). Budget: 12 runs a day × ~2 min ≈ 720 min/month, plus a minute or two for each full
-path (npm ci from the cache, the Astro build, the deploy; Chromium's system libraries when it
-renders). Since the cutover about half the runs take the full path, because the site shows every
-route's cheapest current price (D35).
+not metered), and **GitHub rounds each job up to the whole minute**. Measured on 10-13..15: a
+pipeline run takes 1.7–3.4 min of wall time and bills 2–4 minutes (one took 6.2 and billed 7),
+3.2 on average. So
+12 runs a day ≈ **1150 min/month**, plus review-triggered runs, the fallback's checks (≤ 4 a day,
+1 min each) and the daily crawl while it lasts; the Web CI on pull requests bills 7–10 min a run.
+That fits only while Web CI stays under ~600 a month. Out of minutes, GitHub stops Actions in a
+private repo until the month ends, and the pipeline with it: D41 lists the knobs.
 - One run: *Actions* → the run → *Usage* (under *Run details*) shows its billable time; the
   summary shows our own `Duration`.
 - The month: your account → *Settings* → *Billing and licensing* → *Usage*, filtered on Actions.
 - `gh run list --workflow pipeline.yml --limit 12` lists the last day's runs with their elapsed time.
 
-**PC fallback.** The Windows scheduled task (below) keeps running until the Actions pipeline has
-had a clean week (spec #1). Both take the same R2 lock, so they never overlap; meanwhile prices
-are simply collected more often. After that week, on the PC:
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister
-# the same, directly:
-Unregister-ScheduledTask -TaskName "Escapadinha collect" -Confirm:$false
-# or from cmd.exe:
-schtasks /Delete /TN "Escapadinha collect" /F
-```
-`Get-ScheduledTask -TaskName "Escapadinha collect"` then reports that no such task exists.
+**PC task: retired.** The Windows scheduled task was retired on 2026-10-15 (#43). The script
+below stays for emergencies (it takes the same R2 lock, so it never overlaps a run on Actions);
+`Get-ScheduledTask -TaskName "Escapadinha collect"` reports that no such task exists.
 
-## Scheduling on the PC (Windows Task Scheduler, fallback)
+## Scheduling on the PC (Windows Task Scheduler, retired)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1                # every 2 h, all day
@@ -1062,6 +1082,10 @@ uv run pytest -m "not browser"
   it is byte-for-byte the PC's site (npm faked: `test_web_build.FakeNpm` writes a page per
   contract path); `test_workflow.py` checks the workflow file (triggers,
   concurrency, timeout below the lock TTL, secrets never printed).
+- `test_scheduler.py` (D41): the scheduler Worker's `wrangler.toml` against the workflows it
+  dispatches, the fallback workflow, the skip windows against the run log's 3 h warning, and
+  the warning itself; it also runs the Worker's own `node --test` (skipped without Node): the
+  dispatch request, the skip rules and the token never logged, on a fake GitHub.
 - `fixtures/discovery/` holds real catalogue and supplement payloads recorded on 2026-10-13,
   trimmed to the rows the tests need (`RECORDED.txt` lists the URLs and what was kept).
 - `fixtures/schema_v5.sql` and `schema_v7.sql` are older schemas, to test the upgrades.

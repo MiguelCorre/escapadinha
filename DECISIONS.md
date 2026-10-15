@@ -579,6 +579,12 @@ so nothing has to be hosted.
 - **Miguel's steps:** add the nine Actions secrets; run the workflow once by hand
   (`gh workflow run pipeline.yml -f full=true`) and check its summary and *Usage* (fast path
   target ≤ 2 min); after a clean week, unregister the PC task.
+- **Note (2026-10-15, D41):** the cron above turned out best effort (9 scheduled runs came
+  4.4–6.8 h apart); the 2-hourly runs had come from the PC task, retired that day. `pipeline.yml`
+  no longer has a `schedule`: a Cloudflare Worker dispatches it every 2 h, and a separate
+  `pipeline-fallback.yml` (GitHub's cron, every 6 h) dispatches it only when no run started for
+  3 h. The minutes budget above (~720/month) assumed ~2 billed minutes a run; jobs bill whole
+  minutes and a run bills ~3.2, see D41.
 
 ## D26: Review decisions as events, applied by the pipeline; review snapshot (2026-10-13, #8)
 - **Why:** with the database in R2 (D21) a decision written into a local copy is lost or collides
@@ -2050,3 +2056,111 @@ so nothing has to be hosted.
   Instagram).
 - **Not done here:** the first real message, which needs Miguel's bot and channel
   (`docs/runbooks/telegram.md` §5); the issue stays open until he confirms it.
+
+## D41: A real 2-hourly schedule: a Cloudflare Worker dispatches the pipeline (2026-10-15, #43)
+- **Why:** GitHub's `schedule` is best effort. The cron `17 */2 * * *` fired 9 times on
+  10-14/15, 4.4–6.8 h apart (median 5.5 h; `docs/research/2026-10-15-data-reliability.md`,
+  recommendation 5). The 2-hourly runs in the database came from the PC's Windows task, retired
+  on 2026-10-15. The cadence stays 2 h: hourly would double the requests and the minutes for
+  about 1.2× the usable offers per hour.
+- **Trigger:** a Cloudflare Worker, `workers/scheduler/` (free plan). Its Cron Trigger
+  `17 */2 * * *` (UTC, the old cron's minute) calls `POST https://api.github.com/repos/
+  MiguelCorre/escapadinha/actions/workflows/pipeline.yml/dispatches` with `{"ref": "master",
+  "inputs": {"full": "false"}}`: the workflow's only input, a routine run (`run_path` still
+  decides fast or full, D25). Headers: `Authorization: Bearer <GITHUB_ACTIONS_TOKEN>`, `Accept:
+  application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`, `User-Agent:
+  pontonomada-scheduler`. Plain JavaScript (ES modules, `// @ts-check`), no npm dependency, no
+  build step. `wrangler.toml` holds the cron, the vars (`GITHUB_REPOSITORY`, `WORKFLOW`, `REF`,
+  `SKIP_IF_RUN_WITHIN_MINUTES`), `workers_dev = false` and `preview_urls = false` (no URL; there
+  is no fetch handler), and Workers Logs (`observability`) for each tick's one line. Rejected:
+  `repository_dispatch` (both of its types force the full path, D25); an external cron service
+  (another account, another place for the token).
+- **Token:** a fine-grained PAT for `MiguelCorre/escapadinha` only, with **Actions: Read and
+  write** (dispatch, and read the workflow and its runs). It is stored only as the Worker secret
+  `GITHUB_ACTIONS_TOKEN`: never a var, never in the repository, `.env` or the Actions secrets. It
+  goes only into the Authorization header, and every log line and error message passes through
+  `redact` (tested with the token echoed in GitHub's message, a network error's text and a run's
+  fields). It is separate from the review Function's `GITHUB_DISPATCH_TOKEN` (Contents: write,
+  for `repository_dispatch`, D29), so each token has only its own permission.
+- **One tick, two windows** (`src/schedule.js` `tick`; pure, with fetch, clock and log injected):
+  1. a workflow that isn't `active` (`gh workflow disable pipeline.yml`, the README's restore
+     procedure) → skip;
+  2. a `pipeline.yml` run **created** within the window, whatever its event, status or
+     conclusion → skip, naming that run;
+  3. otherwise → dispatch.
+
+  The two reads are advice: if GitHub can't answer them, the tick dispatches anyway. A double run
+  costs about 3 minutes, and the R2 lock and the `concurrency` group serialise it (D21, D25); a
+  missed run costs 2 h of data. A refused or unanswered dispatch is logged with GitHub's status
+  and message and throws, so Cloudflare records the invocation as failed.
+- **No close double runs, and no gap.** `pipeline.yml` loses its `schedule`. GitHub's cron moves
+  to a separate workflow, `pipeline-fallback.yml`, which only dispatches (with its own run's
+  `GITHUB_TOKEN`, `permissions: actions: write`; `workflow_dispatch` is one of the events that
+  token may start). So every run of `pipeline.yml` is a real run, which is what both windows
+  count. Rejected: a skip gate inside `pipeline.yml`. A gated scheduled run still shows up as a
+  successful run, so the Worker would count it and skip its own tick, which allows gaps of about
+  4 h.
+  - **Worker window: 45 min.** A run created in the last 45 min (a review decision's
+    `repository_dispatch`, a manual run, the fallback) serves the tick. The longest gap a skip can
+    leave is 45 + 120 = 165 min, below the 3 h warning, so a healthy schedule never warns. With
+    60 min (the issue's example) a skip could leave exactly 3 h, and a minute of jitter would
+    raise false warnings.
+  - **Fallback: cron `47 */6 * * *`, window 180 min.** It dispatches only when no run started
+    in the last 3 h, i.e. once the Worker has missed at least one tick; with a working Worker it
+    never does. When it does dispatch, **the job fails on purpose** ("The fallback had to dispatch
+    the pipeline, so the Cloudflare Worker missed its runs …"): GitHub e-mails a failed scheduled
+    run, and that is the only alert that reaches Miguel without anyone reading logs. Every 6 h,
+    not every 2 h: each check bills a minute, and a dead Worker is something to fix, not a mode
+    to run in (GitHub's 2-hourly cron gave ~5.5 h anyway). Same code as the Worker
+    (`src/fallback.js` → `tick`), Node 22, a sparse checkout of `workers/scheduler`. It also has
+    `workflow_dispatch`, to check it by hand (it then only dispatches after 3 h without a run).
+  - `tests/test_scheduler.py` keeps `Worker window + 120 min < RUN_GAP_WARNING ≤ fallback window`
+    and the fallback's `WORKFLOW`/`REF` equal to the Worker's vars.
+- **Visibility:** the Worker logs one line per tick: dispatched; skipped, with the run that served
+  the tick; or why it failed. The run log warns when the previous collection started more than
+  3 h before this run (`pipeline.late_run_warning`, `RUN_GAP_WARNING`; `fetch_runs`, scope
+  `full`, any status; a live check is not a run), before the collection, and the run's summary
+  repeats it: "Warning: the previous run (#57) started 5 h 07 min ago, more than 3 h: the
+  2-hourly schedule missed a run. Check the scheduler Worker (docs/runbooks/agendamento.md)." The
+  same 3 h as the review page's "A fila tem mais de 3 h" (D29).
+- **Deploy:** by hand from the PC, in `workers/scheduler`: `npx --yes wrangler@4.149.0 login`,
+  `deploy`, then `secret put GITHUB_ACTIONS_TOKEN` (runbook `docs/runbooks/agendamento.md`). The
+  version is the one pinned for the site (`site.wrangler_version`; a test checks `package.json`'s
+  `deploy` script). No CI job: the pipeline's `CLOUDFLARE_API_TOKEN` is "Cloudflare Pages: Edit"
+  only (D15), and a Worker deploy needs "Workers Scripts: Edit". Widening the token that every
+  run carries, for a Worker that almost never changes, is the wrong trade. `wrangler deploy
+  --dry-run` bundles it: 6 KiB, no `node:` import (checked 2026-10-15, nothing deployed).
+- **Tests:** `node --test` in `workers/scheduler`, 26 tests: the request (URL, body, headers),
+  the reads before it, the skip rules, a disabled workflow, failed reads, a refused or unanswered
+  dispatch, the token never in a log line or error, the Worker entry (the scheduled time as
+  `now`, a failure rejects), the fallback's exit codes. `uv run pytest` runs them too
+  (`test_scheduler.py`, skipped without Node), next to the config checks above and the warning's
+  tests (`test_scheduler.py`, `test_actions.py` through `run`).
+- **Actions minutes** (private repo, GitHub Free: 2000 Linux min/month; **each job is rounded up
+  to the whole minute**). Measured with `gh run list` and the jobs API over 10-13..15:
+  - **Pipeline:** 19 runs, 1.7–6.2 min of wall time (median 2.3), billed 2–7 min, **3.2 on
+    average**. 12 runs a day × 3.2 × 30 ≈ **1150**, plus about one review-triggered run a day
+    (≈ 100): **~1250**.
+  - **Fallback:** ≤ 4 checks a day × 1 min ≈ **≤ 120**. GitHub ran about 5 of the 12 daily
+    2-hourly crons, so probably ~60.
+  - **Crawl** (`crawl.yml`, daily during the cutover week, deleted in #23 phase 2): 3 min a day,
+    ~90 while it lasts.
+  - **Web CI** (pull requests touching `web/`, Lighthouse included): **7–10 min a run**. There were
+    11 runs in the last two days (76 min), which is ~1100 a month at this development pace and
+    ~270 at one a day.
+  - **Total ≈ 1400 + Web CI: within 2000 only while Web CI stays under ~600 a month** (about two
+    web PRs a day). The 5.5-hourly cron used ~400 a month for the pipeline; a real 2 h almost
+    triples that. Past the allowance, GitHub Free without a payment method (or with the default
+    $0 budget) **stops Actions in private repositories until the month ends, and the pipeline
+    with it**. Knobs, cheapest first:
+    1. a fast path under 2 min of wall time bills 2 instead of 3 (−360);
+    2. drop the ticks at 02:17 and 04:17 UTC (`17 0,6-22/2 * * *`; nights are quiet, research §4),
+       −190;
+    3. Lighthouse in Web CI only when pages change;
+    4. a spending budget or GitHub Pro (3000).
+
+    None is applied here. Watch *Settings → Billing and licensing → Usage*.
+- **Miguel's steps** (`docs/runbooks/agendamento.md`): create the fine-grained token
+  (`escapadinha` only, Actions: Read and write), deploy the Worker, store the token as its
+  secret, then check two consecutive dispatched runs about 2 h apart
+  (`gh run list --workflow pipeline.yml --event workflow_dispatch`). #43 closes after that.

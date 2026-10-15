@@ -17,11 +17,11 @@ def load() -> dict:
     return wf
 
 
-def test_triggers_every_two_hours_and_on_demand():
+def test_triggers_on_demand_only():
+    """The 2-hourly runs are dispatches from the scheduler Worker and its Actions fallback (D41,
+    tests/test_scheduler.py); GitHub's own cron no longer starts this workflow."""
     on = load()["on"]
-    [schedule] = on["schedule"]
-    minute, hour, *rest = schedule["cron"].split()
-    assert minute.isdigit() and hour == "*/2" and rest == ["*", "*", "*"]
+    assert "schedule" not in on
     assert on["workflow_dispatch"]["inputs"]["full"]["type"] == "boolean"
     assert set(on["repository_dispatch"]["types"]) >= {"review-decision", "full-run"}
 

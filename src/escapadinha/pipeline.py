@@ -58,6 +58,24 @@ def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
                    store=ctx.object_store, workers=ctx.config.collector.workers)
 
 
+# The schedule dispatches a run every 2 h (D41); its skips leave at most 2 h 45 min between runs.
+RUN_GAP_WARNING = timedelta(hours=3)
+
+
+def late_run_warning(conn: sqlite3.Connection, now: datetime) -> str | None:
+    """The run log's warning when the previous collection started more than `RUN_GAP_WARNING`
+    before `now` (D41): the 2-hourly schedule missed at least one run. None on time or without
+    a previous run. Live checks (scope `live_check`) are not runs."""
+    previous = db.latest_collection_start(conn)
+    if previous is None or now - previous[1] <= RUN_GAP_WARNING:
+        return None
+    run_id, started = previous
+    hours, minutes = divmod(int((now - started).total_seconds() // 60), 60)
+    return (f"the previous run (#{run_id}) started {hours} h {minutes:02d} min ago, more than "
+            f"{RUN_GAP_WARNING.seconds // 3600} h: the 2-hourly schedule missed a run. Check the "
+            "scheduler Worker (docs/runbooks/agendamento.md).")
+
+
 def run_dormancy(ctx: Context, conn: sqlite3.Connection, summary: RunSummary,
                  now: datetime | None = None) -> list[Route]:
     """After a collection: routes without prices for `dormant_after_days` go dormant.

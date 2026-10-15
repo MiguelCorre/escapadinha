@@ -3,6 +3,7 @@ with only the bucket, one route failing, the workflow file itself."""
 
 import json
 import shutil
+from datetime import timedelta
 from pathlib import Path
 
 import httpx
@@ -165,6 +166,27 @@ def test_a_failing_route_never_fails_the_run_and_the_summary_says_so(home, monke
     assert text.startswith("### Escapadinha run: ok")
     assert "- Collection: partial, 30 requests, 0 offers (0 new), 6 failed" in text   # LIS- and OPO-LON
     assert "- Path: full (first full path)" in text and "- Duration: " in text
+
+
+@respx.mock
+def test_a_run_more_than_three_hours_after_the_previous_one_warns_in_its_log(home, monkeypatch,
+                                                                             tmp_path):
+    """D41: the scheduler missed a run; the run log and its summary say so, the run goes on."""
+    mock_api()
+    assert "Warning:" not in run_cli()                       # the first run: nothing before it
+    assert "Warning:" not in run_cli()                       # right after: on time
+    conn = pipeline.open_db(home)
+    run_id = db.latest_collection_start(conn)[0]
+    five_hours_ago = (db.utcnow() - timedelta(hours=5, minutes=2)).isoformat()
+    conn.execute("UPDATE fetch_runs SET started_at = ? WHERE id = ?", (five_hours_ago, run_id))
+    conn.commit()
+    conn.close()
+    summary = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    out = run_cli()
+    assert f"Warning: the previous run (#{run_id}) started 5 h 0" in out
+    assert "2-hourly schedule missed a run" in out and "Run ok in" in out
+    assert f"- Warning: the previous run (#{run_id}) started 5 h 0" in summary.read_text("utf-8")
 
 
 @respx.mock

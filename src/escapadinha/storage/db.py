@@ -192,6 +192,14 @@ def run_finished_at(conn: sqlite3.Connection, run_id: int) -> datetime | None:
     return datetime.fromisoformat(row["finished_at"]) if row and row["finished_at"] else None
 
 
+def latest_collection_start(conn: sqlite3.Connection) -> tuple[int, datetime] | None:
+    """(id, started_at) of the newest collection run (scope `full`), whatever its status."""
+    row = conn.execute(
+        "SELECT id, started_at FROM fetch_runs WHERE scope = 'full' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return (row["id"], datetime.fromisoformat(row["started_at"])) if row else None
+
+
 def latest_completed_run_id(conn: sqlite3.Connection) -> int | None:
     row = conn.execute(
         """SELECT id FROM fetch_runs WHERE status IN ('ok', 'partial') AND scope = 'full'

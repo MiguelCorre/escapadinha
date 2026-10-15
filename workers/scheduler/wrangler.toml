@@ -1,0 +1,24 @@
+# The scheduler Worker (DECISIONS D41): a Cron Trigger dispatches .github/workflows/pipeline.yml
+# every 2 hours. Deployed by hand from this folder (docs/runbooks/agendamento.md):
+#   npx --yes wrangler@4.149.0 deploy
+# The GitHub token is a secret (`npx --yes wrangler@4.149.0 secret put GITHUB_ACTIONS_TOKEN`), never a
+# var here. tests/test_scheduler.py checks these values against the workflows.
+name = "pontonomada-scheduler"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = false       # no URL: the Worker has no fetch handler, only the cron
+preview_urls = false
+
+[triggers]
+crons = ["17 */2 * * *"]  # UTC, every 2 hours at :17 (the minute GitHub's cron used, D25)
+
+[vars]
+GITHUB_REPOSITORY = "MiguelCorre/escapadinha"
+WORKFLOW = "pipeline.yml"
+REF = "master"
+# A run created this recently (a review decision, a manual run, the fallback) serves this tick.
+# 45 + 120 = 165 min, the longest gap a skip can make, stays below the run log's 3 h warning.
+SKIP_IF_RUN_WITHIN_MINUTES = "45"
+
+[observability]
+enabled = true            # Workers Logs: each tick's line (dispatched / skipped / why it failed)

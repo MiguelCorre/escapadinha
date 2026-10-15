@@ -26,5 +26,9 @@ assets/fonts/*.ttf
 /web/.lighthouseci/
 /web/src/data/
 
+# Workers (D41): wrangler's local state
+/workers/*/.wrangler/
+/workers/*/node_modules/
+
 # Agent worktrees
 .claude/worktrees/

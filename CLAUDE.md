@@ -19,6 +19,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `SITE_DATA_DIR`, default `web/src/data`; fails on purpose until `escapadinha export site-data`
   fills it; `escapadinha site build` does npm ci + build + images + routing), `npm run lhci`,
   `npm run tokens`. `npx vitest run test/review` runs only the review Function's tests.
+- Scheduler Worker (`cd workers/scheduler`, no dependencies): `node --test` (`uv run pytest` runs it
+  too); deployed by hand only, `npx --yes wrangler@4.149.0 deploy` (D41, `docs/runbooks/agendamento.md`).
 
 ## Rules
 - **Never fabricate prices.** Observations come only from API payloads. No seed/demo data
@@ -112,7 +114,18 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   directly; use `pipeline.deal_folder` / `guide_folder` (pass `files=` the glob you read, e.g.
   `pipeline.SLIDES`, so a runner downloads only those, once), `deal_slide_names` (names only, no
   download), `deal_view` (its photo).
-- `run` order (`cli._run_steps`): `apply_review_events` (D26) → upkeep → collect → recheck →
+- The schedule (D41): `pipeline.yml` has no `schedule`, so every run of it is a real run. The
+  Worker `workers/scheduler/` (Cron Trigger every 2 h, window 45 min) and
+  `pipeline-fallback.yml` (GitHub's cron every 6 h, window 3 h; its job fails on purpose when it
+  dispatches, so GitHub e-mails) both run `src/schedule.js` `tick`: skip a disabled workflow or
+  a run created within the window, else dispatch `full: false`. Keep `Worker window + 2 h <
+  pipeline.RUN_GAP_WARNING ≤ fallback window` and the vars equal to the fallback's env
+  (`tests/test_scheduler.py`). The GitHub token (`GITHUB_ACTIONS_TOKEN`, fine-grained, Actions:
+  read/write) is only a Worker secret, never a var; every log line and error goes through
+  `redact`. The Worker stays plain JS without npm packages or a URL, deployed by hand with the
+  pinned wrangler (the pipeline's Cloudflare token is Pages-only).
+- `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
+  collection > 3 h ago) → upkeep → collect → recheck →
   detect → `publish_due` (D32, every run: posting never waits for a full path) →
   `run_path.decide` → full path only, its Node commands inside one deadline
   (`node.deadline()`, D35) (render → `export site-data` (D27, → `web/src/data`; keep the
@@ -236,7 +249,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `mirror.py`: `Mirror` (a local folder also kept under a store prefix: `photos/`, `output/`)
 - `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint` incl. `site_data_digest`,
   `record_full_path(ctx, conn, export)`: records the export the full path wrote, never a re-read)
-- `.github/workflows/pipeline.yml`: 2-hourly `escapadinha run` on Actions; dispatch → `--full` (D25)
+- `.github/workflows/pipeline.yml`: `escapadinha run` on Actions, dispatched every 2 h (D41);
+  `full` input or `repository_dispatch` → `--full` (D25). `pipeline-fallback.yml`: the schedule's
+  fallback (D41)
+- `workers/scheduler/`: the scheduler Worker (D41): `wrangler.toml` (cron, vars), `src/schedule.js`
+  (`tick`, `settings`, `recentRun`, `redact`), `src/index.js` (the Worker's `scheduled`),
+  `src/fallback.js` (the Actions fallback's entry, exit codes), `test/` (node:test); runbook
+  `docs/runbooks/agendamento.md`
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate` (candidates),
   `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
@@ -300,7 +319,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `build-site.ts`, `scale.test.ts` full-size synthetic build, traceability, internal links,
   `content-pages.test.ts`, `seo.test.ts` + `jsonld.ts`, `seo-configured.test.ts`)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`,
-  `search-widget.md`, `instagram.md`, `telegram.md`, `rever-conteudo.md`: reviewing MDX drafts in `npm run dev:fixtures`)
+  `search-widget.md`, `instagram.md`, `telegram.md`, `agendamento.md`, `rever-conteudo.md`: reviewing MDX drafts in `npm run dev:fixtures`)
 - `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
   validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a
   promotion), `cta.ts` (booking button + disclosure); `src/layouts/Base.astro`, `src/components/`,

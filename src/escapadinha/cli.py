@@ -819,7 +819,17 @@ def _run_steps(render: bool, full: bool, report: list[str]) -> None:
     export_review_snapshot()                    # last, on the fast and the full path (D26)
 
 
+def _warn_if_late(report: list[str]) -> None:
+    """The previous run more than 3 h before this one: the schedule missed a run (D41)."""
+    _, conn = _ctx()
+    warning = pipeline.late_run_warning(conn, db.utcnow())
+    if warning:
+        console.print(f"[yellow]Warning:[/] {escape(warning)}")
+        report.append(f"Warning: {warning}")
+
+
 def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
+    _warn_if_late(report)                    # before this run's collection adds its own row
     routes_upkeep()
     summary = _collect()
     report.append(f"Collection: {summary.status}, {summary.n_requests} requests, "
