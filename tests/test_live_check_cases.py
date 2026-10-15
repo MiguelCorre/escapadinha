@@ -11,7 +11,8 @@ import pytest
 import respx
 
 from escapadinha import pipeline
-from escapadinha.collector.travelpayouts import API_URL, TravelpayoutsSource, parse_response
+from escapadinha.collector.travelpayouts import (API_URL, TravelpayoutsSource, parse_response,
+                                                 request_params)
 from escapadinha.config import DetectorConfig
 from escapadinha.models import Observation, RouteRules
 from escapadinha.recheck import recheck
@@ -73,5 +74,21 @@ def test_provider_failures_read_as_the_shared_pt_reasons(case):
     with pytest.raises(Exception) as exc:
         source = TravelpayoutsSource(case.get("token", "tp-token"), currency="eur", limit=1000,
                                      sleep=lambda _: None)
-        source.fetch("LIS", "LON", date(2026, 11, 1), min_nights=2, max_nights=10)
+        source.fetch("LIS", "LON", date(2026, 11, 1), rules=RouteRules())
     assert pipeline.check_failure(exc.value) == case["expected"]
+
+
+QUERIES = CASES["queries"]
+
+
+@pytest.mark.parametrize("case", QUERIES["cases"], ids=[c["name"] for c in QUERIES["cases"]])
+def test_the_live_check_query_matches_the_shared_cases(case):
+    """What the collection, pipeline.price_now and the snapshot's live_check.query ask (D39)."""
+    r = case["rules"]
+    rules = RouteRules(direct_only=r["direct_only"], max_transfers=r["max_transfers"],
+                       min_nights=r["min_nights"], max_nights=r["max_nights"])
+    c = QUERIES["collector"]
+    query = request_params(case["origin"], case["destination"],
+                           date.fromisoformat(f"{case['month']}-01"), rules,
+                           currency=c["currency"], limit=c["limit"], market=c["market"])
+    assert query == case["expected"]

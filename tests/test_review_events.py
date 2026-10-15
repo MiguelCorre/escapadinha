@@ -10,6 +10,7 @@ import pytest
 import respx
 
 from escapadinha import pipeline
+from escapadinha.collector.travelpayouts import API_URL
 from escapadinha.presentation import DISCLOSURE
 from escapadinha.review import ReviewError
 from escapadinha.storage import db
@@ -278,6 +279,28 @@ def test_cli_without_r2_applies_the_decision_at_once(ctx, monkeypatch):
     assert f"deal {deal_id}: rejeitado" in out and "Nenhuma decisão pendente" in out
     deal = db.get_deal(conn, deal_id)[0]
     assert deal.status == "rejected" and deal.review_note == "datas fracas"
+
+
+@respx.mock
+def test_collection_live_check_and_snapshot_ask_the_same_query(remote):
+    """D39: the run that found the deal, the approval's live check and the snapshot the review
+    Function asks with all send one query for the deal's route-month: nonstop fares only on a
+    direct-only route, so the recheck never loses a nonstop fare to a cheaper one with a stop."""
+    ctx, _ = remote
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    price_api(58)
+    pipeline.approve(ctx, conn, deal_id, actor="cli:test")
+    [d] = pipeline.export_review_snapshot(ctx, conn)["queue"]
+    query = {k: str(v) for k, v in d["live_check"]["query"].items()}
+    assert query["direct"] == "true" and d["live_check"]["rules"]["direct_only"] is True
+
+    asked = [dict(c.request.url.params) for c in respx.calls
+             if str(c.request.url).startswith(f"{API_URL}?")]
+    month = [p for p in asked if (p["origin"], p["destination"], p["departure_at"])
+             == ("LIS", "LON", d["departure_date"][:7])]
+    assert len(month) == 2                         # the collection's request, the live check's
+    assert month == [query, query]
 
 
 @respx.mock

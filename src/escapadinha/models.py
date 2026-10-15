@@ -68,6 +68,11 @@ class RouteRules:
         return {"direct_only": self.direct_only, "min_nights": self.min_nights,
                 "max_nights": self.max_nights, "max_transfers": self.max_transfers}
 
+    @property
+    def nonstop_only(self) -> bool:
+        """Only nonstop flights both ways count: `direct_only`, or a stop limit of 0."""
+        return self.direct_only or self.max_transfers == 0
+
     def allows(self, o: Observation) -> bool:
         """Within the nights range and the stop limit. Unknown transfer counts never pass a limit."""
         if not self.min_nights <= o.nights <= self.max_nights:

@@ -326,8 +326,7 @@ def _fetch_trip_month(ctx: Context, conn: sqlite3.Connection,
     """The deal's route and departure month, priced now (one request)."""
     rules = route_for(ctx, conn, obs.route_key).rules
     fetched = price_source(ctx).fetch(obs.origin, obs.destination,
-                                      obs.departure_date.replace(day=1),
-                                      min_nights=rules.min_nights, max_nights=rules.max_nights)
+                                      obs.departure_date.replace(day=1), rules=rules)
     return fetched, rules
 
 

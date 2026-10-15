@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Protocol
 
-from escapadinha.models import Observation
+from escapadinha.models import Observation, RouteRules
 
 
 @dataclass(frozen=True)
@@ -18,10 +18,10 @@ class Fetched:
 class PriceSource(Protocol):
     name: str
 
-    def fetch(self, origin: str, destination: str, month: date, *,
-              min_nights: int, max_nights: int) -> Fetched:
-        """Cheapest round-trips departing in `month` within the nights range, plus the raw
-        response. Raises on transport/API errors."""
+    def fetch(self, origin: str, destination: str, month: date, *, rules: RouteRules) -> Fetched:
+        """Cheapest round-trips departing in `month` that the route's rules can use (its nights
+        range; nonstop ones only when it takes nothing else, D39), plus the raw response.
+        Raises on transport/API errors."""
         ...
 
 

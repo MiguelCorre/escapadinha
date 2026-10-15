@@ -173,7 +173,7 @@ export function deal(id: number, over: Record<string, any> = {}): Record<string,
     live_check: {
       last_checked_at: null, last_seen_price_eur: null, expired_reason: null,
       query: { origin: "LIS", destination: "LON", departure_at: "2026-11", one_way: "false",
-        currency: "eur", sorting: "price", unique: "false", limit: 1000, market: "pt" },
+        currency: "eur", sorting: "price", unique: "false", limit: 1000, direct: "true", market: "pt" },
       rules: { direct_only: true, max_transfers: 0, min_nights: 2, max_nights: 10, max_offer_age_days: 3 },
     },
     review_note: null, reviewed_at: null, published_at: null, post_url: null,

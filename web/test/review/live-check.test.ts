@@ -55,9 +55,21 @@ describe("live check request", () => {
     const url = new URL(call.url);
     expect(`${url.origin}${url.pathname}`).toBe(PRICES);
     expect(Object.fromEntries(url.searchParams)).toEqual({ origin: "LIS", destination: "LON", departure_at: "2026-11",
-      one_way: "false", currency: "eur", sorting: "price", unique: "false", limit: "1000", market: "pt" });
+      one_way: "false", currency: "eur", sorting: "price", unique: "false", limit: "1000", direct: "true", market: "pt" });
     expect(call.headers.get("X-Access-Token")).toBe("tp-secret");
     expect(call.url).not.toContain("tp-secret");
+  });
+
+  // D39: the query the pipeline builds from the route's rules (shared cases `queries`) goes out
+  // as is, `direct=true` included, so the Function prices the same nonstop fares as the recheck.
+  it.each(named(CASES.queries.cases))("sends the shared query: %s", async (_, c: any) => {
+    const net = new FakeNet().on(PRICES, () => Response.json(pricesPayload()));
+    const d = deal(7);
+    await liveCheck({ ...d, live_check: { ...d.live_check, query: c.expected, rules: c.rules } } as any,
+      { token: "tp-secret", fetch: net.fetch, now: () => NOW });
+    const [call] = net.calls;
+    const wire = Object.fromEntries(Object.entries(c.expected).map(([k, v]) => [k, String(v)]));
+    expect(Object.fromEntries(new URL(call.url).searchParams)).toEqual(wire);
   });
 
   it("keeps the technical detail off the message, on the error", async () => {

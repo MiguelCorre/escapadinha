@@ -2057,6 +2057,54 @@ so nothing has to be hosted.
 - **Not done here:** the first real message, which needs Miguel's bot and channel
   (`docs/runbooks/telegram.md` §5); the issue stays open until he confirms it.
 
+## D39: Nonstop fares from the cache on nonstop-only routes (2026-10-15, #41)
+- **The change:** a route that takes only nonstop flights both ways asks
+  `aviasales/v3/prices_for_dates` with `direct=true`; any other route keeps the plain call. Same
+  request count per run (1080 today). Recommendation 1 of
+  `docs/research/2026-10-15-data-reliability.md`.
+- **Why:** the cache returns one offer per (departure, return) pair, the cheapest. When that offer
+  has a stop, the pair's nonstop fare never reaches us, and a nonstop-only route throws the offer
+  away. 57 % of the rows stored on these routes (2165 of 3790) were discarded for a stop. In one
+  call, LIS-PAR December went from 8 to 21 nonstop trips over the same 26 pairs (the nonstop
+  fare 3–45 € dearer than the one with a stop). LIS-ROM December gave 13 nonstop trips, 10 of
+  them not in the database. The evidence rests on two route-months; the first run with the
+  change gives the real number.
+- **Which routes:** `RouteRules.nonstop_only` = `direct_only` **or** `max_transfers == 0`. Both
+  discard every offer with a stop (`RouteRules.allows`), and `pt.stops_rule` already reads them
+  as "só diretos". The issue says "direct_only"; a route overridden to `max_transfers: 0` is the
+  same case, so it asks the same way. Today that is every `europe` and `domestic` route (320 of
+  360); `long_haul` (`max_transfers: 1`) keeps `direct=false` by omission (today's call).
+- **One query, from the rules:** `collector.travelpayouts.request_params(origin, destination,
+  month, rules, …)` builds it, and the rules are passed in, never a global (like the detector).
+  `PriceSource.fetch` takes the route's `rules=` in place of `min_nights`/`max_nights`, so the
+  collection (`runner.collect`), `pipeline.price_now` / `live_check` and the review snapshot's
+  `live_check.query` all ask the same. That is what stops the false expiries: the recheck reads
+  the run's prices, and a deal's nonstop fare no longer drops out of them as soon as a cheaper
+  fare with a stop appears for those dates ("a viagem já não aparece …"). If the live check kept
+  the plain call, it would refuse approvals the recheck accepts.
+- **The review Function (D26, D29)** sends the snapshot's query as is, so it gets `direct=true`
+  with no code change. Contract v1 stays: `live_check.query` already allowed extra string or
+  integer values, and `direct` is the string `"true"` (like `one_way: "false"`; a JSON boolean
+  would break the schema). Only the schema's description changed.
+  `contract/review/v1/fixtures/live-check-cases.json` gained `queries`: route rules → the exact
+  query. `tests/test_live_check_cases.py` checks `request_params` against it, and
+  `web/test/review/live-check.test.ts` checks that `liveCheck` sends exactly that on the wire.
+  `tests/test_review_events.py` checks that the collection's request, the approval's live
+  check and the snapshot query are one query.
+- **Observation model unchanged:** the `direct=true` items have the same shape (link with
+  `search_date`, airline, flight number, airports, stop counts), `parse_response` is untouched,
+  and every row still comes from a payload. The flag is not trusted: `RouteRules.allows` still
+  drops any item with a stop. The run archive keeps each request's `params`, so a run says
+  which way it asked; older runs lack `direct`.
+- **Expected effects:** 2–3× the usable rows on direct-only routes, and the first run backfills
+  about 7 found days on busy route-months. A daily low is the minimum over more nonstop rows, so
+  a typical low can only fall or stay: discounts get smaller, never inflated. Stored rows with a
+  stop stay in the database (never deleted, never usable on these routes).
+- **Rejected:** both calls per route-month (doubles requests for rows we discard); a separate
+  `direct` field in the snapshot (the query already carries it, and the Function must not
+  rebuild the query); changing only the collection (the live check would disagree with the
+  recheck).
+
 ## D41: A real 2-hourly schedule: a Cloudflare Worker dispatches the pipeline (2026-10-15, #43)
 - **Why:** GitHub's `schedule` is best effort. The cron `17 */2 * * *` fired 9 times on
   10-14/15, 4.4–6.8 h apart (median 5.5 h; `docs/research/2026-10-15-data-reliability.md`,
