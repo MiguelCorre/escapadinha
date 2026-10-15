@@ -52,7 +52,7 @@ TOP_FILES = ("meta.json", "labels.json", "origins.json", "routes.json", "destina
 HOLIDAYS_SOURCE = ("Código do Trabalho, art. 234.º (feriados obrigatórios) e art. 235.º "
                    "(Terça-Feira de Carnaval, facultativo), na redação da Lei n.º 8/2016")
 LOW_COLS = ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops",
-            "airport", "typical", "link"]
+            "airport", "typical", "link", "baggage"]
 # A promotion's post link on the site (D36): only an Instagram post (the publisher's permalink or
 # one given by hand with `deal published --url`); anything else stays off the page.
 INSTAGRAM_POST = re.compile(r"^https://(www\.)?instagram\.com/")
@@ -393,7 +393,8 @@ def _offer(o: Observation) -> dict:
             "nights": o.nights, "airline": _code(o.airline), "transfers": o.transfers,
             "return_transfers": o.return_transfers,
             "arrival_airport": _code(o.destination_airport),
-            "found_date": _day(o.found_date), "fetched_at": db.utc_iso(o.fetched_at)}
+            "found_date": _day(o.found_date), "fetched_at": db.utc_iso(o.fetched_at),
+            "baggage": o.with_baggage}          # from the GraphQL match only, null = unknown (D39)
 
 
 def _calendar(fresh: list[Observation], today: date) -> list[Observation]:
@@ -517,7 +518,7 @@ def _low_row(lp: detector.LowPrice, link: str | None) -> list:
     o = lp.observation
     return [o.id, o.destination, _eur(o.price), _day(o.departure_date), _day(o.return_date),
             _day(o.found_date), db.utc_iso(o.fetched_at, minutes=True), _code(o.airline), _stops(o),
-            _code(o.destination_airport), _eur(lp.baseline.median), link]
+            _code(o.destination_airport), _eur(lp.baseline.median), link, o.with_baggage]
 
 
 def _labels() -> dict:

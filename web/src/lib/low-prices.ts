@@ -8,8 +8,8 @@ import type { LowPriceRow } from "./contract";
 import { bookingLink, NO_LINK_NOTE, type BookingLink } from "./cta";
 import { daysBetween } from "./dates";
 import {
-  count, discountParts, eur, eurParts, lisbonTimestamp, monthName, nights, numericDate, shortDate,
-  stopsText, type EurParts,
+  baggageText, count, discountParts, eur, eurParts, lisbonTimestamp, monthName, nights, numericDate,
+  shortDate, stopsText, type EurParts,
 } from "./format";
 
 /** What a row needs besides itself: names of its destination, arrival airport and airline. */
@@ -41,6 +41,7 @@ export interface LowPriceView {
   nights: string;             // "3 noites"
   airline: string | null;     // "Ryanair"
   stops: string | null;       // "voos diretos", "1 escala"; null when unknown
+  baggage: string | null;     // "só bagagem de mão"; null when unknown (no line, D39)
   airport: string | null;     // "Beauvais (BVA)"
   remote: boolean;
   foundOn: string | null;     // the traveller's found date (found_date)
@@ -50,7 +51,7 @@ export interface LowPriceView {
 }
 
 export function lowPriceView({ row, more }: LowPriceItem, places: Places): LowPriceView {
-  const [obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link] = row;
+  const [obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link, baggage] = row;
   const city = places.cities[dest] ?? dest;
   const known = airport ? places.airports[airport] : undefined;
   const remote = known?.remote ?? false;
@@ -64,6 +65,7 @@ export function lowPriceView({ row, more }: LowPriceItem, places: Places): LowPr
     dates: `${shortDate(dep)} → ${shortDate(ret)}`, nights: nights(daysBetween(dep, ret)),
     airline: airline ? places.airlines[airline] ?? airline : null,
     stops: stopsText(stops),
+    baggage: baggageText(baggage),
     airport: airport ? (known ? `${known.name} (${airport})` : airport) : null,
     remote,
     foundOn: found ? numericDate(found) : null,
@@ -100,6 +102,7 @@ export function lowPriceHtml(v: LowPriceView, { headline }: { headline: boolean 
     muted("ida e volta, por pessoa"),
     `<p class="font-semibold num">${esc(v.dates)} <span class="font-normal text-muted">· ${esc(v.nights)}</span></p>`,
     carrier ? muted(esc(carrier)) : "",
+    v.baggage ? muted(esc(v.baggage)) : "",
     v.airport ? muted(`Chegada: ${esc(v.airport)}${v.remote ? ' <span class="tag tag-warning">longe do centro</span>' : ""}`) : "",
     muted(`Mínimo habitual em ${esc(v.month)}: <span data-route="${esc(v.route)}" class="num">${esc(v.typicalLow)}</span>`),
     muted(`${found}visto por nós a <span class="num">${esc(v.fetchedAt)}</span>`),

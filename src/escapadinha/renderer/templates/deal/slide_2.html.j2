@@ -26,6 +26,7 @@
   {% if v.arrival_airport %}<div class="row"><span class="k">Chegada</span><span class="val">{{ v.arrival_airport }}{% if v.remote_airport %}<span class="tag warning">longe do centro</span>{% endif %}</span></div>{% endif %}
   {% if v.airline %}<div class="row"><span class="k">Companhia</span><span class="val">{{ v.airline }}</span></div>{% endif %}
   {% if v.direct is not none %}<div class="row"><span class="k">Voos</span><span class="val">{{ "Diretos, ida e volta" if v.direct else "Com escala" }}</span></div>{% endif %}
+  {% if v.baggage_line %}<div class="row"><span class="k">Bagagem</span><span class="val">{{ v.baggage_line | capitalize }}</span></div>{% endif %}
 </div>
 <div class="spacer"></div>
 <div class="foot">

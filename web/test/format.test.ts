@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { daysBetween, daysInMonth, lisbonDay, weekday } from "../src/lib/dates";
 import {
+  baggageText,
   dateRange,
   dayMonthYear,
   discount,
@@ -85,6 +86,13 @@ describe("pt-PT formats", () => {
   it("counts nights", () => {
     expect(nights(1)).toBe("1 noite");
     expect(nights(3)).toBe("3 noites");
+  });
+
+  it("prints the baggage line only when known, never a guess (D39)", () => {
+    expect(baggageText(true)).toBe("com mala de porão incluída");
+    expect(baggageText(false)).toBe("só bagagem de mão");
+    expect(baggageText(null)).toBeNull();
+    expect(baggageText(undefined)).toBeNull();
   });
 
   it("prints a discount with a true minus sign", () => {

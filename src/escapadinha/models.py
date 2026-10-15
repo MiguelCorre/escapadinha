@@ -34,6 +34,12 @@ class Observation:
     last_seen_at: datetime | None = None
     last_run_id: int | None = None
     seen_count: int = 1                  # number of runs that returned this offer
+    # Enrichment from the Aviasales GraphQL API (D39): only ever set from a row matched to this
+    # offer, never guessed; None = unknown. `found_at` is the exact UTC time a traveller found it.
+    with_baggage: bool | None = None
+    baggage_code: str | None = None      # "0PC" = no checked bag, "1PC20" = one 20 kg bag
+    gate: str | None = None              # the selling agency
+    found_at: datetime | None = None
 
     @property
     def nights(self) -> int:

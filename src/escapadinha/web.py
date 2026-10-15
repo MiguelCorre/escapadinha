@@ -60,6 +60,8 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "airline": view.airline,
         "direct": view.direct,
         "arrival_airport": view.arrival_airport,
+        "baggage": view.baggage_line,            # D39: null when unknown (no row)
+        "gate": view.gate,
         "rule": deal.rule,
         "discount_pct": view.discount_pct,
         "typical_low": None if deal.baseline_median is None else pt.eur(deal.baseline_median),

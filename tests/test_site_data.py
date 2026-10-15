@@ -313,6 +313,25 @@ def test_expired_promotions_leave_the_export_after_the_configured_window(exporte
     assert exported_ids(30.1) == [s.live_deal, s.expired_deal]
 
 
+def test_baggage_comes_only_from_an_enriched_observation(exported):
+    """`baggage` on offers and low-price rows (D39): the matched offer's value, null elsewhere."""
+    ctx, conn, s, out, _ = exported
+    doc = read(out, "low-prices/LIS.json")
+    rows = {r[0]: dict(zip(doc["cols"], r)) for r in doc["rows"]}
+    assert doc["cols"][-1] == "baggage" and all(r["baggage"] is None for r in rows.values())
+    assert all(r["cheapest"] is None or r["cheapest"]["baggage"] is None
+               for r in read(out, "routes.json")["routes"])
+    assert all(p["offer"]["baggage"] is None for p in read(out, "promotions.json")["promotions"])
+    db.set_enrichment(conn, s.low_only[1], with_baggage=True, baggage_code="1PC20", gate="Trip.com",
+                      found_at=db.utcnow())
+    export = site_data.build_export(ctx, conn, new_links=False)
+    rows = {r[0]: dict(zip(export.files["low-prices/LIS.json"]["cols"], r))
+            for r in export.files["low-prices/LIS.json"]["rows"]}
+    assert rows[s.low_only[1]]["baggage"] is True
+    assert all(r["baggage"] is None for i, r in rows.items() if i != s.low_only[1])
+    assert "Trip.com" not in json.dumps(export.files)          # the agency stays off the site
+
+
 def test_low_prices_per_origin_with_found_date_and_tracked_links(exported):
     ctx, conn, s, out, _ = exported
     doc = read(out, "low-prices/LIS.json")
@@ -357,7 +376,8 @@ def test_without_new_links_the_export_sends_no_partner_request(ctx, tmp_path):  
     assert rows and all(r[-1] is None for r in rows)
     site_data.export_site_data(ctx, conn, tmp_path / "data")       # creates them, once
     made = links.call_count - before
-    assert made == 1 and all(r[-1] for r in read(tmp_path / "data", "low-prices/LIS.json")["rows"])
+    link = site_data.LOW_COLS.index("link")
+    assert made == 1 and all(r[link] for r in read(tmp_path / "data", "low-prices/LIS.json")["rows"])
     build_site(ctx, conn)                                           # the Jinja site reuses them
     assert links.call_count - before == made
 
@@ -453,8 +473,8 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
 
     from escapadinha import run_path
     calls = []
-    for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "publish_due",
-                 "render_deals", "_export_site_data", "_site_build", "_site_deploy",
+    for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "_enrich",
+                 "publish_due", "render_deals", "_export_site_data", "_site_build", "_site_deploy",
                  "export_review_snapshot"):
         monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n)
                             or SimpleNamespace(installed=False))
@@ -467,17 +487,17 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
                         lambda ctx, conn, export: calls.append("record_full_path"))
     monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.PathDecision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
-    assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
+    assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "enrich",
                      "publish_due", "render_deals", "export_site_data", "site_build",
                      "site_deploy", "record_full_path",
-                     "export_review_snapshot"]                           # D25, D26, D27, D32
+                     "export_review_snapshot"]                      # D25, D26, D27, D32, D39
     calls.clear()
     cli._run_steps(render=False, full=True, report=[])
     assert calls[-5:] == ["export_site_data", "site_build", "site_deploy", "record_full_path",
                           "export_review_snapshot"]
     calls.clear()
     cli._run_steps(render=True, full=False, report=[])                 # fast path: no export
-    assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
+    assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "enrich",
                      "publish_due", "export_review_snapshot"]      # posting on the fast path too
 
 
@@ -532,7 +552,8 @@ def test_fixtures_come_from_a_read_only_database_and_are_anonymous(ctx, tmp_path
     routes_out = {r["key"] for r in read(out, "routes.json")["routes"]}
     assert {"LIS-LON", "OPO-PAR"} <= routes_out and len(routes_out) < 10   # a modest subset
     rows = read(out, "low-prices/LIS.json")["rows"]
-    assert rows and all(r[-1] == f"{site_data.FIXTURE_LINK}site-low-{r[0]}" for r in rows)
+    link = site_data.LOW_COLS.index("link")
+    assert rows and all(r[link] == f"{site_data.FIXTURE_LINK}site-low-{r[0]}" for r in rows)
     assert export.files["meta.json"] == meta
     [lon] = [d for d in read(out, "destinations.json")["destinations"] if d["code"] == "LON"]
     text = "".join(p.read_text("utf-8") for p in out.rglob("*.json"))

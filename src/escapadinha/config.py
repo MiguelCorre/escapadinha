@@ -78,6 +78,9 @@ class CollectorConfig(BaseModel):
     booking_base: str = "https://www.aviasales.pt"  # booking site linked from posts (EUR, EU formats)
     requests_per_minute: int = Field(550, ge=1)   # client-side cap; the API allows 600/min
     workers: int = Field(8, ge=1, le=32)          # concurrent requests (same per-minute cap)
+    # GraphQL enrichment (D39): baggage and agency for the run's low prices and candidates.
+    graphql_requests_per_minute: int = Field(55, ge=1, le=60)   # the API allows 60/min
+    enrich_per_run: int = Field(60, ge=0)         # GraphQL queries per run (one per trip); 0 = off
 
 
 class DetectorConfig(BaseModel):

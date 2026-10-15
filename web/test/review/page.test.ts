@@ -35,9 +35,12 @@ describe("queue page", () => {
     const t = txt(card);
     for (const piece of ["Lisboa → Londres (Gatwick)", "58 €", "20 a 23 de novembro · 3 noites", "TAP Air Portugal",
       "voos diretos", "Gatwick", "−44% vs. mínimo habitual 104 € (21 dias)", "encontrado a 14/10/2026",
-      "verificado a 14/10/2026 às 09:17", "por rever"]) {
+      "verificado a 14/10/2026 às 09:17", "por rever", "só bagagem de mão", "Kiwi.com"]) {
       expect(t).toContain(piece);
     }
+    const unknown = txt(doc.querySelector('[data-deal="6"]'));          // no GraphQL match (D39)
+    expect(unknown).not.toContain("Bagagem");
+    expect(unknown).not.toContain("Agência");
     expect(card.querySelectorAll("img").map((i) => i.getAttribute("src")))
       .toEqual(["/review/slides/7/slide_01.webp", "/review/slides/7/slide_02.webp"]);
     const actions = card.querySelectorAll("button[data-act]").map((b) => b.getAttribute("data-act"));

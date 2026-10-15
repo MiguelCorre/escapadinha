@@ -6,6 +6,7 @@ import json
 import sqlite3
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path, PureWindowsPath
@@ -19,6 +20,7 @@ from escapadinha.articles import Article
 from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
 from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.base import Fetched, departure_months
+from escapadinha.collector import graphql
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
 from escapadinha.collector.travelpayouts import RateLimiter, TravelpayoutsError, TravelpayoutsSource
 from escapadinha.config import Context
@@ -254,6 +256,123 @@ def current_baselines(ctx: Context, conn: sqlite3.Connection,
     now = db.utcnow()
     return detector.month_baselines(route_history(ctx, conn, route, now), ctx.config.detector,
                                     now, route.rules)
+
+
+# --- enrich (D39) --------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EnrichSummary:
+    run_id: int | None        # the enrichment's own run row (its archive holds the answers)
+    offers: int               # low prices and candidates of the run still without a match
+    queried: int              # GraphQL requests made (one per route and trip dates)
+    matched: int              # offers that got their baggage, agency and found time
+    skipped: int              # offers left for a later run (over `enrich_per_run`)
+    errors: list[str]
+
+
+def graphql_client(ctx: Context) -> graphql.GraphQLClient:
+    c = ctx.config.collector
+    return graphql.GraphQLClient(ctx.secrets.travelpayouts_token, currency=c.currency,
+                                 market=c.market,
+                                 limiter=RateLimiter(c.graphql_requests_per_minute))
+
+
+def enrich_targets(ctx: Context, conn: sqlite3.Connection, run_id: int,
+                   now: datetime) -> list[Observation]:
+    """The run's promotion candidates (open deals seen in it) first, then its low prices by
+    discount, without the offers already matched (`found_at` set): what `enrich_offers` asks
+    the GraphQL API about, in budget order."""
+    run_obs = db.observations_seen_since(conn, run_id)
+    by_id = {o.id: o for o in run_obs}
+    ordered: list[Observation] = []
+    for _deal, obs in db.deals_with_status(conn, *db.OPEN_STATUSES):
+        if obs.id in by_id:
+            ordered.append(obs)
+    for route in routes.active_routes(conn, ctx.config.routes):
+        offers = [o for o in run_obs if o.route_key == route.key]
+        if not offers:
+            continue
+        history = route_history(ctx, conn, route, now)
+        ordered += [lp.observation for lp in
+                    detector.low_prices(offers, history, ctx.config.detector, now, route.rules)]
+    seen: set[int] = set()
+    targets = []
+    for o in ordered:
+        if o.id in seen or o.found_at is not None:
+            continue
+        seen.add(o.id)
+        targets.append(o)
+    return targets
+
+
+def run_enrich(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None,
+               now: datetime | None = None) -> EnrichSummary:
+    """Enrich the given (default: latest completed) run's candidates and low prices."""
+    now = now or db.utcnow()
+    run_id = run_id or db.latest_completed_run_id(conn)
+    if run_id is None:
+        return EnrichSummary(None, 0, 0, 0, 0, [])
+    return enrich_offers(ctx, conn, enrich_targets(ctx, conn, run_id, now), now)
+
+
+def enrich_offers(ctx: Context, conn: sqlite3.Connection, offers: list[Observation],
+                  now: datetime | None = None) -> EnrichSummary:
+    """Ask the Aviasales GraphQL API about these offers, one query per (route, departure,
+    return) in the given order, at most `collector.enrich_per_run` queries, and store
+    `with_baggage`, `baggage_code`, `gate` and `found_at` on each offer a row matches
+    (`graphql.match`). Prices are never touched; an offer without a match keeps its fields
+    null. Answers are archived under an `enrich` run (D18). Never raises: a failed query (a
+    429 that kept failing, a GraphQL error) is listed in `errors` and the run goes on."""
+    budget = ctx.config.collector.enrich_per_run
+    if not offers or budget == 0:
+        return EnrichSummary(None, len(offers), 0, 0, len(offers), [])
+    groups: dict[tuple[str, str, date, date], list[Observation]] = {}
+    for o in offers:
+        groups.setdefault((o.origin, o.destination, o.departure_date, o.return_date), []).append(o)
+    tasks = list(groups.items())[:budget]
+    skipped = sum(len(v) for v in list(groups.values())[budget:])
+    try:
+        client = graphql_client(ctx)
+    except TravelpayoutsError as exc:
+        return EnrichSummary(None, len(offers), 0, 0, len(offers), [str(exc)])
+    rules = {key: route_for(ctx, conn, key).rules
+             for key in {f"{k[0]}-{k[1]}" for k, _ in tasks}}
+    run_id = db.start_run(conn, graphql.SOURCE, scope="enrich")
+    errors: list[str] = []
+    responses: list[dict] = []
+    matched = n_rows = 0
+
+    def fetch(task):
+        (origin, destination, departure, ret), _ = task
+        try:
+            direct = rules[f"{origin}-{destination}"].direct_only
+            return client.prices_round_trip(origin, destination, departure, ret,
+                                            direct=direct), None
+        except Exception as exc:  # one trip must not lose the rest
+            return None, exc
+
+    with ThreadPoolExecutor(max_workers=ctx.config.collector.workers) as pool:
+        for (key, group), (answer, exc) in zip(tasks, pool.map(fetch, tasks)):
+            if exc is not None:
+                errors.append(f"{key[0]}-{key[1]} {key[2]} {key[3]}: {exc}")
+                continue
+            responses.append(answer.response)
+            n_rows += len(answer.offers)
+            for o in group:
+                found = graphql.match(o, answer.offers)
+                if found.found:
+                    db.set_enrichment(conn, o.id, with_baggage=found.with_baggage,
+                                      baggage_code=found.baggage_code, gate=found.gate,
+                                      found_at=found.found_at)
+                    matched += 1
+    try:
+        archive.write_run(ctx.object_store, conn, run_id, responses)
+    except Exception as exc:
+        errors.append(f"archive: {exc}")
+    status = "ok" if not errors else ("partial" if responses else "failed")
+    db.finish_run(conn, run_id, status=status, n_requests=len(tasks), n_observations=n_rows,
+                  n_new=matched, error="\n".join(errors) or None)
+    return EnrichSummary(run_id, len(offers), len(tasks), matched, skipped, errors)
 
 
 # --- recheck ------------------------------------------------------------------

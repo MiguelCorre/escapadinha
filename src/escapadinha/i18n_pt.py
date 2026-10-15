@@ -100,6 +100,15 @@ def nights(n: int) -> str:
     return count(n, "noite", "noites")
 
 
+# The baggage line (D39): printed only when the GraphQL match said so; unknown prints nothing.
+BAGGAGE = {True: "com mala de porão incluída", False: "só bagagem de mão"}
+
+
+def baggage_line(with_baggage: bool | None) -> str | None:
+    """True -> 'com mala de porão incluída', False -> 'só bagagem de mão', None -> None."""
+    return None if with_baggage is None else BAGGAGE[with_baggage]
+
+
 def airline_name(code: str | None) -> str | None:
     if not code:
         return None

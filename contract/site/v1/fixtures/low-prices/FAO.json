@@ -1,1 +1,1 @@
-{"cols":["obs","dest","price","dep","ret","found","fetched","airline","stops","airport","typical","link"],"generated_at":"2026-10-14T09:01:47Z","origin":"FAO","rows":[],"run":30,"truncated":0,"version":1}
+{"cols":["obs","dest","price","dep","ret","found","fetched","airline","stops","airport","typical","link","baggage"],"generated_at":"2026-10-14T09:01:47Z","origin":"FAO","rows":[],"run":30,"truncated":0,"version":1}

@@ -9,7 +9,7 @@
 </div>
 {% endmacro %}
 
-{# Price block. Price, dates and "encontrado a" always together, in this order. #}
+{# Price block. Price, dates, the baggage line (only when known, D39) and "encontrado a" always together, in this order. #}
 {% macro price_block(v, size="xl", dates=true) %}
 {% set parts = v.price.rsplit(" ", 1) %}{# "91 €" -> number + smaller currency sign #}
 <div class="pb pb-{{ size }}">
@@ -22,6 +22,7 @@
   </div>
   {% if dates %}
   <div class="pb-dates">{{ v.departure_short }} → {{ v.return_short }} <span class="n">· {{ v.nights }}</span></div>
+  {% if v.baggage_line %}<div class="pb-bag">{{ v.baggage_line | capitalize }}</div>{% endif %}
   <div class="pb-found">{% if v.found_on %}Encontrado por um viajante a <b>{{ v.found_on }}</b>{% else %}Verificado a <b>{{ v.checked_at }}</b>{% endif %}</div>
   {% endif %}
 </div>

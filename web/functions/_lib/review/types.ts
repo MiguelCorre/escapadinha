@@ -79,6 +79,11 @@ export interface SnapshotDeal {
   /** Stops each way (null: unknown); absent from snapshots made before they were added. */
   transfers?: number | null;
   return_transfers?: number | null;
+  /** GraphQL enrichment (D39): the selling agency and the baggage line ("só bagagem de mão"),
+   * null when the offer had no match; absent from older snapshots. */
+  gate?: string | null;
+  with_baggage?: boolean | null;
+  baggage?: string | null;
   rule: string;
   discount_pct: number | null;
   typical_low_eur: number | null;

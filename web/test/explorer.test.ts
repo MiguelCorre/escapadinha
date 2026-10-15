@@ -137,6 +137,19 @@ describe("resultsHtml", () => {
     expect(direct.textContent).toContain("Ryanair · voos diretos");
   });
 
+  it("prints the baggage line only for rows whose offer was matched (D39)", () => {
+    const withBag = row(8, "BCN", 30, "2026-11-27", "2026-11-29");   // BCN's cheapest now
+    withBag[12] = true;
+    const noBag = row(9, "PAR", 60, "2026-11-28", "2026-12-01");     // PAR's cheapest now
+    noBag[12] = false;
+    const doc = parse(resultsHtml(explore([withBag, noBag, ...ROWS], NO_FILTERS, PONTES), places));
+    expect(doc.querySelector('li[data-obs="8"]')!.textContent).toContain("com mala de porão incluída");
+    expect(doc.querySelector('li[data-obs="9"]')!.textContent).toContain("só bagagem de mão");
+    const unknown = doc.querySelector('li[data-obs="4"]')!.textContent!;        // FNC: no 13th value
+    expect(unknown).not.toContain("bagagem");
+    expect(unknown).not.toContain("mala");
+  });
+
   it("links to the tracked partner link, sponsored, and escapes text", () => {
     const links = html().querySelectorAll('a[rel~="sponsored"]');
     expect(links.map((a) => a.getAttribute("href"))).toContain("https://example.com/parceiro/site-low-3");

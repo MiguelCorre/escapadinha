@@ -36,8 +36,10 @@ def read(store: ObjectStore, key: str) -> dict:
 
 
 def items(archive: dict) -> list[dict]:
-    """Every offer item in the archive, across responses."""
-    return [item for r in archive["responses"] for item in (r["payload"].get("data") or [])]
+    """Every offer item in a collection run's archive, across responses. (An `enrich` run's
+    archive holds GraphQL answers, whose `data` is an object, not a list of items: skipped.)"""
+    return [item for r in archive["responses"]
+            for item in (r["payload"].get("data") or []) if isinstance(r["payload"].get("data"), list)]
 
 
 def flush_legacy(conn: sqlite3.Connection, store: ObjectStore) -> int:
