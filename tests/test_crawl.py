@@ -171,4 +171,4 @@ def test_every_url_of_the_old_site_resolves_on_the_astro_build(ctx, tmp_path):
     assert broken == [] and len(results) == len(urls) >= 15
     redirected = {r.path: r.target for r in results if r.status == 301}
     assert redirected[f"/promos/{deal_id}-lisboa-londres/"] == "/voos/lisboa-londres/"
-    assert redirected["/guias/voos-baratos-dicas/"] == "/dicas/"     # the tip is still a draft
+    assert redirected["/guias/voos-baratos-dicas/"] == "/dicas/voos-baratos/"   # approved 2026-10-15

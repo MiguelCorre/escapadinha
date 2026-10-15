@@ -1,7 +1,7 @@
 // Itinerary and tip pages (#17, D33) in the fixture build. The content is the test-only MDX under
 // test/fixtures/content/ (a reviewed Paris itinerary checked on 2026-10-14, a draft for Barcelona,
 // a reviewed tip checked on 2026-10-12 with two sources) plus the real src/content/ files: the
-// converted "guia rápido" and #19's drafts, all still waiting for Miguel's review.
+// converted "guia rápido" (approved by Miguel on 2026-10-15) and #19's drafts, waiting for his review.
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { contentPath, type ContentKind } from "../src/lib/content";
@@ -38,9 +38,8 @@ describe("content pages", () => {
     for (const path of built.filter((p) => !p.endsWith(".html"))) {
       const source = pageSource(path);
       for (const draft of DRAFTS) expect(source, `${path} links ${draft}`).not.toContain(draft);
-      // Neither a draft's title nor its body (the converted guide's) reaches a page.
+      // A draft's title never reaches a page.
       expect(source, path).not.toContain("Rascunho de teste");
-      expect(source, path).not.toContain("Compara Lisboa, Porto e Faro");
     }
   });
 
