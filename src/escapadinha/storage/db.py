@@ -514,6 +514,7 @@ def set_deal_affiliate(conn: sqlite3.Connection, deal_id: int, url: str | None,
 
 
 OPEN_STATUSES = ("new", "rendered", "approved")
+AWAITING_REVIEW = ("new", "rendered")     # open, and no human has approved them yet
 
 
 def open_deals(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
@@ -533,6 +534,15 @@ def record_recheck(conn: sqlite3.Connection, deal_id: int, *, valid: bool,
                expired_reason = CASE WHEN ? THEN NULL ELSE ? END
            WHERE id = ?""",
         (_ts(at or utcnow()), latest_price, valid, valid, reason, deal_id))
+    conn.commit()
+
+
+def expire_deal(conn: sqlite3.Connection, deal_id: int, reason: str) -> None:
+    """A deal awaiting review that is no longer a promotion against its month's current typical
+    low (D40). Pipeline-owned like a recheck's expiry; the last recheck's time and price stay."""
+    conn.execute(f"""UPDATE deals SET status = 'expired', expired_reason = ?
+                     WHERE id = ? AND status IN ({','.join('?' * len(AWAITING_REVIEW))})""",
+                 (reason, deal_id, *AWAITING_REVIEW))
     conn.commit()
 
 

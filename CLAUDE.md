@@ -94,7 +94,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `min_baseline_span_days` (`detector.is_mature_for_promotions`; else only a route's
   `price_cap_eur`). All from config `detector`, passed in. A deal stores its baseline's span and
   the observation ids of its cheapest/dearest daily low (`pipeline.baseline_range`); the review
-  snapshot and both review pages show them, each price on its `data-obs`.
+  snapshot and both review pages show them, each price on its `data-obs`. Every run, after
+  detection, `pipeline.run_reevaluate` judges each deal awaiting review (`db.AWAITING_REVIEW`)
+  again against its month's current typical low and rules (`recheck.promotion_expiry` =
+  `detector.evaluate`, data passed in) and expires the ones that would not be detected now:
+  pipeline-owned like the recheck's expiry, never an approve/reject; approved deals only get the
+  price recheck.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
   passed in too; never read a global `direct_only` or nights range. The same for the collector
@@ -148,7 +153,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   pinned wrangler (the pipeline's Cloudflare token is Pages-only).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
   collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → recheck →
-  detect → `publish_due` (D32, every run: posting never waits for a full path) →
+  detect (+ `run_reevaluate`, D40) → `publish_due` (D32, every run: posting never waits for a full path) →
   `run_path.decide` → full path only, its Node commands inside one deadline
   (`node.deadline()`, D35) (render → `export site-data` (D27, → `web/src/data`; keep the
   returned `Export`) → `site build` (Astro, D35: npm ci if needed, astro build, promotion images,
@@ -182,8 +187,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `approve_max_age`), and archives refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
   them only with a new version, except optional fields a reader can do without (D29's
   `transfers`, D40's `baseline`: the Function handles their absence, and the new `*_eur` field is
-  taught to `test_review_events.SNAPSHOT_PRICES`). Render (new → rendered) and rechecks stay
-  pipeline-owned.
+  taught to `test_review_events.SNAPSHOT_PRICES`). Render (new → rendered), rechecks and the
+  queue's re-evaluation (D40) stay pipeline-owned.
 - Posting queue (D32, `posting_queue`): only an applied approve event queues posts, in the
   applier's transaction (`plan_posts` passed into `apply_pending`). Slot rules stay pure in
   `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). Channels are named only in

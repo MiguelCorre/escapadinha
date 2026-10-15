@@ -128,6 +128,11 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
     console.print(table)
     console.print(f"{sum(r.low_prices for r in results)} low prices, "
                   f"{sum(len(r.deal_ids) for r in results)} new promotion candidates.")
+    # The queue against today's typical lows (D40): a deal that would not be detected now expires.
+    for deal, obs, reason in pipeline.run_reevaluate(ctx, conn):
+        console.print(f"  deal {deal.id} {obs.route_key} {obs.departure_date:%d/%m}–"
+                      f"{obs.return_date:%d/%m} @ {obs.price:g} €: [red]✗ expirado[/] "
+                      f"({escape(reason)})")
 
 
 @app.command("recheck")

@@ -27,7 +27,7 @@ from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation, Post, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
 from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
-from escapadinha.recheck import Recheck, recheck
+from escapadinha.recheck import Recheck, promotion_expiry, recheck
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, UnknownDeal, check_decision
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db, sync
@@ -363,6 +363,36 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
             _mark_expired_outputs(ctx, deal.id, result.reason, now)
         results.append((db.get_deal(conn, deal.id)[0], obs, result))
     return results
+
+
+def run_reevaluate(ctx: Context, conn: sqlite3.Connection,
+                   now: datetime | None = None) -> list[tuple[Deal, Observation, str]]:
+    """Every deal awaiting review judged again against its departure month's current typical
+    low and the route's current rules (D40): one that would not be detected now expires, with
+    the reason (`recheck.promotion_expiry`). Runs after detection on every run, so a deal
+    detected on a young typical low (before D40) never waits for a human to be published.
+
+    Pipeline-owned, like the price recheck's expiry (D26). Approved deals are left to the price
+    recheck: a human approved them against the figures the review showed."""
+    now = now or db.utcnow()
+    cfg = ctx.config.detector
+    baselines: dict[str, dict[tuple[int, int], detector.Baseline]] = {}
+    expired = []
+    for deal, obs in db.open_deals(conn):
+        if deal.status not in db.AWAITING_REVIEW:
+            continue
+        route = route_for(ctx, conn, obs.route_key)
+        if route.key not in baselines:
+            baselines[route.key] = detector.month_baselines(route_history(ctx, conn, route, now),
+                                                            cfg, now, route.rules)
+        base = baselines[route.key].get(detector.month_key(obs), detector.Baseline(None, 0, 0))
+        reason = promotion_expiry(obs, deal.rule, base, cfg, route.price_cap_eur)
+        if reason is None:
+            continue
+        db.expire_deal(conn, deal.id, reason)
+        _mark_expired_outputs(ctx, deal.id, reason, now)
+        expired.append((db.get_deal(conn, deal.id)[0], obs, reason))
+    return expired
 
 
 def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime) -> None:

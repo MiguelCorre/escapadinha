@@ -2147,7 +2147,37 @@ so nothing has to be hosted.
   2 routes" was the 7-day rule without the dates filter). Route pages say "ainda sem dados
   suficientes" until a month has 7 counted days. Busy route-months should qualify from about
   20–25 October, sooner with the nonstop fares of #41. The 6 deals waiting for review were
-  detected under the old rules; they stay in the queue and show "(N dias)".
+  detected under the old rules; the queue's re-evaluation (below) expires them on the first run.
+- **The queue against today's typical low (review of M1, 2026-10-16).** A deal waiting for review
+  (`new`, `rendered`: `db.AWAITING_REVIEW`) stores the typical low it was detected on, and the
+  site and the captions show that `baseline_median` once it is approved. The 6 deals in the queue
+  were detected on 4–6-day typical lows, so approving one would publish an immature "habitual".
+  So every run, right after detection, `pipeline.run_reevaluate` judges each of them again with
+  the detector's own rule against its month's **current** typical low and the route's current
+  rules (`recheck.promotion_expiry`, pure: `detector.evaluate` on the deal's price, the
+  baselines passed in): a typical low mature for promotions, `threshold` and `min_saving_eur`
+  below it; the route's `price_cap_eur` keeps only the deals it made (rule `price_cap`), and only
+  while the month is not mature. A deal that would not be detected now **expires**, like a
+  recheck's expiry (pipeline-owned, D26: never an approve or reject event; the recheck's time and
+  price stay; `EXPIRADO.txt` in a rendered folder), with a pt-PT reason: "preço habitual ainda
+  sem dados suficientes (5 de 10 dias)" or "já não é promoção face ao preço habitual atual
+  (101 €): 80 € fica 21% abaixo; são precisos 30% e 15 €". **Approved deals are untouched**: a
+  human approved them on the figures the review showed, and the price recheck still judges them.
+  - **Replay** (read-only copy of `data/escapadinha.db`, `mode=ro`, copied into memory and
+    migrated there; latest run 58): all 6 expire with "preço habitual ainda sem dados
+    suficientes": deals 4 (LIS-BCN, 6 of 10 days), 5 and 7 (LIS-FNC, 5), 9 (OPO-FNC, 0: none of
+    its days saw two departure dates), 10 (LIS-ROM, 2) and 11 (LIS-BER, 3). Their current typical
+    lows are lower than the stored ones (LIS-BCN 64.5 € vs 76 €, LIS-FNC 69 € vs 102 €, LIS-BER
+    113 € vs 134 €): against them only deal 10 (90 € vs 156.5 €, 2 days) would still be 30 % off.
+  - **Known effects:** an expired deal's observation stays a deal (`deal_observation_ids`), so
+    the same offer is never proposed again even once its month matures; a new price for the same
+    trip still can be. A deal that survives keeps the figures it was detected with (the typical
+    low it was judged against, as above); a deal detected before D40 survives only once its
+    month is mature and it still passes, and the first run expires today's 6 long before that.
+  - Rejected: refreshing the stored typical low of the survivors on every run (the rendered slides
+    and caption would disagree with the database, and the reviewer's figures would move under
+    them); judging approved deals too (that would overrule a human decision on data the human
+    saw).
 - **The reviewer sees the baseline:** "−39% vs. mínimo habitual 99 € (10 dias em 12, de 54 € a
   110 €)": 10 daily lows over a 12-day window (span + 1), the cheapest and the dearest of them.
   At detection a deal stores `baseline_span_days` and the observation ids of those two daily lows

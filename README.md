@@ -29,6 +29,8 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
                                 detect  two tiers vs the month's typical low (D24):
                                    │      low price  ≥15% below          → route pages (no review)
                                    │      candidate  ≥30% and ≥15 € below → a deal for review
+                                   │    then the queue again (D40): still a candidate today?
+                                   │            no → status expired + EXPIRADO.txt
                                    ▼
                               deals (status: new)
                                    │
@@ -86,7 +88,7 @@ uv run escapadinha routes discover --dry-run --no-photos   # show what would cha
 uv run escapadinha routes list             # every route + active/dormant counts per origin (pt-PT)
 uv run escapadinha collect                 # routes with prices × 3 departure months; the day's first run from 06:00 Lisbon: every active route × 6 (D42)
 uv run escapadinha recheck                 # re-verifies open deals against the latest run
-uv run escapadinha detect                  # latest run: low prices + promotion candidates per route
+uv run escapadinha detect                  # latest run: low prices + promotion candidates per route; expires queued deals that aren't candidates today (D40)
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
 uv run escapadinha photos fetch            # one Pixabay photo per destination (cached)
 uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you don't like
@@ -277,6 +279,17 @@ The collection, the live check and the review Function ask the same query
 (`collector.travelpayouts.request_params` from the route's rules, D39), so on a direct-only
 route a deal's nonstop fare no longer "disappears" when a cheaper fare with a stop shows up
 for the same dates.
+
+**Against today's typical low (D40).** After detection, every run also judges each deal still
+waiting for review (`new`, `rendered`) again, with the detector's own rule, against its month's
+current typical low and the route's current rules: a typical low mature for promotions, and the
+deal's price 30 % and 15 € below it (a `price_cap` deal: under its cap while the typical low is
+not mature). A deal that would not be detected now expires like the recheck's, with the reason:
+`preço habitual ainda sem dados suficientes (5 de 10 dias)` or `já não é promoção face ao preço
+habitual atual (101 €): 80 € fica 21% abaixo; são precisos 30% e 15 €`. Approved deals are left
+to the price recheck (a human approved them on the figures the review showed). The 6 deals
+waiting on 2026-10-16 were detected on 4–6-day typical lows; the first run with this rule
+expires them all (none of their months has 10 counted days yet).
 
 ### What counts as a deal: two tiers (DECISIONS D24)
 Every price is measured against the route's **typical lowest price for the same departure
@@ -991,7 +1004,8 @@ Without the CLI: download `backups/<date>/escapadinha.db` from the R2 dashboard 
 
 `.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours, dispatched by the scheduler
 Worker (see *Schedule* below, D41), on `ubuntu-latest`: lock → pull the database from R2 → daily
-backup → (monthly discovery) → collect → recheck → detect → publish due posts (D32) → **full path
+backup → (monthly discovery) → collect → recheck → detect (+ the queue against today's typical
+lows, D40) → publish due posts (D32) → **full path
 only when needed** → push → unlock.
 
 - **Fast path, full path.** After detection the run compares a fingerprint of what the public
