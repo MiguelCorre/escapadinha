@@ -7,7 +7,8 @@ route's own historical median, and renders Instagram carousel slides (1080×1350
 pt-PT captions into `./output/<date>/` **for manual review.** Approved promotions go into a
 posting queue (Instagram daily slots, Telegram at once, D32). Instagram posts go out through the
 Graph API as a carousel plus a story once its secrets are set (D36); until then due Instagram
-posts wait (they keep their slot). Telegram uses a dry-run publisher that logs what it would post.
+posts wait (they keep their slot). Telegram posts go out through the Bot API as a photo message
+in the public channel once its secrets are set (D38); until then they wait too.
 
 **Integrity rule:** every price shown comes from a stored API observation (`price_observations`)
 with its source, first `fetched_at` timestamp and the day a traveller found it (`found_date`).
@@ -72,6 +73,7 @@ Keys (`.env`, never committed):
 | `PIXABAY_API_KEY` | pixabay.com/api/docs: free key, shown on that page once you're logged in |
 | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Optional. Cloudflare → R2 → *Manage R2 API Tokens* (Object Read & Write on the bucket only). All four set = database and archives in R2 (see [Database in R2](#database-in-cloudflare-r2-decisions-d21)); any missing = everything stays under `data/` |
 | `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_ACCOUNT_ID` | Optional. The Meta app's long-lived token (Instagram Login) and the professional account's id: [docs/runbooks/instagram.md](docs/runbooks/instagram.md). Both set = Instagram posts go out for real (see [Instagram](#instagram-decisions-d36)); either missing = due Instagram posts wait ("À espera do token") |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL` | Optional. The bot's token from @BotFather and the public channel's @handle (the bot is an admin allowed to post): [docs/runbooks/telegram.md](docs/runbooks/telegram.md). Both set = Telegram messages go out for real (see [Telegram](#telegram-decisions-d38)); either missing = due Telegram posts wait ("À espera do bot") |
 
 In the Travelpayouts dashboard, join the **Aviasales** program and check under its
 traffic rules that **Instagram/social media** traffic is allowed before posting.
@@ -93,7 +95,7 @@ uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
 uv run escapadinha export site-data        # website data contract v1 (JSON) → web/src/data
 uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → publish due posts, then render → export → site build (Astro) → deploy only if something changed → review snapshot
-uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled; Instagram token notices
+uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled; Instagram token and Telegram channel notices
 uv run escapadinha instagram token         # PC only: the Instagram token the pipeline renewed, to copy into the secret (D36)
 uv run escapadinha run --full              # the same, always with render → export → site build → deploy
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
@@ -182,12 +184,15 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
   `max_per_day` (3 Instagram posts per Lisbon day), `max_check_age_hours` (6: a due post waits
   until a recheck or the approval verified the price this recently), `max_attempts` (5 publisher
   errors cancel a post) and `publishers` per channel (`instagram: instagram`, whose due posts
-  wait while its secrets are unset; `telegram: dry-run`; `instagram: dry-run` only logs).
+  wait while its secrets are unset; `telegram: telegram`, the same with its own; `dry-run` only
+  logs, and settles the post).
 - `instagram` (D36): `login` (`instagram`: Instagram API with Instagram Login on
   graph.instagram.com, the default; `facebook`: graph.facebook.com for an account linked to a
   Page, with a Page token that never expires: no refresh), `api_version` (`v23.0`),
   `refresh_days` (10: the token is renewed when fewer days remain), `images_wait_hours` (24:
   JPEGs still not on the site this long after the slot make each further wait a failed attempt).
+- `telegram` (D38): `images_wait_hours` (24: the cover JPEG still not on the site this long
+  after the approval makes each further wait a failed attempt).
 - `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
 - `origins_article`: the article a name takes in a sentence (`OPO: o` → "desde o Porto", `FNC: a`,
   `TER: a`; unlisted origins take none), exported in `origins.json` for the site's titles.
@@ -345,12 +350,12 @@ its recheck, and on the fast path too), publishes the posts that are due:
 - at most one Instagram post per run, so a backlog never goes out in a burst;
 - a publisher error keeps the post queued and retries next run; after 5 errors it is cancelled.
 
-Telegram (until #21) uses the **dry-run publisher**: the run log shows what would be posted
-(`[dry-run] Telegram · deal 12 · Lisboa → Londres · 58 € · agendada para ...` and the full text)
-and nothing leaves the machine. Publishers plug in through `posting.publishers`. Instagram
-(`instagram: instagram`) without its secrets is not a dry run: its due posts **wait** ("À espera
-do token: …", no attempt counted), so no promotion loses its Instagram slot before the token is
-set; an expiry or a rejection still cancels them as usual.
+Publishers plug in through `posting.publishers`. A channel on the **dry-run publisher** only
+logs what would be posted (`[dry-run] Telegram · deal 12 · Lisboa → Londres · 58 € · agendada
+para ...` and the full text) and settles the post. Instagram (`instagram: instagram`) and
+Telegram (`telegram: telegram`) without their secrets are not a dry run: their due posts **wait**
+("À espera do token: …", "À espera do bot: …", no attempt counted), so no promotion loses its
+post before the secrets are set; an expiry or a rejection still cancels them as usual.
 
 ```bash
 uv run escapadinha queue list         # 2 publicações agendadas: Instagram deal 12 ... 01/12/2026 às 09:00 · agendada
@@ -397,6 +402,36 @@ never in the database or a log) and later runs use it; the run log and `queue li
 An expired or refused token posts nothing: due posts wait and the run log and `queue list` say
 why, until Meta accepts a token again. With `login: facebook` nothing is refreshed: use a Page
 token that never expires (runbook).
+
+### Telegram (DECISIONS D38)
+
+With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` (the public channel's @handle) set (`.env` and
+Actions secrets; setup in [docs/runbooks/telegram.md](docs/runbooks/telegram.md)), a promotion's
+Telegram post goes out on the first run after its approval through the Bot API (`sendPhoto`):
+
+1. the photo is the cover slide's JPEG on the site (`…/img/promos/<id>/slide_01.jpg`), which
+   Telegram fetches by URL; it must answer 200 to a HEAD first, else the post *waits* for the
+   deploy (no attempt counted) for up to `telegram.images_wait_hours` (24) after the approval,
+   then each run counts a failed attempt. In practice the approval's own run deploys it and the
+   message goes out on the next run;
+2. the caption is the WhatsApp text (stored partner link and the disclosure), plain text, never
+   cut: over Telegram's 1024 characters the post is cancelled with the reason;
+3. the message id and link (`https://t.me/<handle>/<id>`) are stored on the queue row
+   (`queue list --all` shows the link). The promotion is not marked published: Instagram is its
+   main channel.
+
+Nothing is sent twice: a record of each send goes to the object store
+(`posting/telegram/deal-<id>.json`) before the request and gets the message id after it. A send
+Telegram refused, or that never reached it (no connection), is retried; one whose answer was lost
+(a timeout after the request went out, an unreadable answer, a run killed before saving it) is
+**cancelled** with *"… pode ter saído. Confirma no canal …"*: Telegram can't tell a bot what is
+in its channel, so a lost answer is never resent (check the channel and post it by hand if it
+isn't there). A message sent by a run whose database never reached R2 is adopted from the record
+on the next run. Errors: 429 (rate limit) and 401 (the token) **wait**; a refused chat (400/403:
+channel not found, the bot not an admin) **cancels** the post and leaves a notice in `queue list`
+until a message goes out again; a photo Telegram couldn't fetch, 5xx and the rest are failures,
+retried up to `posting.max_attempts` (5). The token is part of the API URL: it never appears in an
+error, a log or the database.
 
 Every approved promotion also gets a short **WhatsApp text** (pt-PT: destination and arrival
 airport, price, dates, when the price was found and when we checked it, the affiliate link and the
@@ -1077,6 +1112,16 @@ uv run pytest -m "not browser"
   and its notice, Facebook Login's host, missing secrets → wait (not a dry run), the `published`
   decision, `instagram token`. The schema v11 upgrade and the story-status CHECK are in
   `test_posting.py`.
+- `test_telegram.py` (D38): the Telegram publisher through `run_publish` with the Bot API and the
+  site's HEAD answers mocked by respx: the photo message (cover JPEG, WhatsApp text, message id
+  and t.me link, no `published` decision), the cover not deployed yet → wait, then failures after
+  a day, 429 → wait, 401 → wait with a notice, refused chats (400/403) → cancelled with a notice
+  until a message goes out, a photo Telegram couldn't fetch and 5xx → retried, a lost answer
+  (read timeout, protocol error, a proxy's 502 page) → cancelled and never resent, no connection
+  → retried, a send record adopted after a lost database or cancelled without its answer, the
+  1024 UTF-16 caption limit, the token in no log, reason, database row or stored object,
+  `queue list`, the config validator, `chat_id`, missing secrets → wait. The schema v12 upgrade
+  is in `test_posting.py`.
 
 ## Data sources and terms
 

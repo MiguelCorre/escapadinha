@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Travel-deals pipeline for the Portuguese market: collect → detect → render. Approved promotions are queued for posting (D32): Instagram
-through the Graph API when its secrets are set (D36), Telegram a dry run until #21.
+through the Graph API when its secrets are set (D36), Telegram through the Bot API likewise (D38).
 See README.md for usage and DECISIONS.md for rationale and the roadmap. Vocabulary: GLOSSARY.md.
 v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in docs/agents/.
 
@@ -158,7 +158,18 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   that can't post (no secrets, no token) waits, never falls back to a dry run that would settle
   the post. Story states only from `posting.StoryStatus` (SQL CHECK tested against it). Post
   texts: the caption (Instagram) and `captions.whatsapp_text` (stored partner link +
-  `DISCLOSURE`), never a hand-built link.
+  `DISCLOSURE`; Telegram), never a hand-built link. A real publisher without its secrets is
+  `posting.Paused` (Instagram's own `instagram.Paused`), never the dry run.
+- Telegram publisher (D38, `telegram.py`): Bot API `sendPhoto` only through `BotApi` (host
+  `config.TELEGRAM_API`; the token is in the URL path: errors by type only, any text redacted,
+  never a log, the database or CI output; httpx logs URLs at INFO, so never turn that on), photo
+  = the cover of `website.public_jpeg_urls` once its HEAD answers 200 (wait, bounded by
+  `telegram.images_wait_hours`), caption = the post's text, never cut (over 1024 UTF-16 units:
+  cancel). Before the request a record goes to the object store (`telegram.record_key`), after
+  it the message id: a send whose answer was lost (`NoAnswer(sent=True)`, or a record without
+  an id) is cancelled, never resent; only a refusal or `sent=False` is retried. Message id on the
+  row (`message_id`, v12), its link in `result_url`. It never marks a promotion published
+  (that would cancel its Instagram post). Classification lives in `TelegramPublisher._signal`.
 - Instagram publisher (D36, `instagram.py`): the Graph host only from `config.GRAPH_HOSTS` via
   `InstagramConfig.host`, the version from `api_version` (`Graph(http, api, token)`); images only
   `website.public_jpeg_urls` (HEAD 200, https redirects followed, else wait, bounded by
@@ -233,9 +244,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/captions/templates/`: `deal.txt.j2`, `guide.txt.j2`, `whatsapp.txt.j2`
 - `src/escapadinha/posting.py`: posting queue rules (`CHANNELS`, slots, `verdict` →
   `VerdictAction`, `story_verdict`, `StoryStatus`) + the publisher protocol (`Publisher`,
-  `StoryPublisher`, `Published`, `PublishWait`, `PublishCancel`, `attempt`, `DryRunPublisher`);
+  `StoryPublisher`, `Published`, `PublishWait`, `PublishCancel`, `attempt`, `DryRunPublisher`,
+  `Paused`);
   DB wiring in `pipeline.run_publish` (`publishers_for`, `PostResult.action`: `PostAction`,
   stories in `_run_stories`), the queue read with `db.posts`
+- `src/escapadinha/telegram.py`: `BotApi` (token redacted, `NoAnswer`/`BotApiError`),
+  `TelegramPublisher` (cover check, send record, `_signal`), `chat_id`, `message_link`,
+  `problem_state`/`notices` (meta `telegram.problem`); runbook `docs/runbooks/telegram.md`
 - `src/escapadinha/instagram.py`: `Graph` (calls, token redacted), `classify` (Graph error →
   wait/cancel/retry), `image_problem` (HEAD), `InstagramPublisher` (carousel, story, limit,
   polling, `_reuse`/`_finish` resume), `Paused`, `ensure_token` (refresh, stored token),
@@ -274,7 +289,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `build-site.ts`, `scale.test.ts` full-size synthetic build, traceability, internal links,
   `content-pages.test.ts`, `seo.test.ts` + `jsonld.ts`, `seo-configured.test.ts`)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`,
-  `search-widget.md`, `instagram.md`, `rever-conteudo.md`: reviewing MDX drafts in `npm run dev:fixtures`)
+  `search-widget.md`, `instagram.md`, `telegram.md`, `rever-conteudo.md`: reviewing MDX drafts in `npm run dev:fixtures`)
 - `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
   validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a
   promotion), `cta.ts` (booking button + disclosure); `src/layouts/Base.astro`, `src/components/`,

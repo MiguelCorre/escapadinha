@@ -51,6 +51,9 @@ jobs:
       # token is kept in R2 and used from there; `escapadinha instagram token` (PC) shows it.
       INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
       INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+      # Telegram publisher (D38), optional: unset, due Telegram posts wait.
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
     steps:
       - uses: actions/checkout@v5
 

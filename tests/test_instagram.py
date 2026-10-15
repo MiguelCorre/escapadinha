@@ -24,6 +24,13 @@ SITE = "https://pontonomada.pt"
 DUE = utc(2026, 12, 1, 9, 0)            # the 09:00 slot (Lisbon = UTC in December)
 
 
+@pytest.fixture(autouse=True)
+def telegram_dry_run(ctx):
+    """Only Instagram is under test: Telegram on the dry run, so it goes out at the approval
+    (config.yaml's `telegram: telegram` would wait for its secrets, D38: test_telegram.py)."""
+    ctx.config.posting.publishers["telegram"] = "dry-run"
+
+
 class FakeGraph:
     """Instagram's Graph API as far as the publisher uses it. Records every call; containers
     answer the statuses queued for them (FINISHED by default); published media keep their

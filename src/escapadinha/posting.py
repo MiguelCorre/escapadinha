@@ -8,7 +8,8 @@ run's recheck), `pipeline.run_publish` asks `verdict` what to do with each queue
 promotion that expired or was rejected cancels it; a due post goes out only if the price was
 verified (the last recheck, else the approval's live check) within `posting.max_check_age_hours`.
 Publishers are pluggable (`Publisher`); `DryRunPublisher` only logs what would be posted, the
-Instagram publisher (`instagram.py`, D36) posts a carousel and then a story (`story_verdict`).
+Instagram publisher (`instagram.py`, D36) posts a carousel and then a story (`story_verdict`),
+the Telegram publisher (`telegram.py`, D38) a photo message; `Paused` waits for their secrets.
 
 The rules here are pure (no I/O, no clock): `now` is passed in.
 """
@@ -228,6 +229,17 @@ class StoryPublisher(Publisher, Protocol):
 def publisher_actor(name: str) -> str:
     """The actor of the `published` decision a real publisher's post writes: 'instagram-publisher'."""
     return f"{name}-publisher"
+
+
+class Paused:
+    """A channel while it can't post (no secrets): every due post waits, no attempt counted,
+    the reason in `queue list`. Never a dry run, which would settle the post (D36)."""
+
+    def __init__(self, name: str, reason: str):
+        self.name, self.reason = name, reason
+
+    def publish(self, message: Message) -> Published:
+        raise PublishWait(self.reason)
 
 
 class DryRunPublisher:

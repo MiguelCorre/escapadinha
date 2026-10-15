@@ -30,7 +30,7 @@ from escapadinha.storage.objects import LockHeld
 from escapadinha.storage.s3 import STORE_ERRORS
 
 app =typer.Typer(help="Travel deals from Portugal: collect → detect → render → post (Instagram "
-                       "via the Graph API once its secrets are set; Telegram a dry run).",
+                       "via the Graph API, Telegram via the Bot API, once their secrets are set).",
                   no_args_is_help=True, pretty_exceptions_enable=False)
 photos_app = typer.Typer(help="Destination photo cache (Pixabay).", no_args_is_help=True)
 render_app = typer.Typer(help="Render Instagram slides + captions into ./output/<date>/.",
@@ -689,10 +689,11 @@ def export_review_snapshot() -> None:
 @queue_app.command("list")
 def queue_list(show_all: Annotated[bool, typer.Option("--all", help="Also published and cancelled posts")] = False) -> None:
     """Upcoming posts (Lisbon time), and why a due one waits."""
-    from escapadinha import instagram
+    from escapadinha import instagram, telegram
 
     ctx, conn = _ctx()
-    for notice in instagram.notices(conn):      # the token: refreshed, invalid, valid until
+    # Instagram's token (refreshed, invalid, valid until); Telegram's channel or token refused.
+    for notice in instagram.notices(conn) + telegram.notices(conn):
         console.print(f"[yellow]![/] {escape(notice)}")
     queued = db.posts(conn, "queued")
     shown = db.posts(conn) if show_all else queued

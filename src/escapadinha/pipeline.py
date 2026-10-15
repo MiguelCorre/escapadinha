@@ -525,11 +525,15 @@ def publishers_for(ctx: Context, conn: sqlite3.Connection, http: httpx.Client, *
     """channel -> publisher, from `posting.publishers` in config. `instagram` needs both
     INSTAGRAM_* secrets and a usable token (refreshed here when due, every run, so a quiet week
     never lets it expire); without them the channel is `Paused`: its due posts wait, never
-    settled by a dry run, so no slot is lost (D36)."""
+    settled by a dry run, so no slot is lost (D36). `telegram` needs both TELEGRAM_* secrets,
+    else it is paused the same way (D38)."""
     from escapadinha import instagram
     from escapadinha.website import public_jpeg_urls      # imports this module
     out: dict[str, posting.Publisher] = {}
     for channel, name in ctx.config.posting.publishers.items():
+        if name == "telegram":
+            out[channel] = _telegram_publisher(ctx, conn, http, now=now, log=log)
+            continue
         if name != "instagram":
             out[channel] = posting.DryRunPublisher(log)
             continue
@@ -558,6 +562,26 @@ def publishers_for(ctx: Context, conn: sqlite3.Connection, http: httpx.Client, *
             now=now, images_wait=timedelta(hours=api.images_wait_hours), sleep=sleep, log=log,
             token_state=lambda problem: instagram.token_state(conn, problem))
     return out
+
+
+def _telegram_publisher(ctx: Context, conn: sqlite3.Connection, http: httpx.Client, *,
+                        now: datetime, log: Callable[[str], None]) -> posting.Publisher:
+    """The telegram channel's publisher (D38): paused until both secrets are set."""
+    from escapadinha import instagram, telegram
+    from escapadinha.website import public_jpeg_urls      # imports this module
+    secrets = ctx.secrets
+    if not secrets.telegram_configured:
+        return posting.Paused("telegram", "À espera do bot: faltam TELEGRAM_BOT_TOKEN e/ou "
+                                          "TELEGRAM_CHANNEL (.env ou secrets do GitHub, "
+                                          f"{telegram.RUNBOOK}).")
+    return telegram.TelegramPublisher(
+        telegram.BotApi(http, secrets.telegram_bot_token.strip()),
+        telegram.chat_id(secrets.telegram_channel), store=ctx.object_store,
+        image_urls=lambda deal: public_jpeg_urls(ctx, deal),
+        check_image=lambda url: instagram.image_problem(http, url),
+        save=lambda post_id, **fields: db.save_post_progress(conn, post_id, **fields),
+        now=now, images_wait=timedelta(hours=ctx.config.telegram.images_wait_hours), log=log,
+        problem=lambda reason: telegram.problem_state(conn, reason))
 
 
 def _run_stories(ctx: Context, conn: sqlite3.Connection, publishers: dict[str, posting.Publisher],
@@ -611,7 +635,8 @@ def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
     post per run, so a backlog never goes out in a burst. A publisher error leaves the post
     queued; `posting.max_attempts` errors cancel it; a `PublishWait` (images not deployed yet,
     API limit, token, no secrets) waits without counting one. A real Instagram post writes a
-    `published` decision and leaves its story pending, posted right after (`_run_stories`, D36)."""
+    `published` decision and leaves its story pending, posted right after (`_run_stories`, D36);
+    a Telegram message (D38) only settles its row (message link in `result_url`)."""
     now = now or db.utcnow()
     cfg = ctx.config.posting
     with httpx.Client(timeout=30) as http:

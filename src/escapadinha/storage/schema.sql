@@ -145,6 +145,8 @@ CREATE TABLE IF NOT EXISTS posting_queue (
     story_attempts     INTEGER NOT NULL DEFAULT 0,   -- story errors so far
     story_note         TEXT,                 -- last story error, why it waits or was skipped (pt-PT)
     caption            TEXT,                 -- the caption of the first attempt, reused by retries
+    -- Telegram publisher (D38, v12): the channel message's id (its link is result_url).
+    message_id         TEXT,
     UNIQUE (deal_id, channel)
 );
 
