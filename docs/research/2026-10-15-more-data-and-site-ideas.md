@@ -542,7 +542,7 @@ Tools and the reference site
 
 ---
 
-## 7. Draft tickets (not opened)
+## 7. Draft tickets (opened on 2026-10-15 as #46 T1, #47 T2, #48 T3, #49 T4, #50 T5)
 
 Format per `docs/agents/issue-tracker.md`. Milestone in the title prefix. Each is ≤ half a day to
 two days of agent work; T1 and T2 are the larger ones and could be split.
