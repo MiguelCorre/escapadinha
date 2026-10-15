@@ -552,12 +552,15 @@ def _pontes(ctx: Context, origin_codes: list[str]) -> dict:
 def _affiliates(ctx: Context, conn: sqlite3.Connection, new_links: bool, fixture: bool) -> dict:
     """The affiliate blocks' data (D37): every programme (its brand, null while not configured)
     and a tracked link per (published article, configured programme it lists). Fixture data
-    gets the test-only articles too, and a placeholder per link instead of a stored one."""
+    links the test-only articles (`fixture: true`) only, to a placeholder each: the committed
+    fixtures depend on the test content, never on which real articles are approved (a fixture
+    build still builds those, their blocks render nothing and warn)."""
     aff = ctx.config.affiliate
     published = articles.published(node.web_dir(ctx), fixture=fixture)
     if fixture:
+        test_only = [a for a in published if a.fixture]
         links = {pair: f"{FIXTURE_LINK}{a.sub_id}"
-                 for pair, (a, _) in pipeline.block_targets(ctx, published).items()}
+                 for pair, (a, _) in pipeline.block_targets(ctx, test_only).items()}
     else:
         links = pipeline.article_links(ctx, conn, published, create=new_links)
     return {

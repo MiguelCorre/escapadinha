@@ -1335,6 +1335,18 @@ so nothing has to be hosted.
   `content-pages.test.ts` now reads its draft list from `src/content/` (every entry whose front
   matter is not `reviewed: true`) instead of naming the old guide only, so no real draft can reach
   the build, a listing or a link, and approving one needs no test change.
+- **Real reviewed content next to the test content (#19, 2026-10-15):** Miguel published the ten
+  drafts, and the fixture build (which builds real reviewed entries too, so their pages are
+  build-tested at PR time) stopped on `two reviewed itineraries for PAR: paris-em-3-dias,
+  paris-em-4-dias`. **A test-only itinerary now wins over a real one for its city**
+  (`itineraryFor`, `ItineraryEntry.data.fixture`): the gate passes test-only entries only in a
+  fixture build, so this changes nothing in a real build, and approving a real itinerary for a
+  city the test content uses never stops the fixture build; two reviewed real ones, or two
+  test-only ones, for a city still do. `content-pages.test.ts` derives every expectation about
+  real content from the files (front matter through the zod schemas and `isVisible`): each hub
+  of the fixture data links its expected itinerary (test-only first) or none, lists exactly the
+  built tips naming its city, and the home page links the first entries of `/roteiros/` and
+  `/dicas/`. No test assumes the real content is all drafts any more.
 
 ## D34: SEO, structured data, search widget and analytics (2026-10-14, #16)
 - **What:** the Astro site (D28) gets canonical, OpenGraph and Twitter tags on every page,
@@ -1857,7 +1869,11 @@ so nothing has to be hosted.
   disclosure speaks of booking buttons, a block is not one). No prices; nothing per-run, so
   `shown_digest` (the full path's fingerprint) covers it unchanged. Fixture data links each
   test-only and reviewed article to `https://example.com/parceiro/<sub_id>` without reading
-  stored links. The committed fixtures got `affiliates.json`, `meta.files.affiliates` and
+  stored links, and **only the test-only ones** (2026-10-15, #19: publishing the real articles
+  changed the fixture export): the committed `affiliates.json` depends on the test content, never
+  on which real articles are approved. The gate itself is unchanged (`articles.published`, the
+  shared cases); in a fixture build a real article's blocks render nothing, with the build's
+  warning, and the web tests check the warnings of the test itinerary only. The committed fixtures got `affiliates.json`, `meta.files.affiliates` and
   `disclosure.affiliate` **by hand** (D36's reason: regenerating would move every pinned value);
   `test_affiliate_blocks.py` checks the committed `affiliates.json` and the whole `labels.json`
   equal what `build_export(fixture=True)` writes for the repo's config and fixture content.

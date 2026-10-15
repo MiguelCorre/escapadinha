@@ -653,19 +653,22 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   "Rascunho" notice and `noindex`. Each article ends with "Factos verificados a <data>" and its
   sources. **No prices in content:** the pt-PT lint refuses "€", "EUR" and amounts in euros; link
   the official source instead. Test-only entries (`fixture: true`) live in
-  `web/test/fixtures/content/` and are built only from fixture data. The old "guia rápido" is now
-  the draft tip `web/src/content/tips/voos-baratos.mdx` (`/dicas/voos-baratos/` once reviewed;
-  `legacy_path: /guias/voos-baratos-dicas/`): to publish it, check the facts, add the sources and
-  `last_checked`, set `reviewed: true`.
-- **Drafts waiting for review (#19):** five itineraries (`barcelona-em-3-dias`, `paris-em-4-dias`,
+  `web/test/fixtures/content/` and are built only from fixture data. A fixture build builds the
+  real reviewed entries too; there a test-only itinerary wins over a real one for the same city,
+  and only test-only articles get (placeholder) affiliate links, so approving real content never
+  breaks the fixture build, the web tests or the committed fixtures. The old "guia rápido" is now
+  the tip `web/src/content/tips/voos-baratos.mdx` (`/dicas/voos-baratos/`, approved 2026-10-15;
+  `legacy_path: /guias/voos-baratos-dicas/`).
+- **The #19 articles:** five itineraries (`barcelona-em-3-dias`, `paris-em-4-dias`,
   `roma-em-3-dias`, `madeira-em-3-dias`, `sao-miguel-em-3-dias`: the five destinations with low
   prices in the latest run) and five tips (`bagagem-de-mao`, `esim-ou-roaming`,
   `seguro-de-viagem`, `transportes-aeroportos`, `direitos-dos-passageiros`), each with at least
-  three official sources and `reviewed: false`. **To review:** `cd web && npm run dev:fixtures`,
-  then http://localhost:4321/roteiros/ and `/dicas/` list the drafts (with the "Rascunho"
-  notice); open questions are `# TODO Miguel` lines in each front matter. The pt-PT checklist
-  (facts against the sources, no prices, tone, blocks, then `reviewed: true` + `last_checked`)
-  is [docs/runbooks/rever-conteudo.md](docs/runbooks/rever-conteudo.md).
+  three official sources, published (`reviewed: true`) at Miguel's request on 2026-10-15, to be
+  read again by a second reader; open questions stay as `# TODO Miguel` lines in each front
+  matter. To preview: `cd web && npm run dev:fixtures`, then http://localhost:4321/roteiros/ and
+  `/dicas/`. The pt-PT review checklist (facts against the sources, no prices, tone, blocks, then
+  `reviewed: true` + `last_checked`) is
+  [docs/runbooks/rever-conteudo.md](docs/runbooks/rever-conteudo.md).
 - **Affiliate blocks (D37):** an itinerary or tip places `<EsimBlock />`, `<InsuranceBlock />` or
   `<ActivitiesBlock />` where it fits in the MDX body (no import: the pages pass them,
   `src/components/mdx-components.ts`) **and** lists the programme in its front matter, e.g.
