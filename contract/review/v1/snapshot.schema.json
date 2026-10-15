@@ -145,7 +145,7 @@
             "expired_reason": {"type": ["string", "null"]},
             "query": {
               "type": "object",
-              "description": "Exact query of the provider request (prices_for_dates) that prices this trip now; the API token goes in the X-Access-Token header.",
+              "description": "Exact query of the provider request (prices_for_dates) that prices this trip now, the same the collection sends for the route-month (with direct=\"true\" on a route that takes only nonstop flights, D39); the API token goes in the X-Access-Token header.",
               "required": ["origin", "destination", "departure_at", "one_way", "currency"],
               "additionalProperties": {"type": ["string", "integer"]}
             },

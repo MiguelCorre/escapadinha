@@ -38,7 +38,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 
 | Module | Role |
 |---|---|
-| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited), `runner.collect` (route × month loop), `catalogue.py` (discovery downloads) |
+| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited; asked with the route's rules, `direct=true` on nonstop-only routes), `runner.collect` (route × month loop), `catalogue.py` (discovery downloads) |
 | `discovery.py` | Pure: catalogues + supplements → direct routes with kind and pt-PT name |
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups); `mirror.py` (photos and rendered slides in the store) |
@@ -168,6 +168,11 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
     2–10 nights. `long_haul`: up to 1 stop each way, 7–21 nights. `direct_only` wins over
     `max_transfers` (stops per direction). Offers outside a route's rules are not collected
     (nights), are never deals and never count towards its typical low.
+  - A route that takes only nonstop flights both ways (`direct_only`, or `max_transfers: 0`)
+    asks the API for nonstop fares only (`direct=true`, DECISIONS D39). The cache keeps one
+    offer per date pair, the cheapest, so a cheaper fare with a stop would otherwise hide the
+    nonstop one (57 % of the rows on these routes were thrown away for a stop). Routes that
+    allow a stop keep the plain call; the request count is the same.
   - `overrides`: per-route exceptions, e.g. `"LIS-LON": { max_nights: 7 }`, plus an optional
     `price_cap_eur`. Removing an override restores the kind default on the next command.
   - `exclusions`: route keys (`LIS-LON`) or destinations (`LON`) that are never discovered nor
@@ -240,6 +245,10 @@ found within `max_offer_age_days`, and within the route's rules (nonstop where `
 at most `max_transfers` stops per direction, nights range). Otherwise it becomes
 `expired`, gets an `expired_reason`, and its output folder gets `EXPIRADO.txt` ("NÃO PUBLICAR").
 A route with no data in a run is skipped, so an API hiccup expires nothing.
+The collection, the live check and the review Function ask the same query
+(`collector.travelpayouts.request_params` from the route's rules, D39), so on a direct-only
+route a deal's nonstop fare no longer "disappears" when a cheaper fare with a stop shows up
+for the same dates.
 
 ### What counts as a deal: two tiers (DECISIONS D24)
 Every price is measured against the route's **typical lowest price for the same departure
@@ -1112,8 +1121,9 @@ uv run pytest -m "not browser"
   `contract/review/v1/event.schema.json`, the dispatch, the page).
 - `test_live_check_cases.py` and `web/test/review/live-check.test.ts` run the same cases
   (`contract/review/v1/fixtures/live-check-cases.json`) through the pipeline's live check and the
-  Function's port: both must agree, on prices, stop counts and the pt-PT reason shown when the
-  provider fails (rate limit, HTTP error, error payload, no answer, no token).
+  Function's port: both must agree, on prices, stop counts, the pt-PT reason shown when the
+  provider fails (rate limit, HTTP error, error payload, no answer, no token) and the request
+  itself (`queries`: `direct=true` on nonstop-only routes, D39).
 - `test_review_rules_cases.py` and `web/test/review/rules.test.ts` check `review.py`'s tables and
   `check_decision` and the Function's `rules.ts` against `contract/review/v1/fixtures/review-rules.json`.
 - `web/test/colours.test.ts` fails on a raw colour (hex, `rgb()`, `hsl()`) in `web/src/` or

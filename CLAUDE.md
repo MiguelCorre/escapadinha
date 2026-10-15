@@ -95,7 +95,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   snapshot and both review pages show them, each price on its `data-obs`.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
-  passed in too; never read a global `direct_only` or nights range.
+  passed in too; never read a global `direct_only` or nights range. The same for the collector
+  (`PriceSource.fetch(…, rules=)`): the provider query comes only from
+  `travelpayouts.request_params(…, rules)` (`direct=true` on nonstop-only routes, D39), shared
+  by the collection, `pipeline.price_now` and the snapshot's `live_check.query` (cases
+  `queries` in `contract/review/v1/fixtures/live-check-cases.json`, checked on both sides).
 - Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
   config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list, seed,
   discovery origins and `city_names`. Discovery (`discovery.py`) is pure; its downloads live in

@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 
 from escapadinha.collector.base import Fetched
-from escapadinha.models import Observation
+from escapadinha.models import Observation, RouteRules
 from escapadinha.storage.db import utcnow
 
 API_URL = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates"
@@ -158,10 +158,14 @@ class RateLimiter:
         self._calls.append(now)
 
 
-def request_params(origin: str, destination: str, month: date, *, currency: str, limit: int,
-                   market: str | None) -> dict:
+def request_params(origin: str, destination: str, month: date, rules: RouteRules, *,
+                   currency: str, limit: int, market: str | None) -> dict:
     """Query of one route-month request (the token goes in a header, not here). The review
-    snapshot carries it so the review Function's live check asks exactly the same (D26)."""
+    snapshot carries it so the review Function's live check asks exactly the same (D26).
+
+    The cache keeps one offer per (departure, return) pair, the cheapest. A route whose rules
+    discard every offer with a stop asks for nonstop offers only (`direct=true`, D39), so a
+    cheaper offer with a stop never hides the nonstop fare of the same dates."""
     params = {
         "origin": origin,
         "destination": destination,
@@ -172,6 +176,8 @@ def request_params(origin: str, destination: str, month: date, *, currency: str,
         "unique": "false",
         "limit": limit,
     }
+    if rules.nonstop_only:
+        params["direct"] = "true"
     if market:
         params["market"] = market
     return params
@@ -200,24 +206,23 @@ class TravelpayoutsSource:
         self._limiter = limiter
 
     def fetch_round_trips(self, origin: str, destination: str, month: date, *,
-                          min_nights: int, max_nights: int) -> list[Observation]:
-        return self.fetch(origin, destination, month, min_nights=min_nights,
-                          max_nights=max_nights).observations
+                          rules: RouteRules) -> list[Observation]:
+        return self.fetch(origin, destination, month, rules=rules).observations
 
-    def fetch(self, origin: str, destination: str, month: date, *,
-              min_nights: int, max_nights: int) -> Fetched:
-        params = self.request_params(origin, destination, month)
+    def fetch(self, origin: str, destination: str, month: date, *, rules: RouteRules) -> Fetched:
+        params = self.request_params(origin, destination, month, rules)
         payload = self._get(params)
         fetched_at = self._now()
         observations = parse_response(payload, origin=origin, destination=destination,
-                                      fetched_at=fetched_at, min_nights=min_nights,
-                                      max_nights=max_nights, booking_base=self._booking_base)
+                                      fetched_at=fetched_at, min_nights=rules.min_nights,
+                                      max_nights=rules.max_nights, booking_base=self._booking_base)
         return Fetched(observations, {
             "origin": origin, "destination": destination, "month": month.strftime("%Y-%m"),
             "fetched_at": fetched_at.isoformat(), "params": params, "payload": payload})
 
-    def request_params(self, origin: str, destination: str, month: date) -> dict:
-        return request_params(origin, destination, month, currency=self._currency,
+    def request_params(self, origin: str, destination: str, month: date,
+                       rules: RouteRules) -> dict:
+        return request_params(origin, destination, month, rules, currency=self._currency,
                               limit=self._limit, market=self._market)
 
 

@@ -2,8 +2,10 @@
 // version is `pipeline.price_now`: one prices_for_dates request for the deal's route-month
 // (`collector/travelpayouts.py` request_params + parse_response), then `recheck.recheck`.
 // The snapshot gives the exact query and the route rules (`live_check.query` / `.rules`), so the
-// only thing ported here is the parsing and the rule. The shared cases in
-// contract/review/v1/fixtures/live-check-cases.json run against both sides.
+// only thing ported here is the parsing and the rule. The query is sent as is: on a route that
+// takes only nonstop flights it asks for nonstop fares (`direct=true`, D39), like the
+// collection. The shared cases in contract/review/v1/fixtures/live-check-cases.json run
+// against both sides (`queries`: the request itself).
 //
 // The deal's own stop counts come from the snapshot (`transfers` / `return_transfers`); only a
 // snapshot made before they were added falls back to `direct` (see dealAllowed).

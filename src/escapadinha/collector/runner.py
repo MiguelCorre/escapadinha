@@ -28,7 +28,7 @@ class RunSummary:
 
 def collect(conn: sqlite3.Connection, source: PriceSource, routes: list[Route], *,
             today: date, months_ahead: int, store: ObjectStore, workers: int = 1) -> RunSummary:
-    """One request per (route, month), each with the route's nights range, `workers` at a
+    """One request per (route, month), each with the route's rules, `workers` at a
     time (the source's rate limiter caps requests per minute). Results are stored in request
     order on this thread (SQLite connections are per-thread). A failing request is recorded
     and skipped. All responses go to one archive object."""
@@ -43,8 +43,7 @@ def collect(conn: sqlite3.Connection, source: PriceSource, routes: list[Route], 
         route, month = task
         try:
             return source.fetch(route.origin, route.destination, month,
-                                min_nights=route.rules.min_nights,
-                                max_nights=route.rules.max_nights), None
+                                rules=route.rules), None
         except Exception as exc:  # one bad route/month must not lose the rest of the run
             return None, exc
 

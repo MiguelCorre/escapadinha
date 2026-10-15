@@ -8,7 +8,9 @@ import respx
 
 from escapadinha.collector.travelpayouts import (
     API_URL, TravelpayoutsError, TravelpayoutsSource, found_date, local_dates, parse_response,
+    request_params,
 )
+from escapadinha.models import RouteRules
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "prices_for_dates_LIS_LON.json")
                      .read_text("utf-8"))
@@ -42,7 +44,7 @@ def test_parse_nights_range_is_configurable():
     assert {o.nights for o in parse(min_nights=1, max_nights=14)} == {3, 14, 1, 7}
 
 
-NIGHTS = {"min_nights": 2, "max_nights": 10}
+NIGHTS = {"rules": RouteRules(min_nights=2, max_nights=10)}
 
 
 def test_parse_raises_on_api_error():
@@ -94,6 +96,25 @@ def test_source_gives_up_after_max_attempts():
         source.fetch_round_trips("LIS", "LON", date(2026, 11, 1), **NIGHTS)
 
 
+TODAYS_CALL = {"origin": "LIS", "destination": "LON", "departure_at": "2026-11", "one_way": "false",
+               "currency": "eur", "sorting": "price", "unique": "false", "limit": 1000,
+               "market": "pt"}
+
+
+def test_a_nonstop_only_route_asks_the_cache_for_nonstop_fares():
+    """D39: the cache keeps one offer per date pair, the cheapest; on a route that discards
+    every offer with a stop, ask for the cheapest nonstop one instead."""
+    def query(rules):
+        return request_params("LIS", "LON", date(2026, 11, 1), rules, currency="EUR",
+                              limit=1000, market="pt")
+    assert query(RouteRules()) == {**TODAYS_CALL, "direct": "true"}             # europe, domestic
+    assert query(RouteRules(direct_only=False, max_transfers=0)) == {**TODAYS_CALL,
+                                                                     "direct": "true"}
+    long_haul = RouteRules(direct_only=False, min_nights=7, max_nights=21, max_transfers=1)
+    assert query(long_haul) == TODAYS_CALL                                       # unchanged
+    assert query(RouteRules(direct_only=False, max_transfers=None)) == TODAYS_CALL
+
+
 def test_missing_token_fails_fast():
     with pytest.raises(TravelpayoutsError, match="TRAVELPAYOUTS_TOKEN"):
         TravelpayoutsSource("", currency="eur", limit=50)
@@ -106,7 +127,7 @@ def test_source_applies_the_nights_range_of_each_call():
     trips = source.fetch_round_trips("LIS", "LON", date(2026, 11, 1), **NIGHTS)
     assert trips and all(2 <= o.nights <= 10 for o in trips)
     assert source.fetch_round_trips("LIS", "LON", date(2026, 11, 1),
-                                    min_nights=30, max_nights=40) == []
+                                    rules=RouteRules(min_nights=30, max_nights=40)) == []
 
 
 # --- found date and local dates -------------------------------------------------

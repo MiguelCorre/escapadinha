@@ -167,6 +167,29 @@ def test_long_haul_route_uses_its_kind_rules_end_to_end(ctx):
     assert obs.price == 520 and obs.transfers == 1      # the two-stop 400 € never qualifies
 
 
+@respx.mock
+def test_collect_asks_for_nonstop_fares_only_on_routes_that_take_nothing_else(ctx):
+    """D39: europe and domestic routes ask the cache with direct=true; a long-haul route,
+    which allows a stop, keeps today's call. Same number of requests."""
+    ctx = configure(ctx, long_haul=[{"destination": "TYO", "city_pt": "Tóquio", "origins": ["LIS"]}])
+    conn = pipeline.open_db(ctx)
+    api = respx.get(API_URL).mock(return_value=httpx.Response(200, json=EMPTY))
+    summary = pipeline.run_collect(ctx, conn)
+
+    asked = {}
+    for call in api.calls:
+        params = call.request.url.params
+        asked.setdefault(f"{params['origin']}-{params['destination']}", set()).add(
+            params.get("direct"))
+    assert summary.n_requests == len(api.calls) == 33          # 11 routes × 3 months
+    assert asked.pop("LIS-TYO") == {None}
+    assert sorted(asked) == sorted(SEEDED) and all(v == {"true"} for v in asked.values())
+    # The run archive keeps how each price was asked.
+    from escapadinha import archive
+    responses = archive.read(ctx.object_store, summary.archive_key)["responses"]
+    assert {r["params"].get("direct") for r in responses if r["destination"] == "LON"} == {"true"}
+
+
 def test_routes_list_prints_kind_rules_status_and_last_observed(ctx, monkeypatch):
     pipeline.open_db(ctx)                                    # seeded before the exclusion
     ctx = configure(ctx, long_haul=[{"destination": "TYO", "city_pt": "Tóquio", "origins": ["LIS"]}],
@@ -212,7 +235,7 @@ def test_collect_runs_requests_concurrently_and_stores_in_request_order(ctx):
             self.active = self.peak = 0
             self.lock = threading.Lock()
 
-        def fetch(self, origin, destination, month, *, min_nights, max_nights):
+        def fetch(self, origin, destination, month, *, rules):
             with self.lock:
                 self.active += 1
                 self.peak = max(self.peak, self.active)
