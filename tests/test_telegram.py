@@ -146,7 +146,7 @@ def test_it_waits_for_the_cover_on_the_site_then_counts_failures_after_a_day(ctx
     done, _ = send(ctx, conn, APPLIED)
     assert done == [(deal_id, "waiting")] and bot.calls == []
     post = by_channel(conn)["telegram"]
-    assert post.attempts == 0 and post.last_error.startswith("A imagem ainda não está no site (")
+    assert post.attempts == 0 and post.last_error.startswith("As imagens ainda não estão no site (")
     assert ctx.object_store.list(telegram.RECORDS) == []      # nothing was sent
 
     later = APPLIED + timedelta(hours=25)
@@ -173,31 +173,42 @@ def test_a_rate_limit_waits_without_an_attempt_and_the_next_run_sends_it(ctx, bo
     assert len(bot.sent) == 1
 
 
-@pytest.mark.parametrize("status, description", [
+# Error texts as the Bot API sends them: its own (tdlib/telegram-bot-api `Client.cpp`, e.g.
+# `fail_query_with_error` maps WEBPAGE_CURL_FAILED to "Failed to get HTTP URL content") or an
+# MTProto error name passed through ("Bad Request: CHAT_WRITE_FORBIDDEN"; an all-caps 403
+# becomes a 400 there). Names: core.telegram.org/method/messages.sendMedia.
+CHANNEL_SETUP = [
     (403, "Forbidden: bot is not a member of the channel chat"),
+    (403, "Forbidden: bot was kicked from the channel chat"),
     (400, "Bad Request: chat not found"),
     (400, "Bad Request: not enough rights to send photos to the chat"),
-])
-def test_a_refused_chat_cancels_with_a_notice_until_a_message_goes_out(ctx, bot, monkeypatch,
+    (400, "Bad Request: need administrator rights in the channel chat"),
+    (400, "Bad Request: CHAT_WRITE_FORBIDDEN"),
+    (400, "Bad Request: CHAT_ADMIN_REQUIRED"),
+]
+
+
+@pytest.mark.parametrize("status, description", CHANNEL_SETUP)
+def test_a_refused_channel_waits_with_a_notice_until_a_message_goes_out(ctx, bot, monkeypatch,
                                                                         status, description):
+    """A channel or bot set up wrong is not this message's fault: every post waits (no attempt
+    counted, none lost) and `queue list` says what to fix, until a message goes out."""
     conn = pipeline.open_db(ctx)
     deal_id = approved(ctx, conn)
     bot.answers = [refused(status, description)]
     done, lines = send(ctx, conn, APPLIED)
-    assert done == [(deal_id, "cancelled")]
-    reason = (f"O Telegram recusou a mensagem ({description} (HTTP {status})): confirma que o "
-              f"canal {CHANNEL} existe e que o bot é administrador com permissão para publicar "
-              "(docs/runbooks/telegram.md).")
-    assert by_channel(conn)["telegram"].reason == reason
+    assert done == [(deal_id, "waiting")]
+    reason = (f"O Telegram recusou o canal ({description} (HTTP {status})): confirma que o canal "
+              f"{CHANNEL} existe e que o bot é administrador com permissão para publicar "
+              "(docs/runbooks/telegram.md); as publicações esperam.")
+    post = by_channel(conn)["telegram"]
+    assert (post.status, post.attempts, post.last_error) == ("queued", 0, reason)
     assert f"Telegram: {reason}" in lines
     assert ctx.object_store.list(telegram.RECORDS) == []      # refused: nothing went out
-    assert reason in cli(ctx, monkeypatch, "queue", "list")
+    assert cli(ctx, monkeypatch, "queue", "list").count(reason) == 2   # notice + the post
 
-    second = second_deal(ctx, conn)                  # Miguel fixed the channel
-    db.set_deal_output_path(conn, second, db.get_deal(conn, deal_id)[0].output_path)  # slides
-    approve_event(ctx.object_store, second)
-    pipeline.apply_review_events(ctx, conn, now=APPLIED)
-    assert send(ctx, conn, APPLIED)[0] == [(second, "published")]
+    # Miguel fixed the channel: the same post goes out and the notice goes.
+    assert send(ctx, conn, APPLIED + timedelta(hours=2))[0] == [(deal_id, "published")]
     assert reason not in cli(ctx, monkeypatch, "queue", "list")
 
 
@@ -211,13 +222,49 @@ def test_a_refused_token_waits_with_a_notice(ctx, bot, monkeypatch):
     assert "confirma TELEGRAM_BOT_TOKEN" in cli(ctx, monkeypatch, "queue", "list")
 
 
-def test_a_photo_telegram_could_not_fetch_is_a_failure_retried(ctx, bot):
+@pytest.mark.parametrize("description", [
+    "Bad Request: failed to get HTTP URL content",            # WEBPAGE_CURL_FAILED
+    "Bad Request: wrong type of the web page content",         # WEBPAGE_MEDIA_EMPTY
+    "Bad Request: wrong file identifier/HTTP URL specified",
+    "Bad Request: PHOTO_SAVE_FILE_INVALID",                    # "Internal issues, try again later"
+])
+def test_a_photo_telegram_could_not_fetch_now_is_a_failure_retried(ctx, bot, description):
     conn = pipeline.open_db(ctx)
     deal_id = approved(ctx, conn)
-    bot.answers = [refused(400, "Bad Request: failed to get HTTP URL content")]
+    bot.answers = [refused(400, description)]
     assert send(ctx, conn, APPLIED)[0] == [(deal_id, "failed")]
-    assert by_channel(conn)["telegram"].attempts == 1
+    post = by_channel(conn)["telegram"]
+    assert post.attempts == 1 and post.last_error == (
+        f"RetryableSendError: O Telegram não conseguiu ir buscar a imagem ({description} "
+        "(HTTP 400)).")
     assert send(ctx, conn, APPLIED)[0] == [(deal_id, "published")]
+
+
+@pytest.mark.parametrize("description, why", [
+    ("Bad Request: PHOTO_INVALID_DIMENSIONS", "dimensões da imagem inválidas"),
+    ("Bad Request: PHOTO_EXT_INVALID", "formato da imagem inválido"),
+    ("Bad Request: IMAGE_PROCESS_FAILED", "o Telegram não conseguiu processar a imagem"),
+    ("Bad Request: wrong HTTP URL specified", "o endereço da imagem é inválido"),
+    ("Bad Request: MEDIA_CAPTION_TOO_LONG", "o texto é demasiado longo"),
+    ("Bad Request: message caption is too long", "o texto é demasiado longo"),
+])
+def test_a_message_telegram_refuses_for_good_is_cancelled(ctx, bot, description, why):
+    conn = pipeline.open_db(ctx)
+    deal_id = approved(ctx, conn)
+    bot.answers = [refused(400, description)]
+    assert send(ctx, conn, APPLIED)[0] == [(deal_id, "cancelled")]
+    assert by_channel(conn)["telegram"].reason == (
+        f"O Telegram recusou esta mensagem: {why} ({description} (HTTP 400)).")
+    assert pipeline.publisher_notices(ctx, conn) == []        # not the channel's fault
+
+
+def test_another_bad_request_is_a_failure_retried(ctx, bot):
+    conn = pipeline.open_db(ctx)
+    deal_id = approved(ctx, conn)
+    bot.answers = [refused(400, "Bad Request: MEDIA_INVALID")]
+    assert send(ctx, conn, APPLIED)[0] == [(deal_id, "failed")]
+    assert by_channel(conn)["telegram"].last_error == (
+        "RetryableSendError: Erro da API do Telegram: Bad Request: MEDIA_INVALID (HTTP 400)")
 
 
 def test_server_errors_are_retried_then_cancel_the_post(ctx, bot):
@@ -231,7 +278,9 @@ def test_server_errors_are_retried_then_cancel_the_post(ctx, bot):
 
 # --- never twice ----------------------------------------------------------------------------
 
-CONFIRM = f"Confirma no canal {CHANNEL}; não é enviada outra vez, para não sair repetida."
+def confirm(deal_id: int) -> str:
+    return (f"Confirma no canal {CHANNEL}: não é reenviada sozinha, para não sair repetida; se "
+            f"não saiu, `escapadinha queue retry {deal_id} telegram` volta a pô-la na fila.")
 
 
 @pytest.mark.parametrize("answer, what", [
@@ -247,7 +296,8 @@ def test_a_send_without_an_answer_is_cancelled_never_sent_again(ctx, bot, answer
     bot.answers = [answer]
     done, lines = send(ctx, conn, APPLIED)
     assert done == [(deal_id, "cancelled")]
-    reason = f"O Telegram não respondeu ao envio ({what}): a mensagem pode ter saído. {CONFIRM}"
+    reason = (f"O Telegram não respondeu ao envio ({what}): a mensagem pode ter saído. "
+              f"{confirm(deal_id)}")
     assert by_channel(conn)["telegram"].reason == reason
     assert f"Telegram: deal {deal_id}: {reason}" in lines
     assert len(bot.calls) == 1
@@ -261,7 +311,7 @@ def test_a_send_that_never_reached_telegram_is_retried(ctx, bot):
     assert send(ctx, conn, APPLIED)[0] == [(deal_id, "failed")]
     post = by_channel(conn)["telegram"]
     assert (post.attempts, post.last_error) == (
-        1, "TelegramError: Sem ligação ao Telegram (sem ligação à API (ConnectError)): nada foi "
+        1, "RetryableSendError: Sem ligação ao Telegram (sem ligação à API (ConnectError)): nada foi "
            "enviado.")
     assert ctx.object_store.list(telegram.RECORDS) == []
     assert send(ctx, conn, APPLIED)[0] == [(deal_id, "published")]
@@ -303,7 +353,7 @@ def test_a_send_whose_answer_was_never_saved_is_cancelled_not_sent_again(ctx, bo
     assert bot.calls == []
     assert by_channel(conn)["telegram"].reason == (
         "Uma tentativa anterior (01/12/2026 às 07:00) enviou a mensagem ao Telegram sem "
-        f"guardar a resposta: pode ter saído. {CONFIRM}")
+        f"guardar a resposta: pode ter saído. {confirm(deal_id)}")
 
 
 def test_a_record_of_another_promotion_with_the_same_id_is_ignored(ctx, bot):
@@ -331,6 +381,7 @@ def test_a_text_over_telegrams_caption_limit_is_cancelled_never_cut(ctx, bot):
     assert send(ctx, conn, APPLIED)[0] == [(deal_id, "cancelled")]
     assert bot.calls == []
     assert by_channel(conn)["telegram"].reason.startswith("O texto tem ")
+    assert telegram.unconfirmed(ctx.object_store) == []        # nothing was sent
 
 
 def test_the_token_never_reaches_an_error_a_log_the_database_or_the_store(ctx, bot):
@@ -349,13 +400,105 @@ def test_the_token_never_reaches_an_error_a_log_the_database_or_the_store(ctx, b
     assert not any(TOKEN.encode() in store.get(key) for key in store.list())
 
 
-def test_queue_list_shows_the_message_link(ctx, bot, monkeypatch):
+# --- a way back after a lost answer ---------------------------------------------------------
+
+def test_a_lost_answer_is_listed_until_miguel_retries_it_and_then_it_goes_out_once(ctx, bot,
+                                                                                    monkeypatch):
+    conn = pipeline.open_db(ctx)
+    deal_id = approved(ctx, conn)
+    bot.answers = [httpx.ReadTimeout("timed out")]
+    assert send(ctx, conn, APPLIED)[0] == [(deal_id, "cancelled")]
+    notice = (f"Envio ao Telegram por confirmar: deal {deal_id} (01/12/2026 às 07:00). "
+              f"{confirm(deal_id)}")
+    assert notice in cli(ctx, monkeypatch, "queue", "list")
+
+    # Miguel looked: it isn't in the channel. Without R2 the request applies at once.
+    out = cli(ctx, monkeypatch, "queue", "retry", str(deal_id), "telegram")
+    assert (f"deal {deal_id}: a publicação do Telegram voltou à fila e sai na próxima "
+            "execução.") in out
+    post = by_channel(conn)["telegram"]
+    assert (post.status, post.attempts, post.reason, post.settled_at) == ("queued", 0, None, None)
+    assert notice not in cli(ctx, monkeypatch, "queue", "list")
+
+    later = APPLIED + timedelta(hours=2)
+    db.record_recheck(conn, deal_id, valid=True, latest_price=58, reason="continua", at=later)
+    assert send(ctx, conn, later)[0] == [(deal_id, "published")]
+    assert len(bot.calls) == 2 and len(bot.sent) == 1
+    assert send(ctx, conn, later + timedelta(hours=2))[0] == []      # once
+
+
+def test_with_r2_the_next_run_requeues_a_retried_post(ctx, bot):
+    """The PC writes the request to the store; the run that owns the database applies it."""
+    conn = pipeline.open_db(ctx)
+    deal_id = approved(ctx, conn)
+    bot.answers = [httpx.ReadTimeout("timed out")]
+    send(ctx, conn, APPLIED)
+    deal = db.get_deal(conn, deal_id)[0]
+    telegram.request_retry(ctx.object_store, deal, now=APPLIED + timedelta(minutes=30))
+    assert by_channel(conn)["telegram"].status == "cancelled"        # nothing applied yet
+    later = APPLIED + timedelta(hours=2)
+    db.record_recheck(conn, deal_id, valid=True, latest_price=58, reason="continua", at=later)
+    done, lines = send(ctx, conn, later)
+    assert done == [(deal_id, "published")] and len(bot.sent) == 1
+    assert f"Telegram: deal {deal_id} voltou à fila (pedido do Miguel)." in lines
+
+
+def test_a_retried_post_cancelled_again_later_is_not_requeued_again(ctx, bot):
+    """The request requeues the cancellation it answered, not a later one (an expiry)."""
+    conn = pipeline.open_db(ctx)
+    deal_id = approved(ctx, conn)
+    bot.answers = [httpx.ReadTimeout("timed out")]
+    send(ctx, conn, APPLIED)
+    telegram.request_retry(ctx.object_store, db.get_deal(conn, deal_id)[0],
+                           now=APPLIED + timedelta(minutes=30))
+    later = APPLIED + timedelta(hours=2)
+    db.record_recheck(conn, deal_id, valid=False, latest_price=90, reason="o preço subiu",
+                      at=later)
+    assert send(ctx, conn, later)[0] == [(deal_id, "cancelled")]      # requeued, then expired
+    assert send(ctx, conn, later + timedelta(hours=2))[0] == []
+    assert bot.sent == []
+
+
+def test_retry_needs_a_send_without_an_answer(ctx, bot, monkeypatch):
+    from typer.testing import CliRunner
+    from escapadinha import cli as cli_module
+    monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
+    conn = pipeline.open_db(ctx)
+    deal_id = approved(ctx, conn)
+
+    def refused_retry(*args) -> str:
+        result = CliRunner().invoke(cli_module.app, ["queue", "retry", *args])
+        assert result.exit_code == 1, result.output
+        return " ".join(result.output.split())
+
+    assert (f"deal {deal_id}: não há nenhum envio ao Telegram por confirmar."
+            in refused_retry(str(deal_id), "telegram"))
+    send(ctx, conn, APPLIED)                                           # out, with its link
+    assert (f"deal {deal_id}: a mensagem do Telegram saiu "
+            "(https://t.me/pontonomada_promos/42): não há nada a repor."
+            in refused_retry(str(deal_id), "telegram"))
+    assert "Só as publicações do Telegram" in refused_retry(str(deal_id), "instagram")
+    assert by_channel(conn)["telegram"].status == "published"
+
+
+# --- the link, the CLI and the config -------------------------------------------------------
+
+def test_the_message_link_shows_wherever_the_promotions_posts_do(ctx, bot, monkeypatch):
+    from test_review import price_api
     conn = pipeline.open_db(ctx)
     deal_id = approved(ctx, conn)
     send(ctx, conn, APPLIED)
+    link = "https://t.me/pontonomada_promos/42"
+    out = cli(ctx, monkeypatch, "queue", "list")                  # the Instagram post still to go
+    assert (f"Instagram deal {deal_id} Lisboa → Londres 58 € 01/12/2026 às 09:00 · agendada · "
+            f"Telegram: {link}") in out
     out = cli(ctx, monkeypatch, "queue", "list", "--all")
     assert (f"Telegram deal {deal_id} Lisboa → Londres 58 € 01/12/2026 às 07:00 · publicada "
-            "(telegram) · https://t.me/pontonomada_promos/42") in out
+            f"(telegram) · {link}") in out
+    price_api(58)
+    out = cli(ctx, monkeypatch, "deal", "check", str(deal_id))
+    assert f"Telegram: publicada (telegram) · {link}" in out
+    assert "Instagram: agendada para 01/12/2026 às 09:00" in out
 
 
 def test_each_real_publisher_posts_only_to_its_own_channel():
@@ -367,9 +510,21 @@ def test_each_real_publisher_posts_only_to_its_own_channel():
         PostingConfig(publishers={"telegram": "instagram"})
 
 
-@pytest.mark.parametrize("channel, chat", [("@pontonomada", "@pontonomada"),
-                                           ("pontonomada", "@pontonomada"),
-                                           ("https://t.me/pontonomada", "@pontonomada"),
-                                           (" -1001234567890 ", "-1001234567890")])
-def test_the_channel_secret_becomes_a_chat_id(channel, chat):
-    assert telegram.chat_id(channel) == chat
+def test_every_publisher_name_in_config_has_one_factory():
+    from typing import get_args
+    from escapadinha.config import PublisherName
+    assert set(pipeline.PUBLISHERS) == set(get_args(PublisherName))
+
+
+@pytest.mark.parametrize("channel", ["@pontonomada", " @pontonomada_promos ", "-1001234567890"])
+def test_the_channel_secret_is_a_handle_or_a_numeric_id(channel):
+    from escapadinha.config import Secrets
+    assert Secrets(_env_file=None, telegram_channel=channel).telegram_channel == channel.strip()
+
+
+@pytest.mark.parametrize("channel", ["pontonomada", "https://t.me/pontonomada", "@pt", "@1abc"])
+def test_any_other_channel_secret_is_refused_when_the_secrets_load(channel):
+    from pydantic import ValidationError
+    from escapadinha.config import Secrets
+    with pytest.raises(ValidationError, match="TELEGRAM_CHANNEL tem de ser o @handle do canal"):
+        Secrets(_env_file=None, telegram_channel=channel)

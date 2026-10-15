@@ -378,7 +378,7 @@ def test_images_still_missing_a_day_after_the_slot_count_as_failures(ctx, graph)
         db.record_recheck(conn, deal_id, valid=True, latest_price=58, reason="continua", at=at)
         assert run(ctx, conn, at)[0] == [(deal_id, "instagram", action)]
     post = by_channel(conn)["instagram"]
-    assert post.reason == (f"O publicador falhou 2 vezes: InstagramError: As imagens continuam "
+    assert post.reason == (f"O publicador falhou 2 vezes: RetryableSendError: As imagens continuam "
                            f"sem estar no site mais de 24 h depois da hora marcada ({SITE}/img/"
                            f"promos/{deal_id}/slide_01.jpg → 404).")
     assert "media" not in graph.kinds("POST")                # nothing was ever sent to Meta

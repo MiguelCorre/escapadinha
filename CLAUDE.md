@@ -8,7 +8,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
-  `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list`,
+  `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list|retry`,
   `instagram token`,
   `site build|preview|setup|deploy|crawl|build-jinja`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
@@ -160,16 +160,25 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   texts: the caption (Instagram) and `captions.whatsapp_text` (stored partner link +
   `DISCLOSURE`; Telegram), never a hand-built link. A real publisher without its secrets is
   `posting.Paused` (Instagram's own `instagram.Paused`), never the dry run.
+- Publishers are registered only in `pipeline.PUBLISHERS` (name → `PublisherKind`: `build`
+  from a `PublisherSetup`, `notices` for `queue list`; tested against config's `PublisherName`).
+  Both real publishers check the site's JPEGs through `website.image_problem` +
+  `posting.live_images` (wait, bounded), redact tokens with `posting.redact`, and signal a
+  counted retry with `posting.RetryableSendError`.
 - Telegram publisher (D38, `telegram.py`): Bot API `sendPhoto` only through `BotApi` (host
   `config.TELEGRAM_API`; the token is in the URL path: errors by type only, any text redacted,
-  never a log, the database or CI output; httpx logs URLs at INFO, so never turn that on), photo
-  = the cover of `website.public_jpeg_urls` once its HEAD answers 200 (wait, bounded by
-  `telegram.images_wait_hours`), caption = the post's text, never cut (over 1024 UTF-16 units:
-  cancel). Before the request a record goes to the object store (`telegram.record_key`), after
-  it the message id: a send whose answer was lost (`NoAnswer(sent=True)`, or a record without
-  an id) is cancelled, never resent; only a refusal or `sent=False` is retried. Message id on the
-  row (`message_id`, v12), its link in `result_url`. It never marks a promotion published
-  (that would cancel its Instagram post). Classification lives in `TelegramPublisher._signal`.
+  never a log, the database or CI output; httpx logs URLs at INFO, so never turn that on);
+  `chat_id` is `TELEGRAM_CHANNEL`, validated when `Secrets` load (@handle or numeric id). Photo
+  = the cover of `website.public_jpeg_urls`, caption = the post's text, never cut (over 1024
+  UTF-16 units: cancel). Before the request a record goes to the object store
+  (`telegram.record_key`), after it the message id: a send whose answer was lost
+  (`NoAnswer(sent=True)`, or a record without an id) is cancelled, never resent by itself; only
+  Miguel's `queue retry` (a request in the record, applied by `telegram.apply_retries` in
+  `run_publish`, D26-style) requeues it. A refused channel or token waits with a notice (never
+  cancels: no post lost to setup); errors are classified only in `TelegramPublisher._signal`
+  (`CHANNEL_SETUP`, `PERMANENT`, `TRANSIENT_PHOTO`, from the Bot API's texts). Message id on the
+  row (`message_id`, v12), its link in `result_url` (shown by `queue list` and `deal check`). It
+  never marks a promotion published (that would cancel its Instagram post).
 - Instagram publisher (D36, `instagram.py`): the Graph host only from `config.GRAPH_HOSTS` via
   `InstagramConfig.host`, the version from `api_version` (`Graph(http, api, token)`); images only
   `website.public_jpeg_urls` (HEAD 200, https redirects followed, else wait, bounded by
@@ -249,10 +258,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   DB wiring in `pipeline.run_publish` (`publishers_for`, `PostResult.action`: `PostAction`,
   stories in `_run_stories`), the queue read with `db.posts`
 - `src/escapadinha/telegram.py`: `BotApi` (token redacted, `NoAnswer`/`BotApiError`),
-  `TelegramPublisher` (cover check, send record, `_signal`), `chat_id`, `message_link`,
-  `problem_state`/`notices` (meta `telegram.problem`); runbook `docs/runbooks/telegram.md`
+  `TelegramPublisher` (send record, `_signal`), `message_link`, `unconfirmed`/`request_retry`/
+  `apply_retries` (`queue retry`), `problem_state`/`notices` (meta `telegram.problem`); runbook
+  `docs/runbooks/telegram.md`
 - `src/escapadinha/instagram.py`: `Graph` (calls, token redacted), `classify` (Graph error →
-  wait/cancel/retry), `image_problem` (HEAD), `InstagramPublisher` (carousel, story, limit,
+  wait/cancel/retry), `InstagramPublisher` (carousel, story, limit,
   polling, `_reuse`/`_finish` resume), `Paused`, `ensure_token` (refresh, stored token),
   `token_state`, `notices`; runbook `docs/runbooks/instagram.md`
 - `content/guides/*.yaml`: hand-written guide content (`reviewed: true` after fact check)

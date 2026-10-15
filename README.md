@@ -96,6 +96,7 @@ uv run escapadinha render guide voos-baratos-dicas
 uv run escapadinha export site-data        # website data contract v1 (JSON) → web/src/data
 uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → publish due posts, then render → export → site build (Astro) → deploy only if something changed → review snapshot
 uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled; Instagram token and Telegram channel notices
+uv run escapadinha queue retry 12 telegram  # a Telegram send whose answer was lost, not in the channel: back in the queue (D38)
 uv run escapadinha instagram token         # PC only: the Instagram token the pipeline renewed, to copy into the secret (D36)
 uv run escapadinha run --full              # the same, always with render → export → site build → deploy
 uv run escapadinha store status            # R2 only: bucket database, lock, backups, local copy
@@ -293,7 +294,7 @@ found/checked dates and the last recheck.
 The CLI applies the same rules:
 
 ```bash
-uv run escapadinha deal check 12
+uv run escapadinha deal check 12          # the price now, then each channel's post (when, or its link)
 uv run escapadinha deal approve 12 --note "bom deal"
 uv run escapadinha deal reject 12 --note "datas fracas"
 uv run escapadinha deal published 12 --url https://www.instagram.com/p/...
@@ -405,7 +406,8 @@ token that never expires (runbook).
 
 ### Telegram (DECISIONS D38)
 
-With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` (the public channel's @handle) set (`.env` and
+With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` (the public channel's @handle, e.g.
+`@pontonomada`, or its numeric id: anything else stops the run when the secrets load) set (`.env` and
 Actions secrets; setup in [docs/runbooks/telegram.md](docs/runbooks/telegram.md)), a promotion's
 Telegram post goes out on the first run after its approval through the Bot API (`sendPhoto`):
 
@@ -416,22 +418,32 @@ Telegram post goes out on the first run after its approval through the Bot API (
    message goes out on the next run;
 2. the caption is the WhatsApp text (stored partner link and the disclosure), plain text, never
    cut: over Telegram's 1024 characters the post is cancelled with the reason;
-3. the message id and link (`https://t.me/<handle>/<id>`) are stored on the queue row
-   (`queue list --all` shows the link). The promotion is not marked published: Instagram is its
-   main channel.
+3. the message id and link (`https://t.me/<handle>/<id>`) are stored on the queue row.
+   `queue list` shows the link next to the promotion's posts still to go, `queue list --all` on
+   the row itself, and `deal check <id>` lists each channel's post with its link. The promotion
+   is not marked published: Instagram is its main channel.
 
 Nothing is sent twice: a record of each send goes to the object store
 (`posting/telegram/deal-<id>.json`) before the request and gets the message id after it. A send
 Telegram refused, or that never reached it (no connection), is retried; one whose answer was lost
 (a timeout after the request went out, an unreadable answer, a run killed before saving it) is
 **cancelled** with *"… pode ter saído. Confirma no canal …"*: Telegram can't tell a bot what is
-in its channel, so a lost answer is never resent (check the channel and post it by hand if it
-isn't there). A message sent by a run whose database never reached R2 is adopted from the record
-on the next run. Errors: 429 (rate limit) and 401 (the token) **wait**; a refused chat (400/403:
-channel not found, the bot not an admin) **cancels** the post and leaves a notice in `queue list`
-until a message goes out again; a photo Telegram couldn't fetch, 5xx and the rest are failures,
-retried up to `posting.max_attempts` (5). The token is part of the API URL: it never appears in an
-error, a log or the database.
+in its channel, so a lost answer is never resent by itself. `queue list` lists it (*Envio ao
+Telegram por confirmar: deal 12 …*) until you check the channel; if it isn't there:
+
+```bash
+uv run escapadinha queue retry 12 telegram   # back in the queue (with R2: from the next run), sent once
+```
+
+(refused, with the reason, when the message did go out or there is no such send). A message sent
+by a run whose database never reached R2 is adopted from the record on the next run. Errors: 429
+(rate limit), 401 (the token) and a refused channel (any 403, or a 400 such as *chat not found*,
+*need administrator rights*, `CHAT_WRITE_FORBIDDEN`) **wait**, no attempt counted, with a notice
+in `queue list` until a message goes out again: a setup mistake loses no post. A message refused
+for good (photo dimensions or format, caption too long) is **cancelled** with the reason; a photo
+Telegram couldn't fetch right now, 5xx and the rest are failures, retried up to
+`posting.max_attempts` (5). The token is part of the API URL: it never appears in an error, a log
+or the database.
 
 Every approved promotion also gets a short **WhatsApp text** (pt-PT: destination and arrival
 airport, price, dates, when the price was found and when we checked it, the affiliate link and the
@@ -1115,13 +1127,16 @@ uv run pytest -m "not browser"
 - `test_telegram.py` (D38): the Telegram publisher through `run_publish` with the Bot API and the
   site's HEAD answers mocked by respx: the photo message (cover JPEG, WhatsApp text, message id
   and t.me link, no `published` decision), the cover not deployed yet → wait, then failures after
-  a day, 429 → wait, 401 → wait with a notice, refused chats (400/403) → cancelled with a notice
+  a day, 429 → wait, 401 → wait with a notice, refused channels (400/403) → wait with a notice
   until a message goes out, a photo Telegram couldn't fetch and 5xx → retried, a lost answer
   (read timeout, protocol error, a proxy's 502 page) → cancelled and never resent, no connection
   → retried, a send record adopted after a lost database or cancelled without its answer, the
   1024 UTF-16 caption limit, the token in no log, reason, database row or stored object,
-  `queue list`, the config validator, `chat_id`, missing secrets → wait. The schema v12 upgrade
-  is in `test_posting.py`.
+  `queue retry` (local at once, with R2 by the next run, refused without a lost send, never
+  requeueing a later cancellation), the link in `queue list` and `deal check`, the config
+  validator, the publisher registry, the channel secret's check, missing secrets → wait. The
+  error texts follow the Bot API's (refused channel → wait, permanent → cancel, transient photo
+  → retry). The schema v12 upgrade is in `test_posting.py`.
 
 ## Data sources and terms
 

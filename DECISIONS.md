@@ -1906,24 +1906,36 @@ so nothing has to be hosted.
 
 ## D38: Telegram channel publisher (2026-10-15, #21)
 - **What goes out:** for each approved promotion, one **photo message** in the public channel
-  (`TELEGRAM_CHANNEL`, its @handle; `telegram.chat_id` adds a missing @ and keeps a numeric id),
-  sent by a bot that is an admin of the channel allowed to post (`TELEGRAM_BOT_TOKEN`). Bot API
-  `sendPhoto` (`https://api.telegram.org/bot<token>/sendPhoto`, the host only in
-  `config.TELEGRAM_API`), form fields `chat_id`, `photo` (a URL Telegram fetches) and
-  `caption`. Config `posting.publishers.telegram: telegram`; `PublisherName` gained `telegram`
-  and the validator now says a real publisher (anything but `dry-run`) posts only to its own
-  channel.
+  (`TELEGRAM_CHANNEL`), sent by a bot that is an admin of the channel allowed to post
+  (`TELEGRAM_BOT_TOKEN`). Bot API `sendPhoto` (`https://api.telegram.org/bot<token>/sendPhoto`,
+  the host only in `config.TELEGRAM_API`), form fields `chat_id` (= `TELEGRAM_CHANNEL`), `photo`
+  (a URL Telegram fetches) and `caption`. Config `posting.publishers.telegram: telegram`;
+  `PublisherName` gained `telegram` and the validator now says a real publisher (anything but
+  `dry-run`) posts only to its own channel. **The channel secret is checked when the secrets
+  load** (`Secrets._telegram_chat`): an @handle (a Telegram username: 5–32 letters, digits or
+  `_`, starting with a letter) or a numeric id, else the run stops at once with "TELEGRAM_CHANNEL
+  tem de ser o @handle do canal público …"; no guessing (`pontonomada`, a t.me link are
+  refused). A typo stops every run until fixed, the price of failing loudly rather than posting
+  nowhere.
 - **When:** D32 queues Telegram at the approval's application ("immediately") and that stays; the
   photo, though, is the cover slide's JPEG on the public site (`website.public_jpeg_urls(…)[0]`,
   the image D36 already deploys for Meta, so one image path serves both), and the publish step
   runs before the full path that deploys it. So the run that applies an approval finds the
-  image missing and **waits** (no attempt counted; HEAD 200 required, redirects followed, https
-  only: `instagram.image_problem`), and the next run (≤ 2 h) sends it. Bounded like Instagram's:
-  more than `telegram.images_wait_hours` (24) after the post was due, each such run is a failure,
-  so `max_attempts` ends a post whose image never arrives. Rejected for now: uploading the
-  rendered slide (multipart) to post in the approval's own run (a runner would download it from
-  the output mirror, and two image paths would drift); a second publish step after the deploy
-  (changes `run`'s order for one channel). Either can come later if 2 h matters.
+  image missing and **waits** (no attempt counted), and the next run (≤ 2 h) sends it. Bounded
+  like Instagram's: more than `telegram.images_wait_hours` (24) after the post was due, each
+  such run is a failure, so `max_attempts` ends a post whose image never arrives. Rejected for
+  now: uploading the rendered slide (multipart) to post in the approval's own run (a runner
+  would download it from the output mirror, and two image paths would drift); a second publish
+  step after the deploy (changes `run`'s order for one channel). Either can come later if 2 h
+  matters.
+- **One image check for both publishers:** the HEAD check moved from `instagram.image_problem`
+  to `website.image_problem` (next to `public_jpeg_urls`: 200 required, redirects followed,
+  https only) and the bounded wait to `posting.live_images(urls, check, due_at, now, wait)`
+  (pure, the check injected; "As imagens ainda não estão no site … / continuam sem estar no site
+  mais de 24 h depois da hora marcada"). Its failure is `posting.RetryableSendError`, the
+  queue's "retried, attempt counted" signal by name (Instagram's `InstagramError` is one). The
+  token redaction is one helper too (`posting.redact`, used by `instagram.Graph` and
+  `telegram.BotApi`), and `instagram.Paused` builds on the new generic `posting.Paused`.
 - **Text:** the post's `Message.text`, i.e. `captions.whatsapp_text` (D32: headline with the
   arrival airport, price, dates, found/checked times, the stored partner link and `DISCLOSURE`),
   plain text (no `parse_mode`, so nothing needs escaping; Telegram links the URL itself).
@@ -1936,8 +1948,11 @@ so nothing has to be hosted.
   schema v12: `SCHEMA_VERSION` 12, `schema.sql`, migration 12 = one `ALTER TABLE posting_queue
   ADD COLUMN message_id TEXT`; the upgrade tested from the real v5/v7 schemas and from a v11
   database with a published row) and its link (`https://t.me/<chat.username>/<message_id>`,
-  from the answer's chat; none for a channel without a username) in `result_url`, which
-  `queue list --all` shows. Not on the promotion page: `post_url` is the Instagram permalink
+  from the answer's chat; none for a channel without a username) in `result_url`. **Where the
+  link shows:** `queue list` (every queued post of the promotion lists the links of its posts
+  already out: "Instagram deal 12 … · agendada · Telegram: https://t.me/…"), `queue list --all`
+  (the row itself) and `deal check` (after the price, each channel's post: when it goes out, or
+  how it went, with its link). Not on the promotion page: `post_url` is the Instagram permalink
   (contract v1, D36); a Telegram link there would need a contract field and is not asked for.
 - **Never twice: a send record in the object store.** Telegram lets a bot neither list a
   channel's messages nor send with an idempotency key, so there is no Instagram-style "find the
@@ -1948,49 +1963,87 @@ so nothing has to be hosted.
   `message_id`. Then:
   - Telegram **refused** (`ok: false`, any status) or the request **never reached it**
     (`ConnectError`, `ConnectTimeout`, `PoolTimeout`): nothing went out; the record is removed
-    and the error classified (below), so the post is retried.
+    and the error classified (below).
   - **The answer was lost** (read timeout, protocol error, an answer that isn't the API's JSON,
     e.g. a proxy's 502/504 page): the message may be in the channel. The post is **cancelled**:
-    "O Telegram não respondeu ao envio (…): a mensagem pode ter saído. Confirma no canal …; não
-    é enviada outra vez, para não sair repetida." The record stays.
+    "O Telegram não respondeu ao envio (…): a mensagem pode ter saído. Confirma no canal …: não
+    é reenviada sozinha, para não sair repetida; se não saiu, `escapadinha queue retry <deal>
+    telegram` volta a pô-la na fila." The record stays.
   - A later run finds a **record with a message id** (the run that sent it died before its
     database reached R2): the message is adopted (row `message_id`, `result_url`, settled
     `published`), not sent again. A **record without one** (the run died between the request and
-    the answer): cancelled as above, "Uma tentativa anterior (…) enviou a mensagem … sem guardar
-    a resposta". A record whose observation differs from the deal's (a deal id reused after a
-    lost database) is ignored.
+    the answer): cancelled the same way, "Uma tentativa anterior (…) enviou a mensagem … sem
+    guardar a resposta". A record whose observation differs from the deal's (a deal id reused
+    after a lost database) is ignored.
 
-  **The trade-off: at most once.** A lost answer costs one promotion's Telegram message (Miguel
-  checks the channel and posts it by hand if it isn't there: the WhatsApp text on the review
-  page is the same text); a duplicate in a public channel would cost more, and a bot can't see
-  the channel to tell. Rejected: retrying after a timeout (duplicates); `getUpdates` to see the
-  bot's own channel posts (bots get no updates for their own messages, and a webhook or another
-  consumer would take them); a database-only marker (lost with the database by a killed job,
-  the very case it is for).
-- **Errors** (`TelegramPublisher._signal`, from the Bot API's `error_code`/`description`):
-  429 → wait ("Limite de mensagens do Telegram (tenta daqui a N s) …", from
-  `parameters.retry_after`), no attempt counted; 401 → wait, the token refused, with a notice;
-  400/403 about the photo (`PHOTO_ERRORS`: "failed to get HTTP URL content", "wrong type of the
-  web page content", `IMAGE_PROCESS_FAILED`, …) → failure, retried (the HEAD said it was live);
-  400 about the caption → cancel; any other 400/403 (chat not found, the bot not a member or
-  without the right to post) → **cancel** with "O Telegram recusou a mensagem (…): confirma que o
-  canal … existe e que o bot é administrador com permissão para publicar
-  (docs/runbooks/telegram.md)." The 401 and chat refusals also go to meta `telegram.problem`,
-  shown by `queue list` (`telegram.notices`, next to Instagram's) until a message goes out again.
-  Anything else (5xx with the API's JSON, unknown) → failure, retried up to
-  `posting.max_attempts` (5). The list is to be checked against the first real errors.
+  **The trade-off: at most once, with a way back.** A lost answer never resends by itself; a
+  duplicate in a public channel would cost more, and a bot can't see the channel to tell.
+  `queue list` lists every such send ("Envio ao Telegram por confirmar: deal N (…). Confirma no
+  canal …", `telegram.unconfirmed`: records without a message id or a retry request) until
+  Miguel acts. Having checked the channel and not found it, **`escapadinha queue retry <deal>
+  telegram`** (`pipeline.retry_post`) puts it back: refused, with the reason, for another
+  channel, a promotion no longer approved, no record ("não há nenhum envio ao Telegram por
+  confirmar") or a record with a message id ("a mensagem do Telegram saiu (link): não há nada a
+  repor"). Like a review decision (D26) the request is written to the store (the record gains
+  `retry_requested_at`) and applied by the code that owns the database
+  (`telegram.apply_retries`, first thing in `run_publish`; without R2 at once, so the CLI says
+  "voltou à fila e sai na próxima execução"): a cancelled Telegram row whose reason names the
+  retry command is queued again (`db.requeue_post`: attempts reset, its due time kept, so due
+  now), and the send no longer stops at that record; any other cancellation (an expiry after
+  the request) stands, and the request is idempotent (a lost database just requeues again).
+  Rejected: retrying after a timeout (duplicates); `getUpdates` to see the bot's own channel
+  posts (bots get no updates for their own messages, and a webhook or another consumer would
+  take them); a database-only marker (lost with the database by a killed job, the very case it
+  is for); the CLI writing the queue row itself (with R2 the run's database would overwrite it).
+- **Errors** (`TelegramPublisher._signal`). The texts are the Bot API's: its own (source:
+  tdlib/telegram-bot-api `telegram-bot-api/Client.cpp`, `Client::fail_query_with_error`, which
+  maps WEBPAGE_CURL_FAILED → "Failed to get HTTP URL content", WEBPAGE_MEDIA_EMPTY → "Wrong type
+  of the web page content", WC_CONVERT_URL_INVALID/EXTERNAL_URL_INVALID → "Wrong HTTP URL
+  specified", "File generation failed" → "can't upload file by URL", prefixes "Bad Request:" /
+  "Forbidden:" and turns an all-caps 403 into a 400) or MTProto error names passed through
+  ("Bad Request: CHAT_WRITE_FORBIDDEN"; names and meanings from
+  core.telegram.org/method/messages.sendMedia). The chat texts ("chat not found", "bot is not a
+  member of the channel chat", "need administrator rights in the channel chat", "not enough
+  rights to send photos to the chat", "bot was kicked from the channel chat") and "wrong file
+  identifier/HTTP URL specified", "message caption is too long" are the Bot API's well-known
+  answers elsewhere in that file, not re-verified line by line. Matched case-insensitively:
+  - 429 → wait ("Limite de mensagens do Telegram (tenta daqui a N s) …", from
+    `parameters.retry_after`), no attempt counted;
+  - 401 (the token) and **a refused channel** (any 403; a 400 matching `CHANNEL_SETUP`: chat not
+    found, not a member, kicked, not enough rights, need administrator rights,
+    CHAT_WRITE_FORBIDDEN, CHAT_ADMIN_REQUIRED, CHAT_RESTRICTED, CHAT_SEND_PHOTOS/MEDIA_FORBIDDEN,
+    CHANNEL_PRIVATE, CHANNEL_INVALID, PEER_ID_INVALID, USER_BANNED_IN_CHANNEL) → **wait**, no
+    attempt counted, with a notice in meta `telegram.problem` ("O Telegram recusou o canal (…):
+    confirma que o canal … existe e que o bot é administrador com permissão para publicar …;
+    as publicações esperam."), shown by `queue list` until a message goes out. Code review: a
+    first version cancelled here, so one setup mistake lost every approved promotion's post;
+    now they wait for the fix (an expiry still cancels them, D32);
+  - this message refused for good (`PERMANENT`: PHOTO_INVALID_DIMENSIONS, PHOTO_EXT_INVALID,
+    IMAGE_PROCESS_FAILED, "wrong HTTP URL specified", MEDIA_CAPTION_TOO_LONG, "caption is too
+    long") → **cancel** with "O Telegram recusou esta mensagem: <pt-PT why> (…)", no notice;
+  - a photo Telegram couldn't fetch now (`TRANSIENT_PHOTO`: "failed to get HTTP URL content",
+    "wrong type of the web page content", "wrong file identifier/HTTP URL specified",
+    PHOTO_SAVE_FILE_INVALID ("Internal issues, try again later"), "can't upload file by URL")
+    → failure, retried (the HEAD said it was live);
+  - anything else (another 400, 5xx with the API's JSON) → failure, retried up to
+    `posting.max_attempts` (5). The lists are to be checked against the first real errors.
 - **The token** is part of the URL path. `BotApi` reports transport errors by type only (their
   text can hold the URL) with `raise … from None`, replaces the token in any text Telegram sends
-  back, and never logs; it isn't stored anywhere but `.env` and the Actions secret (tested: logs,
-  reasons, the whole database and every object in the store). httpx logs request URLs at INFO
-  level; the pipeline configures no logging (so only warnings print), and must not turn INFO on
-  for httpx.
-- **Without the secrets** the channel is `posting.Paused("telegram", …)` (new: a generic paused
-  publisher; Instagram keeps its own with `publish_story`): due posts wait ("À espera do bot:
-  faltam TELEGRAM_BOT_TOKEN e/ou TELEGRAM_CHANNEL …"), never settled by the dry run, which would
-  lose them (D36). Secrets in `Secrets` (`telegram_bot_token`, `telegram_channel`,
-  `telegram_configured`), `.env.example` and the workflow's env (`test_workflow`). Tests: the
-  Bot API and the site mocked with respx (`tests/test_telegram.py`); test_posting and
-  test_instagram put Telegram on the dry run (their subject is the queue and Instagram).
+  back (`posting.redact`), and never logs; it isn't stored anywhere but `.env` and the Actions
+  secret (tested: logs, reasons, the whole database and every object in the store). httpx logs
+  request URLs at INFO level; the pipeline configures no logging (so only warnings print), and
+  must not turn INFO on for httpx.
+- **One publisher registry:** `pipeline.PUBLISHERS` maps each publisher name to a
+  `PublisherKind` (`build(PublisherSetup)`: the run's context, database, HTTP client, clock, log
+  and sleeper; `notices(ctx, conn)` for `queue list`); `publishers_for` and
+  `publisher_notices` read only it, and a test checks config's `PublisherName` against it. A new
+  channel is a module, a registry entry and the name in `posting.CHANNELS`/`PublisherName`.
+- **Without the secrets** the channel is `posting.Paused("telegram", …)`: due posts wait ("À
+  espera do bot: faltam TELEGRAM_BOT_TOKEN e/ou TELEGRAM_CHANNEL …"), never settled by the dry
+  run, which would lose them (D36). Secrets in `Secrets` (`telegram_bot_token`,
+  `telegram_channel`, `telegram_configured`), `.env.example` and the workflow's env
+  (`test_workflow`). Tests: the Bot API and the site mocked with respx (`tests/test_telegram.py`);
+  test_posting and test_instagram put Telegram on the dry run (their subject is the queue and
+  Instagram).
 - **Not done here:** the first real message, which needs Miguel's bot and channel
   (`docs/runbooks/telegram.md` §5); the issue stays open until he confirms it.

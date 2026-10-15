@@ -548,6 +548,23 @@ def settle_post(conn: sqlite3.Connection, post_id: int, status: str, *, at: date
     conn.commit()
 
 
+def deal_posts(conn: sqlite3.Connection, deal_id: int) -> list[Post]:
+    """A promotion's queue rows, one per channel."""
+    rows = conn.execute("SELECT * FROM posting_queue WHERE deal_id = ? ORDER BY due_at, id",
+                        (deal_id,))
+    return [_row_to_post(r) for r in rows]
+
+
+def requeue_post(conn: sqlite3.Connection, post_id: int, *, why: str) -> None:
+    """A cancelled post queued again (Miguel's `queue retry`, D38): as if new, attempts reset,
+    `why` in last_error; its due time stays, so it is due at once."""
+    conn.execute("""UPDATE posting_queue SET status = 'queued', settled_at = NULL,
+                    publisher = NULL, result_url = NULL, reason = NULL, attempts = 0,
+                    last_error = ?, message_id = NULL WHERE id = ? AND status = 'cancelled'""",
+                 (why, post_id))
+    conn.commit()
+
+
 def post_waits(conn: sqlite3.Connection, post_id: int, why: str, *, failed: bool) -> int:
     """A queued post stays queued: `why` it waits; a publisher error (`failed`) also counts an
     attempt. Returns the attempts so far."""

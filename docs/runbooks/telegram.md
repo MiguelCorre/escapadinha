@@ -22,7 +22,8 @@ promoção que expire ou seja rejeitada entretanto cancela a sua publicação, c
 - [ ] Nome: o provisório (por exemplo "Ponto Nómada · Promoções de voos"); a descrição pode
       dizer que as mensagens têm links de afiliado.
 - [ ] Tipo de canal: **Público**. Escolhe o link, por exemplo `t.me/pontonomada`: o que vem
-      depois de `t.me/` é o **@handle** do canal (aqui `@pontonomada`). Aponta-o.
+      depois de `t.me/`, com um @ à frente, é o **@handle** do canal (aqui `@pontonomada`).
+      Aponta-o: é ele que vai no `TELEGRAM_CHANNEL` (passo 4).
 - [ ] Não precisas de adicionar ninguém.
 
 ## 2. Criar o bot no @BotFather
@@ -67,39 +68,54 @@ promoção que expire ou seja rejeitada entretanto cancela a sua publicação, c
 - [ ] A execução seguinte aplica a aprovação e põe o Telegram na fila logo a seguir. Nessa
       execução a imagem ainda não está no site, por isso o `uv run escapadinha queue list`
       (depois de `uv run escapadinha store pull`) mostra a publicação do Telegram como
-      *agendada: A imagem ainda não está no site (…): espera pelo próximo deploy.* É normal.
+      *agendada: As imagens ainda não estão no site (…): espera pelo próximo deploy.* É normal.
 - [ ] Na execução seguinte, o registo do passo **Run** no GitHub Actions mostra `publicação
       Telegram deal <id>: publicada (telegram)`.
 - [ ] Confirma no canal: a imagem de capa, o texto com o link de reserva e o aviso
       "Publicidade · Este post contém links de afiliado…".
 - [ ] `uv run escapadinha queue list --all` mostra a linha do Telegram como *publicada
       (telegram) · https://t.me/pontonomada/<número>*: abre o link e confirma que vai dar à
-      mensagem.
+      mensagem. O mesmo link aparece no `queue list` ao lado da publicação do Instagram dessa
+      promoção (enquanto não sai) e no `uv run escapadinha deal check <id>`.
 - [ ] Diz-me se correu bem (fecho a issue #21) ou cola-me a linha do erro.
 
 ## Se algo correr mal
 
 - *"À espera do bot: faltam …"*: falta um dos dois secrets (passo 4).
-- *"O Telegram recusou a mensagem (…): confirma que o canal … existe e que o bot é
-  administrador com permissão para publicar"*: o `TELEGRAM_CHANNEL` está mal escrito (tem de ser
-  o @handle do passo 1, com o @) ou o bot não é administrador com **Publicar mensagens**
-  (passo 3). Essa publicação fica **cancelada**; o aviso aparece no topo do `queue list` até a
-  próxima mensagem sair. Corrige e, se quiseres essa promoção no canal, publica-a à mão (abaixo).
+- *"TELEGRAM_CHANNEL tem de ser o @handle do canal público …"* (a execução para logo no
+  início): o `TELEGRAM_CHANNEL` tem de ser o @handle do passo 1, com o @ (`@pontonomada`), ou o
+  id numérico do canal; nem o link `t.me/…` nem o nome sem @. Corrige o `.env` e o secret.
+- *"O Telegram recusou o canal (…): confirma que o canal … existe e que o bot é administrador
+  com permissão para publicar"*: o canal não existe com esse @handle, ou o bot não é
+  administrador com **Publicar mensagens** (passo 3). **Nada se perde:** as publicações ficam à
+  espera (não contam como falhas) e o aviso aparece no topo do `queue list`. Corrige; a
+  execução seguinte publica as que estiverem à espera e o aviso desaparece.
 - *"O Telegram recusou o token do bot"*: o `TELEGRAM_BOT_TOKEN` está errado ou foi revogado.
   As publicações esperam (não contam como falhas); gera outro no @BotFather (`/token` ou
   `/revoke`) e atualiza o `.env` e o secret.
-- *"O Telegram não respondeu ao envio (…): a mensagem pode ter saído. Confirma no canal …"* ou
-  *"Uma tentativa anterior (…) enviou a mensagem ao Telegram sem guardar a resposta"*: o pedido
-  chegou ao Telegram mas a resposta perdeu-se. O Telegram não deixa o bot ver o que está no
-  canal, por isso o pipeline **não volta a enviar** (era pior sair repetida). Vai ao canal: se a
-  mensagem lá está, não há nada a fazer; se não está, publica-a à mão (abaixo).
+- *"O Telegram não respondeu ao envio (…): a mensagem pode ter saído"* ou *"Uma tentativa
+  anterior (…) enviou a mensagem ao Telegram sem guardar a resposta"*: o pedido chegou ao
+  Telegram mas a resposta perdeu-se. O Telegram não deixa o bot ver o que está no canal, por
+  isso o pipeline **não volta a enviar sozinho** (era pior sair repetida); a publicação fica
+  cancelada e o topo do `queue list` diz *"Envio ao Telegram por confirmar: deal <id> …"*.
+  - [ ] Vai ao canal e procura essa promoção.
+  - [ ] Se lá está: não há nada a fazer (o aviso fica; é só informativo).
+  - [ ] Se não está: `uv run escapadinha queue retry <id> telegram`. Sem R2 a publicação volta
+        logo à fila; com R2, a próxima execução põe-na de novo na fila. Sai uma vez, na
+        execução seguinte. O comando recusa-se (com o motivo) se a mensagem saiu mesmo ou se
+        não há envio nenhum por confirmar.
 - *"Limite de mensagens do Telegram"*: o Telegram pediu para esperar; a execução seguinte envia.
-- *"A imagem ainda não está no site"*: normal logo a seguir a uma aprovação (o deploy vem a
-  seguir). Se ao fim de 24 horas (`telegram.images_wait_hours`) continuar sem aparecer, cada
+- *"As imagens ainda não estão no site"*: normal logo a seguir a uma aprovação (o deploy vem a
+  seguir). Se ao fim de 24 horas (`telegram.images_wait_hours`) continuarem sem aparecer, cada
   execução conta uma falha e ao fim de 5 a publicação é cancelada com o motivo: vê se o deploy
   do site está a falhar.
-- *"O texto tem … caracteres e o Telegram aceita 1024 numa foto"*: o texto não é cortado (podia
-  perder o link ou o aviso de publicidade); diz-me, é um problema do modelo de texto.
+- *"O Telegram não conseguiu ir buscar a imagem"*: o Telegram não conseguiu descarregar a capa
+  nesse momento; é tentada outra vez nas execuções seguintes (ao fim de 5 falhas, cancelada).
+- *"O Telegram recusou esta mensagem: …"* (dimensões ou formato da imagem, texto demasiado
+  longo) ou *"O texto tem … caracteres e o Telegram aceita 1024 numa foto"*: essa publicação é
+  cancelada (o texto nunca é cortado: podia perder o link ou o aviso de publicidade); diz-me, é
+  um problema das imagens ou do modelo de texto. Se a quiseres no canal, publica-a à mão
+  (abaixo).
 - Outro erro da API: a publicação fica na fila e é tentada nas execuções seguintes; ao fim de 5
   falhas é cancelada com o motivo (`queue list --all`).
 

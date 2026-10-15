@@ -208,6 +208,37 @@ class PublishCancel(Exception):
     `str(exc)` as the reason (pt-PT)."""
 
 
+class RetryableSendError(RuntimeError):
+    """A failure the run retries: the post stays queued and an attempt is counted (D32's
+    max_attempts ends it)."""
+
+
+def redact(text: str, secret: str) -> str:
+    """`text` without `secret` (a token in an API's error text or URL)."""
+    return text.replace(secret, "***") if secret else text
+
+
+def live_images(urls: list[str], check: Callable[[str], str | None], *, due_at: datetime | None,
+                now: datetime, wait: timedelta) -> list[str]:
+    """`urls` (a promotion's JPEGs on the public site, D36) once every one is live, by `check`
+    (None = live, else what is wrong). The deploy that carries them may still be to come (a new
+    approval's full path runs after the publish step): waiting is free until `wait` after
+    `due_at`, then each wait is a failure, so max_attempts ends a post whose images never
+    arrive. `due_at` None (a story): always free."""
+    if not urls:
+        raise PublishCancel("A promoção não tem slides renderizados.")
+    for url in urls:
+        problem = check(url)
+        if problem:
+            if due_at is not None and now - due_at > wait:
+                hours = i18n_pt.number(wait.total_seconds() / 3600)
+                raise RetryableSendError(f"As imagens continuam sem estar no site mais de {hours} "
+                                         f"h depois da hora marcada ({url} → {problem}).")
+            raise PublishWait(f"As imagens ainda não estão no site ({url} → {problem}): espera "
+                              "pelo próximo deploy.")
+    return urls
+
+
 @runtime_checkable
 class Publisher(Protocol):
     """Posts a message to one channel. Raises `PublishWait` to wait without counting an attempt,
