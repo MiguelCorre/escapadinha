@@ -291,8 +291,8 @@ not mature). A deal that would not be detected now expires like the recheck's, w
 `preço habitual ainda sem dados suficientes (5 de 10 dias)` or `já não é promoção face ao preço
 habitual atual (101 €): 80 € fica 21% abaixo; são precisos 30% e 15 €`. Approved deals are left
 to the price recheck (a human approved them on the figures the review showed). The 6 deals
-waiting on 2026-10-16 were detected on 4–6-day typical lows; the first run with this rule
-expires them all (none of their months has 10 counted days yet).
+waiting on 2026-10-16 were detected on 4–6-day typical lows; on the database of run 58 this rule
+expires all of them (none of their months had 10 counted days; D40 has the replay).
 
 ### What counts as a deal: two tiers (DECISIONS D24)
 Every price is measured against the route's **typical lowest price for the same departure

@@ -7,8 +7,8 @@
 `expired` is only set by price rechecks and, before approval, by the queue's re-evaluation
 against the current typical low (D40); `rejected`, `expired` and `published` are final.
 `render` (new → rendered), rechecks and that re-evaluation belong to the pipeline; approve /
-reject / published are
-review decisions, written as events and applied by the pipeline (review_events.py, D26).
+reject / published are review decisions, written as events and applied by the pipeline
+(review_events.py, D26).
 
 The review Function ports these tables (web/functions/_lib/review/rules.ts, D29); both are
 checked against contract/review/v1/fixtures/review-rules.json, so change all three together.

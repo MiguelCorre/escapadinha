@@ -2147,7 +2147,7 @@ so nothing has to be hosted.
   2 routes" was the 7-day rule without the dates filter). Route pages say "ainda sem dados
   suficientes" until a month has 7 counted days. Busy route-months should qualify from about
   20–25 October, sooner with the nonstop fares of #41. The 6 deals waiting for review were
-  detected under the old rules; the queue's re-evaluation (below) expires them on the first run.
+  detected under the old rules; the queue's re-evaluation (below) expires them (replayed on run 58).
   **Known temporary effect (review of M1, 2026-10-16):** a ponte page (D31) is `noindex`, and so
   out of the sitemap (D34), while it lists no low price; with none anywhere, every upcoming ponte
   page leaves the index until its origin's route-months mature, then comes back on the next full
@@ -2178,7 +2178,8 @@ so nothing has to be hosted.
     the same offer is never proposed again even once its month matures; a new price for the same
     trip still can be. A deal that survives keeps the figures it was detected with (the typical
     low it was judged against, as above); a deal detected before D40 survives only once its
-    month is mature and it still passes, and the first run expires today's 6 long before that.
+    month is mature and it still passes against the new typical low, which the replay says none
+    of today's 6 would do soon (only deal 10 is 30 % below, on 2 days, departing 27 October).
   - Rejected: refreshing the stored typical low of the survivors on every run (the rendered slides
     and caption would disagree with the database, and the reviewer's figures would move under
     them); judging approved deals too (that would overrule a human decision on data the human
