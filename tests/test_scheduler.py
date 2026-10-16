@@ -80,7 +80,6 @@ def test_the_worker_needs_no_package_and_deploys_with_the_pinned_wrangler():
     assert not package.get("dependencies") and not package.get("devDependencies")
     pinned = yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))["site"]["wrangler_version"]
     assert package["scripts"]["deploy"] == f"npx --yes wrangler@{pinned} deploy"
-    assert f"wrangler@{pinned}" in (WORKER / "wrangler.toml").read_text("utf-8")
     for path in (WORKER / "src").glob("*.js"):
         for spec in re.findall(r"""^import .*?from\s+["']([^"']+)["']""",
                                path.read_text("utf-8"), re.M):
@@ -89,6 +88,28 @@ def test_the_worker_needs_no_package_and_deploys_with_the_pinned_wrangler():
     worker_imports = re.findall(r"""from\s+["']([^"']+)["']""",
                                 (WORKER / "src" / "index.js").read_text("utf-8"))
     assert worker_imports == ["./schedule.js"]         # no node: module in the Worker's bundle
+
+
+def test_every_wrangler_version_in_the_repository_is_the_configs():
+    """One source of truth, config `site.wrangler_version` (the site's deploy reads it): the
+    Worker's deploy script and every `wrangler@<version>` the docs tell Miguel to run must be
+    that version, and so must `SiteConfig`'s default. Bump the config, then every place this
+    lists."""
+    from escapadinha.config import SiteConfig
+    pinned = yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))["site"]["wrangler_version"]
+    assert SiteConfig().wrangler_version == pinned
+    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=REPO, capture_output=True,
+                             check=True).stdout.decode("utf-8").split("\0")
+    found: dict[str, set[str]] = {}
+    for name in filter(None, tracked):
+        try:
+            text = (REPO / name).read_text("utf-8")
+        except (UnicodeDecodeError, OSError):         # binary files, removed in the work tree
+            continue
+        for version in re.findall(r"wrangler@(\d[\w.+-]*)", text):
+            found.setdefault(version, set()).add(name)
+    assert found.keys() == {pinned}, found
+    assert {"workers/scheduler/package.json", "docs/runbooks/agendamento.md"} <= found[pinned]
 
 
 # --- the pipeline workflow and its fallback -------------------------------------------------

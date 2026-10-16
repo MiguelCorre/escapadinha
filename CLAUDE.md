@@ -20,7 +20,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   fills it; `escapadinha site build` does npm ci + build + images + routing), `npm run lhci`,
   `npm run tokens`. `npx vitest run test/review` runs only the review Function's tests.
 - Scheduler Worker (`cd workers/scheduler`, no dependencies): `node --test` (`uv run pytest` runs it
-  too); deployed by hand only, `npx --yes wrangler@4.149.0 deploy` (D41, `docs/runbooks/agendamento.md`).
+  too); deployed by hand only, `npm run deploy` (D41, `docs/runbooks/agendamento.md`). Wrangler's
+  version has one source, config `site.wrangler_version`: every `wrangler@<version>` written in
+  the repo (the Worker's `package.json`, the docs' commands) must equal it (`tests/test_scheduler.py`).
 
 ## Rules
 - **Never fabricate prices.** Observations come only from API payloads. No seed/demo data

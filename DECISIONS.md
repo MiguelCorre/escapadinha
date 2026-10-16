@@ -2301,8 +2301,12 @@ so nothing has to be hosted.
   same 3 h as the review page's "A fila tem mais de 3 h" (D29).
 - **Deploy:** by hand from the PC, in `workers/scheduler`: `npx --yes wrangler@4.149.0 login`,
   `deploy`, then `secret put GITHUB_ACTIONS_TOKEN` (runbook `docs/runbooks/agendamento.md`). The
-  version is the one pinned for the site (`site.wrangler_version`; a test checks `package.json`'s
-  `deploy` script). No CI job: the pipeline's `CLOUDFLARE_API_TOKEN` is "Cloudflare Pages: Edit"
+  version is the one pinned for the site (`site.wrangler_version`). Review of M1 (2026-10-16): that
+  config value is the only source; the version was written in five places (the Worker's
+  `package.json`, its `wrangler.toml` comments, CLAUDE.md, the README and the runbook), so
+  `tests/test_scheduler.py` now checks every `wrangler@<version>` in the tracked files, and
+  `SiteConfig`'s default, against it; `wrangler.toml` and CLAUDE.md say `npm run deploy`, and the
+  README and the runbook keep the full commands Miguel copies. No CI job: the pipeline's `CLOUDFLARE_API_TOKEN` is "Cloudflare Pages: Edit"
   only (D15), and a Worker deploy needs "Workers Scripts: Edit". Widening the token that every
   run carries, for a Worker that almost never changes, is the wrong trade. `wrangler deploy
   --dry-run` bundles it: 6 KiB, no `node:` import (checked 2026-10-15, nothing deployed).

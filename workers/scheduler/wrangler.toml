@@ -1,8 +1,8 @@
 # The scheduler Worker (DECISIONS D41): a Cron Trigger dispatches .github/workflows/pipeline.yml
 # every 2 hours. Deployed by hand from this folder (docs/runbooks/agendamento.md):
-#   npx --yes wrangler@4.149.0 deploy
-# The GitHub token is a secret (`npx --yes wrangler@4.149.0 secret put GITHUB_ACTIONS_TOKEN`), never a
-# var here. tests/test_scheduler.py checks these values against the workflows.
+#   npm run deploy      (package.json: wrangler pinned to config.yaml's site.wrangler_version)
+# The GitHub token is a secret (`wrangler secret put GITHUB_ACTIONS_TOKEN`, see the runbook), never
+# a var here. tests/test_scheduler.py checks these values against the workflows.
 name = "pontonomada-scheduler"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
