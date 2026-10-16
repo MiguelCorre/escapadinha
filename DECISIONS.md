@@ -2148,6 +2148,11 @@ so nothing has to be hosted.
   suficientes" until a month has 7 counted days. Busy route-months should qualify from about
   20–25 October, sooner with the nonstop fares of #41. The 6 deals waiting for review were
   detected under the old rules; the queue's re-evaluation (below) expires them on the first run.
+  **Known temporary effect (review of M1, 2026-10-16):** a ponte page (D31) is `noindex`, and so
+  out of the sitemap (D34), while it lists no low price; with none anywhere, every upcoming ponte
+  page leaves the index until its origin's route-months mature, then comes back on the next full
+  path. Left as is: an indexed page that says "no prices" is the thin page D31 keeps out of
+  search, and the sitemap is generated from the built pages, so nothing else needs undoing.
 - **The queue against today's typical low (review of M1, 2026-10-16).** A deal waiting for review
   (`new`, `rendered`: `db.AWAITING_REVIEW`) stores the typical low it was detected on, and the
   site and the captions show that `baseline_median` once it is approved. The 6 deals in the queue
