@@ -79,6 +79,10 @@ class DealView:
     affiliate_url: str | None     # tracked partner link (None if conversion failed)
     photo: PhotoCredit
     disclosure: str = DISCLOSURE
+    # From the GraphQL match only (D43); None = unknown, and then no line is printed.
+    baggage: bool | None = None           # a checked bag is included
+    baggage_line: str | None = None       # 'com mala de porão incluída' / 'só bagagem de mão'
+    gate: str | None = None               # the selling agency (reviewers see it; posts don't)
 
     @property
     def destination_headline(self) -> str:
@@ -102,6 +106,10 @@ class DealView:
             "departure_date": observation.departure_date.isoformat(),
             "return_date": observation.return_date.isoformat(),
             "airline": observation.airline,
+            "with_baggage": observation.with_baggage,
+            "baggage_code": observation.baggage_code,
+            "gate": observation.gate,
+            "found_at_utc": observation.found_at.isoformat() if observation.found_at else None,
             "rule": deal.rule,
             "baseline": "median of daily lowest prices, same route and departure month",
             "baseline_median": deal.baseline_median,
@@ -133,6 +141,8 @@ class LowPriceView:
     fetched_at: str        # when our collection first saw it, Lisbon time (stable across runs,
                            # so an unchanged list doesn't trigger a deploy)
     booking_link: str | None   # tracked link from the partner links API, or None (no button)
+    baggage: bool | None = None       # from the GraphQL match (D43); None = unknown, no line
+    baggage_line: str | None = None
 
 
 def _direct(o: Observation) -> bool | None:
@@ -152,6 +162,7 @@ def build_low_price_view(o: Observation, *, typical_low: float, discount_pct: fl
         found_on=pt.numeric_date(o.found_date) if o.found_date else None,
         fetched_at=pt.lisbon_timestamp(o.fetched_at),
         booking_link=booking_link,
+        baggage=o.with_baggage, baggage_line=pt.baggage_line(o.with_baggage),
     )
 
 
@@ -176,4 +187,5 @@ def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination
         source_label="Aviasales" if o.source == "travelpayouts" else o.source,
         affiliate_url=deal.affiliate_url,
         photo=photo,
+        baggage=o.with_baggage, baggage_line=pt.baggage_line(o.with_baggage), gate=o.gate,
     )

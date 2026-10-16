@@ -1,3 +1,3 @@
-{"cols":["obs","dest","price","dep","ret","found","fetched","airline","stops","airport","typical","link"],"generated_at":"2026-10-14T09:01:47Z","origin":"OPO","rows":[
-[3040,"PAR",70,"2026-11-25","2026-11-28","2026-10-12","2026-10-12T21:00Z","FR",0,"BVA",87,"https://example.com/parceiro/site-low-3040"]
+{"cols":["obs","dest","price","dep","ret","found","fetched","airline","stops","airport","typical","link","baggage"],"generated_at":"2026-10-14T09:01:47Z","origin":"OPO","rows":[
+[3040,"PAR",70,"2026-11-25","2026-11-28","2026-10-12","2026-10-12T21:00Z","FR",0,"BVA",87,"https://example.com/parceiro/site-low-3040",null]
 ],"run":30,"truncated":0,"version":1}

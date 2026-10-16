@@ -99,6 +99,11 @@ const trip = promotionLd(data, promotion, view, description);
             <dt class="label text-muted">Voos</dt><dd class="text-right font-semibold">{view.stops}</dd>
           </div>
         )}
+        {view.baggage && (
+          <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+            <dt class="label text-muted">Bagagem</dt><dd class="text-right font-semibold">{view.baggage}</dd>
+          </div>
+        )}
         {arrival && (
           <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
             <dt class="label text-muted">Chegada</dt><dd class="text-right font-semibold">{arrival}</dd>

@@ -17,6 +17,9 @@ export interface Offer {
   arrival_airport: string | null;
   found_date: string | null;
   fetched_at: string;
+  /** A checked bag included (D43), from the GraphQL row matched to the offer; null or absent:
+   * unknown, so the page prints no baggage line. */
+  baggage?: boolean | null;
 }
 
 /** `meta.detector`: the settings typical lows, low prices and promotions were computed with. */
@@ -162,7 +165,7 @@ export interface Promotion {
 export type LowPriceRow = [
   obs: number, dest: string, price: number, dep: string, ret: string, found: string | null,
   fetched: string, airline: string | null, stops: number | null, airport: string | null,
-  typical: number, link: string | null,
+  typical: number, link: string | null, baggage?: boolean | null,
 ];
 
 export interface LowPrices {

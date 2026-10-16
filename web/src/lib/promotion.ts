@@ -3,8 +3,8 @@
 // (traveller) kept apart from our check (D10, D11).
 import type { Offer, Promotion, SiteData } from "./contract";
 import {
-  dateRange, discountParts, eur, eurParts, lisbonTimestamp, monthName, nights, numericDate, shortDate,
-  type DiscountParts, type EurParts,
+  baggageText, dateRange, discountParts, eur, eurParts, lisbonTimestamp, monthName, nights, numericDate,
+  shortDate, type DiscountParts, type EurParts,
 } from "./format";
 
 export interface Place {
@@ -68,6 +68,7 @@ export interface PromotionView extends Place {
   nights: string;             // "2 noites"
   airline: string | null;
   stops: string | null;
+  baggage: string | null;     // "só bagagem de mão"; null when unknown (no line, D43)
   foundOn: string | null;     // "12/10/2026": when a traveller found the price
   checkedAt: string;          // ours: last recheck, else first fetch, Lisbon time ("verificado a")
   expiredReason: string | null;
@@ -91,6 +92,7 @@ export function promotionView(data: SiteData, p: Promotion): PromotionView {
     nights: nights(o.nights),
     airline: o.airline ? data.labels.airlines[o.airline] ?? o.airline : null,
     stops: stops(o),
+    baggage: baggageText(o.baggage),
     foundOn: o.found_date ? numericDate(o.found_date) : null,
     checkedAt: lisbonTimestamp(p.checked_at),
     expiredReason: p.expired?.reason ?? null,

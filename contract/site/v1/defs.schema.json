@@ -49,8 +49,13 @@
         "return_transfers": {"type": ["integer", "null"], "minimum": 0},
         "arrival_airport": {"anyOf": [{"$ref": "#/$defs/airport"}, {"type": "null"}], "description": "Always name it (D11); labels.json says which ones are far from the city."},
         "found_date": {"anyOf": [{"$ref": "#/$defs/date"}, {"type": "null"}]},
-        "fetched_at": {"$ref": "#/$defs/timestamp"}
+        "fetched_at": {"$ref": "#/$defs/timestamp"},
+        "baggage": {"$ref": "#/$defs/baggage"}
       }
+    },
+    "baggage": {
+      "type": ["boolean", "null"],
+      "description": "Whether a checked bag is included, from the Aviasales GraphQL row matched to the stored offer (D43): true = 'com mala de porão incluída', false = 'só bagagem de mão', null = unknown (no match yet): show no baggage line. Added within v1: an older export may lack it."
     },
     "photo": {
       "type": ["object", "null"],

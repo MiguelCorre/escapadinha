@@ -80,7 +80,8 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
         const typical = months.find((m) => m.month === c.dep.slice(0, 7))?.typical_low;
         if (typical != null && c.price <= typical * 0.85 && lowRows[origin].length < 1500) {
           lowRows[origin].push([c.obs, destCode(d), c.price, c.dep, c.ret, "2026-10-13", "2026-10-13T20:15Z",
-            "FR", 0, code("Y", d), typical, `https://example.com/parceiro/site-low-${c.obs}`]);
+            "FR", 0, code("Y", d), typical, `https://example.com/parceiro/site-low-${c.obs}`,
+            c.obs % 3 === 0 ? null : c.obs % 3 === 1]);   // baggage known for two thirds (D43)
         }
       }
       routes.push({
@@ -93,7 +94,7 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
           obs: cheapestDay.obs, route: key, price: cheapestDay.price, departure: cheapestDay.dep,
           return: cheapestDay.ret, nights: Math.round((Date.parse(cheapestDay.ret) - Date.parse(cheapestDay.dep)) / 86_400_000),
           airline: "FR", transfers: 0, return_transfers: 0, arrival_airport: code("Y", d),
-          found_date: "2026-10-13", fetched_at: "2026-10-13T20:15:00Z",
+          found_date: "2026-10-13", fetched_at: "2026-10-13T20:15:00Z", baggage: null,
         } : null,
         calendar,
         counts: { observations: calendar.length * 3, low_prices: 0, promotions_live: 0, promotions_expired: 0 },
@@ -170,7 +171,7 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
   for (const [origin, rows] of Object.entries(lowRows)) {
     write(`low-prices/${origin}.json`, {
       version: 1, origin, generated_at: GENERATED_AT, run: 99,
-      cols: ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops", "airport", "typical", "link"],
+      cols: ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops", "airport", "typical", "link", "baggage"],
       rows, truncated: 0,
     });
   }

@@ -12,8 +12,8 @@
     "generated_at": {"$ref": "defs.schema.json#/$defs/timestamp"},
     "run": {"type": ["integer", "null"], "minimum": 1, "description": "Collection run the rows come from."},
     "cols": {
-      "const": ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops", "airport", "typical", "link"],
-      "description": "obs = price_observations.id; dest = destination city code (route = origin-dest); price; dep/ret = departure/return date; found = found_date (traveller) or null; fetched = first fetched by us (UTC, minutes); airline code or null; stops = most stops in either direction (null = unknown); airport = arrival airport or null; typical = the departure month's typical low (routes.json months); link = tracked partner link or null (no button)."
+      "const": ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops", "airport", "typical", "link", "baggage"],
+      "description": "obs = price_observations.id; dest = destination city code (route = origin-dest); price; dep/ret = departure/return date; found = found_date (traveller) or null; fetched = first fetched by us (UTC, minutes); airline code or null; stops = most stops in either direction (null = unknown); airport = arrival airport or null; typical = the departure month's typical low (routes.json months); link = tracked partner link or null (no button); baggage = checked bag included (true/false) from the GraphQL match, null = unknown (D43, added within v1)."
     },
     "rows": {
       "type": "array",
@@ -31,9 +31,10 @@
           {"type": ["integer", "null"], "minimum": 0},
           {"anyOf": [{"$ref": "defs.schema.json#/$defs/airport"}, {"type": "null"}]},
           {"$ref": "defs.schema.json#/$defs/eur"},
-          {"$ref": "defs.schema.json#/$defs/link"}
+          {"$ref": "defs.schema.json#/$defs/link"},
+          {"$ref": "defs.schema.json#/$defs/baggage"}
         ],
-        "minItems": 12,
+        "minItems": 13,
         "items": false
       }
     },

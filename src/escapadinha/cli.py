@@ -135,6 +135,36 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
                       f"({escape(reason)})")
 
 
+@app.command()
+def enrich(run_id: Annotated[int | None, typer.Option(help="Run to enrich (default: latest)")] = None) -> None:
+    """Baggage, selling agency and exact found time for the run's low prices and promotion
+    candidates, from the Aviasales GraphQL API (D43). Fields stay unknown without a match."""
+    ctx, conn = _ctx()
+    _report_enrich(pipeline.run_enrich(ctx, conn, run_id))
+
+
+def _enrich() -> str:
+    """The run's enrichment step (D43) and its report line."""
+    ctx, conn = _ctx()
+    return _report_enrich(pipeline.run_enrich(ctx, conn))
+
+
+def _report_enrich(summary: pipeline.EnrichSummary) -> str:
+    if summary.run_id is None and not summary.offers:
+        line = "Enrichment: nothing to ask (no new low prices or candidates)"
+    elif summary.run_id is None:
+        line = f"Enrichment: skipped ({summary.offers} offers)"
+    else:
+        line = (f"Enrichment: {summary.queried} GraphQL requests, {summary.matched} of "
+                f"{summary.offers} offers matched"
+                + (f", {summary.skipped} left for the next run" if summary.skipped else "")
+                + (f", {len(summary.errors)} failed" if summary.errors else ""))
+    console.print(line)
+    for err in summary.errors:
+        console.print(f"  [red]✗[/] {escape(err)}")
+    return line
+
+
 @app.command("recheck")
 def recheck_cmd() -> None:
     """Re-verify open deals against the latest run; expire those whose price moved."""
@@ -863,6 +893,7 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
         raise typer.Exit(1)
     recheck_cmd()
     detect()
+    report.append(_enrich())                 # baggage and agency (D43): never fails the run
     publish_due()                            # every run: posting never waits for a full path (D32)
     ctx, conn = _ctx()
     decision = run_path.decide(ctx, conn, force=full)
@@ -916,7 +947,7 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
             "--full", help="Render, build and deploy even if nothing the site shows changed")] = False,
         ) -> None:
     """Review events → (monthly route discovery) → collect → recheck open deals → detect →
-    publish due posts (D32), then the full path (render new deals → export the site data →
+    enrich low prices and candidates (baggage, agency: D43) → publish due posts (D32), then the full path (render new deals → export the site data →
     build the Astro site → deploy) only when something it shows changed → review snapshot. What the scheduler runs (GitHub Actions, D25).
 
     With R2 keys in .env: lock → pull the database → daily backup → steps → push → unlock.

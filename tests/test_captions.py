@@ -125,6 +125,21 @@ def test_photo_credit_line():
     assert "📷" not in caption(photo=None)
 
 
+def test_baggage_line_only_when_the_graphql_match_said_so():
+    text = caption()
+    assert "🧳" not in text and "bagagem" not in text and "mala" not in text   # unknown: no guess
+    text = caption(o=observation(with_baggage=False, baggage_code="0PC", gate="Kiwi.com"))
+    assert "🛬 Chegada: aeroporto Schiphol (AMS)\n🧳 Só bagagem de mão\n📉" in text
+    assert "Kiwi.com" not in text                     # the agency is for reviewers, not posts
+    assert "🧳 Com mala de porão incluída" in caption(o=observation(with_baggage=True))
+
+
+def test_baggage_words():
+    assert pt.baggage_line(True) == "com mala de porão incluída"
+    assert pt.baggage_line(False) == "só bagagem de mão"
+    assert pt.baggage_line(None) is None
+
+
 def test_unknown_transfers_omits_direct_claim():
     text = caption(o=observation(transfers=None))
     assert "diretos" not in text and "escala" not in text
@@ -160,6 +175,12 @@ def test_whatsapp_text_is_short_pt_pt_with_link_disclosure_and_both_dates():
         f"👉 {LINK}\n"
         "\n"
         f"{DISCLOSURE}\n")
+
+
+def test_whatsapp_text_carries_the_baggage_line_when_known():
+    text = whatsapp_text(view(o=observation(with_baggage=True), d=linked_deal()))
+    assert "🛬 Chegada: aeroporto Schiphol (AMS)\n🧳 Com mala de porão incluída\n\n" in text
+    assert "🧳" not in whatsapp_text(view(d=linked_deal()))
 
 
 def test_whatsapp_text_without_a_found_date_says_only_when_it_was_checked():

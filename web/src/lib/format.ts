@@ -171,6 +171,14 @@ export function nights(n: number): string {
   return count(n, "noite", "noites");
 }
 
+/** The baggage line (D43): true -> "com mala de porão incluída", false -> "só bagagem de mão";
+ * unknown (null or absent) -> null, so the page prints no line rather than guessing. Same words
+ * as the pipeline's i18n_pt.BAGGAGE (captions and slides). */
+export function baggageText(baggage: boolean | null | undefined): string | null {
+  if (baggage == null) return null;
+  return baggage ? "com mala de porão incluída" : "só bagagem de mão";
+}
+
 /** A trip's stops (the most in either direction): 0 -> "voos diretos", 1 -> "1 escala"; unknown
  * (null) -> null, so the page says nothing rather than guessing. */
 export function stopsText(stops: number | null): string | null {

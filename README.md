@@ -31,6 +31,8 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
                                    │      candidate  ≥30% and ≥15 € below → a deal for review
                                    │    then the queue again (D40): still a candidate today?
                                    │            no → status expired + EXPIRADO.txt
+                                enrich  GraphQL API, same cache (D43): checked bag? which agency?
+                                   │      matched by the link's t= token; no match → unknown, no line
                                    ▼
                               deals (status: new)
                                    │
@@ -40,7 +42,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 
 | Module | Role |
 |---|---|
-| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited; asked with the route's rules, `direct=true` on nonstop-only routes), `plan.py` (pure: which route-months a run asks for, the day's pass, D42), `runner.collect` (runs a plan), `catalogue.py` (discovery downloads) |
+| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited; asked with the route's rules, `direct=true` on nonstop-only routes), `plan.py` (pure: which route-months a run asks for, the day's pass, D42), `runner.collect` (runs a plan), `catalogue.py` (discovery downloads), `graphql.py` (GraphQL `prices_round_trip` client + pure offer match, enrichment only, D43) |
 | `discovery.py` | Pure: catalogues + supplements → direct routes with kind and pt-PT name |
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups); `mirror.py` (photos and rendered slides in the store) |
@@ -89,6 +91,7 @@ uv run escapadinha routes list             # every route + active/dormant counts
 uv run escapadinha collect                 # routes with prices × 3 departure months; the day's first run from 06:00 Lisbon: every active route × 6 (D42)
 uv run escapadinha recheck                 # re-verifies open deals against the latest run
 uv run escapadinha detect                  # latest run: low prices + promotion candidates per route; expires queued deals that aren't candidates today (D40)
+uv run escapadinha enrich                  # latest run: baggage, selling agency and exact found time for its low prices and candidates (GraphQL, D43)
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
 uv run escapadinha photos fetch            # one Pixabay photo per destination (cached)
 uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you don't like
@@ -96,7 +99,7 @@ uv run escapadinha render deals            # renders deals with status 'new' →
 uv run escapadinha render deals --deal-id 12
 uv run escapadinha render guide voos-baratos-dicas
 uv run escapadinha export site-data        # website data contract v1 (JSON) → web/src/data
-uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → publish due posts, then render → export → site build (Astro) → deploy only if something changed → review snapshot
+uv run escapadinha run                     # review events → (monthly discovery) → collect → recheck → detect → enrich → publish due posts, then render → export → site build (Astro) → deploy only if something changed → review snapshot
 uv run escapadinha queue list              # upcoming posts (Instagram slots, Telegram), Lisbon time; --all adds published/cancelled; Instagram token and Telegram channel notices
 uv run escapadinha queue retry 12 telegram  # a Telegram send whose answer was lost, not in the channel: back in the queue (D38)
 uv run escapadinha instagram token         # PC only: the Instagram token the pipeline renewed, to copy into the secret (D36)
@@ -192,6 +195,25 @@ Upgrading from schema v6 collapses duplicates (rows with a deal keep their id), 
 `raw_json` values and archives them per run on the next command (`reconstructed: true`), then
 VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 
+### Baggage and agency from the GraphQL API (DECISIONS D43)
+After detection, `enrich` (part of `run`, never fails it) asks the Aviasales GraphQL Flights Data
+API (`POST /graphql/v1/query`, same token, same 7-day cache as the REST prices, 60 requests a
+minute) about the run's promotion candidates and low prices: one `prices_round_trip` query per
+(route, departure, return), candidates first, then low prices by discount, at most
+`collector.enrich_per_run` (60) queries a run, skipping offers already matched. Each stored
+offer is matched to the GraphQL row with the same `t=` token in its link (the same ticket from
+the same search at the same agency price; the REST price is rounded to the euro and its airline
+code can differ from `main_airline`, so the token is the reliable key; without a link the
+fallback is the airline, the local dates and a value that rounds to the price). The match fills
+`with_baggage`, `baggage_code` (`0PC` = no checked bag), `gate` (the selling agency) and
+`found_at` (exact UTC time a traveller found it) on `price_observations` (schema v14). Rows
+that disagree leave a field unknown; no row leaves all four null and nothing is printed: the
+baggage line ("só bagagem de mão" / "com mala de porão incluída") appears in captions, the
+WhatsApp text, the slides, promotion pages and low-price rows only when known, the agency only
+on the review pages. Prices never change. Answers are archived like the REST ones, under their
+own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers matched").
+`paging.limit` is capped at 400 by the API; the cheapest rows come first.
+
 ## Configuration (`config.yaml`)
 
 - `routes`: routes live in the database (`routes` table, `escapadinha routes list`); config
@@ -217,7 +239,9 @@ VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
     empty table. Changing it later has no effect; discovery adds the rest.
 - `collector`: `months_ahead` (3 = this month + 2, every run), `daily_months_ahead` (6, the
   day's pass) and `daily_pass_hour` (6, Lisbon: the day's first run from then is the pass; D42),
-  currency, `requests_per_minute` (550). Nights come from each route's rules.
+  currency, `requests_per_minute` (550). Nights come from each route's rules. GraphQL enrichment (D43):
+  `graphql_requests_per_minute` (55, the API allows 60) and `enrich_per_run` (60 queries a run, one per trip;
+  0 turns it off).
 - `photos`: `queries` (Pixabay search per destination code) and `max_per_run` (40).
 - `posting` (D32): `instagram_slots` (Lisbon time, default `09:00`, `13:00`, `19:00`),
   `max_per_day` (3 Instagram posts per Lisbon day), `max_check_age_hours` (6: a due post waits
@@ -524,7 +548,8 @@ disclosure), in the review snapshot (`whatsapp_text`) and on both review pages w
 The same queue, in Portuguese, served by a Cloudflare Pages Function from `review/snapshot.json`.
 Open **https://pontonomada.pt/review**, sign in with the e-mail code from Cloudflare Access (only
 Miguel's e-mail is allowed), and for each candidate you see the slides (swipe), price, dates,
-airline, discount, found and verified times (Lisbon time), the affiliate link, the caption and
+airline, the baggage line and the selling agency when the GraphQL match found them (D43),
+discount, found and verified times (Lisbon time), the affiliate link, the caption and
 the WhatsApp text (when the snapshot has it) with copy buttons.
 
 - **Verificar preço** asks Travelpayouts now, with the same query and rule as the pipeline
@@ -1164,6 +1189,10 @@ uv run pytest -m "not browser"
 - `fixtures/discovery/` holds real catalogue and supplement payloads recorded on 2026-10-13,
   trimmed to the rows the tests need (`RECORDED.txt` lists the URLs and what was kept).
 - `fixtures/schema_v5.sql` and `schema_v7.sql` are older schemas, to test the upgrades.
+- `test_graphql.py` (D43): the GraphQL client (token, trip window, a 429 waits, the 60/min limiter
+  under 8 workers) and the pure offer match on the probe's real row shape; `test_enrich.py`: a run
+  enriches only its matched low prices and candidates, never a price, archives the answers under
+  an `enrich` run, keeps unmatched offers unknown, and the v13 → v14 upgrade.
 - `test_traceability.py` (normal run, no browser) builds a database with promotions (live,
   expired, new), low prices and typical lows, renders the whole site and every caption, and fails
   on any price string that isn't a referenced observation's price, a referenced deal's stored
@@ -1241,7 +1270,8 @@ uv run pytest -m "not browser"
 ## Data sources and terms
 
 - **Travelpayouts / Aviasales Data API**: a cache of prices users found recently (not live).
-  The limit is 600 req/min on v3 endpoints. Route discovery also reads the public data files
+  The limit is 600 req/min on v3 endpoints, 60 req/min on the GraphQL endpoint (`/graphql/v1/query`,
+  used only to enrich stored offers with baggage and agency, D43; same cache, same terms). Route discovery also reads the public data files
   (`data/routes.json`, `data/airports.json`, `data/pt/cities.json`) and `v1/city-directions`.
   Each item's link carries `search_date`, the day a
   user found the price, which can be several days old. Captions state both that date and when

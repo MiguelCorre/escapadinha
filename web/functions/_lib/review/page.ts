@@ -112,6 +112,8 @@ function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number): st
       ${row("Datas", esc(`${d.dates} · ${d.nights}`))}
       ${row("Voos", esc(flights))}
       ${row("Chegada", esc(d.arrival_airport))}
+      ${row("Bagagem", esc(d.baggage ?? ""))}
+      ${row("Agência", esc(d.gate ?? ""))}
       ${row("Desconto", dealLine(d))}
       ${row("Preço visto", esc([d.found_on && `encontrado a ${d.found_on}`, `verificado a ${d.checked_at}`].filter(Boolean).join(" · ")))}
       ${row("Última verificação", esc(lastCheck))}

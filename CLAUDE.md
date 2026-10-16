@@ -7,7 +7,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
-- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `stats`, `routes list|discover`, `photos fetch`,
+- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list|retry`,
   `instagram token`,
   `site build|preview|setup|deploy|crawl|build-jinja`, `design directions`, `export site-data|fixtures`,
@@ -111,7 +111,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
   passed in too; never read a global `direct_only` or nights range. The same for the collector
   (`PriceSource.fetch(…, rules=)`): the provider query comes only from
-  `travelpayouts.request_params(…, rules)` (`direct=true` on nonstop-only routes, D39), shared
+  `travelpayouts.request_params(…, rules)` (`direct=true` on nonstop-only routes, D43), shared
   by the collection, `pipeline.price_now` and the snapshot's `live_check.query` (cases
   `queries` in `contract/review/v1/fixtures/live-check-cases.json`, checked on both sides).
 - Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
@@ -162,7 +162,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
   collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → missed-pass warning
   (`pipeline.missed_daily_pass_warning`, last recorded pass > 30 h ago) → recheck →
-  detect (+ `run_reevaluate`, D40) → `publish_due` (D32, every run: posting never waits for a full path) →
+  detect (+ `run_reevaluate`, D40) → `run_enrich` (D43: never fails the run) → `publish_due`
+  (D32, every run: posting never waits for a full path) →
   `run_path.decide` → full path only, its Node commands inside one deadline
   (`node.deadline()`, D35) (render → `export site-data` (D27, → `web/src/data`; keep the
   returned `Export`) → `site build` (Astro, D35: npm ci if needed, astro build, promotion images,
@@ -182,6 +183,17 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   all use them. The web package never builds a page path: it uses the contract's `path` fields.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
+- **Baggage only from the GraphQL answer, never guessed** (D43): `with_baggage`, `baggage_code`,
+  `gate` and `found_at` on an observation come only from `collector/graphql.py`'s `match` (the
+  Aviasales GraphQL row with the same link `t=` token, else the same airline, local dates and
+  price), stored by `pipeline.enrich_offers` for the run's low prices and candidates (candidates
+  first, at most `collector.enrich_per_run` queries, one per trip, 60/min API limit), and never
+  change a price. Unknown stays null and nothing prints: the baggage line ("só bagagem de mão" /
+  "com mala de porão incluída", only `i18n_pt.baggage_line` and `format.baggageText`) appears in
+  captions, slides, promotion pages and low-price rows only when known; the agency (`gate`) only
+  on the review snapshot and queue pages, never in a post or on the site. GraphQL answers are
+  archived under their own `enrich` run (scope `enrich`, source `travelpayouts-graphql`). HTTP in
+  tests: respx only.
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
 - No scraping of booking sites or airlines (ToS and legal risk; see DECISIONS D13).
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
@@ -284,7 +296,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 
 ## Layout
 - `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `plan.py` (the day's pass,
-  D42), `runner.collect` (runs a `Plan`), `catalogue.py`
+  D42), `runner.collect` (runs a `Plan`), `catalogue.py`,
+  `graphql.py` (D43: `GraphQLClient.prices_round_trip`, `parse_response`, pure `match` → `Match`;
+  enrichment only, never a price source; wired by `pipeline.run_enrich` / `enrich_offers`)
 - `src/escapadinha/discovery.py`: pure `Catalogue.from_payloads` + `discover` → `Found` routes with kind
 - `src/escapadinha/routes.py`: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`,
   `all_routes`/`active_routes`/`get_route`

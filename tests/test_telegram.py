@@ -551,10 +551,10 @@ def test_a_malformed_channel_pauses_telegram_but_the_run_goes_on(ctx, monkeypatc
         approve_event(ctx.object_store, deal_id, checked=db.utcnow())
         mock_api()
         mock_links()
-        runs = conn.execute("SELECT COUNT(*) FROM fetch_runs").fetchone()[0]
+        runs = conn.execute("SELECT COUNT(*) FROM fetch_runs WHERE scope = 'full'").fetchone()[0]
         out = cli(ctx, monkeypatch, "run", "--no-render")
         assert "Detection for run" in out and "Path:" in out            # collected, detected, on
-        assert conn.execute("SELECT COUNT(*) FROM fetch_runs").fetchone()[0] == runs + 1
+        assert conn.execute("SELECT COUNT(*) FROM fetch_runs WHERE scope = 'full'").fetchone()[0] == runs + 1
         problem = telegram.channel_problem("pontonomada")
         assert f"publicação Telegram deal {deal_id}: à espera ({problem})" in out
         post = by_channel(conn)["telegram"]

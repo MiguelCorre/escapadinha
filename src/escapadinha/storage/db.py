@@ -11,7 +11,7 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo, Post
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -120,6 +120,12 @@ MIGRATIONS = {
          "REFERENCES price_observations(id)",
          "ALTER TABLE deals ADD COLUMN baseline_highest_obs_id INTEGER "
          "REFERENCES price_observations(id)"],
+    # GraphQL enrichment (D43): baggage, agency and exact found time of a matched offer, all
+    # nullable (null = unknown, never guessed).
+    14: ["ALTER TABLE price_observations ADD COLUMN with_baggage INTEGER",
+         "ALTER TABLE price_observations ADD COLUMN baggage_code TEXT",
+         "ALTER TABLE price_observations ADD COLUMN gate TEXT",
+         "ALTER TABLE price_observations ADD COLUMN found_at TEXT"],
 }
 
 
@@ -279,7 +285,20 @@ def _row_to_observation(row: sqlite3.Row) -> Observation:
         departure_at=row["departure_at"], return_at=row["return_at"],
         last_seen_at=_dt(row["last_seen_at"]), last_run_id=row["last_run_id"],
         seen_count=row["seen_count"],
+        with_baggage=None if row["with_baggage"] is None else bool(row["with_baggage"]),
+        baggage_code=row["baggage_code"], gate=row["gate"], found_at=_dt(row["found_at"]),
     )
+
+
+def set_enrichment(conn: sqlite3.Connection, observation_id: int, *, with_baggage: bool | None,
+                   baggage_code: str | None, gate: str | None, found_at: datetime | None) -> None:
+    """Store what the GraphQL match found for this offer (D43). Never touches the price."""
+    conn.execute(
+        """UPDATE price_observations SET with_baggage = ?, baggage_code = ?, gate = ?, found_at = ?
+           WHERE id = ?""",
+        (None if with_baggage is None else int(with_baggage), baggage_code, gate,
+         _ts(found_at) if found_at else None, observation_id))
+    conn.commit()
 
 
 def observations_seen_since(conn: sqlite3.Connection, run_id: int) -> list[Observation]:

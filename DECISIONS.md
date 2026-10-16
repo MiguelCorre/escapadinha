@@ -2426,3 +2426,78 @@ so nothing has to be hosted.
   run after a Lisbon hour needs nothing new); rechecking far-month promotions only on the pass (a
   due post would wait up to a day); a `fetch_runs` column for the pass (meta is the bookkeeping
   place, and only the latest pass matters).
+
+## D43: Baggage and agency from the Aviasales GraphQL API (2026-10-16, #46)
+- **What:** after detection, every run asks the Aviasales GraphQL Flights Data API
+  (`POST https://api.travelpayouts.com/graphql/v1/query`, header `X-Access-Token`, the same
+  token, the same 7-day cache of searches as the REST prices, the Data API's terms, 60 requests
+  a minute: `X-Rate-Limit: 60`) about its promotion candidates and low prices, one
+  `prices_round_trip` query per (route, departure, return), and stores on the matched
+  observation (`price_observations`, schema v14: `SCHEMA_VERSION` 14, `schema.sql`, migration
+  14 = four nullable ALTERs, upgrade tested from the real v5/v7 schemas and from a v13 database
+  with an offer) `with_baggage`, `baggage_code` (`0PC` = no checked bag, `1PC20` = one 20 kg
+  bag), `gate` (the selling agency) and `found_at` (the exact UTC time a traveller found the
+  price; the REST link only gives the day). Captions, the WhatsApp text, the slides (price block
+  and the details row), promotion pages and low-price rows print the baggage line, "só bagagem
+  de mão" / "com mala de porão incluída" (`i18n_pt.BAGGAGE`, `format.baggageText`), **only when
+  it is known**; the review snapshot and both queue pages show it and the agency (`gate` never
+  reaches a post or the site: the reviewer's context, not a traveller's). Research:
+  `docs/research/2026-10-15-more-data-and-site-ideas.md` §A1 and ticket T1.
+- **Never guessed (the rule):** the four fields come only from `collector/graphql.py`'s pure
+  `match`; no row → all null → nothing printed (no "sem bagagem" by default); rows that disagree
+  on a field → that field null. Prices are never touched (`db.set_enrichment` updates the four
+  columns and nothing else; `test_enrich` compares every price before and after). The GraphQL
+  API is **not a price source**: nothing it returns is stored as an observation (no new price
+  string anywhere, `tests/test_traceability.py` and `web/test/traceability.test.ts` unchanged).
+- **How an offer is matched (from the probe of 2026-10-15, LIS-PAR Nov 2026, 400 rows):** the
+  ticket's draft said "same airline, dates and price (± 0.01 €)". The probe showed that would
+  match nothing: the REST API **rounds prices to the euro** (GraphQL `value` 92.5 → REST `price`
+  93, the link's `expected_price=93`), and the REST `airline` can differ from the GraphQL
+  `main_airline` (MW vs FR for the same ticket). What both carry identically is the `t=` token of
+  the link (`/search/LIS1011PAR12111?t=FR1794324300…_3c1739…_8657`; GraphQL `ticket_link` is the
+  same path without `/search`): the ticket, the search and the agency price. So the match is **by
+  that token** when the observation has a link (the exact cached offer), and only without one
+  by airline, local trip dates (from the link, like the collector) and a value that matches to
+  the cent or rounds (half up) to a whole-euro price. The query asks a window of a day around
+  the stored local dates (`depart_date_min/max`, `return_date_min/max`: the API's timestamps can
+  sit on the UTC day; GraphQL's `return_at` is not the REST one), `direct: true` only for routes
+  with `direct_only`, `grouping: NONE`, `sorting: VALUE_ASC`, one page of `paging.limit` 400 (the
+  API's maximum: "limit must be equal or less than 400"), `currency: eur`, `market: pt`. No
+  `trip_duration` filter: the dates already pin the trip and the API counts durations its own way.
+- **Budget (D23's Actions minutes):** not the bulk collector (360 routes × 1 query at 60/min is
+  6 min a run, 12 runs a day: over the free minutes). `pipeline.enrich_targets` orders the run's
+  open deals' observations first, then each route's low prices by discount, drops offers already
+  matched (`found_at` set), and `enrich_offers` makes at most `collector.enrich_per_run` (60)
+  queries, one per trip, under `collector.graphql_requests_per_minute` (55) with the same
+  thread-safe `RateLimiter` and `collector.workers`: at most about a minute a run. Unmatched
+  offers are asked again next run while they stay among the run's candidates and biggest
+  discounts; low prices beyond the budget stay unknown (no line) until a run reaches them.
+- **Archive and run rows (D18):** the answers (variables without the token + verbatim payload)
+  go to `archive/runs/<id>.json.gz` under their own `fetch_runs` row (source
+  `travelpayouts-graphql`, scope `enrich`, `n_requests` queries, `n_observations` rows returned,
+  `n_new` offers matched), so `latest_completed_run_id` (scope `full`) and "the run's prices"
+  are untouched. A failed query (a 429 after the retries, a GraphQL error, a transport error)
+  is listed in the run's error and the collection run goes on: enrichment never fails `run`
+  (`EnrichSummary.errors`, the step summary line "Enrichment: N GraphQL requests, M of K offers
+  matched"). A 429 or 5xx waits `X-Rate-Limit-Reset`, else `Retry-After`, else a minute, up to
+  `max_attempts` (3). Without the token the step is skipped with the reason.
+- **Contracts, additive within v1:** `contract/site/v1` offers gain `baggage` (boolean or null,
+  optional; `defs.schema.json#/$defs/baggage`) and `low-prices/<ORIGIN>.json` a 13th column
+  `baggage` (`cols` const, `minItems` 13; rows are read by position, so a trailing column is
+  additive); the committed fixtures were edited by hand with `null` everywhere (no run of the
+  enrichment on the fixture database). The review snapshot gains optional `gate`, `with_baggage`
+  and `baggage` (the pt-PT line). `site_data.PER_RUN` is unchanged: a baggage value that
+  appears is a change the site should show (full path), not bookkeeping.
+- **Where:** `collector/graphql.py` (`GraphQLClient`, `parse_response`, `Offer`, `match` →
+  `Match`), `pipeline.graphql_client` / `enrich_targets` / `run_enrich` / `enrich_offers`,
+  `escapadinha enrich [--run-id]`, `run` after `detect` and before `publish_due`, `Observation`'s
+  four fields, `db.set_enrichment`, `presentation.DealView.baggage_line` / `gate` and
+  `LowPriceView.baggage_line`, `captions._detail_lines` ("🧳 …"), `_ui.price_block` (`.pb-bag`)
+  and slide 2's "Bagagem" row, `site_data._offer` / `_low_row`, `web/src/lib/format.ts`
+  `baggageText`, `promotion.ts` / `low-prices.ts` views, `promos/[slug].astro` "Bagagem" row,
+  `review_snapshot`, `web.py` + `review.html.j2`, the Function's `page.ts` ("Bagagem", "Agência").
+  Tests: `tests/test_graphql.py` (the probe's real row shape, the limiter under 8 workers, 429),
+  `tests/test_enrich.py`, captions, site data, `web/test` (format, explorer rows, queue page).
+- **Not done here:** Miguel's check on a real promotion that the line matches what Aviasales
+  shows (the issue's "Ações do Miguel"); `direct=true` on the REST collector (#41) would make the
+  REST row the nonstop fare the page shows, which helps the match on routes with stops.

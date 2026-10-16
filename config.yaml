@@ -24,6 +24,9 @@ collector:
   booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
   requests_per_minute: 550    # client-side cap (API limit 600/min); a run is ~routes x months calls
   workers: 8                  # concurrent requests, under the same per-minute cap (~2 min per run)
+  graphql_requests_per_minute: 55   # GraphQL enrichment (D43): client-side cap, the API allows 60/min
+  enrich_per_run: 60          # GraphQL queries per run, one per trip (candidates first, then the
+                              # biggest low-price discounts; already matched offers are skipped); 0 = off
 
 # Two tiers (DECISIONS D24), both against the route's typical LOW for that departure month:
 # the median of daily lowest prices (day = when travellers found the price).

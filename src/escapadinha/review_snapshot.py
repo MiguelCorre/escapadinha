@@ -149,6 +149,9 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "direct": view.direct,
         "transfers": obs.transfers,              # the live check's stop limit (D29)
         "return_transfers": obs.return_transfers,
+        "gate": obs.gate,                        # GraphQL enrichment (D43): null = no match
+        "with_baggage": obs.with_baggage,
+        "baggage": view.baggage_line,
         "rule": deal.rule,
         "discount_pct": view.discount_pct,
         "typical_low_eur": deal.baseline_median,

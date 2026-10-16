@@ -13,6 +13,7 @@ import yaml
 
 from escapadinha import pipeline
 from escapadinha.affiliate import API_URL as LINKS_URL
+from escapadinha.collector.graphql import API_URL as GRAPHQL_URL
 from escapadinha.collector.travelpayouts import API_URL
 from escapadinha.config import Context
 from escapadinha.models import Observation
@@ -83,6 +84,8 @@ def mock_api():
         lis_lon = request.url.params["origin"] == "LIS" and request.url.params["destination"] == "LON"
         return httpx.Response(200, json=FIXTURE if lis_lon else EMPTY)
     respx.get(API_URL).mock(side_effect=respond)
+    # The GraphQL enrichment (D43) finds no row: fields stay unknown (test_enrich has the matches).
+    respx.post(GRAPHQL_URL).mock(return_value=httpx.Response(200, json={"data": {"prices_round_trip": []}}))
 
 
 def mock_links(ok=True):
@@ -253,7 +256,7 @@ def test_upgrade_from_real_old_schemas_gives_deals_the_baseline_columns(tmp_path
 
     conn = db.connect(path)
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 13
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 14
     fresh = db.connect(tmp_path / "fresh.db")
     db.init(fresh)
     assert _deal_columns(conn) == _deal_columns(fresh)
