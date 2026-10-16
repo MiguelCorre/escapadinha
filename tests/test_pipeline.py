@@ -20,7 +20,18 @@ from escapadinha.presentation import DISCLOSURE
 from escapadinha.storage import db
 
 REPO = Path(__file__).parent.parent
-FIXTURE = json.loads((REPO / "tests" / "fixtures" / "prices_for_dates_LIS_LON.json").read_text("utf-8"))
+
+
+def found_yesterday(text: str) -> dict:
+    """The synthetic LIS-LON offers as found yesterday (UTC). Detection and rechecks only take
+    prices found in the last `max_offer_age_days` (3), so the file's fixed found date
+    (12/10/2026) made every test that needs a fresh offer fail from 2026-10-16 on."""
+    day = (db.utcnow() - timedelta(days=1)).strftime("%d%m%Y")
+    return json.loads(text.replace("search_date=12102026", f"search_date={day}"))
+
+
+FIXTURE = found_yesterday((REPO / "tests" / "fixtures" / "prices_for_dates_LIS_LON.json")
+                          .read_text("utf-8"))
 EMPTY = {"success": True, "currency": "eur", "data": []}
 
 
