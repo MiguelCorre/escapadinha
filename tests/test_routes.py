@@ -131,12 +131,14 @@ def _seed_tyo(conn, *, days: int, price: float):
     now = db.utcnow()
     db.insert_observations(conn, run_id, [
         Observation(source="test", origin="LIS", destination="TYO", origin_airport="LIS",
-                    destination_airport="NRT", departure_date=date(2026, 11, 1) + timedelta(days=i),
-                    return_date=date(2026, 11, 11) + timedelta(days=i), price=price, currency="EUR",
-                    airline="TP", flight_number="1", transfers=1, return_transfers=1, deep_link=None,
+                    destination_airport="NRT",
+                    departure_date=date(2026, 11, 1) + timedelta(days=i + k),
+                    return_date=date(2026, 11, 11) + timedelta(days=i + k),
+                    price=price + 50 * k, currency="EUR", airline="TP", flight_number="1",
+                    transfers=1, return_transfers=1, deep_link=None,
                     fetched_at=now - timedelta(days=i + 4), raw_json="{}")
-        for i in range(days)])
-    db.finish_run(conn, run_id, status="ok", n_requests=0, n_observations=days, error=None)
+        for i in range(days) for k in (0, 1)])                    # 2 departure dates a day (D40)
+    db.finish_run(conn, run_id, status="ok", n_requests=0, n_observations=2 * days, error=None)
 
 
 @respx.mock
@@ -148,7 +150,7 @@ def test_long_haul_route_uses_its_kind_rules_end_to_end(ctx):
     assert (tyo.rules.direct_only, tyo.rules.max_transfers, tyo.rules.min_nights,
             tyo.rules.max_nights) == (False, 1, 7, 21)
 
-    _seed_tyo(conn, days=6, price=800)
+    _seed_tyo(conn, days=10, price=800)                    # mature for promotions (D40)
     payload = _tyo_payload((520, "2026-11-10", "2026-11-20", 1, 1),    # one stop each way: ok
                            (400, "2026-11-12", "2026-11-22", 2, 1),    # two stops out: never
                            (300, "2026-11-14", "2026-11-18", 0, 0))    # 4 nights: not collected
@@ -163,6 +165,29 @@ def test_long_haul_route_uses_its_kind_rules_end_to_end(ctx):
     assert tyo_result.status == "deals" and tyo_result.baseline.median == 800
     _, obs = db.get_deal(conn, tyo_result.deal_ids[0])
     assert obs.price == 520 and obs.transfers == 1      # the two-stop 400 € never qualifies
+
+
+@respx.mock
+def test_collect_asks_for_nonstop_fares_only_on_routes_that_take_nothing_else(ctx):
+    """D39: europe and domestic routes ask the cache with direct=true; a long-haul route,
+    which allows a stop, keeps today's call. Same number of requests."""
+    ctx = configure(ctx, long_haul=[{"destination": "TYO", "city_pt": "Tóquio", "origins": ["LIS"]}])
+    conn = pipeline.open_db(ctx)
+    api = respx.get(API_URL).mock(return_value=httpx.Response(200, json=EMPTY))
+    summary = pipeline.run_collect(ctx, conn)
+
+    asked = {}
+    for call in api.calls:
+        params = call.request.url.params
+        asked.setdefault(f"{params['origin']}-{params['destination']}", set()).add(
+            params.get("direct"))
+    assert summary.n_requests == len(api.calls) == 33          # 11 routes × 3 months
+    assert asked.pop("LIS-TYO") == {None}
+    assert sorted(asked) == sorted(SEEDED) and all(v == {"true"} for v in asked.values())
+    # The run archive keeps how each price was asked.
+    from escapadinha import archive
+    responses = archive.read(ctx.object_store, summary.archive_key)["responses"]
+    assert {r["params"].get("direct") for r in responses if r["destination"] == "LON"} == {"true"}
 
 
 def test_routes_list_prints_kind_rules_status_and_last_observed(ctx, monkeypatch):
@@ -201,6 +226,7 @@ def test_collect_runs_requests_concurrently_and_stores_in_request_order(ctx):
     import time
 
     from escapadinha.collector.base import Fetched
+    from escapadinha.collector.plan import plan
     from escapadinha.collector.runner import collect
 
     class SlowSource:
@@ -210,7 +236,7 @@ def test_collect_runs_requests_concurrently_and_stores_in_request_order(ctx):
             self.active = self.peak = 0
             self.lock = threading.Lock()
 
-        def fetch(self, origin, destination, month, *, min_nights, max_nights):
+        def fetch(self, origin, destination, month, *, rules):
             with self.lock:
                 self.active += 1
                 self.peak = max(self.peak, self.active)
@@ -225,8 +251,8 @@ def test_collect_runs_requests_concurrently_and_stores_in_request_order(ctx):
     conn = pipeline.open_db(ctx)
     active = routes.active_routes(conn, ctx.config.routes)
     source = SlowSource()
-    summary = collect(conn, source, active, today=date(2026, 10, 13), months_ahead=3,
-                      store=ctx.object_store, workers=8)
+    asked = plan(active, today=date(2026, 10, 13), daily=True, months_ahead=3, daily_months_ahead=3)
+    summary = collect(conn, source, asked, store=ctx.object_store, workers=8)
     assert source.peak > 1 and summary.n_requests == 30 and summary.status == "partial"
     assert len(summary.errors) == 6 and all("PAR" in e for e in summary.errors)
     from escapadinha import archive

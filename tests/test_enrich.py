@@ -1,4 +1,4 @@
-"""GraphQL enrichment in the pipeline (D39): after collection and detection, the run's low
+"""GraphQL enrichment in the pipeline (D43): after collection and detection, the run's low
 prices and promotion candidates get baggage, agency and exact found time from the GraphQL rows
 matched to them, nothing else changes, and an offer without a match keeps its fields unknown.
 GraphQL mocked with respx, never a real call."""
@@ -197,16 +197,17 @@ def test_the_enrich_command_and_the_run_report_what_was_matched(ctx, monkeypatch
     assert "Enrichment: 1 GraphQL requests, 1 of 1 offers matched" in result.output
     report: list[str] = []
     db.set_meta(conn, pipeline.DISCOVERED_AT, db.utcnow().isoformat())   # no discovery this run
-    monkeypatch.setattr(cli, "_collect", lambda: type("S", (), {"status": "ok", "n_requests": 0,
-                                                              "n_observations": 0, "n_new": 0,
-                                                              "errors": []})())
+    from types import SimpleNamespace
+    monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
+        status="ok", n_requests=0, n_observations=0, n_new=0, errors=[],
+        plan=SimpleNamespace(describe=lambda: "routine")))
     monkeypatch.setattr(cli, "publish_due", lambda: None)
     monkeypatch.setattr(cli.run_path, "decide", lambda c, k, force=False: cli.run_path.PathDecision(False, "x"))
     cli._pipeline_steps(render=False, full=False, report=report)
     assert "Enrichment: nothing to ask (no new low prices or candidates)" in report
 
 
-# --- schema v13 -------------------------------------------------------------------------------
+# --- schema v14 -------------------------------------------------------------------------------
 
 def _observation_columns(conn) -> list[tuple]:
     return [tuple(r)[1:] for r in conn.execute("PRAGMA table_info(price_observations)")]
@@ -221,7 +222,7 @@ def test_upgrade_from_real_old_schemas_adds_the_enrichment_columns(ctx, fixture,
     old.commit()
     old.close()
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 13
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 14
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     assert _observation_columns(conn) == _observation_columns(fresh)
@@ -229,8 +230,8 @@ def test_upgrade_from_real_old_schemas_adds_the_enrichment_columns(ctx, fixture,
                                                                "gate", "found_at"]
 
 
-def test_upgrade_from_v12_keeps_observations_with_unknown_baggage(ctx):
-    """The real database is v12 (D38): its offers survive migration 13 with the four fields null."""
+def test_upgrade_from_v13_keeps_observations_with_unknown_baggage(ctx):
+    """The real database is v13 (D40): its offers survive migration 14 with the four fields null."""
     ctx.db_path.parent.mkdir(parents=True, exist_ok=True)
     old = sqlite3.connect(ctx.db_path)
     old.executescript((Path(__file__).parent / "fixtures" / "schema_v7.sql").read_text("utf-8"))
@@ -238,10 +239,10 @@ def test_upgrade_from_v12_keeps_observations_with_unknown_baggage(ctx):
     old.commit()
     old.close()
     conn = db.connect(ctx.db_path)
-    for version in (8, 9, 10, 11, 12):                  # what a v12 database went through
+    for version in (8, 9, 10, 11, 12, 13):              # what a v13 database went through
         for step in db.MIGRATIONS[version]:
             conn.execute(step)
-    conn.execute("PRAGMA user_version = 12")
+    conn.execute("PRAGMA user_version = 13")
     conn.execute("INSERT INTO fetch_runs (id, source, started_at, status) VALUES (3, 'travelpayouts', 'x', 'ok')")
     conn.execute("""INSERT INTO price_observations (id, run_id, last_run_id, source, origin, destination,
                     departure_date, return_date, nights, price, currency, airline, fetched_at,
@@ -250,7 +251,7 @@ def test_upgrade_from_v12_keeps_observations_with_unknown_baggage(ctx):
                     '2026-10-12T09:00:00+00:00', 'k')""")
     conn.commit()
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 14
     obs = db.get_observation(conn, 9)
     assert obs.price == 58 and (obs.with_baggage, obs.baggage_code, obs.gate, obs.found_at) == (None,) * 4
     db.set_enrichment(conn, 9, with_baggage=True, baggage_code="1PC20", gate="Trip.com",

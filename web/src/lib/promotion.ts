@@ -68,7 +68,7 @@ export interface PromotionView extends Place {
   nights: string;             // "2 noites"
   airline: string | null;
   stops: string | null;
-  baggage: string | null;     // "só bagagem de mão"; null when unknown (no line, D39)
+  baggage: string | null;     // "só bagagem de mão"; null when unknown (no line, D43)
   foundOn: string | null;     // "12/10/2026": when a traveller found the price
   checkedAt: string;          // ours: last recheck, else first fetch, Lisbon time ("verificado a")
   expiredReason: string | null;

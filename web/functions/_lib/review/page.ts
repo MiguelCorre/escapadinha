@@ -28,10 +28,21 @@ function slides(d: SnapshotDeal): string {
   return `<div class="slides">${items || `<p class="none">Sem slides (ainda não renderizado)</p>`}</div>`;
 }
 
+/** A price traced to its observation (D2). */
+const obsPrice = (id: number, amount: number) => `<span data-obs="${esc(id)}">${esc(eur(amount))}</span>`;
+
+/** The discount line (HTML): the typical low with its days in their window (first to last day)
+ * and its cheapest and dearest daily low (D40). Without a stored range (an older deal or
+ * snapshot) the days only, as the local page. */
 function dealLine(d: SnapshotDeal): string {
   if (d.rule === "median" && d.discount_pct) {
     const typical = d.typical_low_eur === null ? "" : ` ${eur(d.typical_low_eur)}`;
-    return `${discountPercent(d.discount_pct)} vs. mínimo habitual${typical} (${d.baseline_days} dias)`;
+    const b = d.baseline;
+    const lows = b
+      ? `${d.baseline_days} dias em ${b.span_days + 1}, de ${obsPrice(b.lowest_observation_id, b.lowest_eur)}`
+        + ` a ${obsPrice(b.highest_observation_id, b.highest_eur)}`
+      : `${d.baseline_days} dias`;
+    return `${esc(discountPercent(d.discount_pct))} vs. mínimo habitual${esc(typical)} (${lows})`;
   }
   return d.rule === "price_cap" ? "abaixo do teto de preço da rota" : "";
 }
@@ -103,7 +114,7 @@ function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number): st
       ${row("Chegada", esc(d.arrival_airport))}
       ${row("Bagagem", esc(d.baggage ?? ""))}
       ${row("Agência", esc(d.gate ?? ""))}
-      ${row("Desconto", esc(dealLine(d)))}
+      ${row("Desconto", dealLine(d))}
       ${row("Preço visto", esc([d.found_on && `encontrado a ${d.found_on}`, `verificado a ${d.checked_at}`].filter(Boolean).join(" · ")))}
       ${row("Última verificação", esc(lastCheck))}
       ${row("Link", affiliate)}

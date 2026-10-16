@@ -137,7 +137,7 @@ describe("resultsHtml", () => {
     expect(direct.textContent).toContain("Ryanair · voos diretos");
   });
 
-  it("prints the baggage line only for rows whose offer was matched (D39)", () => {
+  it("prints the baggage line only for rows whose offer was matched (D43)", () => {
     const withBag = row(8, "BCN", 30, "2026-11-27", "2026-11-29");   // BCN's cheapest now
     withBag[12] = true;
     const noBag = row(9, "PAR", 60, "2026-11-28", "2026-12-01");     // PAR's cheapest now

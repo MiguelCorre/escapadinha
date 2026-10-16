@@ -100,7 +100,7 @@ def nights(n: int) -> str:
     return count(n, "noite", "noites")
 
 
-# The baggage line (D39): printed only when the GraphQL match said so; unknown prints nothing.
+# The baggage line (D43): printed only when the GraphQL match said so; unknown prints nothing.
 BAGGAGE = {True: "com mala de porão incluída", False: "só bagagem de mão"}
 
 

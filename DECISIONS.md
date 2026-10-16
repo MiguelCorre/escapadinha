@@ -34,7 +34,8 @@ repeats the trace.
 - Candidates are days inside `max_offer_age_days`, and the baseline uses only older days,
   so a candidate never lowers its own baseline.
 - The baseline is "insufficient" below `min_baseline_days`. During that time only an
-  explicit per-route `price_cap_eur` can flag a deal.
+  explicit per-route `price_cap_eur` can flag a deal. (Since D40 promotions need their own,
+  stricter maturity, and only days with two departure dates count.)
 - Known bias: the cache keeps fewer old prices, so early baselines are a little noisy. Our
   own runs fill this in over time.
 
@@ -455,7 +456,8 @@ so nothing has to be hosted.
   queue. The spec (#1, stories 17–22) splits a run's output in two, both measured against the
   same typical low (D3, unchanged).
 - **Low prices** (`detector.low_prices`): fresh offers within the route's rules at least
-  `low_threshold` (0.15) below a **mature** typical low (≥ `min_baseline_days`), one per trip
+  `low_threshold` (0.15) below a **mature** typical low (≥ `min_baseline_days`; since D40, 7 daily
+  lows from days with two departure dates, and promotion candidates need 10 spanning 9), one per trip
   dates (the cheapest), biggest discount first. No price-cap path: without a typical low there is
   nothing to be "low" against, and they go out without review. Offers that already are deals still
   count (a low price is not a post).
@@ -579,6 +581,12 @@ so nothing has to be hosted.
 - **Miguel's steps:** add the nine Actions secrets; run the workflow once by hand
   (`gh workflow run pipeline.yml -f full=true`) and check its summary and *Usage* (fast path
   target ≤ 2 min); after a clean week, unregister the PC task.
+- **Note (2026-10-15, D41):** the cron above turned out best effort (9 scheduled runs came
+  4.4–6.8 h apart); the 2-hourly runs had come from the PC task, retired that day. `pipeline.yml`
+  no longer has a `schedule`: a Cloudflare Worker dispatches it every 2 h, and a separate
+  `pipeline-fallback.yml` (GitHub's cron, every 6 h) dispatches it only when no run started for
+  3 h. The minutes budget above (~720/month) assumed ~2 billed minutes a run; jobs bill whole
+  minutes and a run bills ~3.2, see D41.
 
 ## D26: Review decisions as events, applied by the pipeline; review snapshot (2026-10-13, #8)
 - **Why:** with the database in R2 (D21) a decision written into a local copy is lost or collides
@@ -701,7 +709,8 @@ so nothing has to be hosted.
   arrival airport is always present (D11).
 - **Plain average:** `routes[].months[].average` = mean of the same daily lows as the typical low
   (`Baseline.mean`), context only (story 19). Typical low and average are `null` while a month has
-  fewer than `min_baseline_days` days, so the site says "ainda sem dados" instead of a number.
+  fewer than `min_baseline_days` days (counted as D40 says), so the site says "ainda sem dados"
+  instead of a number.
   Route `cheapest` = cheapest offer within the rules in the latest run, found within the freshness
   window (origin pages' "a partir de"). A route-page price calendar was left out of v1 (see open
   questions); it can be added as an optional field or file.
@@ -2051,14 +2060,381 @@ so nothing has to be hosted.
 - **Not done here:** the first real message, which needs Miguel's bot and channel
   (`docs/runbooks/telegram.md` §5); the issue stays open until he confirms it.
 
-## D39: Baggage and agency from the Aviasales GraphQL API (2026-10-16, #46)
+## D39: Nonstop fares from the cache on nonstop-only routes (2026-10-15, #41)
+- **The change:** a route that takes only nonstop flights both ways asks
+  `aviasales/v3/prices_for_dates` with `direct=true`; any other route keeps the plain call. Same
+  request count per run (1080 today). Recommendation 1 of
+  `docs/research/2026-10-15-data-reliability.md`.
+- **Why:** the cache returns one offer per (departure, return) pair, the cheapest. When that offer
+  has a stop, the pair's nonstop fare never reaches us, and a nonstop-only route throws the offer
+  away. 57 % of the rows stored on these routes (2165 of 3790) were discarded for a stop. In one
+  call, LIS-PAR December went from 8 to 21 nonstop trips over the same 26 pairs (the nonstop
+  fare 3–45 € dearer than the one with a stop). LIS-ROM December gave 13 nonstop trips, 10 of
+  them not in the database. The evidence rests on two route-months; the first run with the
+  change gives the real number.
+- **Which routes:** `RouteRules.nonstop_only` = `direct_only` **or** `max_transfers == 0`. Both
+  discard every offer with a stop (`RouteRules.allows`), and `pt.stops_rule` already reads them
+  as "só diretos". The issue says "direct_only"; a route overridden to `max_transfers: 0` is the
+  same case, so it asks the same way. Today that is every `europe` and `domestic` route (320 of
+  360); `long_haul` (`max_transfers: 1`) keeps `direct=false` by omission (today's call).
+- **One query, from the rules:** `collector.travelpayouts.request_params(origin, destination,
+  month, rules, …)` builds it, and the rules are passed in, never a global (like the detector).
+  `PriceSource.fetch` takes the route's `rules=` in place of `min_nights`/`max_nights`, so the
+  collection (`runner.collect`), `pipeline.price_now` / `live_check` and the review snapshot's
+  `live_check.query` all ask the same. That is what stops the false expiries: the recheck reads
+  the run's prices, and a deal's nonstop fare no longer drops out of them as soon as a cheaper
+  fare with a stop appears for those dates ("a viagem já não aparece …"). If the live check kept
+  the plain call, it would refuse approvals the recheck accepts.
+- **The review Function (D26, D29)** sends the snapshot's query as is, so it gets `direct=true`
+  with no code change. Contract v1 stays: `live_check.query` already allowed extra string or
+  integer values, and `direct` is the string `"true"` (like `one_way: "false"`; a JSON boolean
+  would break the schema). Only the schema's description changed.
+  `contract/review/v1/fixtures/live-check-cases.json` gained `queries`: route rules → the exact
+  query. `tests/test_live_check_cases.py` checks `request_params` against it, and
+  `web/test/review/live-check.test.ts` checks that `liveCheck` sends exactly that on the wire.
+  `tests/test_review_events.py` checks that the collection's request, the approval's live
+  check and the snapshot query are one query.
+- **Observation model unchanged:** the `direct=true` items have the same shape (link with
+  `search_date`, airline, flight number, airports, stop counts), `parse_response` is untouched,
+  and every row still comes from a payload. The flag is not trusted: `RouteRules.allows` still
+  drops any item with a stop. The run archive keeps each request's `params`, so a run says
+  which way it asked; older runs lack `direct`.
+- **Expected effects:** 2–3× the usable rows on direct-only routes, and the first run backfills
+  about 7 found days on busy route-months. A daily low is the minimum over more nonstop rows, so
+  a typical low can only fall or stay: discounts get smaller, never inflated. Stored rows with a
+  stop stay in the database (never deleted, never usable on these routes).
+- **Rejected:** both calls per route-month (doubles requests for rows we discard); a separate
+  `direct` field in the snapshot (the query already carries it, and the Function must not
+  rebuild the query); changing only the collection (the live check would disagree with the
+  recheck).
+
+## D40: Promotions wait for a mature typical low; the reviewer sees the baseline (2026-10-15, #42)
+- **Why:** the data-reliability research (`docs/research/2026-10-15-data-reliability.md`,
+  recommendations 2 and 3). With 4–6-day baselines, 7 of the first 11 deals were not 30 % below
+  the typical low once more days were known, and every discount fell (by 7 points in the
+  median): the selection effect of small samples, where a deal fires when a thin baseline
+  happens to be high. 45 % of baseline days saw a single departure date, and those days are a
+  high outlier (above 1.25× the month's median) 24 % of the time, against 8 %.
+- **Rules** (config `detector`, `DetectorConfig`, passed into the pure detector like the rest):
+  - **A daily low counts** only if that day's usable offers for the route-month (within the
+    route's rules) have at least `min_dates_per_day` (2) different departure dates.
+  - **Low prices and every typical low the site shows** (route pages' months, the low-price rows'
+    `typical`, the explorer) need `min_baseline_days` (7, was 4) counted days: `is_mature`.
+  - **Promotion candidates** need `min_baseline_days_promo` (10) counted days whose first and last
+    are at least `min_baseline_span_days` (9) days apart: `is_mature_for_promotions`. Until then
+    only a route's `price_cap_eur` makes a candidate (D3, unchanged); `detect` shows "warming up"
+    with days/10 and the span.
+  - Unchanged: `threshold` 0.30, `min_saving_eur` 15, `low_threshold` 0.15, the median, the
+    90-day lookback, the freshness window. `min_baseline_days_promo ≥ min_baseline_days` is
+    enforced, so the tiers still nest (every candidate is also a low price).
+  - **The span is a guard, redundant at the defaults:** 10 different days always span at least 9.
+    It stays a setting of its own (the research's weekday/weekend cycle) so lowering the day count
+    can't drop it. No minimum of observations (two dates a day already means two rows a day) and
+    no outlier trimming (the median resists one bad day, the dates rule removes most of them).
+- **Replay** (read-only copy of `data/escapadinha.db`: `mode=ro`, copied into memory, migrated
+  there; runs 19–57 as in the research, offers present at run r = rows with
+  `run_id ≤ r ≤ last_run_id`; the script and its output are in the PR):
+
+  | Rule | Candidates, runs 19–57 | Low prices at run 57 | Route-months mature for promotions |
+  |---|---|---|---|
+  | Before (4 days, every day counts) | 8 (3 hold ≥ 30 % against today's median, 7 ≥ 20 %) | 32 on 10 routes | 30 |
+  | 7 days, every day counts | 0 | 5 on 2 routes (LIS-BCN, OPO-PAR) | 4 |
+  | **D40** (2 dates a day; 7 / 10 spanning 9) | **0** | **0** | **0** (7 have ≥ 5 counted days) |
+
+  The "before" rows reproduce the research (276 route-months with usable rows, 217 with a
+  baseline day, 30 / 15 / 4 at ≥ 4 / 5 / 7 days; one-date days 161 of 356). Up to run 58, the same.
+- **Cost (agreed in #42):** no promotions and, today, no low prices either (the research's "5 on
+  2 routes" was the 7-day rule without the dates filter). Route pages say "ainda sem dados
+  suficientes" until a month has 7 counted days. Busy route-months should qualify from about
+  20–25 October, sooner with the nonstop fares of #41. The 6 deals waiting for review were
+  detected under the old rules; the queue's re-evaluation (below) expires them (replayed on run 58).
+  **Known temporary effect (review of M1, 2026-10-16):** a ponte page (D31) is `noindex`, and so
+  out of the sitemap (D34), while it lists no low price; with none anywhere, every upcoming ponte
+  page leaves the index until its origin's route-months mature, then comes back on the next full
+  path. Left as is: an indexed page that says "no prices" is the thin page D31 keeps out of
+  search, and the sitemap is generated from the built pages, so nothing else needs undoing.
+- **The queue against today's typical low (review of M1, 2026-10-16).** A deal waiting for review
+  (`new`, `rendered`: `db.AWAITING_REVIEW`) stores the typical low it was detected on, and the
+  site and the captions show that `baseline_median` once it is approved. The 6 deals in the queue
+  were detected on 4–6-day typical lows, so approving one would publish an immature "habitual".
+  So every run, right after detection, `pipeline.run_reevaluate` judges each of them again with
+  the detector's own rule against its month's **current** typical low and the route's current
+  rules (`recheck.promotion_expiry`, pure: `detector.evaluate` on the deal's price, the
+  baselines passed in): a typical low mature for promotions, `threshold` and `min_saving_eur`
+  below it; the route's `price_cap_eur` keeps only the deals it made (rule `price_cap`), and only
+  while the month is not mature. A deal that would not be detected now **expires**, like a
+  recheck's expiry (pipeline-owned, D26: never an approve or reject event; the recheck's time and
+  price stay; `EXPIRADO.txt` in a rendered folder), with a pt-PT reason: "preço habitual ainda
+  sem dados suficientes (5 de 10 dias)" or "já não é promoção face ao preço habitual atual
+  (101 €): 80 € fica 21% abaixo; são precisos 30% e 15 €". **Approved deals are untouched**: a
+  human approved them on the figures the review showed, and the price recheck still judges them.
+  - **Replay** (read-only copy of `data/escapadinha.db`, `mode=ro`, copied into memory and
+    migrated there; latest run 58): all 6 expire with "preço habitual ainda sem dados
+    suficientes": deals 4 (LIS-BCN, 6 of 10 days), 5 and 7 (LIS-FNC, 5), 9 (OPO-FNC, 0: none of
+    its days saw two departure dates), 10 (LIS-ROM, 2) and 11 (LIS-BER, 3). Their current typical
+    lows are lower than the stored ones (LIS-BCN 64.5 € vs 76 €, LIS-FNC 69 € vs 102 €, LIS-BER
+    113 € vs 134 €): against them only deal 10 (90 € vs 156.5 €, 2 days) would still be 30 % off.
+  - **Known effects:** an expired deal's observation stays a deal (`deal_observation_ids`), so
+    the same offer is never proposed again even once its month matures; a new price for the same
+    trip still can be. A deal that survives keeps the figures it was detected with (the typical
+    low it was judged against, as above); a deal detected before D40 survives only once its
+    month is mature and it still passes against the new typical low, which the replay says none
+    of today's 6 would do soon (only deal 10 is 30 % below, on 2 days, departing 27 October).
+  - Rejected: refreshing the stored typical low of the survivors on every run (the rendered slides
+    and caption would disagree with the database, and the reviewer's figures would move under
+    them); judging approved deals too (that would overrule a human decision on data the human
+    saw).
+- **The reviewer sees the baseline:** "−39% vs. mínimo habitual 99 € (10 dias em 12, de 54 € a
+  110 €)": 10 daily lows over a 12-day window (span + 1), the cheapest and the dearest of them.
+  At detection a deal stores `baseline_span_days` and the observation ids of those two daily lows
+  (`baseline_lowest_obs_id`, `baseline_highest_obs_id`; schema v13: `SCHEMA_VERSION` 13,
+  `schema.sql`, migration 13 = three `ALTER TABLE deals ADD COLUMN`, tested through every
+  migration from v1, and from the real old schemas `tests/fixtures/schema_v5.sql` and
+  `schema_v7.sql` with a deal row, against a fresh install: column types, defaults and foreign
+  keys of `deals`, the old deal kept with NULLs). Ids, not prices: the prices are read from those
+  observations (`pipeline.baseline_range`), so they trace to `price_observations.id` (D2).
+  Deals detected before keep NULLs: no range was stored, and recomputing one would mix in later
+  days. Rejected: computing the range when the snapshot is made (it would drift from the typical
+  low the deal was judged against).
+- **Review snapshot (contract v1) and both review pages:** each deal gets `baseline: {span_days,
+  lowest_eur, lowest_observation_id, highest_eur, highest_observation_id}` or null.
+  **Versioning:** the contract's shapes change only with a new version; this is an optional
+  field, added within v1 like D29's `transfers`, because no reader can break. Strictly, the deal
+  object has `additionalProperties: false`, so a new snapshot **fails the pre-D40 schema**: v1
+  can take the field only because the Function doesn't validate the snapshot at run time (an
+  older Function ignores the key) and a newer Function reading an older snapshot (key absent)
+  shows the days only, as for null. Review of M1 (2026-10-16): kept as the minimal honest option
+  (a v2 would need a second snapshot or a lock-step deploy for no gain), with the condition made
+  explicit in CLAUDE.md and held by a test (`web/test/review/page.test.ts`: a snapshot with keys
+  the schema refuses still renders and still takes a decision). A reader that validates the
+  snapshot would need a v2. Events are unchanged. New check:
+  `tests/test_review_events.py::untraced_prices` traces every price of a snapshot (the deal's
+  observation, its stored typical low, the recheck price backed by a stored observation, the
+  baseline's two observations), and `SNAPSHOT_PRICES` fails on a new `*_eur` field in the schema
+  until it is taught there. On both pages each extreme price sits in a `<span data-obs="<id>">`
+  inside the card (`data-deal`; the local page's card gained it). Tests:
+  `web/test/review/page.test.ts` (with the field, null, and absent; snapshots validated with ajv)
+  and, for the local page drawn by its script, a browser test in `tests/test_review.py`.
+- **Site contract v1:** `meta.detector.min_dates_per_day` (optional, added within v1). The route
+  page explains "ainda sem dados suficientes" with it (`routes.typicalLowRule`: "…pelo menos 7
+  dias de dados num mês, contando só os dias com preços para 2 ou mais datas de partida…"; an
+  older export without it gets the old sentence). Typical lows follow the new maturity through
+  `detector.is_mature`; nothing new changes per run, and `config.yaml` is already code in
+  `run_path.fingerprint`, so the first run with these rules takes the full path and publishes
+  the emptier pages. **Committed fixtures not regenerated:** `export fixtures` on today's
+  database gives 0 low prices and almost no typical low, which would drop the low-price states
+  the web tests build from. They stay as exported at run 30 under the old rules (still valid:
+  the field is optional, and their meta without it is the pre-D40 case the site handles).
+  Regenerate them once baselines mature. **Review of M1 (2026-10-16):** without the field the
+  fixture build never drew the D40 sentence, so `fixtures/meta.json` `detector` got
+  `min_dates_per_day: 2` and `min_baseline_days: 7` **by hand** (additive, the values a
+  regeneration writes, as in D34 and D37); `web/test/route-pages.test.ts` checks the sentence
+  and "1 de 7 dias". The months inside are still the run-30 export, so a few typical lows rest
+  on 4–6 days under a meta that asks for 7 (test data, never deployed). The full regeneration
+  waits for mature baselines: #52, which also adds a check that every fixture typical low has
+  `min_baseline_days` days.
+- **Tests:** detector (the dates rule, 10 days, the span, 7 days for low prices and the price-cap
+  path, the extreme daily lows, the config's nesting); `run_detect` stores the range; the schema
+  upgrade; the snapshot, the local page's JSON and card, the Function's card; the export (6
+  counted days plus a one-date day: no typical low; 7: shown). Test histories now see two
+  departure dates a day (`seed_history`, `test_traceability.history`, …), like real data.
+
+## D41: A real 2-hourly schedule: a Cloudflare Worker dispatches the pipeline (2026-10-15, #43)
+- **Why:** GitHub's `schedule` is best effort. The cron `17 */2 * * *` fired 9 times on
+  10-14/15, 4.4–6.8 h apart (median 5.5 h; `docs/research/2026-10-15-data-reliability.md`,
+  recommendation 5). The 2-hourly runs in the database came from the PC's Windows task, retired
+  on 2026-10-15. The cadence stays 2 h: hourly would double the requests and the minutes for
+  about 1.2× the usable offers per hour.
+- **Trigger:** a Cloudflare Worker, `workers/scheduler/` (free plan). Its Cron Trigger
+  `17 */2 * * *` (UTC, the old cron's minute) calls `POST https://api.github.com/repos/
+  MiguelCorre/escapadinha/actions/workflows/pipeline.yml/dispatches` with `{"ref": "master",
+  "inputs": {"full": "false"}}`: the workflow's only input, a routine run (`run_path` still
+  decides fast or full, D25). Headers: `Authorization: Bearer <GITHUB_ACTIONS_TOKEN>`, `Accept:
+  application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`, `User-Agent:
+  pontonomada-scheduler`. Plain JavaScript (ES modules, `// @ts-check`), no npm dependency, no
+  build step. `wrangler.toml` holds the cron, the vars (`GITHUB_REPOSITORY`, `WORKFLOW`, `REF`,
+  `SKIP_IF_RUN_WITHIN_MINUTES`), `workers_dev = false` and `preview_urls = false` (no URL; there
+  is no fetch handler), and Workers Logs (`observability`) for each tick's one line. Rejected:
+  `repository_dispatch` (both of its types force the full path, D25); an external cron service
+  (another account, another place for the token).
+- **Token:** a fine-grained PAT for `MiguelCorre/escapadinha` only, with **Actions: Read and
+  write** (dispatch, and read the workflow and its runs). It is stored only as the Worker secret
+  `GITHUB_ACTIONS_TOKEN`: never a var, never in the repository, `.env` or the Actions secrets. It
+  goes only into the Authorization header, and every log line and error message passes through
+  `redact` (tested with the token echoed in GitHub's message, a network error's text and a run's
+  fields). It is separate from the review Function's `GITHUB_DISPATCH_TOKEN` (Contents: write,
+  for `repository_dispatch`, D29), so each token has only its own permission.
+- **One tick, two windows** (`src/schedule.js` `tick`; pure, with fetch, clock and log injected):
+  1. a workflow that isn't `active` (`gh workflow disable pipeline.yml`, the README's restore
+     procedure) → skip;
+  2. a `pipeline.yml` run **created** within the window, whatever its event, status or
+     conclusion → skip, naming that run;
+  3. otherwise → dispatch.
+
+  The two reads are advice: if GitHub can't answer them, the tick dispatches anyway. A double run
+  costs about 3 minutes, and the R2 lock and the `concurrency` group serialise it (D21, D25); a
+  missed run costs 2 h of data. A refused or unanswered dispatch is logged with GitHub's status
+  and message and throws, so Cloudflare records the invocation as failed.
+- **No close double runs, and no gap.** `pipeline.yml` loses its `schedule`. GitHub's cron moves
+  to a separate workflow, `pipeline-fallback.yml`, which only dispatches (with its own run's
+  `GITHUB_TOKEN`, `permissions: actions: write`; `workflow_dispatch` is one of the events that
+  token may start). So every run of `pipeline.yml` is a real run, which is what both windows
+  count. Rejected: a skip gate inside `pipeline.yml`. A gated scheduled run still shows up as a
+  successful run, so the Worker would count it and skip its own tick, which allows gaps of about
+  4 h.
+  - **Worker window: 45 min.** A run created in the last 45 min (a review decision's
+    `repository_dispatch`, a manual run, the fallback) serves the tick. The longest gap a skip can
+    leave is 45 + 120 = 165 min, below the 3 h warning, so a healthy schedule never warns. With
+    60 min (the issue's example) a skip could leave exactly 3 h, and a minute of jitter would
+    raise false warnings.
+  - **Fallback: cron `47 */6 * * *`, window 180 min.** It dispatches only when no run started
+    in the last 3 h, i.e. once the Worker has missed at least one tick; with a working Worker it
+    never does. When it does dispatch, **the job fails on purpose** ("The fallback had to dispatch
+    the pipeline, so the Cloudflare Worker missed its runs …"): GitHub e-mails a failed scheduled
+    run, and that is the only alert that reaches Miguel without anyone reading logs. Every 6 h,
+    not every 2 h: each check bills a minute, and a dead Worker is something to fix, not a mode
+    to run in (GitHub's 2-hourly cron gave ~5.5 h anyway). Same code as the Worker
+    (`src/fallback.js` → `tick`), Node 22, a sparse checkout of `workers/scheduler`. It also has
+    `workflow_dispatch`, to check it by hand (it then only dispatches after 3 h without a run).
+  - `tests/test_scheduler.py` keeps `Worker window + 120 min < RUN_GAP_WARNING ≤ fallback window`
+    and the fallback's `WORKFLOW`/`REF` equal to the Worker's vars.
+- **Visibility:** the Worker logs one line per tick: dispatched; skipped, with the run that served
+  the tick; or why it failed. The run log warns when the previous collection started more than
+  3 h before this run (`pipeline.late_run_warning`, `RUN_GAP_WARNING`; `fetch_runs`, scope
+  `full`, any status; a live check is not a run), before the collection, and the run's summary
+  repeats it: "Warning: the previous run (#57) started 5 h 07 min ago, more than 3 h: the
+  2-hourly schedule missed a run. Check the scheduler Worker (docs/runbooks/agendamento.md)." The
+  same 3 h as the review page's "A fila tem mais de 3 h" (D29).
+- **Deploy:** by hand from the PC, in `workers/scheduler`: `npx --yes wrangler@4.149.0 login`,
+  `deploy`, then `secret put GITHUB_ACTIONS_TOKEN` (runbook `docs/runbooks/agendamento.md`). The
+  version is the one pinned for the site (`site.wrangler_version`). Review of M1 (2026-10-16): that
+  config value is the only source; the version was written in five places (the Worker's
+  `package.json`, its `wrangler.toml` comments, CLAUDE.md, the README and the runbook), so
+  `tests/test_scheduler.py` now checks every `wrangler@<version>` in the tracked files, and
+  `SiteConfig`'s default, against it; `wrangler.toml` and CLAUDE.md say `npm run deploy`, and the
+  README and the runbook keep the full commands Miguel copies. No CI job: the pipeline's `CLOUDFLARE_API_TOKEN` is "Cloudflare Pages: Edit"
+  only (D15), and a Worker deploy needs "Workers Scripts: Edit". Widening the token that every
+  run carries, for a Worker that almost never changes, is the wrong trade. `wrangler deploy
+  --dry-run` bundles it: 6 KiB, no `node:` import (checked 2026-10-15, nothing deployed).
+- **Tests:** `node --test` in `workers/scheduler`, 26 tests: the request (URL, body, headers),
+  the reads before it, the skip rules, a disabled workflow, failed reads, a refused or unanswered
+  dispatch, the token never in a log line or error, the Worker entry (the scheduled time as
+  `now`, a failure rejects), the fallback's exit codes. `uv run pytest` runs them too
+  (`test_scheduler.py`, skipped without Node), next to the config checks above and the warning's
+  tests (`test_scheduler.py`, `test_actions.py` through `run`).
+- **Actions minutes** (private repo, GitHub Free: 2000 Linux min/month; **each job is rounded up
+  to the whole minute**). Measured with `gh run list` and the jobs API over 10-13..15:
+  - **Pipeline:** 19 runs, 1.7–6.2 min of wall time (median 2.3), billed 2–7 min, **3.2 on
+    average**, each asking 1,080 route-months. 12 such runs a day would be 12 × 3.2 × 30 ≈ 1150.
+    With D42 (review of M1, 2026-10-16) a day has **one pass** of 2,160 requests (+2 min at the
+    550/min cap: ~4.3 min of wall time, **~5 billed**) and **11 regular runs** of 717 (−0.7 min,
+    about a third shorter: **~2.2 billed**, most under 2 min of wall time): 5 + 11 × 2.2 ≈ 29 a
+    day ≈ **880**, plus about one review-triggered run a day (a full path, ≈ 100): **~1,000**.
+  - **Fallback:** ≤ 4 checks a day × 1 min ≈ **≤ 120**. GitHub ran about 5 of the 12 daily
+    2-hourly crons, so probably ~60.
+  - **Crawl** (`crawl.yml`, daily during the cutover week, deleted in #23 phase 2): 3 min a day,
+    ~90 while it lasts.
+  - **Web CI** (pull requests touching `web/`, Lighthouse included): **7–10 min a run**. There were
+    11 runs in the last two days (76 min), which is ~1100 a month at this development pace and
+    ~270 at one a day.
+  - **Total ≈ 1,200 + Web CI: within 2000 only while Web CI stays under ~800 a month** (about
+    three web PRs a day). The 5.5-hourly cron used ~400 a month for the pipeline; a real 2 h with
+    the daily pass is about 2.5 times that. Past the allowance, GitHub Free without a payment
+    method (or with the default $0 budget) **stops Actions in private repositories until the
+    month ends, and the pipeline with it**. Knobs, cheapest first:
+    1. keep the regular runs under 2 min of wall time (each one over bills 3 instead of 2; D42's
+       717 requests bring most of them there);
+    2. drop the ticks at 02:17 and 04:17 UTC (`17 0,6-22/2 * * *`; nights are quiet, research §4),
+       −130;
+    3. Lighthouse in Web CI only when pages change;
+    4. a spending budget or GitHub Pro (3000).
+
+    None is applied here. Watch *Settings → Billing and licensing → Usage*.
+- **Miguel's steps** (`docs/runbooks/agendamento.md`): create the fine-grained token
+  (`escapadinha` only, Actions: Read and write), deploy the Worker, store the token as its
+  secret, then check two consecutive dispatched runs about 2 h apart
+  (`gh run list --workflow pipeline.yml --event workflow_dispatch`). #43 closes after that.
+
+## D42: Far months and never-seen routes once a day (2026-10-16, #44)
+- **The change:** a collection run is either **the day's pass** or a **regular run**. The day's
+  pass is the first run at or after `collector.daily_pass_hour` (6, Lisbon) of each Lisbon day,
+  or any run when no pass was ever recorded. It asks every active route for
+  `collector.daily_months_ahead` (6) departure months. A regular run asks only the routes that
+  have returned a price (`last_observed_at` set), for `months_ahead` (3) months. Recommendations
+  4 and 7 of `docs/research/2026-10-15-data-reliability.md`.
+- **Why the far months:** a typical low is per departure month and looks back 90 days. Without
+  months 4–6, Christmas/New Year, Carnaval (2027-02-09) and Easter (2027-03-28) start with about
+  7 days of history when they enter the 3-month window; with them, 30–45 days. Far months are
+  thin (LIS-BCN: 10 / 2 / 2 offers for Jan / Feb / Mar against 24 for November), and the cache
+  keeps a found day for about 7 days, so one pass a day misses only the offers replaced within
+  the same day.
+- **Why never-seen routes once a day:** 121 of the 360 active routes had never returned a price in
+  57 runs, 34 % of every run's requests, and dormancy waits 30 days (D23). Such a route is now
+  probed once a day until its first price, then asked on every run like any other.
+- **Requests per day** (12 runs, 360 active routes, 121 never seen): before, 360 × 3 × 12 =
+  **12,960**. After, the pass 360 × 6 = 2,160 plus 11 regular runs × 239 × 3 = 7,887: **10,047**
+  (−2,913, −22 %), plus one request per run for each open promotion in a far month. The schedule
+  is the Worker's 2 h (D41; GitHub's cron, which gave ~5 runs a day, only backs it up now).
+  Break-even is 4 runs a day (4,320 → 4,311), the fallback's cadence if the Worker is down;
+  below that the pass costs more than it saves. Once those 121 routes are dormant (30 days
+  after the 2026-10-13 discovery) the saving is gone and the far months cost their own 717
+  requests a day: 239 × 3 × 12 = 8,604 → 9,321 (+8 %), still under today's 12,960. The pass
+  makes twice today's requests per run (2,160, about 4 min under the 550/min cap); a regular run
+  a third fewer (717 instead of 1,080). In Actions minutes (D41): one pass of ~5 billed and 11
+  regular runs of ~2.2, ~1,000 a month with the review-triggered runs.
+- **One place decides:** `collector/plan.py` (pure): `daily_pass_due(last, now, hour)` (Lisbon
+  days through `i18n_pt.LISBON`, the clock passed in) and `plan(routes, today=, daily=, …)` →
+  `Plan` (tasks in request order, `waiting` never-seen routes, `n_far_deal_months`), and where
+  the far months start, `first_far_month` (month `months_ahead` + 1, also what
+  `pipeline.latest_offers` reads from the pass; one function since the review of M1).
+  `runner.collect` runs a `Plan`; `pipeline.run_collect(ctx, conn, now=)` builds it and records
+  the pass in meta `collector.daily_pass` = `{"day", "run"}` (CI keeps no files, D25), unless
+  every request failed, so the next run is the pass again. It works at any cadence (the Worker's
+  2 h, D41, or the fallback's 6 h while the Worker is down): "the first run after 06:00" happens
+  every day.
+- **Open promotions in a far month** are asked on every run (only their route-month), so the
+  recheck still judges every open promotion on every run against prices asked for its month
+  (D13). Without it a regular run would expire a far-month promotion for "a viagem já não
+  aparece" (the run has other prices for the route, not that month), and a due post needs a check
+  under `posting.max_check_age_hours` (D32).
+- **The site shows the newest prices of each route-month:** the latest run's, and for the months
+  after the regular window, the latest pass's or newer (`pipeline.latest_offers` →
+  `db.newest_observations`), for the calendar, the cheapest offer and the low prices in the export. The
+  rules (freshness, typical lows, tiers) are unchanged. Reading only the latest run would show
+  far months for one run a day and drop them at the next: two changes of the site data a day,
+  each a full path (D25) for nothing. Detection stays on the run's own offers (D18): far-month
+  candidates come from the pass, and the low-price link budget stays per run.
+- **Dormancy unchanged (D23):** 30 days without a price. A run only judges routes it asked for
+  (`routes.mark_dormant(spare=)`): a never-seen route that a discovery reactivates is probed by
+  the next daily pass, not put back to sleep by a run that skipped it.
+- **Run log:** `collect` and the Actions summary say which pass ran and its request count, e.g.
+  `daily pass: months 1–6 of 360 routes · 2160 requests` and `regular pass: months 1–3 of 239
+  routes + 1 far month of open promotions; 121 never-seen routes wait for the daily pass · 718
+  requests`.
+- **A missed pass warns (review of M1, 2026-10-16):** after the collection, the run log and the
+  Actions summary warn when the last recorded pass (meta `collector.daily_pass`, its run's
+  `started_at`) started more than 30 h before (`pipeline.missed_daily_pass_warning`,
+  `DAILY_PASS_WARNING`): "Warning: the last daily pass (#57, 2026-10-15) started 30 h 05 min ago,
+  more than 30 h: months 4–6 and the never-seen routes were not asked since. A pass where every
+  request failed is not recorded: check the runs after 06:00 Lisbon (D42)." Passes are about
+  24 h apart (26 h when the 06:00 run is late, 25 h across the autumn clock change), so 30 h
+  means a Lisbon day went by without one; checked after the collection, a run that is the pass
+  never warns. No recorded pass, no warning (the next run is the pass). Like D41's late-run
+  warning, it only shows in the log and the summary.
+- **Rejected:** months 4–6 on every run (+1,080 requests on each of 12 runs; Actions minutes near
+  the 2,000 free ones); a separate cron for the pass (GitHub's cron drifts by hours; the first
+  run after a Lisbon hour needs nothing new); rechecking far-month promotions only on the pass (a
+  due post would wait up to a day); a `fetch_runs` column for the pass (meta is the bookkeeping
+  place, and only the latest pass matters).
+
+## D43: Baggage and agency from the Aviasales GraphQL API (2026-10-16, #46)
 - **What:** after detection, every run asks the Aviasales GraphQL Flights Data API
   (`POST https://api.travelpayouts.com/graphql/v1/query`, header `X-Access-Token`, the same
   token, the same 7-day cache of searches as the REST prices, the Data API's terms, 60 requests
   a minute: `X-Rate-Limit: 60`) about its promotion candidates and low prices, one
   `prices_round_trip` query per (route, departure, return), and stores on the matched
-  observation (`price_observations`, schema v13: `SCHEMA_VERSION` 13, `schema.sql`, migration
-  13 = four nullable ALTERs, upgrade tested from the real v5/v7 schemas and from a v12 database
+  observation (`price_observations`, schema v14: `SCHEMA_VERSION` 14, `schema.sql`, migration
+  14 = four nullable ALTERs, upgrade tested from the real v5/v7 schemas and from a v13 database
   with an offer) `with_baggage`, `baggage_code` (`0PC` = no checked bag, `1PC20` = one 20 kg
   bag), `gate` (the selling agency) and `found_at` (the exact UTC time a traveller found the
   price; the REST link only gives the day). Captions, the WhatsApp text, the slides (price block

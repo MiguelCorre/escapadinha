@@ -41,7 +41,7 @@ export interface LowPriceView {
   nights: string;             // "3 noites"
   airline: string | null;     // "Ryanair"
   stops: string | null;       // "voos diretos", "1 escala"; null when unknown
-  baggage: string | null;     // "só bagagem de mão"; null when unknown (no line, D39)
+  baggage: string | null;     // "só bagagem de mão"; null when unknown (no line, D43)
   airport: string | null;     // "Beauvais (BVA)"
   remote: boolean;
   foundOn: string | null;     // the traveller's found date (found_date)

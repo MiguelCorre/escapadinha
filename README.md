@@ -21,7 +21,7 @@ row, its first run and the archive object: price → deal → observation → ru
 ```
 Travelpayouts catalogues ──routes discover──▶ routes table (monthly; dormant after 30 days without prices)
                                                    │ active routes
-Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 2 h)
+Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 2 h; months 4–6 once a day, D42)
                        └──────▶ data/objects/archive/runs/<run>.json.gz (raw responses)
                                    │
                                recheck  open deals: same trip still ≤ price, fresh, direct?
@@ -29,7 +29,9 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
                                 detect  two tiers vs the month's typical low (D24):
                                    │      low price  ≥15% below          → route pages (no review)
                                    │      candidate  ≥30% and ≥15 € below → a deal for review
-                                enrich  GraphQL API, same cache (D39): checked bag? which agency?
+                                   │    then the queue again (D40): still a candidate today?
+                                   │            no → status expired + EXPIRADO.txt
+                                enrich  GraphQL API, same cache (D43): checked bag? which agency?
                                    │      matched by the link's t= token; no match → unknown, no line
                                    ▼
                               deals (status: new)
@@ -40,7 +42,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 
 | Module | Role |
 |---|---|
-| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited), `runner.collect` (route × month loop), `catalogue.py` (discovery downloads), `graphql.py` (GraphQL `prices_round_trip` client + pure offer match, enrichment only, D39) |
+| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited; asked with the route's rules, `direct=true` on nonstop-only routes), `plan.py` (pure: which route-months a run asks for, the day's pass, D42), `runner.collect` (runs a plan), `catalogue.py` (discovery downloads), `graphql.py` (GraphQL `prices_round_trip` client + pure offer match, enrichment only, D43) |
 | `discovery.py` | Pure: catalogues + supplements → direct routes with kind and pt-PT name |
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups); `mirror.py` (photos and rendered slides in the store) |
@@ -86,10 +88,10 @@ traffic rules that **Instagram/social media** traffic is allowed before posting.
 uv run escapadinha routes discover         # find direct routes from the 6 airports (+ photos for new destinations)
 uv run escapadinha routes discover --dry-run --no-photos   # show what would change, store nothing
 uv run escapadinha routes list             # every route + active/dormant counts per origin (pt-PT)
-uv run escapadinha collect                 # active routes × 3 departure months (~1080 calls at 360 routes)
+uv run escapadinha collect                 # routes with prices × 3 departure months; the day's first run from 06:00 Lisbon: every active route × 6 (D42)
 uv run escapadinha recheck                 # re-verifies open deals against the latest run
-uv run escapadinha detect                  # latest run: low prices + promotion candidates per route
-uv run escapadinha enrich                  # latest run: baggage, selling agency and exact found time for its low prices and candidates (GraphQL, D39)
+uv run escapadinha detect                  # latest run: low prices + promotion candidates per route; expires queued deals that aren't candidates today (D40)
+uv run escapadinha enrich                  # latest run: baggage, selling agency and exact found time for its low prices and candidates (GraphQL, D43)
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
 uv run escapadinha photos fetch            # one Pixabay photo per destination (cached)
 uv run escapadinha photos fetch --dest LON --force --pick 2   # swap a photo you don't like
@@ -127,19 +129,47 @@ catalogue names (e.g. `HAM: Hamburgo`; the catalogue says "Finkenwerder").
 **Dormancy:** after each collection that didn't fail completely, an active route with no price
 seen for `dormant_after_days` (30; counted from its newest sighting, or from `discovered_at` if
 it never had one) becomes `adormecida` and is not collected. The next discovery that finds it
-again reactivates it; the following collection is its probe: with prices it stays, without it
-goes back to sleep. Nothing is deleted. Excluded routes are left alone.
+again reactivates it; the following collection that asks for it is its probe (for a route that
+never had a price, the next daily pass: a run that didn't ask for a route never puts it to
+sleep): with prices it stays, without it goes back to sleep. Nothing is deleted. Excluded routes
+are left alone.
 
 **Photos:** every destination of an active route gets a Pixabay photo automatically (query:
 `photos.queries` override, else the English city name), at most `photos.max_per_run` (40) per
 discovery or run, so ~160 destinations take four runs. Failures are retried next time.
 
-**Budget:** a run makes one request per active route and departure month. On 2026-10-13 that
-was 360 routes × 3 = 1080 requests in 5 min 40 s one at a time (≈190/min, latency-bound); with
+### What a run collects: the day's pass (DECISIONS D42)
+Every run asks the routes that have returned a price for the next 3 departure months
+(`collector.months_ahead`). Once a Lisbon day, the first run at or after 06:00 Lisbon
+(`collector.daily_pass_hour`; the very first run too, when no pass was ever recorded) is **the
+day's pass**: it asks every active route for 6 months (`collector.daily_months_ahead`):
+- **months 4–6** build typical lows months before departure (Christmas, Carnaval, Easter), so a
+  month enters the 3-month window with 30–45 days of history instead of ~7. The cache keeps a
+  found day for about 7 days, so once a day misses little;
+- **routes that never returned a price** (no `last_observed_at`; 121 of 360 on 2026-10-15) are
+  asked only by the pass, until their first price; then every run asks them.
+
+The far month of an open promotion is asked on every run, so its recheck never waits for the pass.
+The site shows each route-month's newest prices: for months 4–6, those of the latest pass (or
+newer), so a run between two passes changes nothing on the site. The pass is kept in the `meta`
+table (`collector.daily_pass`: Lisbon day and run id); a pass where every request failed doesn't
+count, and the next run tries again. `collect` and the Actions summary say which pass ran:
+`daily pass: months 1–6 of 360 routes · 2160 requests` or `regular pass: months 1–3 of 239
+routes; 121 never-seen routes wait for the daily pass · 717 requests`. When the last recorded
+pass started more than 30 h ago, `run` warns after the collection, in the log and the summary:
+`Warning: the last daily pass (#57, 2026-10-15) started 30 h 05 min ago, more than 30 h: …`.
+
+**Budget:** one request per asked route and departure month. On 2026-10-13 a run was 360
+routes × 3 = 1080 requests in 5 min 40 s one at a time (≈190/min, latency-bound); with
 `collector.workers: 8` in flight they take ~2 min, bound by the limit. The source allows 600/min;
 `collector.requests_per_minute: 550` caps it client-side and a 429 still waits and retries.
-At 12 runs/day that's ~13k requests/day and ~24 runner-minutes/day, ≈ 720 min/month of the 2000
-free ones (D24's Actions budget; see *Minutes used* below).
+Per day at 12 runs (D42): before the daily pass 360 × 3 × 12 = 12,960 requests; with it, one pass
+of 360 × 6 = 2,160 and 11 runs of 239 × 3 = 717: 10,047. It saves requests from 4 runs a day up
+(4,320 → 4,311 at 4, the fallback's cadence if the scheduler Worker is down, D41). Once the
+never-seen routes are dormant the far months cost about 717 requests a day of their own.
+Billed runner time is ~33 min/day (GitHub rounds each job up to the minute: the pass ~5, each
+regular run ~2.2, plus review-triggered runs), ≈ 1000 min/month of the 2000 free ones (D41; see
+*Minutes used* below).
 
 Output for review lives in `output/<YYYY-MM-DD>/`:
 - `deal-<ORIG>-<DEST>-<id>/slide_01.png … slide_03.png`: cover, details, CTA + disclosure
@@ -154,7 +184,9 @@ offers). An offer is identified by source, route, departure/return timestamps, a
 number, price and found date. A repeat updates `last_seen_at`, `last_run_id` and `seen_count`
 (once per run); `run_id` and `fetched_at` keep the first sighting. `collect` prints new vs.
 repeated offers, `stats` the seen counts. "The prices of the latest run" are the offers whose
-`last_run_id` is that run or later (a live check counts as a sighting).
+`last_run_id` is that run or later (a live check counts as a sighting). The site reads each
+route-month's newest prices: the latest run's, and for the months only the day's pass asks for,
+the latest pass's or later (`pipeline.latest_offers`, D42).
 
 Raw responses leave the database: each run (including live checks) writes
 `archive/runs/<run id>.json.gz` through the `ObjectStore` interface (`storage/objects.py`:
@@ -163,7 +195,7 @@ Upgrading from schema v6 collapses duplicates (rows with a deal keep their id), 
 `raw_json` values and archives them per run on the next command (`reconstructed: true`), then
 VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
 
-### Baggage and agency from the GraphQL API (DECISIONS D39)
+### Baggage and agency from the GraphQL API (DECISIONS D43)
 After detection, `enrich` (part of `run`, never fails it) asks the Aviasales GraphQL Flights Data
 API (`POST /graphql/v1/query`, same token, same 7-day cache as the REST prices, 60 requests a
 minute) about the run's promotion candidates and low prices: one `prices_round_trip` query per
@@ -174,7 +206,7 @@ the same search at the same agency price; the REST price is rounded to the euro 
 code can differ from `main_airline`, so the token is the reliable key; without a link the
 fallback is the airline, the local dates and a value that rounds to the price). The match fills
 `with_baggage`, `baggage_code` (`0PC` = no checked bag), `gate` (the selling agency) and
-`found_at` (exact UTC time a traveller found it) on `price_observations` (schema v13). Rows
+`found_at` (exact UTC time a traveller found it) on `price_observations` (schema v14). Rows
 that disagree leave a field unknown; no row leaves all four null and nothing is printed: the
 baggage line ("só bagagem de mão" / "com mala de porão incluída") appears in captions, the
 WhatsApp text, the slides, promotion pages and low-price rows only when known, the agency only
@@ -190,6 +222,11 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
     2–10 nights. `long_haul`: up to 1 stop each way, 7–21 nights. `direct_only` wins over
     `max_transfers` (stops per direction). Offers outside a route's rules are not collected
     (nights), are never deals and never count towards its typical low.
+  - A route that takes only nonstop flights both ways (`direct_only`, or `max_transfers: 0`)
+    asks the API for nonstop fares only (`direct=true`, DECISIONS D39). The cache keeps one
+    offer per date pair, the cheapest, so a cheaper fare with a stop would otherwise hide the
+    nonstop one (57 % of the rows on these routes were thrown away for a stop). Routes that
+    allow a stop keep the plain call; the request count is the same.
   - `overrides`: per-route exceptions, e.g. `"LIS-LON": { max_nights: 7 }`, plus an optional
     `price_cap_eur`. Removing an override restores the kind default on the next command.
   - `exclusions`: route keys (`LIS-LON`) or destinations (`LON`) that are never discovered nor
@@ -200,9 +237,11 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
     see "Routes are discovered".
   - `seed`: the 10 original routes (city codes like `LON`, `PAR` work), inserted once into an
     empty table. Changing it later has no effect; discovery adds the rest.
-- `collector`: `months_ahead` (3 = this month + 2), currency, `requests_per_minute` (550).
-  Nights come from each route's rules. GraphQL enrichment (D39): `graphql_requests_per_minute`
-  (55, the API allows 60) and `enrich_per_run` (60 queries a run, one per trip; 0 turns it off).
+- `collector`: `months_ahead` (3 = this month + 2, every run), `daily_months_ahead` (6, the
+  day's pass) and `daily_pass_hour` (6, Lisbon: the day's first run from then is the pass; D42),
+  currency, `requests_per_minute` (550). Nights come from each route's rules. GraphQL enrichment (D43):
+  `graphql_requests_per_minute` (55, the API allows 60) and `enrich_per_run` (60 queries a run, one per trip;
+  0 turns it off).
 - `photos`: `queries` (Pixabay search per destination code) and `max_per_run` (40).
 - `posting` (D32): `instagram_slots` (Lisbon time, default `09:00`, `13:00`, `19:00`),
   `max_per_day` (3 Instagram posts per Lisbon day), `max_check_age_hours` (6: a due post waits
@@ -225,7 +264,11 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
     `price ≤ typical_low × (1 − 0.30)` **and** `typical_low − price ≥ 15 €`.
   - `low_threshold: 0.15`: a low price needs `price ≤ typical_low × (1 − 0.15)` (must be ≤ `threshold`).
   - `lookback_days: 90` is how far back daily lows count.
-  - `min_baseline_days: 4` is how many days with a low are needed before a month's typical low is trusted.
+  - A month's typical low is **mature** (D40) after enough daily lows, counting only days that
+    saw `min_dates_per_day: 2` different departure dates (one-date days are three times as likely
+    to be high outliers): `min_baseline_days: 7` for low prices and the site's typical lows,
+    `min_baseline_days_promo: 10` spanning `min_baseline_span_days: 9` (first to last day) for
+    promotion candidates (`min_baseline_days_promo ≥ min_baseline_days` is enforced).
   - `max_offer_age_days: 3` defines the freshness window. Prices travellers found in the last
     3 days are candidates, and older days form the baseline.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
@@ -259,6 +302,21 @@ found within `max_offer_age_days`, and within the route's rules (nonstop where `
 at most `max_transfers` stops per direction, nights range). Otherwise it becomes
 `expired`, gets an `expired_reason`, and its output folder gets `EXPIRADO.txt` ("NÃO PUBLICAR").
 A route with no data in a run is skipped, so an API hiccup expires nothing.
+The collection, the live check and the review Function ask the same query
+(`collector.travelpayouts.request_params` from the route's rules, D39), so on a direct-only
+route a deal's nonstop fare no longer "disappears" when a cheaper fare with a stop shows up
+for the same dates.
+
+**Against today's typical low (D40).** After detection, every run also judges each deal still
+waiting for review (`new`, `rendered`) again, with the detector's own rule, against its month's
+current typical low and the route's current rules: a typical low mature for promotions, and the
+deal's price 30 % and 15 € below it (a `price_cap` deal: under its cap while the typical low is
+not mature). A deal that would not be detected now expires like the recheck's, with the reason:
+`preço habitual ainda sem dados suficientes (5 de 10 dias)` or `já não é promoção face ao preço
+habitual atual (101 €): 80 € fica 21% abaixo; são precisos 30% e 15 €`. Approved deals are left
+to the price recheck (a human approved them on the figures the review showed). The 6 deals
+waiting on 2026-10-16 were detected on 4–6-day typical lows; on the database of run 58 this rule
+expires all of them (none of their months had 10 counted days; D40 has the replay).
 
 ### What counts as a deal: two tiers (DECISIONS D24)
 Every price is measured against the route's **typical lowest price for the same departure
@@ -268,12 +326,23 @@ that day. Each run yields two outputs:
 - **Low prices** (*preços baixos*): fresh offers at least `low_threshold` (15 %) below the typical
   low, one per trip dates. Not reviewed: the route pages list the latest run's low prices
   automatically, each with its found date and its own tracked link. They need a mature
-  typical low (`min_baseline_days`); a `price_cap_eur` never makes a low price.
+  typical low (`min_baseline_days` daily lows); a `price_cap_eur` never makes a low price.
 - **Promotion candidates**: fresh offers at least `threshold` (30 %) **and** `min_saving_eur`
   (15 €) below the typical low, at most `max_deals_per_route` per route per run, not the same
   trip again within `dedupe_days` unless cheaper, never an offer that already is a deal. They
   become deals in status `new` for review. The 15 € floor keeps small-fare routes out of the
-  queue: on a 40 € route, 26 € is 35 % off but saves 14 €, so it is only a low price.
+  queue: on a 40 € route, 26 € is 35 % off but saves 14 €, so it is only a low price. They need
+  a typical low mature for promotions: `min_baseline_days_promo` (10) daily lows spanning
+  `min_baseline_span_days` (9) days.
+
+**A mature typical low (D40).** A day's low counts only when that day saw `min_dates_per_day`
+(2) different departure dates. With 4-day baselines 7 of the first 11 deals were not 30 % below
+once more days were known (research `docs/research/2026-10-15-data-reliability.md`). On the
+database of 2026-10-15 (runs 19–57) the old rules gave 8 candidates and 32 low prices on 10
+routes; these give none of either until the busiest route-months reach 10 counted days (from
+about 20–25 October). The reviewer sees each deal's baseline: "−39% vs. mínimo habitual 99 €
+(10 dias em 12, de 54 € a 110 €)", i.e. 10 daily lows over a 12-day window, the cheapest and
+dearest of them (each traced to its observation).
 
 `detect` prints both per route (column "Lows" and the deals created).
 
@@ -282,8 +351,9 @@ median of all fares, so that rule flags almost every route on every run. On the 
 it flagged 9 of 10 routes.
 
 The source cache records when each price was found and covers about a week, so baselines
-exist from the **first run**. Until a month has `min_baseline_days` daily lows, `detect` reports
-**warming up** and flags nothing. The one exception is a route with an explicit
+exist from the **first run**. Until a month's typical low is mature for promotions, `detect`
+reports **warming up** (column "Baseline": days counted / `min_baseline_days_promo`, and the
+span) and flags no promotion. The one exception is a route with an explicit
 `price_cap_eur` (`rule = price_cap`); the caption then makes no "% below" claim.
 
 Every deal names its arrival airport. Remote airports (for example Paris-**Beauvais**,
@@ -297,8 +367,9 @@ uv run escapadinha review            # opens http://127.0.0.1:8765 (local only; 
 
 The page (in Portuguese) has four tabs: **Por rever**, **Aprovados**, **Publicados** and **Fechados**
 (expired or rejected). Each deal shows its three slides, the caption with a copy button, the
-affiliate link, and the facts behind it: price, typical low, discount, arrival airport,
-found/checked dates and the last recheck.
+affiliate link, and the facts behind it: price, typical low (with its days, their window and the
+cheapest and dearest daily low, D40), discount, arrival airport, found/checked dates and the last
+recheck.
 
 - **Verificar preço agora** fetches that route and month from the API now and rechecks the deal
   (without R2 keys: stored as a `live_check` run, a moved price expires the deal; with R2 keys
@@ -477,7 +548,7 @@ disclosure), in the review snapshot (`whatsapp_text`) and on both review pages w
 The same queue, in Portuguese, served by a Cloudflare Pages Function from `review/snapshot.json`.
 Open **https://pontonomada.pt/review**, sign in with the e-mail code from Cloudflare Access (only
 Miguel's e-mail is allowed), and for each candidate you see the slides (swipe), price, dates,
-airline, the baggage line and the selling agency when the GraphQL match found them (D39),
+airline, the baggage line and the selling agency when the GraphQL match found them (D43),
 discount, found and verified times (Lisbon time), the affiliate link, the caption and
 the WhatsApp text (when the snapshot has it) with copy buttons.
 
@@ -945,24 +1016,25 @@ rules* → add rule, prefix `backups/`, *Delete objects* after **30 days**. Noth
 bucket expires.
 
 **Restore from a backup:**
-1. Stop the scheduled runs (`gh workflow disable pipeline.yml`, and on the PC
-   `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister`) and check
-   that `uv run escapadinha store status` shows `lock: free`.
+1. Stop the scheduled runs (`gh workflow disable pipeline.yml`: the scheduler Worker and its
+   fallback leave a disabled workflow alone, D41) and check that
+   `uv run escapadinha store status` shows `lock: free`.
 2. `uv run escapadinha store restore 2026-10-13` (dates are listed by `store status`). The current
    local file is kept as `data/escapadinha.db.local-<time>`.
 3. Check it (`uv run escapadinha stats LIS-LON`, `uv run escapadinha review`), then
    `uv run escapadinha store push`. It becomes the next generation; runs pull it from then on.
-4. Turn the schedule back on (`gh workflow enable pipeline.yml`; on the PC
-   `scripts\register-task.ps1`, see below).
+4. Turn the schedule back on (`gh workflow enable pipeline.yml`).
 
 Without the CLI: download `backups/<date>/escapadinha.db` from the R2 dashboard to
 `data/escapadinha.db`, then `uv run escapadinha store push --force`.
 
 ## GitHub Actions (DECISIONS D25)
 
-`.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours (cron `17 */2 * * *`, UTC)
-on `ubuntu-latest`: lock → pull the database from R2 → daily backup → (monthly discovery) →
-collect → recheck → detect → publish due posts (D32) → **full path only when needed** → push → unlock.
+`.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours, dispatched by the scheduler
+Worker (see *Schedule* below, D41), on `ubuntu-latest`: lock → pull the database from R2 → daily
+backup → (monthly discovery) → collect → recheck → detect (+ the queue against today's typical
+lows, D40) → publish due posts (D32) → **full path
+only when needed** → push → unlock.
 
 - **Fast path, full path.** After detection the run compares a fingerprint of what the public
   outputs show with the one stored at the last full path (from the export it deployed, not
@@ -1009,37 +1081,61 @@ collect → recheck → detect → publish due posts (D32) → **full path only 
   ```
   `repository_dispatch` events of type `review-decision` or `full-run` always take the full path.
 
+### Schedule (DECISIONS D41)
+
+GitHub's own cron is best effort (the 2-hourly one fired 4.4–6.8 h apart), so `pipeline.yml` has
+no `schedule`. Every routine run is a `workflow_dispatch` with `full: false`:
+- **The scheduler Worker** (`workers/scheduler/`, Cloudflare Workers free plan): a Cron Trigger
+  `17 */2 * * *` (UTC) dispatches `pipeline.yml` on `master`, unless a run of it was created in the
+  last 45 minutes (a review decision, a manual run, the fallback) or the workflow is disabled. One
+  line per tick in its Workers Logs: dispatched, skipped (and which run served the tick), or why
+  the dispatch failed. The token is the Worker secret `GITHUB_ACTIONS_TOKEN` (fine-grained,
+  this repository only, Actions: Read and write); it never reaches a log.
+- **The fallback** (`.github/workflows/pipeline-fallback.yml`): GitHub's cron every 6 h runs the
+  same tick with Node and its own `GITHUB_TOKEN`, and dispatches only when no run started in the
+  last 3 h, i.e. when the Worker missed its runs. Then the job fails on purpose, so GitHub e-mails
+  you. With a working Worker it never dispatches (a skipped tick leaves at most 2 h 45 min).
+- **The run log** warns when the previous collection started more than 3 h before this run:
+  `Warning: the previous run (#57) started 5 h 07 min ago, more than 3 h: the 2-hourly schedule
+  missed a run. …` (also in the run's summary). It also warns when the last daily pass is more
+  than 30 h old (D42, see *What a run collects*).
+- **Pause everything:** `gh workflow disable pipeline.yml` (the Worker and the fallback skip a
+  disabled workflow); `gh workflow enable pipeline.yml` to resume.
+- **Deploy (by hand, rarely):** from `workers/scheduler`, `npx --yes wrangler@4.149.0 login`, then
+  `npx --yes wrangler@4.149.0 deploy`, and once `npx --yes wrangler@4.149.0 secret put
+  GITHUB_ACTIONS_TOKEN`. The pipeline's Cloudflare token can only deploy Pages, so there is no CI
+  job for it. Step by step, with the token and the check: **[docs/runbooks/agendamento.md](docs/runbooks/agendamento.md)**.
+- **Tests:** `node --test` in `workers/scheduler` (no dependencies; `uv run pytest` runs it too).
+
 **Minutes used.** A private repo on GitHub Free gets 2000 Linux minutes a month (public repos are
-not metered). Budget: 12 runs a day × ~2 min ≈ 720 min/month, plus a minute or two for each full
-path (npm ci from the cache, the Astro build, the deploy; Chromium's system libraries when it
-renders). Since the cutover about half the runs take the full path, because the site shows every
-route's cheapest current price (D35).
+not metered), and **GitHub rounds each job up to the whole minute**. Measured on 10-13..15,
+before the daily pass (1,080 requests a run): a pipeline run took 1.7–3.4 min of wall time and
+billed 2–4 minutes (one took 6.2 and billed 7), 3.2 on average. With D42 a day has one pass of
+2,160 requests (~4 min of them, ~5 billed) and 11 regular runs of 717 (about a third shorter,
+~2.2 billed), so the pipeline uses ≈ **1000 min/month** with about one review-triggered run a
+day, plus the fallback's checks (≤ 4 a day, 1 min each) and the daily crawl while it lasts; the
+Web CI on pull requests bills 7–10 min a run. That fits only while Web CI stays under ~800 a
+month. Out of minutes, GitHub stops Actions in a private repo until the month ends, and the
+pipeline with it: D41 lists the knobs.
 - One run: *Actions* → the run → *Usage* (under *Run details*) shows its billable time; the
   summary shows our own `Duration`.
 - The month: your account → *Settings* → *Billing and licensing* → *Usage*, filtered on Actions.
 - `gh run list --workflow pipeline.yml --limit 12` lists the last day's runs with their elapsed time.
 
-**PC fallback.** The Windows scheduled task (below) keeps running until the Actions pipeline has
-had a clean week (spec #1). Both take the same R2 lock, so they never overlap; meanwhile prices
-are simply collected more often. After that week, on the PC:
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister
-# the same, directly:
-Unregister-ScheduledTask -TaskName "Escapadinha collect" -Confirm:$false
-# or from cmd.exe:
-schtasks /Delete /TN "Escapadinha collect" /F
-```
-`Get-ScheduledTask -TaskName "Escapadinha collect"` then reports that no such task exists.
+**PC task: retired.** The Windows scheduled task was retired on 2026-10-15 (#43). The script
+below stays for emergencies (it takes the same R2 lock, so it never overlaps a run on Actions);
+`Get-ScheduledTask -TaskName "Escapadinha collect"` reports that no such task exists.
 
-## Scheduling on the PC (Windows Task Scheduler, fallback)
+## Scheduling on the PC (Windows Task Scheduler, retired)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1                # every 2 h, all day
 powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -EveryHours 1
 powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1 -Unregister
 ```
-Each run takes about 2 minutes (8 requests at a time, D24) and makes one API call per active
-route and month (1080 at 360 routes; plus ~25 once a month for discovery). Runs missed while the
+Each run takes about 2 minutes (8 requests at a time, D24; the day's pass about 4) and makes one
+API call per asked route and month (D42, at 360 routes: 2,160 on the day's pass, ~717 on the
+others; plus ~25 once a month for discovery). Runs missed while the
 PC sleeps start when it wakes. Output is appended to `logs/run-<date>.log`, ending with
 `---- exit N ----`.
 
@@ -1086,13 +1182,17 @@ uv run pytest -m "not browser"
   it is byte-for-byte the PC's site (npm faked: `test_web_build.FakeNpm` writes a page per
   contract path); `test_workflow.py` checks the workflow file (triggers,
   concurrency, timeout below the lock TTL, secrets never printed).
+- `test_scheduler.py` (D41): the scheduler Worker's `wrangler.toml` against the workflows it
+  dispatches, the fallback workflow, the skip windows against the run log's 3 h warning, and
+  the warning itself; it also runs the Worker's own `node --test` (skipped without Node): the
+  dispatch request, the skip rules and the token never logged, on a fake GitHub.
 - `fixtures/discovery/` holds real catalogue and supplement payloads recorded on 2026-10-13,
   trimmed to the rows the tests need (`RECORDED.txt` lists the URLs and what was kept).
 - `fixtures/schema_v5.sql` and `schema_v7.sql` are older schemas, to test the upgrades.
-- `test_graphql.py` (D39): the GraphQL client (token, trip window, a 429 waits, the 60/min limiter
+- `test_graphql.py` (D43): the GraphQL client (token, trip window, a 429 waits, the 60/min limiter
   under 8 workers) and the pure offer match on the probe's real row shape; `test_enrich.py`: a run
   enriches only its matched low prices and candidates, never a price, archives the answers under
-  an `enrich` run, keeps unmatched offers unknown, and the v12 → v13 upgrade.
+  an `enrich` run, keeps unmatched offers unknown, and the v13 → v14 upgrade.
 - `test_traceability.py` (normal run, no browser) builds a database with promotions (live,
   expired, new), low prices and typical lows, renders the whole site and every caption, and fails
   on any price string that isn't a referenced observation's price, a referenced deal's stored
@@ -1123,8 +1223,9 @@ uv run pytest -m "not browser"
   `contract/review/v1/event.schema.json`, the dispatch, the page).
 - `test_live_check_cases.py` and `web/test/review/live-check.test.ts` run the same cases
   (`contract/review/v1/fixtures/live-check-cases.json`) through the pipeline's live check and the
-  Function's port: both must agree, on prices, stop counts and the pt-PT reason shown when the
-  provider fails (rate limit, HTTP error, error payload, no answer, no token).
+  Function's port: both must agree, on prices, stop counts, the pt-PT reason shown when the
+  provider fails (rate limit, HTTP error, error payload, no answer, no token) and the request
+  itself (`queries`: `direct=true` on nonstop-only routes, D39).
 - `test_review_rules_cases.py` and `web/test/review/rules.test.ts` check `review.py`'s tables and
   `check_decision` and the Function's `rules.ts` against `contract/review/v1/fixtures/review-rules.json`.
 - `web/test/colours.test.ts` fails on a raw colour (hex, `rgb()`, `hsl()`) in `web/src/` or
@@ -1170,7 +1271,7 @@ uv run pytest -m "not browser"
 
 - **Travelpayouts / Aviasales Data API**: a cache of prices users found recently (not live).
   The limit is 600 req/min on v3 endpoints, 60 req/min on the GraphQL endpoint (`/graphql/v1/query`,
-  used only to enrich stored offers with baggage and agency, D39; same cache, same terms). Route discovery also reads the public data files
+  used only to enrich stored offers with baggage and agency, D43; same cache, same terms). Route discovery also reads the public data files
   (`data/routes.json`, `data/airports.json`, `data/pt/cities.json`) and `v1/city-directions`.
   Each item's link carries `search_date`, the day a
   user found the price, which can be several days old. Captions state both that date and when

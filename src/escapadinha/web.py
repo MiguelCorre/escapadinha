@@ -17,7 +17,7 @@ from jinja2 import Environment, PackageLoader
 from pydantic import BaseModel
 
 from escapadinha import i18n_pt as pt
-from escapadinha import pipeline, review_events
+from escapadinha import pipeline, review_events, review_snapshot
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation
 from escapadinha.presentation import PhotoCredit, build_deal_view
@@ -49,6 +49,7 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
     folder = pipeline.deal_folder(ctx, deal)     # downloaded when a runner rendered it (D25)
     caption_file = folder / "caption.txt" if folder else None
     slides = sorted(p.name for p in folder.glob("slide_*.png")) if folder and folder.exists() else []
+    baseline = review_snapshot.baseline_json(pipeline.baseline_range(conn, deal))
     return {
         "id": deal.id,
         "status": deal.status,
@@ -60,12 +61,16 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "airline": view.airline,
         "direct": view.direct,
         "arrival_airport": view.arrival_airport,
-        "baggage": view.baggage_line,            # D39: null when unknown (no row)
+        "baggage": view.baggage_line,            # D43: null when unknown (no row)
         "gate": view.gate,
         "rule": deal.rule,
         "discount_pct": view.discount_pct,
         "typical_low": None if deal.baseline_median is None else pt.eur(deal.baseline_median),
         "baseline_days": deal.sample_size,
+        # How solid the typical low is (D40): the snapshot's shape, plus its prices in pt-PT (the
+        # page puts each on its observation's `data-obs`).
+        "baseline": baseline and {**baseline, "lowest": pt.eur(baseline["lowest_eur"]),
+                                  "highest": pt.eur(baseline["highest_eur"])},
         "found_on": view.found_on,
         "checked_at": view.checked_at,
         "last_checked_at": pt.lisbon_timestamp(deal.last_checked_at) if deal.last_checked_at else None,

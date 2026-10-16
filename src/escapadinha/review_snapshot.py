@@ -110,6 +110,17 @@ def _slides(ctx: Context, rendered: _Rendered, deal: Deal, store_keys: list[str]
             for stem in sorted(rendered.stems(deal) | set(by_stem))]
 
 
+def baseline_json(r: pipeline.BaselineRange | None) -> dict | None:
+    """How solid the typical low is (D40): span and the extreme daily lows with their
+    observation ids (traceability, D2). The contract's shape; the local review page adds the
+    prices in pt-PT (`web.deal_json`)."""
+    if r is None:
+        return None
+    return {"span_days": r.span_days,
+            "lowest_eur": r.lowest.price, "lowest_observation_id": r.lowest.id,
+            "highest_eur": r.highest.price, "highest_observation_id": r.highest.id}
+
+
 def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Deal,
           obs: Observation, store_keys: list[str]) -> dict:
     route = pipeline.route_for(ctx, conn, obs.route_key)
@@ -138,13 +149,14 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "direct": view.direct,
         "transfers": obs.transfers,              # the live check's stop limit (D29)
         "return_transfers": obs.return_transfers,
-        "gate": obs.gate,                        # GraphQL enrichment (D39): null = no match
+        "gate": obs.gate,                        # GraphQL enrichment (D43): null = no match
         "with_baggage": obs.with_baggage,
         "baggage": view.baggage_line,
         "rule": deal.rule,
         "discount_pct": view.discount_pct,
         "typical_low_eur": deal.baseline_median,
         "baseline_days": deal.sample_size,
+        "baseline": baseline_json(pipeline.baseline_range(conn, deal)),
         "found_date": obs.found_date.isoformat() if obs.found_date else None,
         "found_on": view.found_on,
         "fetched_at": db.utc_iso(obs.fetched_at),
@@ -163,8 +175,8 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
             "last_seen_price_eur": deal.last_seen_price,
             "expired_reason": deal.expired_reason,
             "query": request_params(obs.origin, obs.destination, obs.departure_date.replace(day=1),
-                                    currency=c.currency, limit=c.limit_per_request,
-                                    market=c.market),
+                                    route.rules, currency=c.currency,
+                                    limit=c.limit_per_request, market=c.market),
             "rules": {**route.rules.to_json(),
                       "max_offer_age_days": ctx.config.detector.max_offer_age_days},
         },

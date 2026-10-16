@@ -9,7 +9,7 @@
 </div>
 {% endmacro %}
 
-{# Price block. Price, dates, the baggage line (only when known, D39) and "encontrado a" always together, in this order. #}
+{# Price block. Price, dates, the baggage line (only when known, D43) and "encontrado a" always together, in this order. #}
 {% macro price_block(v, size="xl", dates=true) %}
 {% set parts = v.price.rsplit(" ", 1) %}{# "91 €" -> number + smaller currency sign #}
 <div class="pb pb-{{ size }}">

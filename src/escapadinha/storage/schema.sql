@@ -1,4 +1,4 @@
--- Schema version 13 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 14 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS price_observations (
     departure_at        TEXT,               -- source timestamps (UTC)
     return_at           TEXT,
     dedup_key           TEXT    NOT NULL UNIQUE,
-    -- GraphQL enrichment (D39, v13): from the matched Aviasales GraphQL row only, NULL = unknown.
+    -- GraphQL enrichment (D43, v14): from the matched Aviasales GraphQL row only, NULL = unknown.
     with_baggage        INTEGER,            -- 1 = a checked bag is included, 0 = cabin baggage only
     baggage_code        TEXT,               -- "0PC", "1PC20", ...
     gate                TEXT,               -- the selling agency
@@ -73,7 +73,12 @@ CREATE TABLE IF NOT EXISTS deals (
     reviewed_at     TEXT,      -- approve/reject time
     review_note     TEXT,
     published_at    TEXT,
-    post_url        TEXT
+    post_url        TEXT,
+    -- The typical low behind the deal, shown to the reviewer (D40): first to last baseline
+    -- day, and the observations that are its cheapest and dearest daily low.
+    baseline_span_days      INTEGER,
+    baseline_lowest_obs_id  INTEGER REFERENCES price_observations(id),
+    baseline_highest_obs_id INTEGER REFERENCES price_observations(id)
 );
 
 CREATE TABLE IF NOT EXISTS photos (

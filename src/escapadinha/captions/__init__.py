@@ -33,7 +33,7 @@ def _detail_lines(view: DealView) -> list[str]:
         lines.append(f"🛫 {view.airline}{flights}")
     if view.arrival_airport:
         lines.append(f"🛬 Chegada: aeroporto {view.arrival_airport}")
-    if view.baggage_line:                   # only when the GraphQL match said so (D39)
+    if view.baggage_line:                   # only when the GraphQL match said so (D43)
         lines.append(f"🧳 {view.baggage_line.capitalize()}")
     if view.discount_pct:
         lines.append(f"📉 {view.discount_pct}% abaixo do preço mínimo habitual desta rota "

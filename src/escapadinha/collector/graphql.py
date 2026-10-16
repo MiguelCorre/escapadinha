@@ -1,4 +1,4 @@
-"""Aviasales GraphQL Flights Data API client (Travelpayouts), for enrichment only (D39).
+"""Aviasales GraphQL Flights Data API client (Travelpayouts), for enrichment only (D43).
 
 Same cache and token as the REST Data API (`travelpayouts.py`), 60 requests a minute. It is
 not a price source: nothing it returns is ever stored as a price. It answers one question per

@@ -79,7 +79,7 @@ class DealView:
     affiliate_url: str | None     # tracked partner link (None if conversion failed)
     photo: PhotoCredit
     disclosure: str = DISCLOSURE
-    # From the GraphQL match only (D39); None = unknown, and then no line is printed.
+    # From the GraphQL match only (D43); None = unknown, and then no line is printed.
     baggage: bool | None = None           # a checked bag is included
     baggage_line: str | None = None       # 'com mala de porão incluída' / 'só bagagem de mão'
     gate: str | None = None               # the selling agency (reviewers see it; posts don't)
@@ -141,7 +141,7 @@ class LowPriceView:
     fetched_at: str        # when our collection first saw it, Lisbon time (stable across runs,
                            # so an unchanged list doesn't trigger a deploy)
     booking_link: str | None   # tracked link from the partner links API, or None (no button)
-    baggage: bool | None = None       # from the GraphQL match (D39); None = unknown, no line
+    baggage: bool | None = None       # from the GraphQL match (D43); None = unknown, no line
     baggage_line: str | None = None
 
 

@@ -3,6 +3,7 @@ with only the bucket, one route failing, the workflow file itself."""
 
 import json
 import shutil
+from datetime import timedelta
 from pathlib import Path
 
 import httpx
@@ -163,8 +164,30 @@ def test_a_failing_route_never_fails_the_run_and_the_summary_says_so(home, monke
     assert "LIS-LON" in out and "boom" in out
     text = summary.read_text("utf-8")
     assert text.startswith("### Escapadinha run: ok")
-    assert "- Collection: partial, 30 requests, 0 offers (0 new), 6 failed" in text   # LIS- and OPO-LON
+    assert ("- Collection: partial, daily pass: months 1–3 of 10 routes, 30 requests, 0 offers "
+            "(0 new), 6 failed") in text                  # LIS- and OPO-LON; which pass (D42)
     assert "- Path: full (first full path)" in text and "- Duration: " in text
+
+
+@respx.mock
+def test_a_run_more_than_three_hours_after_the_previous_one_warns_in_its_log(home, monkeypatch,
+                                                                             tmp_path):
+    """D41: the scheduler missed a run; the run log and its summary say so, the run goes on."""
+    mock_api()
+    assert "Warning:" not in run_cli()                       # the first run: nothing before it
+    assert "Warning:" not in run_cli()                       # right after: on time
+    conn = pipeline.open_db(home)
+    run_id = db.latest_collection_start(conn)[0]
+    five_hours_ago = (db.utcnow() - timedelta(hours=5, minutes=2)).isoformat()
+    conn.execute("UPDATE fetch_runs SET started_at = ? WHERE id = ?", (five_hours_ago, run_id))
+    conn.commit()
+    conn.close()
+    summary = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    out = run_cli()
+    assert f"Warning: the previous run (#{run_id}) started 5 h 0" in out
+    assert "2-hourly schedule missed a run" in out and "Run ok in" in out
+    assert f"- Warning: the previous run (#{run_id}) started 5 h 0" in summary.read_text("utf-8")
 
 
 @respx.mock
@@ -181,6 +204,29 @@ def test_a_collection_where_every_request_failed_fails_the_job(home, monkeypatch
     assert text.startswith("### Escapadinha run: failed") and "Collection: failed" in text
     assert "Review snapshot:" in out                        # still exported (D26)
     assert json.loads(home.object_store.get("review/snapshot.json"))["version"] == 1
+
+
+@respx.mock
+def test_a_run_long_after_the_last_daily_pass_warns_in_its_log(home, monkeypatch, tmp_path):
+    """D42: the day's pass went missing (here every request of this run failed, so it recorded
+    none); the run log and its summary say so."""
+    mock_api()
+    assert "Warning: the last daily pass" not in run_cli()   # the first run is the pass
+    conn = pipeline.open_db(home)
+    run_id = json.loads(db.get_meta(conn, pipeline.DAILY_PASS))["run"]
+    two_days_ago = db.utcnow() - timedelta(days=2)
+    conn.execute("UPDATE fetch_runs SET started_at = ? WHERE id = ?",
+                 (two_days_ago.isoformat(), run_id))
+    day = two_days_ago.astimezone(pipeline.i18n_pt.LISBON).date().isoformat()
+    db.set_meta(conn, pipeline.DAILY_PASS, json.dumps({"day": day, "run": run_id}))
+    every = {r.destination for r in routes.active_routes(conn, home.config.routes)}
+    conn.close()
+    summary = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    api(failing=every)
+    out = run_cli(code=1)
+    assert f"Warning: the last daily pass (#{run_id}, {day}) started 48 h" in out
+    assert f"- Warning: the last daily pass (#{run_id}, {day})" in summary.read_text("utf-8")
 
 
 class PhotoUploadFails(LocalObjectStore):

@@ -1,4 +1,4 @@
-"""The Aviasales GraphQL client and the offer match (D39): parsing and matching are pure, the
+"""The Aviasales GraphQL client and the offer match (D43): parsing and matching are pure, the
 request carries the token and the trip window, the per-minute limiter holds under concurrent
 callers, a 429 waits. HTTP only through respx: never a real call."""
 

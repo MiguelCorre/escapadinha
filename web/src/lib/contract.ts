@@ -17,9 +17,21 @@ export interface Offer {
   arrival_airport: string | null;
   found_date: string | null;
   fetched_at: string;
-  /** A checked bag included (D39), from the GraphQL row matched to the offer; null or absent:
+  /** A checked bag included (D43), from the GraphQL row matched to the offer; null or absent:
    * unknown, so the page prints no baggage line. */
   baggage?: boolean | null;
+}
+
+/** `meta.detector`: the settings typical lows, low prices and promotions were computed with. */
+export interface Detector {
+  low_threshold: number;
+  threshold: number;
+  min_saving_eur: number;
+  min_baseline_days: number;
+  /** Added in v1 (D40): a day counts only with this many departure dates; absent: every day (1). */
+  min_dates_per_day?: number;
+  max_offer_age_days: number;
+  lookback_days: number;
 }
 
 export interface Meta {
@@ -35,7 +47,7 @@ export interface Meta {
   search_widget?: string | null;
   /** "@ondestaanocas": the contact on the About and Privacy pages (D34). */
   instagram_handle?: string;
-  detector: Record<string, number>;
+  detector: Detector;
   files: {
     origins: string; routes: string; destinations: string; promotions: string; labels: string;
     pontes?: string;

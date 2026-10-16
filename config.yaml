@@ -9,13 +9,22 @@ brand:
 collector:
   source: travelpayouts
   currency: eur
-  months_ahead: 3            # number of departure months fetched, starting with the current month
+  # Departure months, starting with the current month (DECISIONS D42). Every run asks the routes
+  # that have returned a price for months_ahead months; once a Lisbon day, the first run at or
+  # after daily_pass_hour (Lisbon) is the day's pass: every active route, daily_months_ahead
+  # months, including the routes that never returned a price (only then, until their first).
+  # Far months build typical lows months before departure (Christmas, Carnaval, Easter) for
+  # about the requests the never-seen routes used to cost on every run. The far month of an
+  # open promotion is asked on every run, so its recheck never waits for the day's pass.
+  months_ahead: 3
+  daily_months_ahead: 6
+  daily_pass_hour: 6
   limit_per_request: 100      # max offers returned per route/month call
   market: pt                  # prices found on the Portuguese Aviasales market
   booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
-  requests_per_minute: 550    # client-side cap (API limit 600/min); a run is ~routes x months_ahead calls
+  requests_per_minute: 550    # client-side cap (API limit 600/min); a run is ~routes x months calls
   workers: 8                  # concurrent requests, under the same per-minute cap (~2 min per run)
-  graphql_requests_per_minute: 55   # GraphQL enrichment (D39): client-side cap, the API allows 60/min
+  graphql_requests_per_minute: 55   # GraphQL enrichment (D43): client-side cap, the API allows 60/min
   enrich_per_run: 60          # GraphQL queries per run, one per trip (candidates first, then the
                               # biggest low-price discounts; already matched offers are skipped); 0 = off
 
@@ -28,7 +37,12 @@ detector:
   min_saving_eur: 15         # ... and typical_low - price >= this many euros
   low_threshold: 0.15        # low price when price <= typical_low * (1 - low_threshold)
   lookback_days: 90          # days of daily lows used for the typical low
-  min_baseline_days: 4       # need this many days with a low before trusting it
+  # A mature typical low (D40): a day's low counts only if that day saw >= min_dates_per_day
+  # different departure dates (one-date days are 3x as likely to be high outliers).
+  min_dates_per_day: 2
+  min_baseline_days: 7       # low prices and the site's typical lows need this many daily lows
+  min_baseline_days_promo: 10  # promotion candidates need this many daily lows ...
+  min_baseline_span_days: 9    # ... with the first and last this many days apart
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
   max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
   max_offer_age_days: 3      # candidates: prices found in the last N days; older days = baseline

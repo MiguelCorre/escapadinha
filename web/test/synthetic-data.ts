@@ -81,7 +81,7 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
         if (typical != null && c.price <= typical * 0.85 && lowRows[origin].length < 1500) {
           lowRows[origin].push([c.obs, destCode(d), c.price, c.dep, c.ret, "2026-10-13", "2026-10-13T20:15Z",
             "FR", 0, code("Y", d), typical, `https://example.com/parceiro/site-low-${c.obs}`,
-            c.obs % 3 === 0 ? null : c.obs % 3 === 1]);   // baggage known for two thirds (D39)
+            c.obs % 3 === 0 ? null : c.obs % 3 === 1]);   // baggage known for two thirds (D43)
         }
       }
       routes.push({

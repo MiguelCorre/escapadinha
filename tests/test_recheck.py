@@ -1,8 +1,9 @@
 from datetime import date, datetime, timedelta, timezone
 
 from escapadinha.config import DetectorConfig
+from escapadinha.detector import Baseline
 from escapadinha.models import Observation, RouteRules
-from escapadinha.recheck import recheck
+from escapadinha.recheck import promotion_expiry, recheck
 
 NOW = datetime(2026, 10, 12, 20, 0, tzinfo=timezone.utc)
 CFG = DetectorConfig(max_offer_age_days=3)
@@ -66,3 +67,52 @@ def test_long_haul_deal_expires_when_it_gains_a_second_stop():
 def test_deal_outside_the_routes_nights_range_expires():
     r = recheck(DEAL, [DEAL], CFG, NOW, rules=RouteRules(min_nights=7, max_nights=14))
     assert not r.valid and "7–14 noites" in r.reason
+
+
+# --- an open promotion against its month's current typical low (D40) -------------------------
+
+PROMO = DetectorConfig()                      # the shipped maturity: 10 days spanning 9
+MATURE = Baseline(median=76, sample_size=12, span_days=14)
+
+
+def test_a_promotion_on_a_typical_low_still_too_young_expires():
+    """The 6 deals waiting for review on 2026-10-16 were detected on 4-6-day typical lows."""
+    young = Baseline(median=76, sample_size=5, span_days=6)
+    assert promotion_expiry(obs(51), "median", young, PROMO, None) == \
+        "preço habitual ainda sem dados suficientes (5 de 10 dias)"
+    narrow = Baseline(median=76, sample_size=10, span_days=7)   # only with a lower day count
+    assert promotion_expiry(obs(51), "median", narrow, PROMO, None) == \
+        "preço habitual ainda sem dados suficientes (10 dias, mas do primeiro ao último só 7 de 9)"
+    none = Baseline(median=None, sample_size=0, span_days=0)
+    assert promotion_expiry(obs(51), "median", none, PROMO, None) == \
+        "preço habitual ainda sem dados suficientes (0 de 10 dias)"
+
+
+def test_a_promotion_still_below_the_current_typical_low_stays():
+    assert promotion_expiry(obs(51), "median", MATURE, PROMO, None) is None   # 33 %, 25 €
+
+
+def test_a_promotion_no_longer_below_the_current_typical_low_expires():
+    assert promotion_expiry(obs(60), "median", MATURE, PROMO, None) == (
+        "já não é promoção face ao preço habitual atual (76 €): 60 € fica 21% abaixo; "
+        "são precisos 30% e 15 €")
+    assert promotion_expiry(obs(80), "median", MATURE, PROMO, None) == (
+        "já não é promoção face ao preço habitual atual (76 €): 80 € fica 5% acima; "
+        "são precisos 30% e 15 €")
+    cheap = Baseline(median=40, sample_size=12, span_days=14)     # 35 % but saves only 14 €
+    assert "26 € fica 35% abaixo" in promotion_expiry(obs(26), "median", cheap, PROMO, None)
+
+
+def test_the_price_cap_only_keeps_the_promotions_it_made():
+    """Until the typical low is mature only a route's price cap makes a promotion (D3, D40); a
+    deal of the median rule never survives on the cap."""
+    young = Baseline(median=76, sample_size=5, span_days=6)
+    assert promotion_expiry(obs(51), "price_cap", young, PROMO, 55) is None
+    assert promotion_expiry(obs(56), "price_cap", young, PROMO, 55).startswith(
+        "preço habitual ainda sem dados suficientes")
+    assert promotion_expiry(obs(51), "median", young, PROMO, 55).startswith(
+        "preço habitual ainda sem dados suficientes")
+    # Once mature, a cap promotion is judged like any other (the cap no longer applies).
+    assert promotion_expiry(obs(51), "price_cap", MATURE, PROMO, 55) is None
+    assert promotion_expiry(obs(60), "price_cap", MATURE, PROMO, 65).startswith(
+        "já não é promoção")

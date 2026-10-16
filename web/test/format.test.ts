@@ -88,7 +88,7 @@ describe("pt-PT formats", () => {
     expect(nights(3)).toBe("3 noites");
   });
 
-  it("prints the baggage line only when known, never a guess (D39)", () => {
+  it("prints the baggage line only when known, never a guess (D43)", () => {
     expect(baggageText(true)).toBe("com mala de porão incluída");
     expect(baggageText(false)).toBe("só bagagem de mão");
     expect(baggageText(null)).toBeNull();

@@ -60,6 +60,15 @@ export interface Rules {
   max_offer_age_days: number;
 }
 
+/** First to last baseline day, and the cheapest and dearest daily low with their observations. */
+export interface BaselineRange {
+  span_days: number;
+  lowest_eur: number;
+  lowest_observation_id: number;
+  highest_eur: number;
+  highest_observation_id: number;
+}
+
 export interface SnapshotDeal {
   id: number;
   status: "new" | "rendered" | "approved" | "published" | "rejected" | "expired";
@@ -79,7 +88,7 @@ export interface SnapshotDeal {
   /** Stops each way (null: unknown); absent from snapshots made before they were added. */
   transfers?: number | null;
   return_transfers?: number | null;
-  /** GraphQL enrichment (D39): the selling agency and the baggage line ("só bagagem de mão"),
+  /** GraphQL enrichment (D43): the selling agency and the baggage line ("só bagagem de mão"),
    * null when the offer had no match; absent from older snapshots. */
   gate?: string | null;
   with_baggage?: boolean | null;
@@ -88,6 +97,8 @@ export interface SnapshotDeal {
   discount_pct: number | null;
   typical_low_eur: number | null;
   baseline_days: number;
+  /** How solid the typical low is (D40); null without a stored range, absent before D40. */
+  baseline?: BaselineRange | null;
   found_date: string | null;
   found_on: string | null;
   fetched_at: string;
