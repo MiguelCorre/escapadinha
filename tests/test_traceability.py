@@ -140,9 +140,11 @@ def store_run(conn, offers: list[Observation]) -> int:
 
 
 def history(origin: str, destination: str, lows: list[float], dep: date) -> list[Observation]:
-    """One daily low per day, found 5, 6, ... days ago (outside the freshness window)."""
-    return [offer(origin, destination, p, found_ago=5 + i, dep=dep + timedelta(days=i % 7))
-            for i, p in enumerate(lows)]
+    """One daily low per day, found 5, 6, ... days ago (outside the freshness window), each
+    day with a dearer offer a week later too, so it saw two departure dates and counts (D40)."""
+    return [offer(origin, destination, p + 15 * k, found_ago=5 + i,
+                  dep=dep + timedelta(days=i % 7 + 7 * k))
+            for i, p in enumerate(lows) for k in (0, 1)]
 
 
 @dataclass
@@ -159,9 +161,9 @@ def build_scenario(ctx: Context, conn) -> Scenario:
     brings a live LIS-LON promotion, low prices and a small-fare route."""
     nov = date(db.utcnow().year + 1, 1, 10)      # a departure month well ahead of today
     store_run(conn, history("LIS", "LON", [100, 101] * 5, nov)        # typical low 100,50 €
-              + history("LIS", "BCN", [40] * 6, nov)
-              + history("LIS", "ROM", [120] * 6, nov)
-              + history("OPO", "PAR", [100] * 6, nov))
+              + history("LIS", "BCN", [40] * 7, nov)                   # mature for low prices
+              + history("LIS", "ROM", [120] * 10, nov)                 # and for promotions (D40)
+              + history("OPO", "PAR", [100] * 10, nov))
 
     trip = nov + timedelta(days=12)
     second = store_run(conn, [offer("OPO", "PAR", 55, found_ago=1, dep=trip)])

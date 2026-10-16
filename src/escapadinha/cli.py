@@ -88,7 +88,7 @@ def _collect():
     """Collect and report; a request that fails is listed and the others go on (D25)."""
     ctx, conn = _ctx()
     summary = pipeline.run_collect(ctx, conn)
-    console.print(f"Run #{summary.run_id}: [bold]{summary.status}[/] · "
+    console.print(f"Run #{summary.run_id}: [bold]{summary.status}[/] · {summary.plan.describe()} · "
                   f"{summary.n_requests} requests · {summary.n_observations} offers "
                   f"({summary.n_new} new, {summary.n_repeated} seen before) · "
                   f"archive {summary.archive_key or '[red]missing[/]'}")
@@ -117,16 +117,22 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
     labels = {"deals": "[green]deal[/]", "no_deal": "no deal",
               "insufficient_history": "[yellow]warming up[/]", "no_data": "[dim]no data[/]",
               "no_fresh": "[dim]no fresh[/]"}
-    need = ctx.config.detector.min_baseline_days
+    need = ctx.config.detector.min_baseline_days_promo     # promotions' maturity (D40)
     for r in results:
         best = "–" if r.best is None else f"{r.best.price:g} € ({r.best.departure_date:%d/%m})"
         low = "–" if r.baseline is None or r.baseline.median is None else f"{r.baseline.median:g} €"
-        days = "–" if r.baseline is None else f"{r.baseline.sample_size}/{need} days"
+        days = ("–" if r.baseline is None
+                else f"{r.baseline.sample_size}/{need} days, span {r.baseline.span_days}")
         table.add_row(r.route, str(r.fresh), best, low, days, labels.get(r.status, r.status),
                       str(r.low_prices or "–"), ", ".join(map(str, r.deal_ids)) or "–")
     console.print(table)
     console.print(f"{sum(r.low_prices for r in results)} low prices, "
                   f"{sum(len(r.deal_ids) for r in results)} new promotion candidates.")
+    # The queue against today's typical lows (D40): a deal that would not be detected now expires.
+    for deal, obs, reason in pipeline.run_reevaluate(ctx, conn):
+        console.print(f"  deal {deal.id} {obs.route_key} {obs.departure_date:%d/%m}–"
+                      f"{obs.return_date:%d/%m} @ {obs.price:g} €: [red]✗ expirado[/] "
+                      f"({escape(reason)})")
 
 
 @app.command("recheck")
@@ -155,11 +161,17 @@ def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
     console.print(f"{r.key}: {row['n']} distinct offers, seen {row['sightings']} times in total "
                   f"(most repeated: {row['max_seen']} runs), "
                   f"{row['min_price']:g}–{row['max_price']:g} €")
-    console.print(f"Typical low per departure month (median of daily lows, "
-                  f"needs {ctx.config.detector.min_baseline_days} days):")
+    det = ctx.config.detector
+    console.print(f"Typical low per departure month (median of daily lows; a day counts with "
+                  f"{det.min_dates_per_day}+ departure dates; low prices need "
+                  f"{det.min_baseline_days} days, promotions {det.min_baseline_days_promo} "
+                  f"spanning {det.min_baseline_span_days}):")
     for (year, month), base in sorted(pipeline.current_baselines(ctx, conn, r).items()):
         low = "–" if base.median is None else f"{base.median:g} €"
-        console.print(f"  {year}-{month:02d}: {low} from {base.sample_size} days")
+        spread = (f", daily lows {base.lowest.price:g}–{base.highest.price:g} €"
+                  if base.lowest and base.highest else "")
+        console.print(f"  {year}-{month:02d}: {low} from {base.sample_size} days "
+                      f"(span {base.span_days}){spread}")
 
 
 @routes_app.command("list")
@@ -819,12 +831,34 @@ def _run_steps(render: bool, full: bool, report: list[str]) -> None:
     export_review_snapshot()                    # last, on the fast and the full path (D26)
 
 
+def _warn(warning: str | None, report: list[str]) -> None:
+    """A warning in the run log and the run's summary."""
+    if warning:
+        console.print(f"[yellow]Warning:[/] {escape(warning)}")
+        report.append(f"Warning: {warning}")
+
+
+def _warn_if_late(report: list[str]) -> None:
+    """The previous run more than 3 h before this one: the schedule missed a run (D41)."""
+    _, conn = _ctx()
+    _warn(pipeline.late_run_warning(conn, db.utcnow()), report)
+
+
+def _warn_if_daily_pass_missed(report: list[str]) -> None:
+    """The last recorded daily pass more than 30 h ago (D42); after this run's collection."""
+    ctx, conn = _ctx()
+    _warn(pipeline.missed_daily_pass_warning(ctx, conn, db.utcnow()), report)
+
+
 def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
+    _warn_if_late(report)                    # before this run's collection adds its own row
     routes_upkeep()
     summary = _collect()
-    report.append(f"Collection: {summary.status}, {summary.n_requests} requests, "
+    report.append(f"Collection: {summary.status}, {summary.plan.describe()}, "
+                  f"{summary.n_requests} requests, "
                   f"{summary.n_observations} offers ({summary.n_new} new)"
                   + (f", {len(summary.errors)} failed" if summary.errors else ""))
+    _warn_if_daily_pass_missed(report)
     if summary.status == "failed":           # every request failed: the run fails (exit 1)
         raise typer.Exit(1)
     recheck_cmd()

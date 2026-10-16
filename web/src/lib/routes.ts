@@ -3,7 +3,7 @@
 // the calendar of the cheapest found prices, the route's low prices and an origin's routes by kind.
 // Every price keeps the id it traces to (obs, or the route key for typical lows), so the
 // templates can put data-obs / data-route on the element that shows it (D2).
-import type { CalendarDay, Kind, LowPriceRow, Route, SiteData } from "./contract";
+import type { CalendarDay, Detector, Kind, LowPriceRow, Route, SiteData } from "./contract";
 import { daysInMonth, weekday } from "./dates";
 import { placesFor } from "./explorer-data";
 import { count, eur, monthYear, shortDate } from "./format";
@@ -34,6 +34,14 @@ export function monthRows(route: Route, minDays: number): MonthRow[] {
     average: m.average != null ? eur(m.average) : null,
     days: m.typical_low != null ? count(m.days, "dia", "dias") : `${m.days} de ${count(minDays, "dia", "dias")}`,
   }));
+}
+
+/** What "ainda sem dados suficientes" means, from `meta.detector` (D27, D40): the daily lows a
+ * month needs and, when more than one, the departure dates a day must have seen to count. */
+export function typicalLowRule(det: Pick<Detector, "min_baseline_days" | "min_dates_per_day">): string {
+  const dates = det.min_dates_per_day ?? 1;
+  const which = dates > 1 ? `, contando só os dias com preços para ${dates} ou mais datas de partida,` : "";
+  return `Precisamos de pelo menos ${det.min_baseline_days} dias de dados num mês${which} antes de dizer o que é habitual.`;
 }
 
 export interface BestMonth {

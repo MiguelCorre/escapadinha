@@ -20,7 +20,18 @@ from escapadinha.presentation import DISCLOSURE
 from escapadinha.storage import db
 
 REPO = Path(__file__).parent.parent
-FIXTURE = json.loads((REPO / "tests" / "fixtures" / "prices_for_dates_LIS_LON.json").read_text("utf-8"))
+
+
+def found_yesterday(text: str) -> dict:
+    """The synthetic LIS-LON offers as found yesterday (UTC). Detection and rechecks only take
+    prices found in the last `max_offer_age_days` (3), so the file's fixed found date
+    (12/10/2026) made every test that needs a fresh offer fail from 2026-10-16 on."""
+    day = (db.utcnow() - timedelta(days=1)).strftime("%d%m%Y")
+    return json.loads(text.replace("search_date=12102026", f"search_date={day}"))
+
+
+FIXTURE = found_yesterday((REPO / "tests" / "fixtures" / "prices_for_dates_LIS_LON.json")
+                          .read_text("utf-8"))
 EMPTY = {"success": True, "currency": "eur", "data": []}
 
 
@@ -29,9 +40,11 @@ def ctx(tmp_path, monkeypatch):
     # The real config, minus the curated long-haul list: tests that need long-haul routes
     # add their own, so route counts here stay the 10 seeded routes. No website Project either:
     # tests that need one set it, so link assertions don't follow the repo's real Project id
-    # (nor the search widget, which must carry that Project).
+    # (nor the search widget, which must carry that Project). The day's pass asks the same months
+    # as every run, so a run here is routes × 3 requests (the far months: test_daily_pass.py).
     config = yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))
     config["routes"]["long_haul"] = []
+    config["collector"]["daily_months_ahead"] = config["collector"]["months_ahead"]
     config["affiliate"]["projects"]["website"] = None
     config["site"]["search_widget"] = None   # the real widget carries the real Project
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True), "utf-8")
@@ -47,19 +60,22 @@ def ctx(tmp_path, monkeypatch):
 
 
 def seed_history(conn, *, days: int, price: float):
-    """Synthetic past observations for LIS-LON (test data only)."""
+    """Synthetic past observations for LIS-LON (test data only): one per day at the day's
+    low (`price` + 0..2) and a dearer one on the next departure date, so every day counts
+    towards the typical low (two departure dates, D40)."""
     run_id = db.start_run(conn, "test")
     now = db.utcnow()
     db.insert_observations(conn, run_id, [
         Observation(source="test", origin="LIS", destination="LON", origin_airport="LIS",
-                    destination_airport="LGW", departure_date=date(2026, 11, 1) + timedelta(days=i),
-                    return_date=date(2026, 11, 5) + timedelta(days=i), price=price + i % 3,
-                    currency="EUR", airline="TP", flight_number="1", transfers=0,
-                    return_transfers=0, deep_link=None, fetched_at=now - timedelta(days=i + 1),
-                    raw_json="{}")
-        for i in range(days)
+                    destination_airport="LGW",
+                    departure_date=date(2026, 11, 1) + timedelta(days=i + k),
+                    return_date=date(2026, 11, 5) + timedelta(days=i + k),
+                    price=price + i % 3 + 20 * k, currency="EUR", airline="TP",
+                    flight_number="1", transfers=0, return_transfers=0, deep_link=None,
+                    fetched_at=now - timedelta(days=i + 1), raw_json="{}")
+        for i in range(days) for k in (0, 1)
     ])
-    db.finish_run(conn, run_id, status="ok", n_requests=0, n_observations=days, error=None)
+    db.finish_run(conn, run_id, status="ok", n_requests=0, n_observations=2 * days, error=None)
 
 
 def mock_api():
@@ -104,6 +120,11 @@ def test_collect_and_detect(ctx):
     deal, obs = db.get_deal(conn, by_route["LIS-LON"].deal_ids[0])
     assert obs.price == 58 and obs.run_id == summary.run_id     # traceable to this run
     assert deal.rule == "median" and deal.sample_size == 22   # seeded days older than 3 days
+    # What the reviewer sees (D40): the days' span and the extreme daily lows, by observation.
+    lowest, highest = (db.get_observation(conn, i)
+                       for i in (deal.baseline_lowest_obs_id, deal.baseline_highest_obs_id))
+    assert (deal.baseline_span_days, lowest.price, highest.price) == (21, 100, 102)
+    assert lowest.route_key == highest.route_key == "LIS-LON"
 
     # Running detection again on the same run must not flag the same trip twice.
     _, again = pipeline.run_detect(ctx, conn, run_id)
@@ -189,6 +210,58 @@ def test_migrates_v1_database(tmp_path):
     assert obs.price == 80 and obs.found_date is None
     deal, _ = db.get_deal(conn, 1)
     assert deal.status == "new" and deal.affiliate_url is None
+    # v13 (D40): an old deal has no stored baseline range; the columns match a fresh install.
+    assert (deal.baseline_span_days, deal.baseline_lowest_obs_id,
+            deal.baseline_highest_obs_id) == (None, None, None)
+    fresh = db.connect(tmp_path / "fresh.db")
+    db.init(fresh)
+    columns = lambda c: {r[1] for r in c.execute("PRAGMA table_info(deals)")}  # noqa: E731
+    assert columns(conn) == columns(fresh)
+
+
+def _deal_columns(conn) -> dict[str, tuple]:
+    """name -> (type, not null, default, primary key) of `deals`, and its foreign keys."""
+    columns = {r[1]: tuple(r)[2:] for r in conn.execute("PRAGMA table_info(deals)")}
+    keys = sorted((r[3], r[2], r[4]) for r in conn.execute("PRAGMA foreign_key_list(deals)"))
+    return {**columns, "foreign keys": tuple(keys)}
+
+
+@pytest.mark.parametrize("fixture, version", [("schema_v5.sql", 5), ("schema_v7.sql", 7)])
+def test_upgrade_from_real_old_schemas_gives_deals_the_baseline_columns(tmp_path, fixture, version):
+    """v13 (D40) on the real old schemas: a deal detected before keeps its row with no stored
+    baseline range, and `deals` ends up as a fresh install has it (types, keys)."""
+    import sqlite3
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript((REPO / "tests" / "fixtures" / fixture).read_text("utf-8"))
+    old.execute("INSERT INTO fetch_runs (id, source, started_at, status) "
+                "VALUES (1, 'test', '2026-10-14T01:00:00+00:00', 'ok')")
+    seen = "2026-10-14T01:00:00+00:00"
+    row = {"id": 1, "run_id": 1, "source": "test", "origin": "LIS", "destination": "BCN",
+           "departure_date": "2026-11-18", "return_date": "2026-11-25", "nights": 7,
+           "price": 51, "currency": "EUR", "fetched_at": seen,
+           **({"raw_json": "{}"} if version < 7 else
+              {"last_run_id": 1, "last_seen_at": seen, "dedup_key": "k"})}
+    old.execute(f"INSERT INTO price_observations ({', '.join(row)}) "
+                f"VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
+    old.execute("INSERT INTO deals (id, observation_id, rule, baseline_median, sample_size, "
+                "discount_pct, threshold, detected_at, status) VALUES (4, 1, 'median', 76, 6, "
+                "0.33, 0.3, '2026-10-14T01:01:35+00:00', 'rendered')")
+    old.execute(f"PRAGMA user_version = {version}")
+    old.commit()
+    old.close()
+
+    conn = db.connect(path)
+    db.init(conn)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 13
+    fresh = db.connect(tmp_path / "fresh.db")
+    db.init(fresh)
+    assert _deal_columns(conn) == _deal_columns(fresh)
+    deal, obs = db.get_deal(conn, 4)
+    assert (deal.status, deal.baseline_median, deal.sample_size, obs.price) == ("rendered", 76, 6, 51)
+    assert (deal.baseline_span_days, deal.baseline_lowest_obs_id,
+            deal.baseline_highest_obs_id) == (None, None, None)
+    assert pipeline.baseline_range(conn, deal) is None      # the review shows the days only
 
 
 @respx.mock

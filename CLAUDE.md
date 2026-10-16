@@ -19,6 +19,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `SITE_DATA_DIR`, default `web/src/data`; fails on purpose until `escapadinha export site-data`
   fills it; `escapadinha site build` does npm ci + build + images + routing), `npm run lhci`,
   `npm run tokens`. `npx vitest run test/review` runs only the review Function's tests.
+- Scheduler Worker (`cd workers/scheduler`, no dependencies): `node --test` (`uv run pytest` runs it
+  too); deployed by hand only, `npm run deploy` (D41, `docs/runbooks/agendamento.md`). Wrangler's
+  version has one source, config `site.wrangler_version`: every `wrangler@<version>` written in
+  the repo (the Worker's `package.json`, the docs' commands) must equal it (`tests/test_scheduler.py`).
 
 ## Rules
 - **Never fabricate prices.** Observations come only from API payloads. No seed/demo data
@@ -82,13 +86,34 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - The website data contract is versioned: change `contract/site/v1/*.schema.json` together with
   `site_data.py`, keep changes additive within v1 (a breaking change is `v2/`), and regenerate the
   committed fixtures with `escapadinha export fixtures` (read-only DB copy, anonymous links and
-  credits). Fixtures are test data (`meta.fixture: true`), never deployed.
+  credits). Fixtures are test data (`meta.fixture: true`), never deployed. Hand-edit a committed
+  fixture only to add an additive field, with the value a regeneration would write, when
+  regenerating would drop states the web tests build from (D34's meta fields, D37's
+  `affiliates.json`, D40's `meta.detector.min_dates_per_day` + `min_baseline_days: 7`); say so
+  in the DECISIONS entry. Until baselines mature the export has no low prices, so the full
+  regeneration waits for #52 (the months inside are still the pre-D40 export).
 - Two tiers (D24): **low prices** (`low_threshold`, automatic on route pages, mature baseline
   only) and **promotion candidates** (`threshold` AND `min_saving_eur`, become deals for review).
   Only candidates create deals; the home page shows promotions only.
+- Mature typical lows (D40): a daily low counts only if that day saw `min_dates_per_day`
+  departure dates; low prices and every typical low the site shows need `min_baseline_days`
+  (`detector.is_mature`), promotion candidates `min_baseline_days_promo` spanning
+  `min_baseline_span_days` (`detector.is_mature_for_promotions`; else only a route's
+  `price_cap_eur`). All from config `detector`, passed in. A deal stores its baseline's span and
+  the observation ids of its cheapest/dearest daily low (`pipeline.baseline_range`); the review
+  snapshot and both review pages show them, each price on its `data-obs`. Every run, after
+  detection, `pipeline.run_reevaluate` judges each deal awaiting review (`db.AWAITING_REVIEW`)
+  again against its month's current typical low and rules (`recheck.promotion_expiry` =
+  `detector.evaluate`, data passed in) and expires the ones that would not be detected now:
+  pipeline-owned like the recheck's expiry, never an approve/reject; approved deals only get the
+  price recheck.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
-  passed in too; never read a global `direct_only` or nights range.
+  passed in too; never read a global `direct_only` or nights range. The same for the collector
+  (`PriceSource.fetch(…, rules=)`): the provider query comes only from
+  `travelpayouts.request_params(…, rules)` (`direct=true` on nonstop-only routes, D39), shared
+  by the collection, `pipeline.price_now` and the snapshot's `live_check.query` (cases
+  `queries` in `contract/review/v1/fixtures/live-check-cases.json`, checked on both sides).
 - Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
   config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list, seed,
   discovery origins and `city_names`. Discovery (`discovery.py`) is pure; its downloads live in
@@ -98,22 +123,46 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   callable). Test the upgrade from real old schemas (`tests/fixtures/schema_v5.sql`, `schema_v7.sql`).
   Pipeline bookkeeping (e.g. last discovery time) goes in the `meta` key/value table.
 - Observations are deduplicated (`dedup_key`); never assume one row per run. Use
-  `observations_seen_since(run_id)` for a run's prices. Raw payloads live only in the run archive
+  `observations_seen_since(run_id)` for a run's prices (detection, recheck) and
+  `pipeline.latest_offers` for the newest prices of every route-month (the site export: months
+  4–6 come from the latest daily pass, D42). Raw payloads live only in the run archive
   (`archive.py` via `ObjectStore`), never in the hot table.
+- What a collection run asks for (D42) is decided only by `collector/plan.py` (pure:
+  `daily_pass_due` with `now` passed in and Lisbon days, `plan` → `Plan`, `first_far_month`: where
+  the far months start, for the plan and `pipeline.latest_offers`); `runner.collect` runs
+  a `Plan`. The day's pass (first run at or after `collector.daily_pass_hour` each Lisbon day,
+  meta `collector.daily_pass`, recorded by `pipeline.run_collect` unless every request failed)
+  asks every active route for `daily_months_ahead` months; other runs ask only routes with a
+  `last_observed_at` for `months_ahead` months, plus the far month of every open promotion (the
+  recheck judges every open deal on every run). Dormancy never judges a route the run didn't ask
+  for (`mark_dormant(spare=)`).
 - Objects go through `ctx.object_store` (R2 when the `R2_*` keys are set, else `data/objects/`);
   never write the bucket or `data/objects/` directly. Every `ObjectStore` implementation passes
   `tests/test_objects.py` (S3 runs on moto, no network). The database file is only uploaded via
   `storage/sync.py` (backup-API snapshot under the run lock), never the live file (D21).
 - CI keeps no files between runs (D21, D25). Anything a run needs from an earlier run lives in the
   database (`meta`: `site.paths` (+ `site.paths.pending` between build and deploy), `site.links`,
-  `site.deployed`, `site.link_budget`, `site.article_links`, the run-path fingerprint) or goes
+  `site.deployed`, `site.link_budget`, `site.article_links`, the run-path fingerprint,
+  `collector.daily_pass`) or goes
   through a `storage.mirror.Mirror` (`pipeline.photo_files` / `output_files`): upload when made,
   `file`/`folder` to read (downloads when missing). Never read `output/` or `assets/photos/`
   directly; use `pipeline.deal_folder` / `guide_folder` (pass `files=` the glob you read, e.g.
   `pipeline.SLIDES`, so a runner downloads only those, once), `deal_slide_names` (names only, no
   download), `deal_view` (its photo).
-- `run` order (`cli._run_steps`): `apply_review_events` (D26) → upkeep → collect → recheck →
-  detect → `publish_due` (D32, every run: posting never waits for a full path) →
+- The schedule (D41): `pipeline.yml` has no `schedule`, so every run of it is a real run. The
+  Worker `workers/scheduler/` (Cron Trigger every 2 h, window 45 min) and
+  `pipeline-fallback.yml` (GitHub's cron every 6 h, window 3 h; its job fails on purpose when it
+  dispatches, so GitHub e-mails) both run `src/schedule.js` `tick`: skip a disabled workflow or
+  a run created within the window, else dispatch `full: false`. Keep `Worker window + 2 h <
+  pipeline.RUN_GAP_WARNING ≤ fallback window` and the vars equal to the fallback's env
+  (`tests/test_scheduler.py`). The GitHub token (`GITHUB_ACTIONS_TOKEN`, fine-grained, Actions:
+  read/write) is only a Worker secret, never a var; every log line and error goes through
+  `redact`. The Worker stays plain JS without npm packages or a URL, deployed by hand with the
+  pinned wrangler (the pipeline's Cloudflare token is Pages-only).
+- `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
+  collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → missed-pass warning
+  (`pipeline.missed_daily_pass_warning`, last recorded pass > 30 h ago) → recheck →
+  detect (+ `run_reevaluate`, D40) → `publish_due` (D32, every run: posting never waits for a full path) →
   `run_path.decide` → full path only, its Node commands inside one deadline
   (`node.deadline()`, D35) (render → `export site-data` (D27, → `web/src/data`; keep the
   returned `Export`) → `site build` (Astro, D35: npm ci if needed, astro build, promotion images,
@@ -145,7 +194,15 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   event (`pipeline.price_now`, stores nothing); the applier re-checks every transition, refuses
   approvals whose check is older than `review.approve_max_age_hours` (passed in as
   `approve_max_age`), and archives refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
-  them only with a new version. Render (new → rendered) and rechecks stay pipeline-owned.
+  them only with a new version. One exception: an optional **snapshot** field the Function can do
+  without (D29's `transfers`, D40's `baseline`) joins v1, though the schema before it refuses a
+  snapshot that has it (`additionalProperties: false`). That is allowed only because the review
+  Function never validates the snapshot at run time (it reads the JSON as is; keep it so:
+  `web/test/review/page.test.ts` serves a snapshot with unknown keys) and handles the field's
+  absence; a reader that validates the snapshot, or any change to the events (the applier
+  validates them), needs a v2. A new `*_eur` field is taught to
+  `test_review_events.SNAPSHOT_PRICES`. Render (new → rendered), rechecks and the
+  queue's re-evaluation (D40) stay pipeline-owned.
 - Posting queue (D32, `posting_queue`): only an applied approve event queues posts, in the
   applier's transaction (`plan_posts` passed into `apply_pending`). Slot rules stay pure in
   `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). Channels are named only in
@@ -226,7 +283,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Update README.md, CLAUDE.md and DECISIONS.md in the same commit as a feature.
 
 ## Layout
-- `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `runner.collect`, `catalogue.py`
+- `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `plan.py` (the day's pass,
+  D42), `runner.collect` (runs a `Plan`), `catalogue.py`
 - `src/escapadinha/discovery.py`: pure `Catalogue.from_payloads` + `discover` → `Found` routes with kind
 - `src/escapadinha/routes.py`: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`,
   `all_routes`/`active_routes`/`get_route`
@@ -236,9 +294,16 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `mirror.py`: `Mirror` (a local folder also kept under a store prefix: `photos/`, `output/`)
 - `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint` incl. `site_data_digest`,
   `record_full_path(ctx, conn, export)`: records the export the full path wrote, never a re-read)
-- `.github/workflows/pipeline.yml`: 2-hourly `escapadinha run` on Actions; dispatch → `--full` (D25)
-- `src/escapadinha/detector.py`: daily-low `baseline` per route+month, `evaluate` (candidates),
-  `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
+- `.github/workflows/pipeline.yml`: `escapadinha run` on Actions, dispatched every 2 h (D41);
+  `full` input or `repository_dispatch` → `--full` (D25). `pipeline-fallback.yml`: the schedule's
+  fallback (D41)
+- `workers/scheduler/`: the scheduler Worker (D41): `wrangler.toml` (cron, vars), `src/schedule.js`
+  (`tick`, `settings`, `recentRun`, `redact`), `src/index.js` (the Worker's `scheduled`),
+  `src/fallback.js` (the Actions fallback's entry, exit codes), `test/` (node:test); runbook
+  `docs/runbooks/agendamento.md`
+- `src/escapadinha/detector.py`: daily-low `baseline` per route+month (days with 2+ departure
+  dates, cheapest/dearest daily low), `is_mature` / `is_mature_for_promotions` (D40), `evaluate`
+  (candidates), `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,
@@ -300,7 +365,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `build-site.ts`, `scale.test.ts` full-size synthetic build, traceability, internal links,
   `content-pages.test.ts`, `seo.test.ts` + `jsonld.ts`, `seo-configured.test.ts`)
 - `docs/runbooks/`: pt-PT step-by-step guides for things only Miguel can do (e.g. `brand-switch.md`,
-  `search-widget.md`, `instagram.md`, `telegram.md`, `rever-conteudo.md`: reviewing MDX drafts in `npm run dev:fixtures`)
+  `search-widget.md`, `instagram.md`, `telegram.md`, `agendamento.md`, `rever-conteudo.md`: reviewing MDX drafts in `npm run dev:fixtures`)
 - `web/`: the Astro site (own `package.json`, Node 22): `src/lib/site-data.ts` (load + ajv
   validation) behind `virtual:site-data`, `format.ts` (pt-PT), `promotion.ts` (view of a
   promotion), `cta.ts` (booking button + disclosure); `src/layouts/Base.astro`, `src/components/`,

@@ -17,6 +17,7 @@ from escapadinha import (archive, detector, discovery, i18n_pt, instagram, posti
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.articles import Article
 from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
+from escapadinha.collector import plan as collector_plan
 from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.base import Fetched, departure_months
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
@@ -26,7 +27,7 @@ from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation, Post, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
 from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
-from escapadinha.recheck import Recheck, recheck
+from escapadinha.recheck import Recheck, promotion_expiry, recheck
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, UnknownDeal, check_decision
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db, sync
@@ -52,21 +53,95 @@ def lisbon_today() -> date:
 
 # --- collect ------------------------------------------------------------------
 
-def run_collect(ctx: Context, conn: sqlite3.Connection) -> RunSummary:
-    return collect(conn, price_source(ctx), routes.active_routes(conn, ctx.config.routes),
-                   today=lisbon_today(), months_ahead=ctx.config.collector.months_ahead,
-                   store=ctx.object_store, workers=ctx.config.collector.workers)
+DAILY_PASS = "collector.daily_pass"   # meta: the latest daily pass, {"day": Lisbon date, "run": id} (D42)
+
+
+def run_collect(ctx: Context, conn: sqlite3.Connection, now: datetime | None = None) -> RunSummary:
+    """One collection run: the day's pass when due (D42), else every run's months. A daily pass
+    is recorded unless every request failed (the next run tries again)."""
+    now = now or db.utcnow()
+    c = ctx.config.collector
+    last = db.get_meta_json(conn, DAILY_PASS).get("day")
+    daily = collector_plan.daily_pass_due(date.fromisoformat(last) if last else None, now,
+                                          c.daily_pass_hour)
+    today = now.astimezone(i18n_pt.LISBON).date()
+    deal_months = {(o.route_key, o.departure_date.replace(day=1)) for _, o in db.open_deals(conn)}
+    asked = collector_plan.plan(routes.active_routes(conn, ctx.config.routes), today=today,
+                                daily=daily, months_ahead=c.months_ahead,
+                                daily_months_ahead=c.daily_months_ahead, deal_months=deal_months)
+    summary = collect(conn, price_source(ctx), asked, store=ctx.object_store, workers=c.workers)
+    if daily and summary.status != "failed":
+        db.set_meta(conn, DAILY_PASS, json.dumps({"day": today.isoformat(), "run": summary.run_id}))
+    return summary
+
+
+def latest_offers(ctx: Context, conn: sqlite3.Connection,
+                  now: datetime) -> tuple[int | None, list[Observation]]:
+    """The latest completed run and the newest prices of every route-month (D42): that run's,
+    and for the far months only the day's pass asks for, the latest pass's (or newer)."""
+    run_id = db.latest_completed_run_id(conn)
+    if run_id is None:
+        return None, []
+    last = db.get_meta_json(conn, DAILY_PASS)
+    today = now.astimezone(i18n_pt.LISBON).date()
+    far_from = collector_plan.first_far_month(today, ctx.config.collector.months_ahead)
+    return run_id, db.newest_observations(conn, run_id,
+                                          (last["run"], far_from) if last else None)
+
+
+# The schedule dispatches a run every 2 h (D41); its skips leave at most 2 h 45 min between runs.
+RUN_GAP_WARNING = timedelta(hours=3)
+
+
+def late_run_warning(conn: sqlite3.Connection, now: datetime) -> str | None:
+    """The run log's warning when the previous collection started more than `RUN_GAP_WARNING`
+    before `now` (D41): the 2-hourly schedule missed at least one run. None on time or without
+    a previous run. Live checks (scope `live_check`) are not runs."""
+    previous = db.latest_collection_start(conn)
+    if previous is None or now - previous[1] <= RUN_GAP_WARNING:
+        return None
+    run_id, started = previous
+    hours, minutes = divmod(int((now - started).total_seconds() // 60), 60)
+    return (f"the previous run (#{run_id}) started {hours} h {minutes:02d} min ago, more than "
+            f"{RUN_GAP_WARNING.seconds // 3600} h: the 2-hourly schedule missed a run. Check the "
+            "scheduler Worker (docs/runbooks/agendamento.md).")
+
+
+# A day's pass is the first run at or after `daily_pass_hour` (D42): about 24 h apart, 26 h when
+# that hour's run is late, 25 h across the autumn clock change. 30 h means a Lisbon day went by
+# without one.
+DAILY_PASS_WARNING = timedelta(hours=30)
+
+
+def missed_daily_pass_warning(ctx: Context, conn: sqlite3.Connection, now: datetime) -> str | None:
+    """The run log's warning when the last recorded daily pass (meta `collector.daily_pass`)
+    started more than `DAILY_PASS_WARNING` before `now`: far months and never-seen routes went
+    a day without a request. Checked after the collection, so a run that is the pass and records
+    it never warns. None without a recorded pass (the next run is one)."""
+    last = db.get_meta_json(conn, DAILY_PASS)
+    started = db.run_started_at(conn, last["run"]) if last else None
+    if started is None or now - started <= DAILY_PASS_WARNING:
+        return None
+    hours, minutes = divmod(int((now - started).total_seconds() // 60), 60)
+    c = ctx.config.collector
+    return (f"the last daily pass (#{last['run']}, {last['day']}) started {hours} h {minutes:02d} "
+            f"min ago, more than {DAILY_PASS_WARNING // timedelta(hours=1)} h: months "
+            f"{c.months_ahead + 1}–{c.daily_months_ahead} and the never-seen routes were not "
+            "asked since. A pass where every request failed is not recorded: check the runs "
+            f"after {c.daily_pass_hour:02d}:00 Lisbon (D42).")
 
 
 def run_dormancy(ctx: Context, conn: sqlite3.Connection, summary: RunSummary,
                  now: datetime | None = None) -> list[Route]:
     """After a collection: routes without prices for `dormant_after_days` go dormant.
 
-    Skipped when the whole run failed (an API outage must not put every route to sleep).
+    Skipped when the whole run failed (an API outage must not put every route to sleep). A
+    route the run didn't ask for (never seen, between daily passes, D42) waits for its probe.
     """
     if summary.status == "failed":
         return []
-    return routes.mark_dormant(conn, ctx.config.routes, now or db.utcnow())
+    return routes.mark_dormant(conn, ctx.config.routes, now or db.utcnow(),
+                               spare={r.key for r in summary.plan.waiting})
 
 
 # --- discover routes ------------------------------------------------------------
@@ -185,12 +260,42 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
         deal_ids = [
             db.insert_deal(conn, observation_id=f.observation.id, rule=f.decision.rule,
                            baseline_median=f.baseline.median, sample_size=f.baseline.sample_size,
-                           discount_pct=f.decision.discount_pct, threshold=cfg.threshold)
+                           discount_pct=f.decision.discount_pct, threshold=cfg.threshold,
+                           **_baseline_columns(f.baseline))
             for f in found.candidates
         ]
         open_offers = [o for o in offers if o.id not in taken]
         results.append(_summarise(route, open_offers, history, found, deal_ids, cfg, now))
     return run_id, results
+
+
+@dataclass(frozen=True)
+class BaselineRange:
+    """A deal's typical low as the reviewer sees it (D40), next to `sample_size` days."""
+
+    span_days: int              # first to last baseline day
+    lowest: Observation         # the cheapest daily low
+    highest: Observation        # the dearest daily low
+
+
+def baseline_range(conn: sqlite3.Connection, deal: Deal) -> BaselineRange | None:
+    """The span and extreme daily lows stored with the deal, read from their observations;
+    None for a deal detected before D40 or without a typical low (price cap)."""
+    ids = (deal.baseline_lowest_obs_id, deal.baseline_highest_obs_id)
+    if deal.baseline_span_days is None or None in ids:
+        return None
+    lowest, highest = (db.get_observation(conn, i) for i in ids)
+    return BaselineRange(deal.baseline_span_days, lowest, highest)
+
+
+def _baseline_columns(base: detector.Baseline) -> dict:
+    """What a deal stores of its typical low for the reviewer (D40): span and the
+    observations of the extreme daily lows (none without a baseline, e.g. a price cap)."""
+    if base.median is None:
+        return {}
+    return {"baseline_span_days": base.span_days,
+            "baseline_lowest_obs_id": base.lowest.id if base.lowest else None,
+            "baseline_highest_obs_id": base.highest.id if base.highest else None}
 
 
 def _summarise(route: Route, offers: list[Observation], history: list[Observation],
@@ -285,6 +390,36 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
     return results
 
 
+def run_reevaluate(ctx: Context, conn: sqlite3.Connection,
+                   now: datetime | None = None) -> list[tuple[Deal, Observation, str]]:
+    """Every deal awaiting review judged again against its departure month's current typical
+    low and the route's current rules (D40): one that would not be detected now expires, with
+    the reason (`recheck.promotion_expiry`). Runs after detection on every run, so a deal
+    detected on a young typical low (before D40) never waits for a human to be published.
+
+    Pipeline-owned, like the price recheck's expiry (D26). Approved deals are left to the price
+    recheck: a human approved them against the figures the review showed."""
+    now = now or db.utcnow()
+    cfg = ctx.config.detector
+    baselines: dict[str, dict[tuple[int, int], detector.Baseline]] = {}
+    expired = []
+    for deal, obs in db.open_deals(conn):
+        if deal.status not in db.AWAITING_REVIEW:
+            continue
+        route = route_for(ctx, conn, obs.route_key)
+        if route.key not in baselines:
+            baselines[route.key] = detector.month_baselines(route_history(ctx, conn, route, now),
+                                                            cfg, now, route.rules)
+        base = baselines[route.key].get(detector.month_key(obs), detector.Baseline(None, 0, 0))
+        reason = promotion_expiry(obs, deal.rule, base, cfg, route.price_cap_eur)
+        if reason is None:
+            continue
+        db.expire_deal(conn, deal.id, reason)
+        _mark_expired_outputs(ctx, deal.id, reason, now)
+        expired.append((db.get_deal(conn, deal.id)[0], obs, reason))
+    return expired
+
+
 def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime) -> None:
     """Drop a NÃO PUBLICAR note into any already-rendered folder of this deal."""
     for folder in ctx.output_dir.glob(f"*/deal-*-{deal_id}"):
@@ -308,8 +443,7 @@ def _fetch_trip_month(ctx: Context, conn: sqlite3.Connection,
     """The deal's route and departure month, priced now (one request)."""
     rules = route_for(ctx, conn, obs.route_key).rules
     fetched = price_source(ctx).fetch(obs.origin, obs.destination,
-                                      obs.departure_date.replace(day=1),
-                                      min_nights=rules.min_nights, max_nights=rules.max_nights)
+                                      obs.departure_date.replace(day=1), rules=rules)
     return fetched, rules
 
 

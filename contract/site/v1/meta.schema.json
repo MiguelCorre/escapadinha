@@ -44,6 +44,7 @@
         "threshold": {"type": "number"},
         "min_saving_eur": {"type": "number"},
         "min_baseline_days": {"type": "integer"},
+        "min_dates_per_day": {"type": "integer", "minimum": 1, "description": "Added in v1 (D40): a day's low counts towards min_baseline_days only when that day saw at least this many different departure dates. Absent: every day counts (1)."},
         "max_offer_age_days": {"type": "integer"},
         "lookback_days": {"type": "integer"}
       }

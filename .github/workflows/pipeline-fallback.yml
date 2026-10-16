@@ -1,0 +1,39 @@
+# The schedule's fallback (DECISIONS D41). The Cloudflare Worker in workers/scheduler/ dispatches
+# pipeline.yml every 2 hours. GitHub's own cron is best effort (its 2-hourly runs came 4.4–6.8 h
+# apart), so it only backs the Worker up: every 6 h (when GitHub gets to it) the same tick, run with
+# Node, dispatches pipeline.yml only if no run of it started in the last 3 h. A healthy schedule
+# never leaves 3 h without a run (the Worker's skips leave at most 2 h 45 min), so a dispatch here
+# means the Worker missed its runs: the job then fails on purpose and GitHub e-mails the owner
+# (docs/runbooks/agendamento.md). The token is this run's GITHUB_TOKEN: workflow_dispatch is one of
+# the events it may start.
+name: Pipeline fallback
+
+on:
+  schedule:
+    - cron: "47 */6 * * *"         # UTC; each check costs one billed minute
+  workflow_dispatch:               # by hand: dispatches only when nothing ran for 3 h
+
+permissions:
+  actions: write                   # read pipeline.yml's state and runs, dispatch it
+  contents: read                   # the checkout
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: workers/scheduler
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Dispatch the pipeline if no run started in the last 3 h
+        env:
+          GITHUB_ACTIONS_TOKEN: ${{ github.token }}
+          WORKFLOW: pipeline.yml
+          REF: master
+          SKIP_IF_RUN_WITHIN_MINUTES: "180"
+        run: node workers/scheduler/src/fallback.js

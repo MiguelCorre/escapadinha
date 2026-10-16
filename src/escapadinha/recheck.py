@@ -3,6 +3,9 @@
 A deal stays valid only while the newest run still offers the same trip (same departure
 and return dates) at the deal price or lower, found by travellers recently. Otherwise it
 expires and must not be published: the source is a cache and prices move fast.
+
+A deal no human approved yet must also still be a promotion against its month's current
+typical low (`promotion_expiry`, D40): the detector's own rule, judged again on every run.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from datetime import datetime
 
 from escapadinha import i18n_pt as pt
 from escapadinha.config import DetectorConfig
-from escapadinha.detector import DIRECT, eligible, is_fresh
+from escapadinha.detector import DIRECT, Baseline, eligible, evaluate, is_fresh
 from escapadinha.models import Observation, RouteRules
 
 
@@ -49,3 +52,28 @@ def _rule_broken(deal_obs: Observation, rules: RouteRules) -> str:
     if rules.direct_only:
         return "não é ida e volta com voos diretos (regra direct_only)"
     return f"tem mais de {rules.max_transfers} escala(s) num dos sentidos (regra max_transfers)"
+
+
+def promotion_expiry(deal_obs: Observation, rule: str, base: Baseline, cfg: DetectorConfig,
+                     price_cap: float | None) -> str | None:
+    """Why a deal awaiting review is no longer a promotion against `base`, its departure
+    month's current typical low (D40), in pt-PT; None while it still is.
+
+    The detector's own rule (`evaluate`), so a deal stays exactly when it would be detected now:
+    a typical low mature for promotions, `threshold` AND `min_saving_eur` below it. The route's
+    `price_cap` keeps only the deals it made (rule `price_cap`), and only while the typical low
+    is not mature for promotions; a deal of the median rule never survives on it."""
+    decision = evaluate(deal_obs, base, cfg, price_cap if rule == "price_cap" else None)
+    if decision.kind == "deal":
+        return None
+    if decision.kind == "insufficient_history":
+        need = cfg.min_baseline_days_promo
+        why = (f"{base.sample_size} de {need} dias" if base.sample_size < need else
+               f"{base.sample_size} dias, mas do primeiro ao último só {base.span_days} de "
+               f"{cfg.min_baseline_span_days}")
+        return f"preço habitual ainda sem dados suficientes ({why})"
+    below = 1 - deal_obs.price / base.median
+    where = f"{round(abs(below) * 100)}% {'abaixo' if below >= 0 else 'acima'}"
+    return (f"já não é promoção face ao preço habitual atual ({pt.eur(base.median)}): "
+            f"{pt.eur(deal_obs.price)} fica {where}; são precisos {round(cfg.threshold * 100)}% e "
+            f"{pt.eur(cfg.min_saving_eur)}")

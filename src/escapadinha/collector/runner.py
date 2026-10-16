@@ -5,11 +5,10 @@ from __future__ import annotations
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date
 
 from escapadinha import archive
-from escapadinha.collector.base import PriceSource, departure_months
-from escapadinha.models import Route
+from escapadinha.collector.base import PriceSource
+from escapadinha.collector.plan import Plan
 from escapadinha.storage import db
 from escapadinha.storage.objects import ObjectStore
 
@@ -24,11 +23,12 @@ class RunSummary:
     n_repeated: int         # already stored: last_seen_at/seen_count updated
     archive_key: str | None
     errors: list[str]
+    plan: Plan              # what the run asked for: the day's pass or not (D42)
 
 
-def collect(conn: sqlite3.Connection, source: PriceSource, routes: list[Route], *,
-            today: date, months_ahead: int, store: ObjectStore, workers: int = 1) -> RunSummary:
-    """One request per (route, month), each with the route's nights range, `workers` at a
+def collect(conn: sqlite3.Connection, source: PriceSource, plan: Plan, *,
+            store: ObjectStore, workers: int = 1) -> RunSummary:
+    """One request per (route, month) of the plan, each with the route's rules, `workers` at a
     time (the source's rate limiter caps requests per minute). Results are stored in request
     order on this thread (SQLite connections are per-thread). A failing request is recorded
     and skipped. All responses go to one archive object."""
@@ -36,15 +36,14 @@ def collect(conn: sqlite3.Connection, source: PriceSource, routes: list[Route], 
     n_observations = n_new = 0
     errors: list[str] = []
     responses: list[dict] = []
-    tasks = [(route, month) for route in routes for month in departure_months(today, months_ahead)]
+    tasks = list(plan.tasks)
     n_requests = len(tasks)
 
     def fetch(task):
         route, month = task
         try:
             return source.fetch(route.origin, route.destination, month,
-                                min_nights=route.rules.min_nights,
-                                max_nights=route.rules.max_nights), None
+                                rules=route.rules), None
         except Exception as exc:  # one bad route/month must not lose the rest of the run
             return None, exc
 
@@ -74,4 +73,4 @@ def collect(conn: sqlite3.Connection, source: PriceSource, routes: list[Route], 
     db.finish_run(conn, run_id, status=status, n_requests=n_requests,
                   n_observations=n_observations, n_new=n_new, error="\n".join(errors) or None)
     return RunSummary(run_id, status, n_requests, n_observations, n_new,
-                      n_observations - n_new, archive_key, errors)
+                      n_observations - n_new, archive_key, errors, plan)

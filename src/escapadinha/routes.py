@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections import Counter
+from collections.abc import Collection
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 
@@ -146,8 +147,13 @@ def due_dormant(routes: list[Route], now: datetime, days: int) -> list[Route]:
             and max(t for t in (r.last_observed_at, r.discovered_at) if t is not None) < cutoff]
 
 
-def mark_dormant(conn: sqlite3.Connection, cfg: RoutesConfig, now: datetime) -> list[Route]:
-    """Put routes without prices for `dormant_after_days` to sleep (excluded ones are left alone)."""
-    stale = due_dormant(active_routes(conn, cfg), now, cfg.dormant_after_days)
+def mark_dormant(conn: sqlite3.Connection, cfg: RoutesConfig, now: datetime, *,
+                 spare: Collection[str] = ()) -> list[Route]:
+    """Put routes without prices for `dormant_after_days` to sleep (excluded ones are left alone).
+
+    `spare`: keys of routes the collection didn't ask for (never-seen routes between daily
+    passes, D42): a route is only put to sleep after a collection that probed it."""
+    stale = [r for r in due_dormant(active_routes(conn, cfg), now, cfg.dormant_after_days)
+             if r.key not in spare]
     db.set_route_status(conn, [(r.origin, r.destination) for r in stale], "dormant")
     return stale

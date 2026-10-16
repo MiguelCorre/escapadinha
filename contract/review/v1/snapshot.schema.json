@@ -108,6 +108,19 @@
         "discount_pct": {"type": ["integer", "null"]},
         "typical_low_eur": {"type": ["number", "null"]},
         "baseline_days": {"type": "integer"},
+        "baseline": {
+          "description": "Optional (added within v1, D40): how solid typical_low_eur is. span_days = first to last of the baseline_days daily lows (a UI shows the window, span_days + 1 days); the cheapest and dearest daily low, each with the price_observations.id it comes from (traceability, D2). Null for a deal detected before D40 or without a typical low (price cap); absent from snapshots made before D40: a UI then shows baseline_days only.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["span_days", "lowest_eur", "lowest_observation_id", "highest_eur", "highest_observation_id"],
+          "properties": {
+            "span_days": {"type": "integer", "minimum": 0},
+            "lowest_eur": {"type": "number"},
+            "lowest_observation_id": {"type": "integer"},
+            "highest_eur": {"type": "number"},
+            "highest_observation_id": {"type": "integer"}
+          }
+        },
         "found_date": {"type": ["string", "null"], "format": "date",
                        "description": "When a traveller found the price (provider cache)."},
         "found_on": {"type": ["string", "null"]},
@@ -132,7 +145,7 @@
             "expired_reason": {"type": ["string", "null"]},
             "query": {
               "type": "object",
-              "description": "Exact query of the provider request (prices_for_dates) that prices this trip now; the API token goes in the X-Access-Token header.",
+              "description": "Exact query of the provider request (prices_for_dates) that prices this trip now, the same the collection sends for the route-month (with direct=\"true\" on a route that takes only nonstop flights, D39); the API token goes in the X-Access-Token header.",
               "required": ["origin", "destination", "departure_at", "one_way", "currency"],
               "additionalProperties": {"type": ["string", "integer"]}
             },

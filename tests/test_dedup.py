@@ -118,7 +118,7 @@ def test_stats_shows_seen_counts(ctx, monkeypatch):
     seed_history(conn, days=3, price=100)
     monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
     out = CliRunner().invoke(cli.app, ["stats", "LIS-LON"]).output
-    assert "3 distinct offers, seen 3 times in total (most repeated: 1 runs)" in out
+    assert "6 distinct offers, seen 6 times in total (most repeated: 1 runs)" in out   # 2 a day
 
 
 # --- migration 7 ------------------------------------------------------------------------

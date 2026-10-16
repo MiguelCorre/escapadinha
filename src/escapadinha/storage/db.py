@@ -11,7 +11,7 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo, Post
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -113,6 +113,13 @@ MIGRATIONS = {
          "ALTER TABLE posting_queue ADD COLUMN caption TEXT"],
     # Telegram publisher (D38): the channel message's id (its link is `result_url`).
     12: ["ALTER TABLE posting_queue ADD COLUMN message_id TEXT"],
+    # Mature typical lows (D40): what the reviewer sees of a deal's baseline. Deals detected
+    # before keep NULLs (their baseline was never stored beyond the median and days).
+    13: ["ALTER TABLE deals ADD COLUMN baseline_span_days INTEGER",
+         "ALTER TABLE deals ADD COLUMN baseline_lowest_obs_id INTEGER "
+         "REFERENCES price_observations(id)",
+         "ALTER TABLE deals ADD COLUMN baseline_highest_obs_id INTEGER "
+         "REFERENCES price_observations(id)"],
 }
 
 
@@ -190,6 +197,19 @@ def run_archive_key(conn: sqlite3.Connection, run_id: int) -> str | None:
 def run_finished_at(conn: sqlite3.Connection, run_id: int) -> datetime | None:
     row = conn.execute("SELECT finished_at FROM fetch_runs WHERE id = ?", (run_id,)).fetchone()
     return datetime.fromisoformat(row["finished_at"]) if row and row["finished_at"] else None
+
+
+def latest_collection_start(conn: sqlite3.Connection) -> tuple[int, datetime] | None:
+    """(id, started_at) of the newest collection run (scope `full`), whatever its status."""
+    row = conn.execute(
+        "SELECT id, started_at FROM fetch_runs WHERE scope = 'full' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return (row["id"], datetime.fromisoformat(row["started_at"])) if row else None
+
+
+def run_started_at(conn: sqlite3.Connection, run_id: int) -> datetime | None:
+    row = conn.execute("SELECT started_at FROM fetch_runs WHERE id = ?", (run_id,)).fetchone()
+    return datetime.fromisoformat(row["started_at"]) if row else None
 
 
 def latest_completed_run_id(conn: sqlite3.Connection) -> int | None:
@@ -275,6 +295,23 @@ def observations_seen_since(conn: sqlite3.Connection, run_id: int) -> list[Obser
     return [_row_to_observation(r) for r in rows]
 
 
+def newest_observations(conn: sqlite3.Connection, run_id: int,
+                        far: tuple[int, date] | None = None) -> list[Observation]:
+    """The newest prices: the offers of run `run_id` or later (`observations_seen_since`) and,
+    with `far` = (a daily pass's run id, first day of the far months), the offers departing from
+    that day on that the pass or a later run returned. Far months are asked only on the day's
+    pass (D42): a run in between keeps showing that pass's prices for them."""
+    if far is None:
+        return observations_seen_since(conn, run_id)
+    rows = conn.execute(
+        """SELECT * FROM price_observations
+           WHERE last_run_id >= ? OR (last_run_id >= ? AND departure_date >= ?)
+           ORDER BY origin, destination, price""",
+        (run_id, far[0], far[1].isoformat()),
+    )
+    return [_row_to_observation(r) for r in rows]
+
+
 def route_history(conn: sqlite3.Connection, origin: str, destination: str, *,
                   since: datetime, exclude_run_id: int | None) -> list[Observation]:
     rows = conn.execute(
@@ -331,13 +368,16 @@ def recently_flagged_offers(conn: sqlite3.Connection, origin: str, destination: 
 
 def insert_deal(conn: sqlite3.Connection, *, observation_id: int, rule: str,
                 baseline_median: float | None, sample_size: int, discount_pct: float | None,
-                threshold: float) -> int:
+                threshold: float, baseline_span_days: int | None = None,
+                baseline_lowest_obs_id: int | None = None,
+                baseline_highest_obs_id: int | None = None) -> int:
     cur = conn.execute(
         """INSERT INTO deals (observation_id, rule, baseline_median, sample_size,
-                              discount_pct, threshold, detected_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                              discount_pct, threshold, detected_at, baseline_span_days,
+                              baseline_lowest_obs_id, baseline_highest_obs_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (observation_id, rule, baseline_median, sample_size, discount_pct, threshold,
-         _ts(utcnow())),
+         _ts(utcnow()), baseline_span_days, baseline_lowest_obs_id, baseline_highest_obs_id),
     )
     conn.commit()
     return cur.lastrowid
@@ -359,6 +399,9 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
         output_path=row["output_path"],
         reviewed_at=_dt(row["reviewed_at"]), review_note=row["review_note"],
         published_at=_dt(row["published_at"]), post_url=row["post_url"],
+        baseline_span_days=row["baseline_span_days"],
+        baseline_lowest_obs_id=row["baseline_lowest_obs_id"],
+        baseline_highest_obs_id=row["baseline_highest_obs_id"],
     )
 
 
@@ -476,6 +519,7 @@ def set_deal_affiliate(conn: sqlite3.Connection, deal_id: int, url: str | None,
 
 
 OPEN_STATUSES = ("new", "rendered", "approved")
+AWAITING_REVIEW = ("new", "rendered")     # open, and no human has approved them yet
 
 
 def open_deals(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
@@ -495,6 +539,15 @@ def record_recheck(conn: sqlite3.Connection, deal_id: int, *, valid: bool,
                expired_reason = CASE WHEN ? THEN NULL ELSE ? END
            WHERE id = ?""",
         (_ts(at or utcnow()), latest_price, valid, valid, reason, deal_id))
+    conn.commit()
+
+
+def expire_deal(conn: sqlite3.Connection, deal_id: int, reason: str) -> None:
+    """A deal awaiting review that is no longer a promotion against its month's current typical
+    low (D40). Pipeline-owned like a recheck's expiry; the last recheck's time and price stay."""
+    conn.execute(f"""UPDATE deals SET status = 'expired', expired_reason = ?
+                     WHERE id = ? AND status IN ({','.join('?' * len(AWAITING_REVIEW))})""",
+                 (reason, deal_id, *AWAITING_REVIEW))
     conn.commit()
 
 

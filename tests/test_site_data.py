@@ -231,7 +231,7 @@ def test_routes_carry_typical_lows_averages_status_and_counts(ctx, tmp_path):  #
     assert lon["path"] == "/voos/lisboa-londres/" and lon["kind"] == "europe"
     assert lon["rules"] == {"direct_only": True, "min_nights": 2, "max_nights": 10,
                             "max_transfers": 0}
-    assert lon["counts"]["observations"] == 25 and lon["status"] == "active"
+    assert lon["counts"]["observations"] == 50 and lon["status"] == "active"   # 2 a day
     assert route(out, "LIS-BCN")["months"] == [
         {"month": f"{jan:%Y-%m}", "typical_low": None, "average": None, "days": 2}]
     assert route(out, "OPO-BER")["status"] == "dormant"
@@ -392,6 +392,26 @@ def test_export_and_site_build_share_one_new_link_budget_per_run(ctx, tmp_path):
     assert len(low_link_requests()) == 4                      # a new run, a new budget
 
 
+def test_a_month_shows_its_typical_low_only_once_mature(ctx, tmp_path):  # noqa: F811
+    """D40: seven daily lows, counting only days that saw two departure dates; the route page
+    reads both numbers from meta to say what "ainda sem dados suficientes" means."""
+    conn = pipeline.open_db(ctx)
+    jan = date(db.utcnow().year + 1, 1, 10)
+    one_date = offer("LIS", "BCN", 30, found_ago=11, dep=jan)     # a 7th, cheap day: one date
+    store_run(conn, history("LIS", "BCN", [40] * 6, jan) + [one_date]
+              + history("LIS", "ROM", [50] * 7, jan))
+    out = tmp_path / "data"
+    site_data.export_site_data(ctx, conn, out, new_links=False)
+    month = f"{jan:%Y-%m}"
+    assert route(out, "LIS-BCN")["months"] == [
+        {"month": month, "typical_low": None, "average": None, "days": 6}]
+    assert route(out, "LIS-ROM")["months"] == [
+        {"month": month, "typical_low": 50, "average": 50, "days": 7}]
+    det = read(out, "meta.json")["detector"]
+    assert (det["min_baseline_days"], det["min_dates_per_day"]) == (7, 2)
+    assert validation_errors(out) == []
+
+
 # --- size budget (D27) --------------------------------------------------------------------
 
 @respx.mock
@@ -399,7 +419,7 @@ def test_low_price_files_stay_inside_the_size_budget(ctx, tmp_path):  # noqa: F8
     mock_links()
     conn = pipeline.open_db(ctx)
     jan = date(db.utcnow().year + 1, 1, 10)
-    store_run(conn, history("LIS", "LON", [100] * 6, jan))           # typical low 100 € in Jan
+    store_run(conn, history("LIS", "LON", [100] * 7, jan))           # typical low 100 € in Jan
     trips = [offer("LIS", "LON", 60 + (day * 9 + n) % 25 + 0.5 * (n % 2), found_ago=n % 3,
                    dep=jan + timedelta(days=day), nights=n)
              for day in range(22) for n in range(2, 11)]                # 198 trips, all -15 %+
@@ -453,13 +473,15 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
 
     from escapadinha import run_path
     calls = []
-    for name in ("apply_review_events", "routes_upkeep", "recheck_cmd", "detect", "publish_due",
+    for name in ("apply_review_events", "_warn_if_late", "routes_upkeep",
+                 "_warn_if_daily_pass_missed", "recheck_cmd", "detect", "publish_due",
                  "render_deals", "_export_site_data", "_site_build", "_site_deploy",
                  "export_review_snapshot"):
         monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n)
                             or SimpleNamespace(installed=False))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
-        status="ok", n_requests=1, n_observations=1, n_new=0, errors=[]))
+        status="ok", n_requests=1, n_observations=1, n_new=0, errors=[],
+        plan=SimpleNamespace(describe=lambda: "daily pass")))
     monkeypatch.setattr(cli, "_ctx", lambda: (None, None))
     monkeypatch.setattr(cli, "_site_configured", lambda ctx: True)
     monkeypatch.setattr(cli.pipeline, "mirror_local_files", lambda ctx, conn: [])
@@ -467,18 +489,20 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
                         lambda ctx, conn, export: calls.append("record_full_path"))
     monkeypatch.setattr(run_path, "decide", lambda ctx, conn, force: run_path.PathDecision(force, "x"))
     cli._run_steps(render=True, full=True, report=[])
-    assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
-                     "publish_due", "render_deals", "export_site_data", "site_build",
-                     "site_deploy", "record_full_path",
-                     "export_review_snapshot"]                           # D25, D26, D27, D32
+    assert calls == ["apply_review_events", "warn_if_late", "routes_upkeep",
+                     "warn_if_daily_pass_missed", "recheck_cmd", "detect", "publish_due",
+                     "render_deals", "export_site_data", "site_build", "site_deploy",
+                     "record_full_path",
+                     "export_review_snapshot"]                 # D25, D26, D27, D32, D41, D42
     calls.clear()
     cli._run_steps(render=False, full=True, report=[])
     assert calls[-5:] == ["export_site_data", "site_build", "site_deploy", "record_full_path",
                           "export_review_snapshot"]
     calls.clear()
     cli._run_steps(render=True, full=False, report=[])                 # fast path: no export
-    assert calls == ["apply_review_events", "routes_upkeep", "recheck_cmd", "detect",
-                     "publish_due", "export_review_snapshot"]      # posting on the fast path too
+    assert calls == ["apply_review_events", "warn_if_late", "routes_upkeep",
+                     "warn_if_daily_pass_missed", "recheck_cmd", "detect", "publish_due",
+                     "export_review_snapshot"]                 # posting on the fast path too
 
 
 # --- committed fixtures -----------------------------------------------------------------------

@@ -198,8 +198,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     now = now or db.utcnow()
     today = now.astimezone(i18n_pt.LISBON).date()   # the export's "today" (calendar): Lisbon's
     cfg = ctx.config
-    run_id = db.latest_completed_run_id(conn)
-    run_offers = db.observations_seen_since(conn, run_id) if run_id else []
+    run_id, run_offers = pipeline.latest_offers(ctx, conn, now)   # far months: the day's pass (D42)
     by_route: dict[str, list[Observation]] = defaultdict(list)
     for o in run_offers:
         by_route[o.route_key].append(o)
@@ -589,6 +588,7 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
         "detector": {"low_threshold": det.low_threshold, "threshold": det.threshold,
                      "min_saving_eur": det.min_saving_eur,
                      "min_baseline_days": det.min_baseline_days,
+                     "min_dates_per_day": det.min_dates_per_day,
                      "max_offer_age_days": det.max_offer_age_days,
                      "lookback_days": det.lookback_days},
         "files": {"origins": "origins.json", "routes": "routes.json",
