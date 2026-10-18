@@ -26,9 +26,9 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
                                    │
                                recheck  open deals: same trip still ≤ price, fresh, direct?
                                    │            no → status expired + EXPIRADO.txt
-                                detect  two tiers vs the month's typical low (D24):
+                                detect  two tiers vs the month's typical low (D24, D44):
                                    │      low price  ≥15% below          → route pages (no review)
-                                   │      candidate  ≥30% and ≥15 € below → a deal for review
+                                   │      candidate  ≥30% and ≥15 € below, and a new low → a deal for review
                                    │    then the queue again (D40): still a candidate today?
                                    │            no → status expired + EXPIRADO.txt
                                 enrich  GraphQL API, same cache (D43): checked bag? which agency?
@@ -47,7 +47,8 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups); `mirror.py` (photos and rendered slides in the store) |
 | `run_path.py` | Fast or full path for a run: fingerprint of what the site shows, stored after each full path (D25) |
-| `detector.py` | Pure functions: `baseline`, `evaluate`, `low_prices`, `detect_route`, `detect` (both tiers) |
+| `detector.py` | Pure functions: `baseline`, `confidence`, `evaluate` (threshold, euro floor, new low, D44), `low_prices`, `detect_route`, `detect` (both tiers) |
+| `backtest.py` | The detector backtest (D44): replay of the stored runs on a read-only copy with several rule sets; `scripts/backtest_detector.py` runs it |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
 | `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) and the WhatsApp text |
@@ -271,6 +272,14 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
     promotion candidates (`min_baseline_days_promo ≥ min_baseline_days` is enforced).
   - `max_offer_age_days: 3` defines the freshness window. Prices travellers found in the last
     3 days are candidates, and older days form the baseline.
+  - Confidence in a typical low (D44): `low` below the maturity gate, `high` with at least
+    `confidence.high_days: 14` daily lows whose coefficient of variation is at most
+    `confidence.high_max_cv: 0.25`, `medium` otherwise. `low_confidence: medium` is what low prices
+    need (`high` is stricter). Posts claim "−x %" only at medium or high.
+  - `require_new_low: true` and `new_low_margin: 0.05`: a candidate must also be 5 % below the
+    cheapest offer seen for the route-month in the lookback window (every day, counted or not).
+  - `baseline_min_lead_days: 7`: fares found less than a week before departure stay out of the
+    typical low (they run dearer); they can still be candidates against it.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
   - `max_deals_per_route: 1` caps deals per route per run (biggest discount first).
 - `site.low_prices_per_route: 5` (biggest discounts listed per route page) and
@@ -344,7 +353,35 @@ about 20–25 October). The reviewer sees each deal's baseline: "−39% vs. mín
 (10 dias em 12, de 54 € a 110 €)", i.e. 10 daily lows over a 12-day window, the cheapest and
 dearest of them (each traced to its observation).
 
-`detect` prints both per route (column "Lows" and the deals created).
+**Confidence, new low and lead time (D44).** On a mature route a −30 % day is a one-in-ten day
+(the daily lows spread with a CV of about 0,20), so a candidate must also be a **new low**: at
+least `new_low_margin` (5 %) below the cheapest offer seen for the route-month in the lookback
+window. Each typical low gets a **confidence**: `low` below the maturity gate, `high` with
+`confidence.high_days` (14) daily lows spread by at most `confidence.high_max_cv` (0,25),
+`medium` in between; low prices need `low_confidence` (`medium`). The typical low takes only
+offers found at least `baseline_min_lead_days` (7) before departure. A deal stores its confidence
+and new-low flag at detection; the review pages show "· confiança média · novo mínimo", and a
+post says "−x % face ao habitual" only at medium or high confidence (else, for a new low, "o
+preço mais baixo que vimos nesta rota"). The values were measured with the backtest below and
+are Miguel's to set (`docs/research/2026-10-18-detector-backtest.md` §5).
+
+`detect` prints both per route (column "Lows" and the deals created; "Baseline" ends with the
+confidence).
+
+**Backtest (D44).** Any change to these rules is measured first:
+
+```bash
+uv run escapadinha store pull
+uv run python scripts/backtest_detector.py data/escapadinha.db --preset d44 --days 14 --candidates --state
+uv run python scripts/backtest_detector.py data/escapadinha.db --preset data-reliability --runs 19-57
+```
+
+Read-only: the database file is opened read-only and copied into memory. The script replays every
+completed collection run of the window with one rule set per column, judges each candidate with
+the pipeline's own recheck over the next 24 h and against today's typical low, counts low prices
+and new lows per route kind, and (`--state`) lists every route-month's typical low with and
+without the lead-time filter. `--json out.json` writes the same figures as data. The first preset
+reproduces the replay table of `docs/research/2026-10-15-data-reliability.md`.
 
 Comparing against all fares would be wrong. A route's cheapest dates are always far below the
 median of all fares, so that rule flags almost every route on every run. On the first real data
@@ -1193,6 +1230,9 @@ uv run pytest -m "not browser"
   under 8 workers) and the pure offer match on the probe's real row shape; `test_enrich.py`: a run
   enriches only its matched low prices and candidates, never a price, archives the answers under
   an `enrich` run, keeps unmatched offers unknown, and the v13 → v14 upgrade.
+- `test_backtest.py` (D44): the detector backtest on a synthetic database: the copy is
+  read-only, run selection by id or by day, one flag per candidate, the 24 h recheck and the
+  hindsight check, the new-low rule, the presets, the Markdown and JSON, `--state` and the script.
 - `test_traceability.py` (normal run, no browser) builds a database with promotions (live,
   expired, new), low prices and typical lows, renders the whole site and every caption, and fails
   on any price string that isn't a referenced observation's price, a referenced deal's stored

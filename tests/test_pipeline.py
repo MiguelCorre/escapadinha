@@ -128,6 +128,8 @@ def test_collect_and_detect(ctx):
                        for i in (deal.baseline_lowest_obs_id, deal.baseline_highest_obs_id))
     assert (deal.baseline_span_days, lowest.price, highest.price) == (21, 100, 102)
     assert lowest.route_key == highest.route_key == "LIS-LON"
+    # D44: stored at detection: 22 steady days are high confidence; 58 € beat every fare seen.
+    assert (deal.confidence, deal.new_low) == ("high", True)
 
     # Running detection again on the same run must not flag the same trip twice.
     _, again = pipeline.run_detect(ctx, conn, run_id)
@@ -256,7 +258,7 @@ def test_upgrade_from_real_old_schemas_gives_deals_the_baseline_columns(tmp_path
 
     conn = db.connect(path)
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 14
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 15
     fresh = db.connect(tmp_path / "fresh.db")
     db.init(fresh)
     assert _deal_columns(conn) == _deal_columns(fresh)

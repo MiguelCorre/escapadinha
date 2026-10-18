@@ -92,6 +92,15 @@ class CollectorConfig(BaseModel):
         return self
 
 
+class ConfidenceConfig(BaseModel):
+    """When a typical low is `high` confidence (D44): at least `high_days` daily lows whose
+    coefficient of variation is at most `high_max_cv`. Below the maturity gate (D40) it is
+    `low`, in between `medium` (`detector.confidence`)."""
+
+    high_days: int = Field(14, ge=1)
+    high_max_cv: float = Field(0.25, gt=0)
+
+
 class DetectorConfig(BaseModel):
     """Two tiers (D24): low prices (>= low_threshold below the typical low, automatic on the
     site) and promotion candidates (>= threshold AND >= min_saving_eur below, reviewed).
@@ -99,7 +108,12 @@ class DetectorConfig(BaseModel):
     A typical low is mature (D40) after enough daily lows, counting only days that saw at
     least `min_dates_per_day` departure dates: `min_baseline_days` for low prices and the
     site's typical lows, `min_baseline_days_promo` spanning `min_baseline_span_days` (first to
-    last day) for promotion candidates."""
+    last day) for promotion candidates.
+
+    On top of that (D44): low prices need a typical low of `low_confidence`
+    (`confidence` says when it is `high`); with `require_new_low` a candidate must also be
+    `new_low_margin` below the cheapest offer seen in the window; the typical low takes only
+    offers found at least `baseline_min_lead_days` before departure."""
 
     threshold: float = Field(0.30, gt=0, lt=1)
     min_saving_eur: float = Field(15, ge=0)
@@ -112,6 +126,11 @@ class DetectorConfig(BaseModel):
     dedupe_days: int = Field(7, ge=0)
     max_deals_per_route: int = Field(1, ge=1)
     max_offer_age_days: int = Field(3, ge=0)
+    confidence: ConfidenceConfig = ConfidenceConfig()
+    low_confidence: Literal["medium", "high"] = "medium"   # `low` is below the maturity gate
+    require_new_low: bool = True
+    new_low_margin: float = Field(0.05, ge=0, lt=1)
+    baseline_min_lead_days: int = Field(7, ge=0)
 
     @model_validator(mode="after")
     def _tiers_nest(self):
@@ -122,6 +141,9 @@ class DetectorConfig(BaseModel):
             raise ValueError("detector.min_baseline_days_promo must be >= "
                              "detector.min_baseline_days (every promotion candidate is also "
                              "a low price)")
+        if self.confidence.high_days < self.min_baseline_days:
+            raise ValueError("detector.confidence.high_days must be >= detector.min_baseline_days "
+                             "(a typical low below the maturity gate is low confidence)")
         return self
 
 

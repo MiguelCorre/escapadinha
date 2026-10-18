@@ -15,7 +15,7 @@ from datetime import datetime
 
 from escapadinha import i18n_pt as pt
 from escapadinha.config import DetectorConfig
-from escapadinha.detector import DIRECT, Baseline, eligible, evaluate, is_fresh
+from escapadinha.detector import DIRECT, EPS, Baseline, eligible, evaluate, is_fresh
 from escapadinha.models import Observation, RouteRules
 
 
@@ -60,9 +60,10 @@ def promotion_expiry(deal_obs: Observation, rule: str, base: Baseline, cfg: Dete
     month's current typical low (D40), in pt-PT; None while it still is.
 
     The detector's own rule (`evaluate`), so a deal stays exactly when it would be detected now:
-    a typical low mature for promotions, `threshold` AND `min_saving_eur` below it. The route's
-    `price_cap` keeps only the deals it made (rule `price_cap`), and only while the typical low
-    is not mature for promotions; a deal of the median rule never survives on it."""
+    a typical low mature for promotions, `threshold` AND `min_saving_eur` below it and, with
+    `require_new_low`, still a new low (D44). The route's `price_cap` keeps only the deals it
+    made (rule `price_cap`), and only while the typical low is not mature for promotions; a deal
+    of the median rule never survives on it."""
     decision = evaluate(deal_obs, base, cfg, price_cap if rule == "price_cap" else None)
     if decision.kind == "deal":
         return None
@@ -73,6 +74,12 @@ def promotion_expiry(deal_obs: Observation, rule: str, base: Baseline, cfg: Dete
                f"{cfg.min_baseline_span_days}")
         return f"preço habitual ainda sem dados suficientes ({why})"
     below = 1 - deal_obs.price / base.median
+    limit = base.median * (1 - cfg.threshold)
+    if deal_obs.price <= limit + EPS and base.median - deal_obs.price >= cfg.min_saving_eur - EPS:
+        # Only the new-low rule failed: a cheaper offer joined the window since detection.
+        return (f"já não é um novo mínimo: entretanto vimos {pt.eur(base.min_low.price)} para "
+                f"este mês, e {pt.eur(deal_obs.price)} teria de ficar "
+                f"{round(cfg.new_low_margin * 100)}% abaixo disso")
     where = f"{round(abs(below) * 100)}% {'abaixo' if below >= 0 else 'acima'}"
     return (f"já não é promoção face ao preço habitual atual ({pt.eur(base.median)}): "
             f"{pt.eur(deal_obs.price)} fica {where}; são precisos {round(cfg.threshold * 100)}% e "

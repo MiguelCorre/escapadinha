@@ -1,4 +1,4 @@
--- Schema version 14 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 15 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -78,7 +78,11 @@ CREATE TABLE IF NOT EXISTS deals (
     -- day, and the observations that are its cheapest and dearest daily low.
     baseline_span_days      INTEGER,
     baseline_lowest_obs_id  INTEGER REFERENCES price_observations(id),
-    baseline_highest_obs_id INTEGER REFERENCES price_observations(id)
+    baseline_highest_obs_id INTEGER REFERENCES price_observations(id),
+    -- D44, at detection: how much the typical low was trusted, and whether the price beat
+    -- everything seen for the route-month in the window (1) or not (0). NULL: detected before.
+    confidence      TEXT CHECK (confidence IN ('low', 'medium', 'high')),
+    new_low         INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS photos (

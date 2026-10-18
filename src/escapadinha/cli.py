@@ -16,11 +16,11 @@ from rich.markup import escape
 from rich.table import Table
 
 from escapadinha import i18n_pt as pt
-from escapadinha import pipeline, posting, review_events, routes, run_path
+from escapadinha import detector, pipeline, posting, review_events, routes, run_path
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
-from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError
+from escapadinha.review import CONFIDENCE_PT, DECISION_PT, STATUS_PT, ReviewError
 from escapadinha.website import node
 from escapadinha.website.node import BuildError
 from escapadinha.website.deploy import DeployError
@@ -122,7 +122,8 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
         best = "–" if r.best is None else f"{r.best.price:g} € ({r.best.departure_date:%d/%m})"
         low = "–" if r.baseline is None or r.baseline.median is None else f"{r.baseline.median:g} €"
         days = ("–" if r.baseline is None
-                else f"{r.baseline.sample_size}/{need} days, span {r.baseline.span_days}")
+                else f"{r.baseline.sample_size}/{need} days, span {r.baseline.span_days}, "
+                     f"{detector.confidence(r.baseline, ctx.config.detector)}")
         table.add_row(r.route, str(r.fresh), best, low, days, labels.get(r.status, r.status),
                       str(r.low_prices or "–"), ", ".join(map(str, r.deal_ids)) or "–")
     console.print(table)
@@ -199,6 +200,8 @@ def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
     for (year, month), base in sorted(pipeline.current_baselines(ctx, conn, r).items()):
         low = "–" if base.median is None else f"{base.median:g} €"
         spread = (f", daily lows {base.lowest.price:g}–{base.highest.price:g} €"
+                  f"{'' if base.cv is None else f', CV {base.cv:.2f}'}, "
+                  f"{detector.confidence(base, det)} confidence"
                   if base.lowest and base.highest else "")
         console.print(f"  {year}-{month:02d}: {low} from {base.sample_size} days "
                       f"(span {base.span_days}){spread}")
@@ -347,8 +350,21 @@ def deal_check(deal_id: int) -> None:
     """Fetch this deal's prices now and recheck it (with R2 keys: report only, the next run's
     recheck expires a deal whose price moved)."""
     ctx, conn = _ctx()
-    _print_check(*pipeline.live_check(ctx, conn, deal_id))
+    deal, check = pipeline.live_check(ctx, conn, deal_id)
+    _print_check(deal, check)
+    _print_baseline(deal)
     _print_posts(conn, deal_id)
+
+
+def _print_baseline(deal) -> None:
+    """The typical low the deal was judged against, how much it was trusted and whether the
+    price was a new low (D44); older deals have neither."""
+    if deal.baseline_median is None:
+        return
+    trust = (f", confiança {CONFIDENCE_PT[deal.confidence]}" if deal.confidence else "")
+    new_low = {True: ", novo mínimo", False: ", não é novo mínimo", None: ""}[deal.new_low]
+    console.print(f"  preço habitual {pt.eur(deal.baseline_median)} ({deal.sample_size} dias"
+                  f"{trust}{new_low})")
 
 
 def _print_decision(ctx, conn, decision: pipeline.ReviewResult) -> None:

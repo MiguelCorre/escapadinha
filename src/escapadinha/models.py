@@ -136,6 +136,10 @@ class Deal:
     baseline_span_days: int | None = None       # first to last baseline day
     baseline_lowest_obs_id: int | None = None   # observation of the cheapest daily low
     baseline_highest_obs_id: int | None = None  # observation of the dearest daily low
+    # D44, at detection: how much the typical low was trusted (`detector.CONFIDENCE_LEVELS`)
+    # and whether the price beat everything seen in the window. None for deals detected before.
+    confidence: str | None = None
+    new_low: bool | None = None
 
 
 @dataclass(frozen=True)

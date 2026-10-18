@@ -157,6 +157,8 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "typical_low_eur": deal.baseline_median,
         "baseline_days": deal.sample_size,
         "baseline": baseline_json(pipeline.baseline_range(conn, deal)),
+        "confidence": deal.confidence,           # D44: trust in the typical low at detection
+        "new_low": deal.new_low,                 # D44: cheaper than everything seen (null: unknown)
         "found_date": obs.found_date.isoformat() if obs.found_date else None,
         "found_on": view.found_on,
         "fetched_at": db.utc_iso(obs.fetched_at),

@@ -1,5 +1,5 @@
 {
-  "description": "The review decision rules both writers apply (D26, D29): src/escapadinha/review.py (TRANSITIONS, STATUS_PT, DECISIONS, DECISION_PT, check_decision) and db.OPEN_STATUSES on the pipeline side, web/functions/_lib/review/rules.ts on the review Function's. tests/test_review_rules_cases.py and web/test/review/rules.test.ts check both against this file: change it together with both tables.",
+  "description": "The review decision rules both writers apply (D26, D29): src/escapadinha/review.py (TRANSITIONS, STATUS_PT, DECISIONS, DECISION_PT, CONFIDENCE_PT, check_decision) and db.OPEN_STATUSES on the pipeline side, web/functions/_lib/review/rules.ts on the review Function's. tests/test_review_rules_cases.py and web/test/review/rules.test.ts check both against this file: change it together with both tables.",
   "transitions": {
     "new": ["expired", "rejected", "rendered"],
     "rendered": ["approved", "expired", "rejected"],
@@ -14,6 +14,7 @@
   },
   "decisions": {"approve": "approved", "reject": "rejected", "published": "published"},
   "decision_pt": {"approve": "aprovar", "reject": "rejeitar", "published": "marcar como publicado"},
+  "confidence_pt": {"low": "baixa", "medium": "média", "high": "alta"},
   "open_statuses": ["new", "rendered", "approved"],
   "check_decision": [
     {"kind": "approve", "status": "rendered", "affiliate_url": "https://example.com/a", "expected": {"status": "approved"}},

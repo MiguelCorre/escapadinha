@@ -16,8 +16,9 @@
   <div class="pb-row">
     <div style="flex: 1; min-width: 0"><span class="pb-price fit">{{ parts[0] }}<span class="cur">{{ parts[-1] }}</span></span></div>
     <div class="pb-side">
-      {% if v.discount_pct %}<span class="tag success num">−{{ v.discount_pct }}%</span>{% endif %}
-      <span class="note">{% if v.discount_pct %}abaixo do habitual<br>{% endif %}ida e volta, por pessoa</span>
+      {# The claim (D44): "−x %" only with medium or high confidence in the typical low, else "novo mínimo" when it beat everything seen. #}
+      {% if v.claimed_discount %}<span class="tag success num">−{{ v.claimed_discount }}%</span>{% elif v.new_low %}<span class="tag success">novo mínimo</span>{% endif %}
+      <span class="note">{% if v.claimed_discount %}abaixo do habitual<br>{% elif v.new_low %}o mais baixo que vimos<br>{% endif %}ida e volta, por pessoa</span>
     </div>
   </div>
   {% if dates %}

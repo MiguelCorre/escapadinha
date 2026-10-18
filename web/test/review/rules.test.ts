@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  checkDecision, DECISION_PT, DECISIONS, OPEN_STATUSES, ReviewError, STATUS_PT, TRANSITIONS,
+  checkDecision, CONFIDENCE_PT, DECISION_PT, DECISIONS, OPEN_STATUSES, ReviewError, STATUS_PT, TRANSITIONS,
 } from "../../functions/_lib/review/rules";
 import { newEvent } from "../../functions/_lib/review/events";
 import { CONTRACT } from "./helpers";
@@ -23,6 +23,7 @@ describe("review rules: shared with the pipeline", () => {
     expect(STATUS_PT).toEqual(RULES.status_pt);
     expect(DECISIONS).toEqual(RULES.decisions);
     expect(DECISION_PT).toEqual(RULES.decision_pt);
+    expect(CONFIDENCE_PT).toEqual(RULES.confidence_pt);
     expect(OPEN_STATUSES).toEqual(RULES.open_statuses);
   });
 

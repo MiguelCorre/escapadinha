@@ -423,3 +423,114 @@ def test_the_typical_low_keeps_its_lowest_and_highest_daily_low_with_their_obser
     assert (base.lowest.id, base.lowest.price) == (10, 54)
     assert (base.highest.id, base.highest.price) == (30, 120)
     assert baseline([], since=TODAY, before=TODAY).lowest is None
+
+
+# --- D44: confidence, new low, lead time ------------------------------------------------
+
+def test_the_typical_low_knows_its_spread_its_floor_and_how_far_ahead_it_was_found():
+    history = days([100, 120, 80, 100, 110, 90, 100], dates=2)        # dearer offers at +10
+    history.append(obs(70, found_ago=12, oid=70))                      # one date: not counted...
+    base = month_baselines(history, RULES, NOW)[(2026, 11)]
+    assert (base.sample_size, base.median) == (7, 100)
+    assert base.cv == pytest.approx(0.1291, abs=1e-3)                  # stdev 12.9 over mean 100
+    assert (base.min_low.id, base.min_low.price) == (70, 70)           # ...but it was seen
+    assert base.lowest.price == 80                                     # the cheapest counted day
+    assert base.median_lead_days == (date(2026, 11, 6) - (TODAY - timedelta(days=7))).days
+    assert baseline([], since=TODAY, before=TODAY).cv is None
+    one_day = month_baselines(days([100], dates=2), RULES, NOW)[(2026, 11)]
+    assert one_day.cv is None and one_day.min_low.price == 100
+
+
+def test_confidence_levels_come_from_days_and_spread():
+    from escapadinha.detector import at_least, confidence
+    assert confidence(Baseline(100, 6, 5), RULES) == "low"            # below the maturity gate
+    assert confidence(Baseline(None, 0, 0), RULES) == "low"
+    assert confidence(Baseline(100, 7, 6, cv=0.10), RULES) == "medium"
+    assert confidence(Baseline(100, 14, 13, cv=0.30), RULES) == "medium"   # spread too wide
+    assert confidence(Baseline(100, 14, 13, cv=0.25), RULES) == "high"
+    assert confidence(Baseline(100, 13, 12, cv=0.10), RULES) == "medium"   # one day short
+    assert confidence(Baseline(100, 14, 13, cv=None), RULES) == "medium"   # unknown spread
+    strict = RULES.model_copy(update={"confidence": RULES.confidence.model_copy(
+        update={"high_days": 20, "high_max_cv": 0.15})})
+    assert confidence(Baseline(100, 14, 13, cv=0.10), strict) == "medium"
+    assert confidence(Baseline(100, 20, 19, cv=0.15), strict) == "high"
+    assert at_least("high", "medium") and at_least("medium", "medium")
+    assert not at_least("low", "medium")
+    with pytest.raises(ValueError, match="high_days"):
+        DetectorConfig(min_baseline_days=7, confidence={"high_days": 6})
+
+
+def test_low_prices_can_demand_high_confidence():
+    offer = obs(80, oid=1, dep=date(2026, 11, 20))
+    steady = days([100] * 14)                                          # CV 0: high confidence
+    assert [lp.observation.id for lp in low_prices([offer], steady, RULES, NOW)] == [1]
+    picky = RULES.model_copy(update={"low_confidence": "high"})
+    assert [lp.observation.id for lp in low_prices([offer], steady, picky, NOW)] == [1]
+    assert low_prices([offer], days([100] * 10), picky, NOW) == []     # medium: 10 days only
+    noisy = days([100, 60, 140, 100, 60, 140, 100, 60, 140, 100, 60, 140, 100, 60])
+    assert low_prices([obs(40, oid=2, dep=date(2026, 11, 20))], noisy, picky, NOW) == []
+    with pytest.raises(ValueError):
+        DetectorConfig(low_confidence="low")
+
+
+def test_a_thirty_percent_day_that_is_not_a_new_low_is_no_candidate_a_new_low_is():
+    """D44: on a mature route a −30 % day is a one-in-ten day. The candidate must also beat
+    the cheapest offer seen for the route-month by `new_low_margin`."""
+    history = days([100] * 10) + [obs(62, found_ago=8, oid=62)]      # one 62 € day, uncounted
+    good_day = obs(65, oid=1, dep=date(2026, 11, 20))                 # −35 %, saves 35 €
+    assert detect([good_day], history, [], RULES, None, NOW, 1).candidates == []
+    d = evaluate(good_day, month_baselines(history, RULES, NOW)[(2026, 11)], RULES, None)
+    assert d.kind == "no_deal" and d.new_low is False and "not a new low: 62" in d.reason
+    [flag] = detect([obs(58, oid=2, dep=date(2026, 11, 20))], history, [], RULES, None, NOW, 1).candidates
+    assert flag.decision.new_low is True and flag.decision.discount_pct == pytest.approx(0.42)
+    # The floor is the cheapest offer minus the margin: 62 × 0.95 = 58.90.
+    assert detect([obs(58.9, oid=3, dep=date(2026, 11, 20))], history, [], RULES, None, NOW, 1).candidates
+    assert not detect([obs(59, oid=4, dep=date(2026, 11, 20))], history, [], RULES, None, NOW, 1).candidates
+    # Without the rule the good day is a candidate again, still flagged as not a new low.
+    lax = RULES.model_copy(update={"require_new_low": False})
+    [flag] = detect([good_day], history, [], lax, None, NOW, 1).candidates
+    assert flag.decision.kind == "deal" and flag.decision.new_low is False
+    # The margin is a setting: at 0 the floor is the cheapest offer itself.
+    tight = RULES.model_copy(update={"new_low_margin": 0.0})
+    assert detect([obs(62, oid=5, dep=date(2026, 11, 20))], history, [], tight, None, NOW, 1).candidates
+    assert not detect([obs(62.5, oid=6, dep=date(2026, 11, 20))], history, [], tight, None, NOW, 1).candidates
+
+
+def test_the_new_low_flag_rides_along_without_a_window_or_on_a_price_cap():
+    """No history: nothing to compare with, so `new_low` is None and the rule never blocks a
+    hand-built baseline; a price-cap deal still carries the flag."""
+    offer = obs(60, oid=1, dep=date(2026, 11, 20))
+    assert evaluate(offer, Baseline(100, 20, 19), RULES, None).kind == "deal"
+    assert evaluate(offer, Baseline(100, 20, 19), RULES, None).new_low is None
+    young = days([100] * 4)
+    [flag] = detect([offer], young, [], RULES, 70, NOW, 1).candidates
+    assert (flag.decision.rule, flag.decision.new_low) == ("price_cap", True)
+    assert detect([offer], days([100] * 4) + [obs(55, found_ago=5)], [], RULES, 70, NOW, 1) \
+        .candidates[0].decision.new_low is False
+
+
+def test_the_typical_low_leaves_out_fares_found_less_than_a_week_before_departure():
+    """D44: last-week fares run about 14 % dearer than the month. They are not baseline, but a
+    last-minute candidate is still judged against the month's typical low."""
+    far = [obs(100 + 10 * k, found_ago=4 + i, dep=TODAY + timedelta(days=10 + k), oid=100 + 2 * i + k)
+           for i in range(10) for k in range(2)]                        # lead 14..23 days
+    last_week = [obs(150 + 10 * k, found_ago=4 + i, dep=TODAY - timedelta(days=2 + i - k),
+                     oid=200 + 2 * i + k) for i in range(10) for k in range(2)]   # lead 2..3 days
+    base = month_baselines(far + last_week, RULES, NOW)[(2026, 10)]
+    assert (base.median, base.sample_size, base.min_low.price) == (100, 10, 100)
+    assert base.median_lead_days == 18
+    only_late = month_baselines(last_week, RULES, NOW)
+    assert only_late[(2026, 10)].median is None                         # nothing far enough ahead
+    mixed = RULES.model_copy(update={"baseline_min_lead_days": 0})
+    assert month_baselines(last_week, mixed, NOW)[(2026, 10)].median == 150
+    # A fare for tomorrow at 60 € is a candidate against the far-ahead typical low of 100 €.
+    [flag] = detect([obs(60, oid=1, dep=TODAY + timedelta(days=1))], far + last_week, [], RULES,
+                    None, NOW, 1).candidates
+    assert flag.decision.kind == "deal" and flag.baseline.median == 100
+
+
+def test_shipped_d44_settings():
+    shipped = DetectorConfig()
+    assert (shipped.confidence.high_days, shipped.confidence.high_max_cv) == (14, 0.25)
+    assert (shipped.low_confidence, shipped.require_new_low, shipped.new_low_margin,
+            shipped.baseline_min_lead_days) == ("medium", True, 0.05, 7)

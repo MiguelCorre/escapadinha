@@ -113,9 +113,14 @@ function card(d) {
     ? `${d.baseline_days} dias em ${b.span_days + 1}, de <span data-obs="${b.lowest_observation_id}">${esc(b.lowest)}</span>`
       + ` a <span data-obs="${b.highest_observation_id}">${esc(b.highest)}</span>`
     : `${d.baseline_days} dias`;
-  const deal = d.rule === "median" && d.discount_pct
+  // D44: how much the typical low was trusted at detection, and whether the price beat
+  // everything seen for the route-month ("novo mínimo"). Older deals: neither.
+  const trust = [d.confidence_pt && `confiança ${esc(d.confidence_pt)}`, d.new_low && "novo mínimo"]
+    .filter(Boolean).map(s => ` · ${s}`).join("");
+  const line = d.rule === "median" && d.discount_pct
     ? `−${d.discount_pct}% vs. mínimo habitual ${esc(d.typical_low)} (${lows})`
     : d.rule === "price_cap" ? "abaixo do teto de preço da rota" : "";
+  const deal = line && line + trust;
   const flights = [d.airline, d.direct === true ? "voos diretos" : d.direct === false ? "com escala" : ""].filter(Boolean).join(" · ");
   const link = d.affiliate_url
     ? `<a href="${esc(d.affiliate_url)}" target="_blank" rel="noopener">${esc(d.affiliate_url)}</a>`

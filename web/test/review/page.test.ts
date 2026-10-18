@@ -57,7 +57,7 @@ describe("queue page", () => {
     expect(schemaErrors("snapshot", snap)).toEqual([]);
     const { doc } = await open(snap);
     const card = doc.querySelector('[data-deal="7"]')!;
-    expect(txt(card)).toContain("−41% vs. mínimo habitual 99 € (10 dias em 12, de 54 € a 110,50 €)");
+    expect(txt(card)).toContain("−41% vs. mínimo habitual 99 € (10 dias em 12, de 54 € a 110,50 €) · confiança alta · novo mínimo");
     expect(txt(card.querySelector('[data-obs="2001"]'))).toBe("54 €");
     expect(txt(card.querySelector('[data-obs="2002"]'))).toBe("110,50 €");
   });
@@ -71,8 +71,32 @@ describe("queue page", () => {
     expect(schemaErrors("snapshot", none)).toEqual([]);
     for (const snap of [older, none]) {
       const { doc } = await open(snap);
-      expect(txt(doc.querySelector('[data-deal="7"]'))).toContain("−44% vs. mínimo habitual 104 € (21 dias)");
+      expect(txt(doc.querySelector('[data-deal="7"]'))).toContain("−44% vs. mínimo habitual 104 € (21 dias) · confiança alta · novo mínimo");
     }
+  });
+
+  it("says how much the typical low was trusted and whether the price is a new low (D44)", async () => {
+    const line = "−44% vs. mínimo habitual 104 € (21 dias em 24, de 89 € a 131 €)";
+    const cases: [Record<string, unknown>, string][] = [
+      [{ confidence: "medium", new_low: false }, `${line} · confiança média`],
+      [{ confidence: "low", new_low: true }, `${line} · confiança baixa · novo mínimo`],
+      [{ confidence: null, new_low: null }, line],                   // a deal detected before D44
+      [{ rule: "price_cap", discount_pct: null, confidence: "low", new_low: true },
+        "abaixo do teto de preço da rota · confiança baixa · novo mínimo"],
+    ];
+    for (const [over, expected] of cases) {
+      const snap = snapshot({ queue: [deal(7, over)] });
+      expect(schemaErrors("snapshot", snap)).toEqual([]);
+      const text = txt((await open(snap)).doc.querySelector('[data-deal="7"]'));
+      expect(text).toContain(expected);
+      if (!over.new_low) expect(text).not.toContain("novo mínimo");
+    }
+    const { confidence: _c, new_low: _n, ...before } = deal(7);      // a snapshot made before D44
+    const older = snapshot({ queue: [before] });
+    expect(schemaErrors("snapshot", older)).toEqual([]);
+    const text = txt((await open(older)).doc.querySelector('[data-deal="7"]'));
+    expect(text).toContain(line);
+    expect(text).not.toContain("confiança");
   });
 
   it("reads the snapshot as is, never against the schema, so a newer snapshot's keys don't break it", async () => {

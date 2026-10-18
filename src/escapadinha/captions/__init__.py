@@ -35,9 +35,15 @@ def _detail_lines(view: DealView) -> list[str]:
         lines.append(f"🛬 Chegada: aeroporto {view.arrival_airport}")
     if view.baggage_line:                   # only when the GraphQL match said so (D43)
         lines.append(f"🧳 {view.baggage_line.capitalize()}")
-    if view.discount_pct:
-        lines.append(f"📉 {view.discount_pct}% abaixo do preço mínimo habitual desta rota "
-                     f"para partidas em {view.departure_month}")
+    # The claim (D44): "−x %" only with medium or high confidence in the typical low; a new low
+    # is said as such (alone when the typical low is not trusted enough for a percentage).
+    if view.claimed_discount:
+        line = (f"📉 {view.claimed_discount}% abaixo do preço mínimo habitual desta rota "
+                f"para partidas em {view.departure_month}")
+        lines.append(f"{line}: {view.new_low_line.split(' nesta rota')[0]}" if view.new_low
+                     else line)
+    elif view.new_low_line:
+        lines.append(f"📉 {view.new_low_line[0].upper()}{view.new_low_line[1:]}")
     return lines
 
 
@@ -49,12 +55,13 @@ def deal_caption(view: DealView, *, brand_name: str) -> str:
 
 def whatsapp_text(view: DealView) -> str:
     """Ready-to-paste WhatsApp text for an approved promotion (D32): shorter than the caption,
-    no hashtags, with the stored partner link and the disclosure. Raises ValueError without a
+    no hashtags, with the stored partner link and the disclosure, and the same claim line as the
+    caption (D44: a percentage only at medium or high confidence). Raises ValueError without a
     link (the text is the link's carrier; there is never a hand-built one)."""
     if not view.affiliate_url:
         raise ValueError(f"deal {view.deal_id} has no partner link")
-    lines = [line for line in _detail_lines(view) if not line.startswith("📉")]
-    return _tidy(_env.get_template("whatsapp.txt.j2").render(v=view, detail_lines=lines))
+    return _tidy(_env.get_template("whatsapp.txt.j2").render(v=view,
+                                                             detail_lines=_detail_lines(view)))
 
 
 def guide_caption(guide: Guide, photo: PhotoCredit) -> str:

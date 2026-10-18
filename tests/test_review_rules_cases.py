@@ -23,6 +23,7 @@ def test_tables_match_the_shared_fixture():
     assert review.STATUS_PT == RULES["status_pt"]
     assert review.DECISIONS == RULES["decisions"]
     assert review.DECISION_PT == RULES["decision_pt"]
+    assert review.CONFIDENCE_PT == RULES["confidence_pt"]
     assert list(db.OPEN_STATUSES) == RULES["open_statuses"]
 
 

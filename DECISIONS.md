@@ -2501,3 +2501,77 @@ so nothing has to be hosted.
 - **Not done here:** Miguel's check on a real promotion that the line matches what Aviasales
   shows (the issue's "Ações do Miguel"); `direct=true` on the REST collector (#41) would make the
   REST row the nonstop fare the page shows, which helps the match on routes with stops.
+
+## D44: Confidence, new low and lead time on top of the maturity gate; a committed backtest (2026-10-18, #47)
+- **Why (D3 and D24 revised):** the more-data research (`docs/research/2026-10-15-more-data-and-site-ideas.md`
+  §1 and §3) showed that once a month is mature the −30 % and 15 € rule still flags "good days":
+  the daily lows of a mature route-month spread with a CV of about 0,20 and the cheapest day of a
+  month sits about 22 % below its median, so a −30 % day is roughly a one-in-ten day. D40 removed
+  the small-sample bias; it did not change that. The research asked for three pure rules on top
+  and for a committed replay so thresholds stay measured. Report:
+  `docs/research/2026-10-18-detector-backtest.md`.
+- **The backtest** (`src/escapadinha/backtest.py`, `scripts/backtest_detector.py`): replays the
+  detector run by run on a copy of the database (opened `mode=ro`, copied into memory and migrated
+  there: the file is never written) with one `DetectorConfig` per rule set, judging each
+  candidate by the pipeline's own `recheck` at the runs of the next 24 h and in hindsight against
+  the route-month's typical low from everything stored (its own found day left out). Reports
+  candidates per day, low prices, expiries, new lows, confidence, per route kind; `--state` the
+  typical low of every route-month with and without the lead-time filter. Same presence
+  approximation as D40's replay (`run_id ≤ r ≤ last_run_id`). The `data-reliability` preset
+  reproduces the research's table exactly (8 / 0 / 5 / 3 / 3 candidates over runs 19–57).
+- **Rules** (config `detector`, `DetectorConfig`, all pure in `detector.py`, `now` and the
+  route's rules passed in as before):
+  - **Confidence** (`confidence(base, cfg)` → `low | medium | high`, `CONFIDENCE_LEVELS`):
+    `low` below `is_mature` (D40's 7 counted days), `high` with at least
+    `confidence.high_days` (14) daily lows whose coefficient of variation (`Baseline.cv`, sample
+    standard deviation over the mean) is at most `confidence.high_max_cv` (0,25), `medium` in
+    between. Low prices need `low_confidence` (`medium`, the D40 behaviour; `high` is the
+    stricter option). The site's typical lows keep `is_mature`.
+  - **New low** (`require_new_low`, default true; `new_low_margin` 0,05): a promotion candidate
+    must also be at most `(1 − margin) × Baseline.min_low.price`, the cheapest eligible offer of
+    the baseline window, **every day counted or not** ("cheaper than anything we have seen for
+    the route-month in 90 days"). `Decision.new_low` carries the answer whether or not the rule is
+    on (None without a window), so a price-cap deal has the flag too. Backtest: on the only gate
+    with candidates (pre-D40), 27 → 16 candidates and 56 % → 75 % of them still a promotion today;
+    every domestic candidate but one dropped (0 of 6 held).
+  - **Lead time** (`baseline_min_lead_days`, 7): the baseline takes only offers with
+    `detector.lead_days` (found day → departure) of at least that many days; a last-minute
+    candidate is still judged against the month's typical low. Backtest: changes 12 October
+    route-months (nine down, three up, median −4 %), −10 % low prices, no hindsight gain yet;
+    shipped as the ticket proposed, flagged in the report as the threshold with the weakest
+    evidence (0 is a one-line change).
+  - `Baseline` also gains `median_lead_days`. `recheck.promotion_expiry` (the queue's
+    re-evaluation, D40) inherits the new-low rule through `evaluate`: a deal undercut since
+    detection expires with "já não é um novo mínimo: entretanto vimos 49 € para este mês, e 51 €
+    teria de ficar 5% abaixo disso".
+- **Stored and shown:** a deal stores `confidence` and `new_low` at detection (schema v15:
+  `SCHEMA_VERSION` 15, `schema.sql`, migration 15 = two nullable ALTERs; upgrades tested from the
+  real v5/v7 schemas; older deals keep NULLs). The review snapshot gains optional `confidence`
+  (enum or null) and `new_low` (boolean or null), additive within contract v1 under D40's
+  condition (the Function never validates the snapshot; a snapshot without them renders as
+  before: `web/test/review/page.test.ts`). Both review pages append "· confiança média · novo
+  mínimo" to the discount line (`review.CONFIDENCE_PT`, ported to `rules.ts` and checked on both
+  sides through `contract/review/v1/fixtures/review-rules.json` `confidence_pt`); `deal check`
+  prints them; `detect` and `stats` print the confidence (and the CV).
+- **What posts claim:** captions, the WhatsApp text (which now carries the same claim line as the
+  caption) and the slides' price block say "−x %" only through `DealView.claimed_discount`:
+  medium or high confidence. Otherwise a new low says "o preço mais baixo que vimos nesta rota
+  para partidas em novembro" (`DealView.new_low_line`; the slide tag "novo mínimo"), and a deal
+  that is neither makes no claim. A deal detected before D44 (confidence NULL) makes no
+  percentage claim either: honest by default. The reviewer still sees the raw `discount_pct`.
+- **Values are Miguel's to choose** (the issue's "Ações do Miguel"): the report's §5 lists the
+  proposal, the alternatives and what each costs today. Rejected here: estimating a seasonal
+  fallback for thin months (more-data §3.5; measured gain unknown, and nothing in the backtest
+  needed it), confidence on the site's route pages (the research's point 1 second half; the
+  export is unchanged, a follow-up once months reach `high`), and judging candidates against the
+  run archives instead of the presence approximation (cost without a question it would answer
+  yet).
+- **Tests:** detector (CV, floor and lead stats; the levels and `at_least`; `low_confidence`;
+  a −30 % day that is not a new low is no candidate, a new low below −30 % is; the margin; the
+  flag without a window and on a price cap; the lead filter and a last-minute candidate; the
+  config's nesting), recheck (the new-low expiry reason), captions and WhatsApp (the claim only
+  at medium or high, the new-low line alone at low, nothing otherwise), `run_detect` stores both,
+  the snapshot and both pages show them (schema validated), the shared rules fixture on both
+  sides, and `tests/test_backtest.py` (a synthetic database: the copy is read-only, run
+  selection, one flag per candidate, the 24 h recheck, hindsight, the new-low rule, presets, the
+  Markdown and JSON, `--state`, the script end to end).

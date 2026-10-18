@@ -5,7 +5,7 @@
 // snapshot's statuses so Miguel hears a refusal at once; the pipeline's applier
 // (review_events.apply_pending) checks again against the status the deal has when it applies the
 // event, so a stale snapshot can never move a deal the wrong way (D26).
-import type { DecisionType, SnapshotDeal } from "./types";
+import type { Confidence, DecisionType, SnapshotDeal } from "./types";
 
 type Status = SnapshotDeal["status"];
 
@@ -31,6 +31,9 @@ export const STATUS_PT: Record<Status, string> = {
 
 export const DECISIONS: Record<DecisionType, Status> = { approve: "approved", reject: "rejected", published: "published" };
 export const DECISION_PT: Record<DecisionType, string> = { approve: "aprovar", reject: "rejeitar", published: "marcar como publicado" };
+
+/** review.CONFIDENCE_PT: the word the queue shows for a deal's trust in its typical low (D44). */
+export const CONFIDENCE_PT: Record<Confidence, string> = { low: "baixa", medium: "média", high: "alta" };
 
 /** db.OPEN_STATUSES: deals the live check still prices. */
 export const OPEN_STATUSES: Status[] = ["new", "rendered", "approved"];

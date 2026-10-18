@@ -25,6 +25,19 @@ days form the baseline, so a candidate never pulls its own baseline down.
 
 Each route has its own rules (direct only or a stop limit, nights range): offers outside
 them count neither as candidates nor towards the baseline.
+
+Three rules on top of the maturity gate (D44, measured by the backtest in `backtest.py`):
+
+- **Confidence** in a typical low (`confidence`): `low` below the maturity gate, `high` with
+  `confidence.high_days` daily lows whose coefficient of variation is at most
+  `confidence.high_max_cv`, `medium` in between. Low prices need `low_confidence`; posts claim
+  "−x %" only at medium or high confidence (`presentation.DealView.claimed_discount`).
+- **New low** (`require_new_low`): a candidate must also be cheaper than every eligible offer in
+  the baseline window, by `new_low_margin`. On a mature route a −30 % day is a one-in-ten day,
+  not a promotion; a price nobody saw cheaper in 90 days is.
+- **Lead time** (`baseline_min_lead_days`): the baseline takes only offers found at least that
+  many days before departure. Fares found in the last week run about 14 % dearer than the month,
+  so mixing them in inflates the typical low of the months about to depart.
 """
 
 from __future__ import annotations
@@ -45,6 +58,9 @@ T = TypeVar("T")
 DIRECT = RouteRules()   # Europe default: nonstop both ways, 2-10 nights
 EPS = 1e-9
 
+# How much to trust a typical low (D44), weakest first. `low` is below the maturity gate (D40).
+CONFIDENCE_LEVELS = ("low", "medium", "high")
+
 
 @dataclass(frozen=True)
 class Baseline:
@@ -54,6 +70,11 @@ class Baseline:
     mean: float | None = None  # plain average of the same daily lows: context only (D27)
     lowest: Observation | None = None    # the cheapest daily low (shown to the reviewer, D40)
     highest: Observation | None = None   # the dearest daily low
+    # D44: how spread the daily lows are, the floor a new low must beat, and how far ahead of
+    # departure they were found.
+    cv: float | None = None              # coefficient of variation of the daily lows (2+ days)
+    min_low: Observation | None = None   # the cheapest eligible offer in the window, any day
+    median_lead_days: int | None = None  # median lead time (found -> departure) of the daily lows
 
 
 @dataclass(frozen=True)
@@ -62,6 +83,7 @@ class Decision:
     rule: str | None             # median | price_cap (only for deals)
     discount_pct: float | None   # vs. the typical low, only for the median rule
     reason: str
+    new_low: bool | None = None  # cheaper than everything seen in the window (D44); None: no window
 
 
 @dataclass(frozen=True)
@@ -116,13 +138,28 @@ def is_fresh(o: Observation, cfg: DetectorConfig, now: datetime) -> bool:
     return day_key(o) >= fresh_since(cfg, now)
 
 
+def lead_days(o: Observation) -> int:
+    """Days between the day a traveller found the price and the departure."""
+    return (o.departure_date - day_key(o)).days
+
+
+def _cv(prices: list[float]) -> float | None:
+    """Coefficient of variation (sample standard deviation over the mean) of 2+ prices."""
+    if len(prices) < 2:
+        return None
+    mean = statistics.fmean(prices)
+    return statistics.stdev(prices) / mean if mean > 0 else None
+
+
 def baseline(history: list[Observation], *, since: date, before: date,
-             min_dates: int = 1) -> Baseline:
+             min_dates: int = 1, min_lead_days: int = 0) -> Baseline:
     """Median of daily lows over days in [since, before). A day counts only when its offers
-    have at least `min_dates` different departure dates (D40)."""
+    have at least `min_dates` different departure dates (D40). Offers found less than
+    `min_lead_days` before departure are left out altogether (D44): last-week fares run dearer
+    than the month and would inflate the typical low of a month about to depart."""
     by_day: dict[date, list[Observation]] = defaultdict(list)
     for o in history:
-        if since <= day_key(o) < before:
+        if since <= day_key(o) < before and lead_days(o) >= min_lead_days:
             by_day[day_key(o)].append(o)
     lows = {day: min(offers, key=lambda o: (o.price, o.departure_date, o.id or 0))
             for day, offers in sorted(by_day.items())
@@ -130,10 +167,14 @@ def baseline(history: list[Observation], *, since: date, before: date,
     if not lows:
         return Baseline(median=None, sample_size=0, span_days=0)
     prices = [o.price for o in lows.values()]
+    every_offer = (o for offers in by_day.values() for o in offers)
     return Baseline(median=statistics.median(prices), sample_size=len(lows),
                     span_days=(max(lows) - min(lows)).days, mean=statistics.fmean(prices),
                     lowest=min(lows.values(), key=lambda o: o.price),
-                    highest=max(lows.values(), key=lambda o: o.price))
+                    highest=max(lows.values(), key=lambda o: o.price),
+                    cv=_cv(prices),
+                    min_low=min(every_offer, key=lambda o: (o.price, o.departure_date, o.id or 0)),
+                    median_lead_days=round(statistics.median(lead_days(o) for o in lows.values())))
 
 
 def month_baselines(history: list[Observation], cfg: DetectorConfig, now: datetime,
@@ -143,7 +184,8 @@ def month_baselines(history: list[Observation], cfg: DetectorConfig, now: dateti
         by_month[month_key(o)].append(o)
     since = now.date() - timedelta(days=cfg.lookback_days)
     before = fresh_since(cfg, now)
-    return {m: baseline(obs, since=since, before=before, min_dates=cfg.min_dates_per_day)
+    return {m: baseline(obs, since=since, before=before, min_dates=cfg.min_dates_per_day,
+                        min_lead_days=cfg.baseline_min_lead_days)
             for m, obs in by_month.items()}
 
 
@@ -158,34 +200,77 @@ def is_mature_for_promotions(base: Baseline, cfg: DetectorConfig) -> bool:
             and base.span_days >= cfg.min_baseline_span_days)
 
 
+def confidence(base: Baseline, cfg: DetectorConfig) -> str:
+    """How much to trust the typical low (D44): `low` below the maturity gate (D40), `high`
+    with at least `confidence.high_days` daily lows spread by at most `confidence.high_max_cv`
+    (coefficient of variation), `medium` in between. One of `CONFIDENCE_LEVELS`."""
+    if not is_mature(base, cfg):
+        return "low"
+    c = cfg.confidence
+    if base.sample_size >= c.high_days and base.cv is not None and base.cv <= c.high_max_cv:
+        return "high"
+    return "medium"
+
+
+def at_least(level: str, required: str) -> bool:
+    """`level` is `required` or stronger (both from `CONFIDENCE_LEVELS`)."""
+    return CONFIDENCE_LEVELS.index(level) >= CONFIDENCE_LEVELS.index(required)
+
+
+def new_low_floor(base: Baseline, cfg: DetectorConfig) -> float | None:
+    """The price a new low must not exceed: the cheapest eligible offer of the baseline window
+    minus `new_low_margin` (D44). None without a window."""
+    if base.min_low is None:
+        return None
+    return base.min_low.price * (1 - cfg.new_low_margin)
+
+
+def is_new_low(candidate: Observation, base: Baseline, cfg: DetectorConfig) -> bool | None:
+    """Cheaper than everything seen for the route-month in the window, by the margin; None
+    when there is nothing to compare with."""
+    floor = new_low_floor(base, cfg)
+    return None if floor is None else candidate.price <= floor + EPS
+
+
 def evaluate(candidate: Observation, base: Baseline, cfg: DetectorConfig,
              price_cap: float | None) -> Decision:
     """Promotion candidate or not: `threshold` and `min_saving_eur` below a typical low that
-    is mature for promotions."""
+    is mature for promotions and, with `require_new_low`, a new low (D44)."""
+    new_low = is_new_low(candidate, base, cfg)
     if not is_mature_for_promotions(base, cfg):
         why = (f"baseline {base.sample_size}/{cfg.min_baseline_days_promo} days, "
                f"span {base.span_days}/{cfg.min_baseline_span_days} days")
         if price_cap is not None and candidate.price <= price_cap:
-            return Decision("deal", "price_cap", None, f"{why}; price <= cap {price_cap:g}")
-        return Decision("insufficient_history", None, None, why)
+            return Decision("deal", "price_cap", None, f"{why}; price <= cap {price_cap:g}",
+                            new_low)
+        return Decision("insufficient_history", None, None, why, new_low)
 
     limit = base.median * (1 - cfg.threshold)
     saving = base.median - candidate.price
     discount = 1 - candidate.price / base.median
     if candidate.price > limit + EPS:
         return Decision("no_deal", None, None,
-                        f"{candidate.price:g} vs limit {limit:.2f} (typical low {base.median:g})")
+                        f"{candidate.price:g} vs limit {limit:.2f} (typical low {base.median:g})",
+                        new_low)
     if saving < cfg.min_saving_eur - EPS:
         return Decision("no_deal", None, None,
                         f"{candidate.price:g} is {discount:.0%} below typical low {base.median:g} "
-                        f"but saves only {saving:.2f} (< {cfg.min_saving_eur:g})")
+                        f"but saves only {saving:.2f} (< {cfg.min_saving_eur:g})", new_low)
+    if cfg.require_new_low and new_low is False:      # None: nothing seen to compare with
+        return Decision("no_deal", None, None,
+                        f"{candidate.price:g} is {discount:.0%} below typical low {base.median:g} "
+                        f"but not a new low: {base.min_low.price:g} was seen (needs <= "
+                        f"{new_low_floor(base, cfg):.2f})", new_low)
     return Decision("deal", "median", discount,
-                    f"{candidate.price:g} is {discount:.0%} below typical low {base.median:g}")
+                    f"{candidate.price:g} is {discount:.0%} below typical low {base.median:g}",
+                    new_low)
 
 
 def low_discount(o: Observation, base: Baseline, cfg: DetectorConfig) -> float | None:
-    """Discount vs the typical low when `o` is a low price (mature baseline only), else None."""
-    if not is_mature(base, cfg) or o.price > base.median * (1 - cfg.low_threshold) + EPS:
+    """Discount vs the typical low when `o` is a low price (a typical low of at least
+    `low_confidence`, D44), else None."""
+    if (not at_least(confidence(base, cfg), cfg.low_confidence)
+            or o.price > base.median * (1 - cfg.low_threshold) + EPS):
         return None
     return 1 - o.price / base.median
 
@@ -215,9 +300,10 @@ def low_prices(offers: list[Observation], history: list[Observation], cfg: Detec
                now: datetime, rules: RouteRules = DIRECT,
                baselines: dict[Month, Baseline] | None = None) -> list[LowPrice]:
     """One route's low prices among `offers`: fresh, within the rules, at least
-    `low_threshold` below a mature typical low. Biggest discount first, one per trip dates
-    (the cheapest). Offers that already are deals still count: a low price is not a post.
-    There is no price-cap path: without a mature baseline there is nothing to be low against.
+    `low_threshold` below a typical low of at least `low_confidence` (D44). Biggest discount
+    first, one per trip dates (the cheapest). Offers that already are deals still count: a low
+    price is not a post. There is no price-cap path: without a mature baseline there is nothing
+    to be low against.
     """
     baselines = month_baselines(history, cfg, now, rules) if baselines is None else baselines
     empty = Baseline(None, 0, 0)
