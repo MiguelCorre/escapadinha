@@ -103,6 +103,23 @@ def test_a_promotion_no_longer_below_the_current_typical_low_expires():
     assert "26 € fica 35% abaixo" in promotion_expiry(obs(26), "median", cheap, PROMO, None)
 
 
+def test_a_promotion_that_is_no_longer_a_new_low_expires_with_the_reason():
+    """D44: a cheaper fare joined the window since detection, so the deal would not be
+    detected now; without the rule it stays."""
+    from dataclasses import replace
+    floor = obs(49, found_ago=5)
+    undercut = replace(MATURE, min_low=floor)                 # 51 € is not 5 % below 49 €
+    assert promotion_expiry(obs(51), "median", undercut, PROMO, None) == (
+        "já não é um novo mínimo: entretanto vimos 49 € para este mês, e 51 € teria de ficar "
+        "5% abaixo disso")
+    assert promotion_expiry(obs(46), "median", undercut, PROMO, None) is None
+    lax = PROMO.model_copy(update={"require_new_low": False})
+    assert promotion_expiry(obs(51), "median", undercut, lax, None) is None
+    # The percentage rule still comes first: 60 € fails it before the new-low one.
+    assert promotion_expiry(obs(60), "median", undercut, PROMO, None).startswith(
+        "já não é promoção face ao preço habitual atual")
+
+
 def test_the_price_cap_only_keeps_the_promotions_it_made():
     """Until the typical low is mature only a route's price cap makes a promotion (D3, D40); a
     deal of the median rule never survives on the cap."""

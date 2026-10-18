@@ -127,6 +127,10 @@
             "highest_observation_id": {"type": "integer"}
           }
         },
+        "confidence": {"enum": ["low", "medium", "high", null],
+                       "description": "Optional (added within v1, D44): how much the detector trusted typical_low_eur when it made the deal. low = below the maturity gate (only a price-cap deal), high = at least detector.confidence.high_days daily lows with a coefficient of variation of at most high_max_cv, medium in between. Posts claim a percentage only at medium or high. Null for a deal detected before D44; absent from older snapshots."},
+        "new_low": {"type": ["boolean", "null"],
+                    "description": "Optional (added within v1, D44): the price was below every offer seen for the route-month in the lookback window, by detector.new_low_margin ('novo mínimo'). Null when unknown (no window, or a deal detected before D44); absent from older snapshots."},
         "found_date": {"type": ["string", "null"], "format": "date",
                        "description": "When a traveller found the price (provider cache)."},
         "found_on": {"type": ["string", "null"]},

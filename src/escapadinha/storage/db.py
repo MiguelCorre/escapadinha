@@ -11,7 +11,7 @@ from pathlib import Path
 
 from escapadinha.models import Deal, Observation, Photo, Post
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -126,6 +126,10 @@ MIGRATIONS = {
          "ALTER TABLE price_observations ADD COLUMN baggage_code TEXT",
          "ALTER TABLE price_observations ADD COLUMN gate TEXT",
          "ALTER TABLE price_observations ADD COLUMN found_at TEXT"],
+    # Confidence and new low at detection (D44). Deals detected before keep NULLs.
+    15: ["ALTER TABLE deals ADD COLUMN confidence TEXT "
+         "CHECK (confidence IN ('low', 'medium', 'high'))",
+         "ALTER TABLE deals ADD COLUMN new_low INTEGER"],
 }
 
 
@@ -389,14 +393,17 @@ def insert_deal(conn: sqlite3.Connection, *, observation_id: int, rule: str,
                 baseline_median: float | None, sample_size: int, discount_pct: float | None,
                 threshold: float, baseline_span_days: int | None = None,
                 baseline_lowest_obs_id: int | None = None,
-                baseline_highest_obs_id: int | None = None) -> int:
+                baseline_highest_obs_id: int | None = None, confidence: str | None = None,
+                new_low: bool | None = None) -> int:
     cur = conn.execute(
         """INSERT INTO deals (observation_id, rule, baseline_median, sample_size,
                               discount_pct, threshold, detected_at, baseline_span_days,
-                              baseline_lowest_obs_id, baseline_highest_obs_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              baseline_lowest_obs_id, baseline_highest_obs_id, confidence,
+                              new_low)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (observation_id, rule, baseline_median, sample_size, discount_pct, threshold,
-         _ts(utcnow()), baseline_span_days, baseline_lowest_obs_id, baseline_highest_obs_id),
+         _ts(utcnow()), baseline_span_days, baseline_lowest_obs_id, baseline_highest_obs_id,
+         confidence, None if new_low is None else int(new_low)),
     )
     conn.commit()
     return cur.lastrowid
@@ -421,6 +428,8 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
         baseline_span_days=row["baseline_span_days"],
         baseline_lowest_obs_id=row["baseline_lowest_obs_id"],
         baseline_highest_obs_id=row["baseline_highest_obs_id"],
+        confidence=row["confidence"],
+        new_low=None if row["new_low"] is None else bool(row["new_low"]),
     )
 
 

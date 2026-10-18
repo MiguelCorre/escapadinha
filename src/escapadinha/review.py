@@ -45,6 +45,10 @@ class UnknownDeal(ReviewError):
 STATUS_PT = {"new": "novo", "rendered": "por rever", "approved": "aprovado",
              "published": "publicado", "rejected": "rejeitado", "expired": "expirado"}
 
+# The word both review pages show for a deal's trust in its typical low (D44; the levels are
+# detector.CONFIDENCE_LEVELS).
+CONFIDENCE_PT = {"low": "baixa", "medium": "média", "high": "alta"}
+
 
 def ensure_transition(current: str, target: str) -> None:
     if target not in TRANSITIONS.get(current, set()):

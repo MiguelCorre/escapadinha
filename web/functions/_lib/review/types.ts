@@ -33,6 +33,9 @@ export interface Deps {
 
 export type DecisionType = "approve" | "reject" | "published";
 
+/** detector.CONFIDENCE_LEVELS: trust in a typical low (D44). */
+export type Confidence = "low" | "medium" | "high";
+
 export interface LiveCheck {
   valid: boolean;
   price_eur: number | null;
@@ -99,6 +102,11 @@ export interface SnapshotDeal {
   baseline_days: number;
   /** How solid the typical low is (D40); null without a stored range, absent before D40. */
   baseline?: BaselineRange | null;
+  /** D44: how much the detector trusted the typical low at detection, and whether the price
+   * beat everything seen for the route-month ("novo mínimo"). Null for older deals, absent
+   * from older snapshots. */
+  confidence?: Confidence | null;
+  new_low?: boolean | null;
   found_date: string | null;
   found_on: string | null;
   fetched_at: string;

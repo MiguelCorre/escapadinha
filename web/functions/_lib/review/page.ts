@@ -5,7 +5,7 @@
 import { BRAND } from "../../../src/lib/brand";
 import { discountPercent, eur, lisbonTimestamp } from "../../../src/lib/format";
 import { TOKENS } from "../../../src/lib/tokens";
-import { DECISION_PT } from "./rules";
+import { CONFIDENCE_PT, DECISION_PT } from "./rules";
 import type { Outcome, ReviewEvent, Snapshot, SnapshotDeal } from "./types";
 
 const STALE_HOURS = 3;   // runs every 2 h (D25): older than this, something is wrong
@@ -32,9 +32,12 @@ function slides(d: SnapshotDeal): string {
 const obsPrice = (id: number, amount: number) => `<span data-obs="${esc(id)}">${esc(eur(amount))}</span>`;
 
 /** The discount line (HTML): the typical low with its days in their window (first to last day)
- * and its cheapest and dearest daily low (D40). Without a stored range (an older deal or
- * snapshot) the days only, as the local page. */
+ * and its cheapest and dearest daily low (D40), then how much it was trusted at detection and
+ * whether the price beat everything seen for the route-month ("novo mínimo", D44). Without a
+ * stored range (an older deal or snapshot) the days only, as the local page; older deals carry
+ * neither confidence nor the flag. */
 function dealLine(d: SnapshotDeal): string {
+  let line = d.rule === "price_cap" ? "abaixo do teto de preço da rota" : "";
   if (d.rule === "median" && d.discount_pct) {
     const typical = d.typical_low_eur === null ? "" : ` ${eur(d.typical_low_eur)}`;
     const b = d.baseline;
@@ -42,9 +45,12 @@ function dealLine(d: SnapshotDeal): string {
       ? `${d.baseline_days} dias em ${b.span_days + 1}, de ${obsPrice(b.lowest_observation_id, b.lowest_eur)}`
         + ` a ${obsPrice(b.highest_observation_id, b.highest_eur)}`
       : `${d.baseline_days} dias`;
-    return `${esc(discountPercent(d.discount_pct))} vs. mínimo habitual${esc(typical)} (${lows})`;
+    line = `${esc(discountPercent(d.discount_pct))} vs. mínimo habitual${esc(typical)} (${lows})`;
   }
-  return d.rule === "price_cap" ? "abaixo do teto de preço da rota" : "";
+  if (!line) return "";
+  const trust = [d.confidence ? `confiança ${CONFIDENCE_PT[d.confidence]}` : "", d.new_low ? "novo mínimo" : ""]
+    .filter(Boolean).map((s) => ` · ${esc(s)}`).join("");
+  return line + trust;
 }
 
 function copyBlock(label: string, attr: string, act: string, button: string, body: string, open = false): string {

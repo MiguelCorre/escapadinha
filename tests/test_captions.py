@@ -23,10 +23,10 @@ def observation(**overrides):
     return Observation(**(fields | overrides))
 
 
-def deal(rule="median", discount=0.4123):
+def deal(rule="median", discount=0.4123, confidence="medium", new_low=None):
     return Deal(id=11, observation_id=7, rule=rule, baseline_median=99.0, sample_size=30,
                 discount_pct=discount if rule == "median" else None, threshold=0.3,
-                detected_at=FETCHED, status="new")
+                detected_at=FETCHED, status="new", confidence=confidence, new_low=new_low)
 
 
 PHOTO = Photo(destination="AMS", file_path="assets/photos/AMS.jpg", source="pixabay",
@@ -120,6 +120,29 @@ def test_price_cap_deal_makes_no_discount_claim():
     assert "abaixo" not in caption(d=deal(rule="price_cap"))
 
 
+CLAIM = "📉 41% abaixo do preço mínimo habitual desta rota para partidas em novembro"
+NEW_LOW = "o preço mais baixo que vimos nesta rota para partidas em novembro"
+
+
+def test_the_percentage_is_claimed_only_with_medium_or_high_confidence():
+    """D44: the caption says "−x %" only when the typical low is trusted; a deal detected
+    before D44 (no stored confidence) makes no claim either."""
+    assert CLAIM in caption(d=deal(confidence="medium"))
+    assert CLAIM in caption(d=deal(confidence="high"))
+    for d in (deal(confidence="low"), deal(confidence=None)):
+        text = caption(d=d)
+        assert "📉" not in text and "abaixo" not in text and "habitual" not in text
+
+
+def test_a_new_low_is_said_as_such_and_alone_when_the_typical_low_is_not_trusted():
+    assert f"{CLAIM}: o preço mais baixo que vimos\n" in caption(d=deal(new_low=True))
+    low = caption(d=deal(confidence="low", new_low=True))
+    assert f"📉 {NEW_LOW[0].upper()}{NEW_LOW[1:]}\n" in low and "abaixo" not in low
+    assert "mais baixo" not in caption(d=deal(new_low=False))
+    cap = caption(d=deal(rule="price_cap", confidence="low", new_low=True))
+    assert "mais baixo que vimos" in cap and "abaixo" not in cap
+
+
 def test_photo_credit_line():
     assert "📷 Foto: Ana Silva / Pixabay" in caption()
     assert "📷" not in caption(photo=None)
@@ -168,6 +191,7 @@ def test_whatsapp_text_is_short_pt_pt_with_link_disclosure_and_both_dates():
         "📅 27 de novembro a 4 de dezembro · 7 noites\n"
         "🛫 Transavia · voos diretos\n"
         "🛬 Chegada: aeroporto Schiphol (AMS)\n"
+        f"{CLAIM}\n"
         "\n"
         "Preço por pessoa encontrado a 09/10/2026 e verificado a 12/10/2026 às 10:14 "
         "(hora de Lisboa). Os preços mudam depressa.\n"
@@ -179,8 +203,17 @@ def test_whatsapp_text_is_short_pt_pt_with_link_disclosure_and_both_dates():
 
 def test_whatsapp_text_carries_the_baggage_line_when_known():
     text = whatsapp_text(view(o=observation(with_baggage=True), d=linked_deal()))
-    assert "🛬 Chegada: aeroporto Schiphol (AMS)\n🧳 Com mala de porão incluída\n\n" in text
+    assert f"🛬 Chegada: aeroporto Schiphol (AMS)\n🧳 Com mala de porão incluída\n{CLAIM}\n\n" in text
     assert "🧳" not in whatsapp_text(view(d=linked_deal()))
+
+
+def test_whatsapp_text_claims_the_percentage_only_with_a_trusted_typical_low():
+    """D44: the same claim line as the caption, or "o preço mais baixo que vimos" alone."""
+    assert CLAIM in whatsapp_text(view(d=linked_deal(confidence="high")))
+    low = whatsapp_text(view(d=linked_deal(confidence="low", new_low=True)))
+    assert "📉 O preço mais baixo que vimos nesta rota para partidas em novembro\n" in low
+    assert "abaixo" not in low
+    assert "📉" not in whatsapp_text(view(d=linked_deal(confidence="low")))
 
 
 def test_whatsapp_text_without_a_found_date_says_only_when_it_was_checked():

@@ -386,6 +386,8 @@ def test_snapshot_follows_a_deal_from_queue_to_published(remote):
     assert (lows["span_days"], lows["lowest_eur"], lows["highest_eur"]) == (21, 100, 102)
     for side in ("lowest", "highest"):
         assert db.get_observation(conn, lows[f"{side}_observation_id"]).price == lows[f"{side}_eur"]
+    # D44: 22 steady days are high confidence, and 58 € beat every seeded fare (100 €+).
+    assert (d["confidence"], d["new_low"]) == ("high", True)
     assert untraced_prices(conn, snap) == []
     [p] = snap["pending_events"]
     assert p == approval.event.to_json()

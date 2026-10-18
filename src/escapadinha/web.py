@@ -21,7 +21,7 @@ from escapadinha import pipeline, review_events, review_snapshot
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation
 from escapadinha.presentation import PhotoCredit, build_deal_view
-from escapadinha.review import DECISION_PT, STATUS_PT, TABS, ReviewError, UnknownDeal
+from escapadinha.review import CONFIDENCE_PT, DECISION_PT, STATUS_PT, TABS, ReviewError, UnknownDeal
 from escapadinha.storage import db
 
 SLIDE_NAME = re.compile(r"^slide_\d{2}\.png$")
@@ -71,6 +71,9 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         # page puts each on its observation's `data-obs`).
         "baseline": baseline and {**baseline, "lowest": pt.eur(baseline["lowest_eur"]),
                                   "highest": pt.eur(baseline["highest_eur"])},
+        "confidence": deal.confidence,           # D44, with its pt-PT word for the card
+        "confidence_pt": CONFIDENCE_PT.get(deal.confidence),
+        "new_low": deal.new_low,
         "found_on": view.found_on,
         "checked_at": view.checked_at,
         "last_checked_at": pt.lisbon_timestamp(deal.last_checked_at) if deal.last_checked_at else None,

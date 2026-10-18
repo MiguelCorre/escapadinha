@@ -17,6 +17,8 @@ SITE_DISCLOSURE = ("Publicidade: os botões de reserva são links de afiliado. S
 # The disclosure in every affiliate block of an itinerary or tip (eSIM, insurance, activities, D37).
 BLOCK_DISCLOSURE = ("Publicidade: esta ligação é um link de afiliado. Se comprares através dela, "
                     "podemos receber uma comissão, sem custo extra para ti.")
+# A post claims "−x % face ao habitual" only with this much confidence in the typical low (D44).
+CLAIM_CONFIDENCE = ("medium", "high")
 
 
 def booking_url(deep_link: str | None, booking_base: str) -> str | None:
@@ -83,6 +85,9 @@ class DealView:
     baggage: bool | None = None           # a checked bag is included
     baggage_line: str | None = None       # 'com mala de porão incluída' / 'só bagagem de mão'
     gate: str | None = None               # the selling agency (reviewers see it; posts don't)
+    # Stored at detection (D44); None for deals detected before.
+    confidence: str | None = None         # low | medium | high: trust in the typical low
+    new_low: bool | None = None           # cheaper than everything seen for the route-month
 
     @property
     def destination_headline(self) -> str:
@@ -90,6 +95,20 @@ class DealView:
         if self.remote_airport:
             return f"{self.destination_city} ({pt.AIRPORTS.get(self.arrival_code, self.arrival_code)})"
         return self.destination_city
+
+    @property
+    def claimed_discount(self) -> int | None:
+        """The "−x %" a post may claim (D44): only with medium or high confidence in the
+        typical low. Captions and slides use this; the reviewer still sees `discount_pct`."""
+        return self.discount_pct if self.confidence in CLAIM_CONFIDENCE else None
+
+    @property
+    def new_low_line(self) -> str | None:
+        """'o preço mais baixo que vimos nesta rota para partidas em novembro' when the price
+        beat everything seen for the route-month (D44), else None."""
+        if not self.new_low:
+            return None
+        return f"o preço mais baixo que vimos nesta rota para partidas em {self.departure_month}"
 
     def meta(self, deal: Deal, observation: Observation, booking_base: str) -> dict:
         """Traceability record written next to the slides."""
@@ -188,4 +207,5 @@ def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination
         affiliate_url=deal.affiliate_url,
         photo=photo,
         baggage=o.with_baggage, baggage_line=pt.baggage_line(o.with_baggage), gate=o.gate,
+        confidence=deal.confidence, new_low=deal.new_low,
     )

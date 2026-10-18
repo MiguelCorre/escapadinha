@@ -46,6 +46,23 @@ detector:
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
   max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
   max_offer_age_days: 3      # candidates: prices found in the last N days; older days = baseline
+  # Confidence in a typical low (D44): low = below the maturity gate above; high = at least
+  # confidence.high_days daily lows spread by at most high_max_cv (coefficient of variation of
+  # the daily lows; 0.20 is the median route-month, 0.34 the 90th percentile); medium otherwise.
+  # Posts and the WhatsApp text claim "−x % face ao habitual" only at medium or high; a deal
+  # whose typical low is only `low` says "o preço mais baixo que vimos" when it is a new low.
+  confidence:
+    high_days: 14
+    high_max_cv: 0.25
+  low_confidence: medium     # low prices (route pages, explorer) need this confidence: medium | high
+  # New low (D44): on a mature route a day 30 % below the median is a one-in-ten day, not a
+  # promotion. A candidate must also be new_low_margin below the cheapest offer seen for the
+  # route-month in the lookback window (every day, not only the counted ones).
+  require_new_low: true
+  new_low_margin: 0.05
+  # Lead time (D44): fares found less than this many days before departure (~14 % dearer than
+  # the month) are left out of the typical low; they can still be candidates against it.
+  baseline_min_lead_days: 7
 
 # Routes live in the database (`escapadinha routes list`). Config only shapes them.
 routes:

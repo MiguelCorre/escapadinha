@@ -162,6 +162,8 @@ def test_page_and_queue(web, ctx):
     assert (lows["lowest_eur"], lows["highest_eur"]) == (100, 102)
     assert [db.get_observation(conn, lows[f"{k}_observation_id"]).price
             for k in ("lowest", "highest")] == [100, 102]
+    # D44: the confidence (with its pt-PT word for the card) and the new-low flag.
+    assert (d["confidence"], d["confidence_pt"], d["new_low"]) == ("high", "alta", True)
     slide = client.get(d["slides"][0])
     assert slide.status_code == 200 and slide.content == PNG
 

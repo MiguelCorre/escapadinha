@@ -24,7 +24,7 @@ from escapadinha.collector.base import Fetched, departure_months
 from escapadinha.collector import graphql
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
 from escapadinha.collector.travelpayouts import RateLimiter, TravelpayoutsError, TravelpayoutsSource
-from escapadinha.config import Context
+from escapadinha.config import Context, DetectorConfig
 from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation, Post, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
@@ -263,7 +263,7 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
             db.insert_deal(conn, observation_id=f.observation.id, rule=f.decision.rule,
                            baseline_median=f.baseline.median, sample_size=f.baseline.sample_size,
                            discount_pct=f.decision.discount_pct, threshold=cfg.threshold,
-                           **_baseline_columns(f.baseline))
+                           **_deal_columns(f, cfg))
             for f in found.candidates
         ]
         open_offers = [o for o in offers if o.id not in taken]
@@ -290,14 +290,17 @@ def baseline_range(conn: sqlite3.Connection, deal: Deal) -> BaselineRange | None
     return BaselineRange(deal.baseline_span_days, lowest, highest)
 
 
-def _baseline_columns(base: detector.Baseline) -> dict:
-    """What a deal stores of its typical low for the reviewer (D40): span and the
-    observations of the extreme daily lows (none without a baseline, e.g. a price cap)."""
-    if base.median is None:
-        return {}
-    return {"baseline_span_days": base.span_days,
-            "baseline_lowest_obs_id": base.lowest.id if base.lowest else None,
-            "baseline_highest_obs_id": base.highest.id if base.highest else None}
+def _deal_columns(flag: detector.Flag, cfg: DetectorConfig) -> dict:
+    """What a deal stores of its typical low for the reviewer: the confidence in it and
+    whether the price is a new low (D44), and, with a typical low (not a price cap), its span
+    and the observations of the extreme daily lows (D40)."""
+    base = flag.baseline
+    columns = {"confidence": detector.confidence(base, cfg), "new_low": flag.decision.new_low}
+    if base.median is not None:
+        columns.update(baseline_span_days=base.span_days,
+                       baseline_lowest_obs_id=base.lowest.id if base.lowest else None,
+                       baseline_highest_obs_id=base.highest.id if base.highest else None)
+    return columns
 
 
 def _summarise(route: Route, offers: list[Observation], history: list[Observation],

@@ -12,6 +12,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `instagram token`,
   `site build|preview|setup|deploy|crawl|build-jinja`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
+- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44]
+  [--runs 19-57 | --days 14] [--candidates --state --json out.json]`: the detector backtest (D44),
+  read-only on a database copy (`escapadinha.backtest`); `store pull` first.
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 - Web package (`cd web`): `npm ci`, `npm run typecheck` (strict tsc: `tsconfig.functions.json`
   without Node types, `tsconfig.typecheck.json` for `src/lib` + tests), `npm test` (vitest builds from the fixtures), `npm run
@@ -107,6 +110,17 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `detector.evaluate`, data passed in) and expires the ones that would not be detected now:
   pipeline-owned like the recheck's expiry, never an approve/reject; approved deals only get the
   price recheck.
+- Confidence, new low and lead time (D44, all in `detector.py`, thresholds from config
+  `detector`): `confidence(base, cfg)` is `low` below `is_mature`, `high` at
+  `confidence.high_days` daily lows with CV ≤ `confidence.high_max_cv`, else `medium`; low prices
+  need `low_confidence`. With `require_new_low` a candidate must be `new_low_margin` below
+  `Baseline.min_low` (the cheapest eligible offer of the window, every day). The baseline takes
+  only offers with `lead_days` ≥ `baseline_min_lead_days`. A deal stores `confidence` and `new_low`
+  at detection (schema v15); the snapshot, both review pages and `deal check` show them. Posts
+  claim "−x %" only through `DealView.claimed_discount` (medium or high), else
+  `new_low_line` when it is a new low: never a percentage on a low-confidence typical low.
+  Rule changes are measured first with `scripts/backtest_detector.py` (`backtest.py`: replay
+  on a read-only copy, never the live file) and written up in `docs/research/`.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
   passed in too; never read a global `direct_only` or nights range. The same for the collector
@@ -316,8 +330,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `src/fallback.js` (the Actions fallback's entry, exit codes), `test/` (node:test); runbook
   `docs/runbooks/agendamento.md`
 - `src/escapadinha/detector.py`: daily-low `baseline` per route+month (days with 2+ departure
-  dates, cheapest/dearest daily low), `is_mature` / `is_mature_for_promotions` (D40), `evaluate`
+  dates, cheapest/dearest daily low, `cv`, `min_low`, `median_lead_days`), `is_mature` /
+  `is_mature_for_promotions` (D40), `confidence` / `at_least` / `is_new_low` (D44), `evaluate`
   (candidates), `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
+- `src/escapadinha/backtest.py` + `scripts/backtest_detector.py`: the detector backtest (D44):
+  `open_copy` (read-only → memory), `replay` (rule sets × runs → `Replay`, candidates judged by
+  the recheck within 24 h and in hindsight), `rule_sets` presets, `state`, `markdown`/`to_json`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,
