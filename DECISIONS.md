@@ -2660,3 +2660,9 @@ so nothing has to be hosted.
   `tests/fixtures/eurostat_avia_par_pt.json` (97 KB; Lisbon–Madrid December 2024 = 141 591 as the
   research read it), `web/test/routes.test.ts`, `explorer.test.ts`, `seo.test.ts`,
   `scale.test.ts`, the hub order in `route-pages.test.ts`.
+- **Fix after the merge (2026-10-20):** the attribution line marked `avia_par_pt` with `<em>`, the
+  first italic on the site. Both text fonts ship an italic WOFF2 (`font-display: optional`), and
+  that one fetch took the About page's first paint from 2.4 s to 3.5 s on Lighthouse's throttled
+  mobile (performance 0.95 → 0.84, the `web` check red; merged by mistake on a wrong exit code).
+  Now `<code>`, a system font: 0.95 again. Rule of thumb: no `<em>`/`<i>` in page copy unless the
+  italic faces are dropped from `astro.config.ts`.
