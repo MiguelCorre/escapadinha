@@ -2,8 +2,10 @@
 // One page per route at the contract's path (/voos/<origem>-<destino>/, the current site's URLs,
 // D30): its promotions, recent low prices with found-on dates and partner links, the calendar of
 // the cheapest found prices, the typical low per month (or "ainda sem dados"), the rules behind
-// the numbers, a notice when the route is dormant, and links to the origin page, the destination
-// hub and (from #17) the itinerary.
+// the numbers, a notice when the route is dormant, what Eurostat says about the route's demand
+// (D45: passengers per month, "pouca procura" when there is no recent price on a thin route,
+// "sazonal" when months had no passengers; a count, never a price), and links to the origin
+// page, the destination hub and (from #17) the itinerary.
 import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
@@ -18,7 +20,7 @@ import type { Route } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { eur, nights, numericDate, shortDate } from "../../lib/format";
 import { promotionView } from "../../lib/promotion";
-import { routeLowPrices, rulesText, typicalLowRule } from "../../lib/routes";
+import { demandView, routeLowPrices, rulesText, typicalLowRule } from "../../lib/routes";
 
 export const getStaticPaths = (() => {
   return data.routes.routes.map((route) => {
@@ -43,6 +45,7 @@ const det = data.meta.detector;
 const cheapest = route.cheapest;
 const dormant = route.status === "dormant";
 const name = `${origin.name} para ${route.city}`;
+const demand = demandView(route, data.meta.demand);
 ---
 <Base
   title={`Voos baratos de ${name} · ${BRAND}`}
@@ -57,7 +60,22 @@ const name = `${origin.name} para ${route.city}`;
     <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Voos de {name}</h1>
     <p class="mt-md text-lead text-muted">Acompanhamos esta rota várias vezes por dia. Aqui estão as promoções, os preços baixos encontrados nos últimos dias, o calendário dos preços mais baixos e o preço mínimo habitual de ida e volta, para saberes se um preço é mesmo bom.</p>
     <p class="mt-xs text-small text-muted">Contamos {rulesText(route)}.</p>
+    {demand && (
+      <p data-demand class="mt-xs text-small text-muted">Procura: cerca de <span class="num">{demand.paxMonth}</span> passageiros por mês nesta ligação, nos dois sentidos (Eurostat, dados até {demand.period}).</p>
+    )}
   </header>
+
+  {demand?.thin && !cheapest && (
+    <div data-demand-thin class="notice mt-lg max-w-measure text-ink">
+      <p><strong>Rota com pouca procura:</strong> os preços aparecem raramente. Poucos viajantes pesquisam esta ligação, por isso a fonte dos preços tem poucas tarifas para mostrar; quando encontrarmos uma, aparece aqui.</p>
+    </div>
+  )}
+
+  {demand?.zeroMonths && (
+    <div data-demand-seasonal class="notice mt-lg max-w-measure text-ink">
+      <p><strong>Rota sazonal.</strong> Segundo o Eurostat, não houve passageiros nesta ligação em {demand.zeroMonths}: fora da época pode não haver voos nem preços para mostrar.</p>
+    </div>
+  )}
 
   {dormant && (
     <div data-dormant class="notice notice-warning mt-lg max-w-measure text-ink">

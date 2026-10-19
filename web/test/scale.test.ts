@@ -87,6 +87,50 @@ describe("full-size build (synthetic data)", () => {
     });
   });
 
+  it("shows demand as a passenger count and the thin and seasonal notes where they apply (D45)", () => {
+    const withDemand = synthetic.routes.find((r) => r.demand && r.demand.pax_month >= 5000
+      && r.demand.months.every((m) => m.pax > 0) && r.cheapest)!;
+    const page = doc(withDemand.path);
+    const line = page.querySelector("[data-demand]")!.textContent;
+    expect(line).toContain("passageiros por mês");
+    expect(line).toContain("dezembro de 2024");
+    expect(line).not.toMatch(/€/);
+    expect(page.querySelector("[data-demand-thin]")).toBeNull();
+    expect(page.querySelector("[data-demand-seasonal]")).toBeNull();
+    const thinNoPrice = synthetic.routes.find((r) => r.demand && r.demand.pax_month < 5000 && !r.cheapest)!;
+    expect(doc(thinNoPrice.path).querySelector("[data-demand-thin]")!.textContent).toContain("Rota com pouca procura: os preços aparecem raramente");
+    const thinPriced = synthetic.routes.find((r) => r.demand && r.demand.pax_month < 5000 && r.cheapest)!;
+    expect(doc(thinPriced.path).querySelector("[data-demand-thin]")).toBeNull();
+    const seasonal = synthetic.routes.find((r) => r.demand && r.demand.months.some((m) => m.pax === 0))!;
+    const note = doc(seasonal.path).querySelector("[data-demand-seasonal]")!.textContent;
+    expect(note).toContain("Rota sazonal");
+    expect(note).toContain("janeiro, fevereiro, março e dezembro de 2024");
+    const hub = synthetic.destinations.find((d) => d.code === seasonal.destination)!;
+    expect(doc(hub.path).querySelector(`[data-origin="${seasonal.origin}"] [data-demand-seasonal]`)).not.toBeNull();
+    const without = synthetic.routes.find((r) => r.demand === null)!;
+    expect(doc(without.path).querySelector("[data-demand]")).toBeNull();
+  });
+
+  it("orders an origin page by price, then demand, with unpriced routes last", () => {
+    const origin = synthetic.origins[0];
+    const listed = doc(origin.path).querySelectorAll("section ul li[data-route]").map((li) => li.getAttribute("data-route")!);
+    const byKey = new Map(synthetic.routes.map((r) => [r.key, r]));
+    let kind = "";
+    let previous: (typeof synthetic.routes)[number] | null = null;
+    for (const key of listed) {
+      const r = byKey.get(key)!;
+      if (r.kind !== kind) { kind = r.kind; previous = null; }
+      if (previous) {
+        const a = previous.cheapest?.price ?? Infinity;
+        const b = r.cheapest?.price ?? Infinity;
+        expect(a <= b, `${previous.key} before ${key}`).toBe(true);
+        if (a === b) expect((previous.demand?.pax_month ?? -1) >= (r.demand?.pax_month ?? -1), `${previous.key} before ${key}`).toBe(true);
+      }
+      previous = r;
+    }
+    expect(listed.length).toBe(synthetic.routes.filter((r) => r.origin === origin.iata).length);
+  });
+
   it("only links to pages that exist", () => {
     expect(brokenLinks(distDir)).toEqual([]);
   });

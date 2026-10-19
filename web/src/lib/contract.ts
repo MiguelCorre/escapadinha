@@ -48,6 +48,8 @@ export interface Meta {
   /** "@ondestaanocas": the contact on the About and Privacy pages (D34). */
   instagram_handle?: string;
   detector: Detector;
+  /** Route demand (D45): the rule the pages apply to routes.json `demand`. */
+  demand: { thin_pax_month: number };
   files: {
     origins: string; routes: string; destinations: string; promotions: string; labels: string;
     pontes?: string;
@@ -98,6 +100,14 @@ export interface CalendarDay {
   price: number;
 }
 
+/** Passengers carried on the route's airport pair, from Eurostat avia_par_pt (D45): a count,
+ * never a price. `months`: the dataset's last twelve months, ascending; pax 0 = none reported. */
+export interface RouteDemand {
+  pax_month: number;
+  period: string;
+  months: { month: string; pax: number }[];
+}
+
 export interface Route {
   key: string;
   origin: string;
@@ -115,6 +125,8 @@ export interface Route {
   counts: { observations: number; low_prices: number; promotions_live: number; promotions_expired: number };
   discovered_at: string | null;
   last_observed_at: string | null;
+  /** null: Eurostat has no series for the pair, or it was never fetched (show nothing). */
+  demand: RouteDemand | null;
 }
 
 export interface Photo {

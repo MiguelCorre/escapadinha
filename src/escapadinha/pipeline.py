@@ -13,7 +13,7 @@ from pathlib import Path, PureWindowsPath
 
 import httpx
 
-from escapadinha import (archive, detector, discovery, i18n_pt, instagram, posting, review_events,
+from escapadinha import (archive, demand, detector, discovery, i18n_pt, instagram, posting, review_events,
                          routes, telegram)
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.articles import Article
@@ -23,6 +23,8 @@ from escapadinha.collector.runner import RunSummary, collect
 from escapadinha.collector.base import Fetched, departure_months
 from escapadinha.collector import graphql
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
+from escapadinha.collector.eurostat import EurostatClient, EurostatError
+from escapadinha.collector import eurostat
 from escapadinha.collector.travelpayouts import RateLimiter, TravelpayoutsError, TravelpayoutsSource
 from escapadinha.config import Context, DetectorConfig
 from escapadinha.guides import load_guide
@@ -34,6 +36,7 @@ from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, UnknownDeal,
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db, sync
 from escapadinha.storage.mirror import Mirror
+from escapadinha.storage.s3 import STORE_ERRORS
 
 
 def open_db(ctx: Context) -> sqlite3.Connection:
@@ -70,7 +73,8 @@ def run_collect(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
     deal_months = {(o.route_key, o.departure_date.replace(day=1)) for _, o in db.open_deals(conn)}
     asked = collector_plan.plan(routes.active_routes(conn, ctx.config.routes), today=today,
                                 daily=daily, months_ahead=c.months_ahead,
-                                daily_months_ahead=c.daily_months_ahead, deal_months=deal_months)
+                                daily_months_ahead=c.daily_months_ahead, deal_months=deal_months,
+                                deep_routes=c.deep_routes)
     summary = collect(conn, price_source(ctx), asked, store=ctx.object_store, workers=c.workers)
     if daily and summary.status != "failed":
         db.set_meta(conn, DAILY_PASS, json.dumps({"day": today.isoformat(), "run": summary.run_id}))
@@ -152,11 +156,24 @@ DISCOVERED_AT = "routes.discovered_at"     # meta key: last successful discovery
 
 
 @dataclass(frozen=True)
+class DemandUpdate:
+    """What a discovery's Eurostat fetch (D45) gave the routes table."""
+
+    period: str | None                     # the dataset's latest month with values, "YYYY-MM"
+    with_figure: int                       # routes that got a passengers-per-month figure
+    routes: int                            # routes in the table
+    seasonal: int                          # routes with a month at zero passengers
+    top: list[tuple[str, float]]           # the busiest routes, (key, passengers per month)
+    archive_key: str                       # the answer, as it came, in the object store
+
+
+@dataclass(frozen=True)
 class Discovery:
     applied: routes.Applied
     errors: list[str]                      # supplements that failed (a catalogue failure raises)
     photos: list[tuple[str, str]]          # (destination, result) for new photos
     photos_missing: int                    # destinations still without a photo
+    demand: DemandUpdate | None = None     # the Eurostat demand update (None: it failed, D45)
 
 
 def last_discovery(conn: sqlite3.Connection) -> datetime | None:
@@ -202,11 +219,42 @@ def run_discover(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     found = discovery.discover(catalogue, origins, popular=popular, recent=recent,
                                long_haul=routes.curated_long_haul(cfg.routes))
     applied = routes.apply_discovery(conn, cfg.routes, found, now, dry_run=dry_run)
+    demand_update = None
+    try:
+        demand_update = run_demand(ctx, conn, now, airports=payloads.airports, dry_run=dry_run)
+    except (EurostatError, demand.DemandError, httpx.HTTPError, ValueError, *STORE_ERRORS) as exc:
+        errors.append(f"route demand (Eurostat {demand.DATASET}): {exc}")
     if dry_run:
-        return Discovery(applied, errors, [], 0)
+        return Discovery(applied, errors, [], 0, demand_update)
     db.set_meta(conn, DISCOVERED_AT, now.isoformat())
     done, missing = run_missing_photos(ctx, conn) if photos else ([], len(missing_photos(ctx, conn)))
-    return Discovery(applied, errors, done, missing)
+    return Discovery(applied, errors, done, missing, demand_update)
+
+
+TOP_DEMAND = 5
+
+
+def run_demand(ctx: Context, conn: sqlite3.Connection, now: datetime, *, airports: list[dict],
+               dry_run: bool = False) -> DemandUpdate:
+    """Route demand from Eurostat (D45): one GET of `avia_par_pt`, archived as it came, parsed
+    and summed into every stored route's passengers per month (`routes.demand_pax_month`,
+    `demand_period`, the months in `route_demand`). Routes the dataset has no pair for get
+    NULLs. `airports`: the provider's `airports.json` rows (partner airport -> city code),
+    which the discovery already downloaded. Raises on a failed fetch or an unexpected answer:
+    the caller reports it and goes on."""
+    since = eurostat.since_month(now.astimezone(i18n_pt.LISBON).date(), ctx.config.demand.since_months)
+    doc = EurostatClient().passengers(since)
+    key = eurostat.archive(ctx.object_store, eurostat.archive_key(now), doc)
+    cells = demand.parse_jsonstat(doc)
+    rows = db.route_rows(conn)
+    figures = demand.route_demand(cells, airports, [(r["origin"], r["destination"]) for r in rows])
+    if not dry_run:
+        db.set_route_demand(conn, figures)
+    months = demand.months_available(cells)
+    busiest = sorted(figures.items(), key=lambda kv: (-kv[1].pax_month, kv[0]))[:TOP_DEMAND]
+    return DemandUpdate(period=months[-1] if months else None, with_figure=len(figures),
+                        routes=len(rows), seasonal=sum(f.seasonal for f in figures.values()),
+                        top=[(k, f.pax_month) for k, f in busiest], archive_key=key)
 
 
 def run_discover_if_due(ctx: Context, conn: sqlite3.Connection,

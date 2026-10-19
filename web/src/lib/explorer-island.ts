@@ -53,7 +53,7 @@ export function start(): void {
     try {
       const file = await load(iata);
       if (mine !== latest) return;
-      const results = explore(file.rows, filtersOf(form), config.pontes);
+      const results = explore(file.rows, filtersOf(form), config.pontes, file.demand ?? {});
       list.innerHTML = resultsHtml(results, file.places);
       status.textContent = statusText(results.length, name);
     } catch {

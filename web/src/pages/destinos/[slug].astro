@@ -1,6 +1,7 @@
 ---
 // One hub per destination (/destinos/<destino>/, D30): every Portuguese origin with a route there,
-// in the contract's origin order, with its route page, the cheapest price found now (data-obs) and
+// by the cheapest price found now, then the busiest route (Eurostat passengers, D45), then the
+// contract's origin order, with its route page, the cheapest price found now (data-obs) and
 // the best months by typical low (data-route), or that there is not enough data yet; live
 // promotions to the city; the arrival airports; and (from #17) the itinerary and the reviewed tips
 // about the city (story 36).
@@ -16,7 +17,7 @@ import type { Destination } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { eur, shortDate } from "../../lib/format";
 import { promotionView } from "../../lib/promotion";
-import { bestMonths } from "../../lib/routes";
+import { bestMonths, byPriceThenDemand, demandView } from "../../lib/routes";
 
 export const getStaticPaths = (() => {
   return data.destinations.destinations.map((destination) => {
@@ -35,7 +36,9 @@ const keys = new Set(destination.routes);
 const byOrigin = data.origins.origins
   .map((origin) => ({ origin, route: data.routes.routes.find((r) => keys.has(r.key) && r.origin === origin.iata) }))
   .filter((x) => x.route !== undefined)
-  .map((x) => ({ origin: x.origin, route: x.route!, best: bestMonths(x.route!) }));
+  .map((x) => ({ origin: x.origin, route: x.route!, best: bestMonths(x.route!),
+    demand: demandView(x.route!, data.meta.demand) }))
+  .sort((x, y) => byPriceThenDemand(x.route, y.route));   // stable: ties keep the origin order
 const without = data.origins.origins.filter((o) => !byOrigin.some((x) => x.origin.iata === o.iata));
 const live = data.promotions.promotions.filter((p) => p.live && keys.has(p.route));
 const airports = destination.airports.map((code) => {
@@ -65,9 +68,10 @@ const fromText = fromNames.length > 1 ? `${fromNames.slice(0, -1).join(", ")} e 
   <section class="mt-2xl" aria-labelledby="titulo-partidas">
     <h2 id="titulo-partidas" class="font-display text-headline">De onde partir</h2>
     <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
-      {byOrigin.map(({ origin, route, best }) => (
+      {byOrigin.map(({ origin, route, best, demand }) => (
         <article data-origin={origin.iata} class="border-t-[3px] border-double border-ink bg-surface p-md sm:p-lg">
           <h3 class="font-display text-title"><a href={route.path}>Desde {origin.name}</a></h3>
+          {demand?.zeroMonths && <p class="mt-2xs"><span data-demand-seasonal class="tag tag-warning">rota sazonal</span></p>}
           {route.status === "dormant" ? (
             <p class="mt-xs"><span class="tag tag-expired">rota {data.labels.route_status.dormant}</span></p>
           ) : route.cheapest ? (

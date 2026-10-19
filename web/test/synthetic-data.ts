@@ -37,6 +37,21 @@ const slug = (city: string) => city.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 const addDays = (iso: string, n: number) =>
   new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
+/** Eurostat-shaped demand (D45) for about three routes in four: every seventh a thin one (under
+ * the 5000 threshold), every fifth a seasonal one (winter months at zero); the rest null. */
+function syntheticDemand(i: number, rand: () => number): Route["demand"] {
+  if (i % 4 === 3) return null;
+  const level = i % 7 === 0 ? 800 + Math.round(rand() * 3000) : 6000 + Math.round(rand() * 150_000);
+  const seasonal = i % 5 === 0;
+  const months = Array.from({ length: 12 }, (_, m) => {
+    const month = `2024-${String(m + 1).padStart(2, "0")}`;
+    const off = seasonal && (m < 3 || m === 11);
+    return { month, pax: off ? 0 : Math.round(level * (0.7 + rand() * 0.6)) };
+  });
+  const pax_month = Math.round(months.reduce((n, m) => n + m.pax, 0) / 12);
+  return { pax_month, period: "2024-12", months };
+}
+
 export interface Synthetic {
   routes: Route[];
   origins: Origin[];
@@ -100,6 +115,7 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
         counts: { observations: calendar.length * 3, low_prices: 0, promotions_live: 0, promotions_expired: 0 },
         discovered_at: "2026-10-13T17:14:28Z",
         last_observed_at: dormant ? "2026-09-01T10:00:00Z" : "2026-10-14T08:00:00Z",
+        demand: syntheticDemand(start + k, rand),
       });
     }
     start += 31;
@@ -148,6 +164,7 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
     version: 1, generated_at: GENERATED_AT, fixture: true, run: { id: 99, finished_at: GENERATED_AT },
     currency: "EUR", base_url: "https://pontonomada.pt",
     detector: { low_threshold: 0.15, threshold: 0.3, min_saving_eur: 15, min_baseline_days: 4, max_offer_age_days: 3, lookback_days: 90 },
+    demand: { thin_pax_month: 5000 },
     files: {
       origins: "origins.json", routes: "routes.json", destinations: "destinations.json",
       promotions: "promotions.json", labels: "labels.json",

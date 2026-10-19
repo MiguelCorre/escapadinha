@@ -91,6 +91,11 @@ def number(value: float) -> str:
     return f"{value:g}".replace(".", ",")
 
 
+def integer(n: int) -> str:
+    """141591 -> '141 591' (pt-PT groups thousands with a space; never used for prices)."""
+    return f"{n:,}".replace(",", " ")
+
+
 def count(n: int, singular: str, plural: str) -> str:
     """(1, 'decisão pendente', 'decisões pendentes') -> '1 decisão pendente'; 0 and 2+ plural."""
     return f"{n} {singular if n == 1 else plural}"

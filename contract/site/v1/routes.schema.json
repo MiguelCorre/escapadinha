@@ -13,7 +13,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "origin", "destination", "city", "city_en", "kind", "status", "airports", "rules", "path", "months", "cheapest", "calendar", "counts", "discovered_at", "last_observed_at"],
+        "required": ["key", "origin", "destination", "city", "city_en", "kind", "status", "airports", "rules", "path", "months", "cheapest", "calendar", "counts", "discovered_at", "last_observed_at", "demand"],
         "properties": {
           "key": {"$ref": "defs.schema.json#/$defs/route_key"},
           "origin": {"$ref": "defs.schema.json#/$defs/airport"},
@@ -71,7 +71,36 @@
             }
           },
           "discovered_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]},
-          "last_observed_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]}
+          "last_observed_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]},
+          "demand": {
+            "description": "Passengers carried on the route's airport pair, from Eurostat avia_par_pt (D45; reuse authorised with the source acknowledged). A passenger count is never a price: no eur field here. null when Eurostat has no series for the pair (small routes are not disseminated) or the dataset was never fetched: the page then shows nothing about demand.",
+            "anyOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["pax_month", "period", "months"],
+                "properties": {
+                  "pax_month": {"type": "integer", "minimum": 0, "description": "Mean passengers per month over `months` (a month without a value counts as 0)."},
+                  "period": {"$ref": "defs.schema.json#/$defs/month", "description": "The last month in `months`: the latest the dataset has (it lags about two years)."},
+                  "months": {
+                    "type": "array",
+                    "minItems": 1,
+                    "description": "The dataset's last twelve months, ascending; pax 0 = no passengers reported (a seasonal route, or one that ended).",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["month", "pax"],
+                      "properties": {
+                        "month": {"$ref": "defs.schema.json#/$defs/month"},
+                        "pax": {"type": "integer", "minimum": 0}
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
         }
       }
     }

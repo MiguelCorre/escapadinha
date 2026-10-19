@@ -19,6 +19,10 @@ collector:
   months_ahead: 3
   daily_months_ahead: 6
   daily_pass_hour: 6
+  # The day's pass asks daily_months_ahead only of the routes ranked up to here by demand
+  # (Eurostat passengers, D45); the rest get months_ahead. With no demand data stored (the
+  # dataset was never fetched) every route gets the far months.
+  deep_routes: 80
   limit_per_request: 100      # max offers returned per route/month call
   market: pt                  # prices found on the Portuguese Aviasales market
   booking_base: https://www.aviasales.pt   # links open in euros, 24h clock (UI text is English)
@@ -235,6 +239,15 @@ origins_article:
   OPO: o
   FNC: a
   TER: a
+
+# Route demand from Eurostat avia_par_pt (D45): passengers carried per month on each airport
+# pair, fetched once with the monthly discovery (no key; reuse authorised with the source
+# acknowledged, the site's "Como funciona" page says so). Orders origin and destination pages
+# and explorer ties, picks the routes the day's pass asks the far months (collector.deep_routes)
+# and explains thin routes. A passenger count is never a price.
+demand:
+  since_months: 36          # history asked for: the monthly series lags about 22 months
+  thin_pax_month: 5000      # below this, a route without a price says "rota com pouca procura"
 
 photos:
   # Every destination of an active route gets a photo automatically (after a discovery and

@@ -11,7 +11,7 @@ import ExplorerResults from "../../../components/ExplorerResults.astro";
 import type { Ponte } from "../../../lib/contract";
 import { BRAND } from "../../../lib/brand";
 import { NO_FILTERS, explore } from "../../../lib/explorer";
-import { isPastPonte, placesFor } from "../../../lib/explorer-data";
+import { demandFor, isPastPonte, placesFor } from "../../../lib/explorer-data";
 import { dateRange, dayMonth, longDate, longDateYear, ponteTitle } from "../../../lib/format";
 
 export const getStaticPaths = (() =>
@@ -29,7 +29,7 @@ interface Props {
 const { ponte, origin } = Astro.props;
 const past = isPastPonte(ponte, data);
 const rows = past ? [] : data.lowPrices[origin.iata]?.rows ?? [];
-const results = explore(rows, { ...NO_FILTERS, ponte: ponte.slug }, [ponte]);
+const results = explore(rows, { ...NO_FILTERS, ponte: ponte.slug }, [ponte], demandFor(data, origin.iata));
 const names = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o.name]));
 const title = ponteTitle(ponte.name, data.origins.origins.find((o) => o.iata === origin.iata) ?? { name: origin.iata });
 const others = ponte.origins.filter((o) => o.iata !== origin.iata);

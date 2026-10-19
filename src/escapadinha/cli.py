@@ -265,6 +265,12 @@ def _print_discovery(ctx, result: pipeline.Discovery, dry_run: bool = False) -> 
                           + ", ".join(f"{f.key} {f.city_pt}" for f in items))
     for err in result.errors:
         console.print(f"  [yellow]![/] {err}")
+    if result.demand is not None:
+        d = result.demand
+        top = ", ".join(f"{key} {pt.integer(round(pax))}" for key, pax in d.top)
+        console.print(f"  Procura (Eurostat {pipeline.demand.DATASET}, dados até "
+                      f"{d.period or 'nenhum mês'}): {d.with_figure} de {d.routes} rotas com "
+                      f"passageiros por mês, {d.seasonal} sazonais; mais procuradas: {top or 'nenhuma'}")
     for key, outcome in result.photos:
         console.print(f"  foto {key}: {outcome}")
     if result.photos_missing:

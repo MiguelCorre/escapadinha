@@ -13,7 +13,7 @@ import yaml
 from typer.testing import CliRunner
 
 from escapadinha import cli, discovery, pipeline, routes
-from escapadinha.collector import catalogue
+from escapadinha.collector import catalogue, eurostat
 from escapadinha.collector.plan import Plan
 from escapadinha.collector.travelpayouts import API_URL, RateLimiter
 from escapadinha.config import AppConfig, Context
@@ -110,7 +110,12 @@ PIXABAY_HIT = {"id": 1, "pageURL": "https://pixabay.com/photos/x-1/", "user": "a
                "largeImageURL": "https://pixabay.com/get/x_1280.jpg"}
 
 
-def mock_catalogue(*, popular_status: int = 200):
+def mock_catalogue(*, popular_status: int = 200, eurostat_status: int = 200):
+    """The catalogues, the supplements and (D45) the Eurostat demand dataset, a real answer
+    saved in fixtures/eurostat_avia_par_pt.json (36 months asked on 2026-10-19)."""
+    respx.get(eurostat.URL).mock(return_value=httpx.Response(
+        eurostat_status, json=json.loads((FIX.parent / "eurostat_avia_par_pt.json").read_text("utf-8"))
+        if eurostat_status == 200 else None, text=None if eurostat_status == 200 else "unavailable"))
     respx.get(catalogue.ROUTES_URL).mock(return_value=httpx.Response(200, json=load("routes.json")))
     respx.get(catalogue.AIRPORTS_URL).mock(return_value=httpx.Response(200, json=load("airports.json")))
     respx.get(catalogue.CITIES_PT_URL).mock(return_value=httpx.Response(200, json=load("pt_cities.json")))
@@ -387,7 +392,7 @@ def test_upgrade_from_v7_adds_city_en_and_meta_and_keeps_routes(ctx):
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     for table in ("routes", "meta", "price_observations", "deals", "fetch_runs", "photos",
-                  "partner_links", "posting_queue"):
+                  "partner_links", "posting_queue", "route_demand"):
         assert _columns(conn, table) == _columns(fresh, table), table
 
 

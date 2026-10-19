@@ -9,12 +9,12 @@ import Base from "../../layouts/Base.astro";
 import ExplorerResults from "../../components/ExplorerResults.astro";
 import { BRAND } from "../../lib/brand";
 import { NO_FILTERS, explore, statusText } from "../../lib/explorer";
-import { defaultOrigin, islandConfig, months, placesFor, upcomingPontes } from "../../lib/explorer-data";
+import { defaultOrigin, demandFor, islandConfig, months, placesFor, upcomingPontes } from "../../lib/explorer-data";
 import { dateRange, monthYear, ponteTitle } from "../../lib/format";
 
 const origin = defaultOrigin(data);
 const originName = data.origins.origins.find((o) => o.iata === origin)?.name ?? origin;
-const results = explore(data.lowPrices[origin]?.rows ?? [], NO_FILTERS, []);
+const results = explore(data.lowPrices[origin]?.rows ?? [], NO_FILTERS, [], demandFor(data, origin));
 const config = islandConfig(data);
 const pontes = upcomingPontes(data);
 const origins = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o]));

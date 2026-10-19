@@ -84,6 +84,17 @@ describe("explore", () => {
     expect(daysBetween("2027-03-26", "2027-03-29")).toBe(3);     // over the clock change
   });
 
+  it("breaks a price tie by the route's demand (D45), then the earlier departure", () => {
+    const tied = [row(7, "BCN", 50, "2026-11-20", "2026-11-23"), row(8, "LON", 50, "2026-11-18", "2026-11-21"),
+      row(9, "PAR", 50, "2026-11-19", "2026-11-22")];
+    expect(explore(tied, NO_FILTERS, []).map((r) => r.row[1])).toEqual(["LON", "PAR", "BCN"]);      // by date
+    expect(explore(tied, NO_FILTERS, [], { BCN: 108_000, LON: 200_000 }).map((r) => r.row[1]))
+      .toEqual(["LON", "BCN", "PAR"]);                            // the busiest first, no figure last
+    // The same rule picks a destination's own cheapest row among equal prices.
+    const same = [row(10, "BCN", 50, "2026-11-25", "2026-11-28"), row(11, "BCN", 50, "2026-11-20", "2026-11-23")];
+    expect(explore(same, NO_FILTERS, [], { BCN: 1 })[0].row[0]).toBe(11);
+  });
+
   it("lists each destination once, at its cheapest, sorted by price", () => {
     const results = run({});
     expect(results.map((r) => r.row[0])).toEqual([2, 4, 3, 5]);

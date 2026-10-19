@@ -128,6 +128,19 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `travelpayouts.request_params(…, rules)` (`direct=true` on nonstop-only routes, D43), shared
   by the collection, `pipeline.price_now` and the snapshot's `live_check.query` (cases
   `queries` in `contract/review/v1/fixtures/live-check-cases.json`, checked on both sides).
+- Route demand (D45) comes only from Eurostat `avia_par_pt` through `demand.py` (pure: JSON-stat →
+  cells, `ICAO_IATA`, partner airports summed into city codes via the provider's `airports.json`,
+  the dataset's last twelve months and their mean, `rank_routes`) and `collector/eurostat.py` (one
+  GET with the monthly discovery, archived under `archive/eurostat/`, a failure reported and
+  skipped: never stops a discovery or a collection). Stored on `routes.demand_pax_month` /
+  `demand_period` and `route_demand` (schema v16) by `db.set_route_demand`, exported as
+  `routes.json` `demand` (nullable) and `meta.demand.thin_pax_month`. **A passenger count is
+  never a price**: no `eur` field, no "€", no `data-obs`; the site formats it with
+  `format.integer` only. Far months per route come from demand: the day's pass asks
+  `daily_months_ahead` only of the `collector.deep_routes` busiest routes (`plan.py`, pure, the
+  routes' figures passed in); with no figures stored every route gets them (D42). A route
+  without Eurostat data keeps today's behaviour everywhere. The "Como funciona" page carries
+  Eurostat's attribution line (`web/test/seo.test.ts`).
 - Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
   config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list, seed,
   discovery origins and `city_names`. Discovery (`discovery.py`) is pure; its downloads live in
@@ -310,10 +323,14 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 
 ## Layout
 - `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `plan.py` (the day's pass,
-  D42), `runner.collect` (runs a `Plan`), `catalogue.py`,
+  D42; `deep_routes_by_demand`, D45), `runner.collect` (runs a `Plan`), `catalogue.py`, `eurostat.py` (D45),
   `graphql.py` (D43: `GraphQLClient.prices_round_trip`, `parse_response`, pure `match` → `Match`;
   enrichment only, never a price source; wired by `pipeline.run_enrich` / `enrich_offers`)
 - `src/escapadinha/discovery.py`: pure `Catalogue.from_payloads` + `discover` → `Found` routes with kind
+- `src/escapadinha/demand.py`: pure route demand from Eurostat (D45): `parse_jsonstat`, `ICAO_IATA`,
+  `route_demand` → `Demand` (`pax_month`, `period`, `months`, `zero_months`), `rank_routes`;
+  `collector/eurostat.py`: `EurostatClient.passengers`, `since_month`, `archive`; wired by
+  `pipeline.run_demand` inside `run_discover` (`Discovery.demand` → `DemandUpdate`)
 - `src/escapadinha/routes.py`: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`,
   `all_routes`/`active_routes`/`get_route`
 - `src/escapadinha/storage/objects.py`: `ObjectStore` + `LocalObjectStore` (`data/objects/`); `archive.py`: per-run raw archive

@@ -20,6 +20,7 @@ row, its first run and the archive object: price → deal → observation → ru
 
 ```
 Travelpayouts catalogues ──routes discover──▶ routes table (monthly; dormant after 30 days without prices)
+Eurostat avia_par_pt ─────┘ (passengers per route-month: page order, far-month pass, thin-route notes, D45)
                                                    │ active routes
 Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 2 h; months 4–6 once a day, D42)
                        └──────▶ data/objects/archive/runs/<run>.json.gz (raw responses)
@@ -42,8 +43,9 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 
 | Module | Role |
 |---|---|
-| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited; asked with the route's rules, `direct=true` on nonstop-only routes), `plan.py` (pure: which route-months a run asks for, the day's pass, D42), `runner.collect` (runs a plan), `catalogue.py` (discovery downloads), `graphql.py` (GraphQL `prices_round_trip` client + pure offer match, enrichment only, D43) |
+| `collector/` | `TravelpayoutsSource` (v3 `prices_for_dates`, rate-limited; asked with the route's rules, `direct=true` on nonstop-only routes), `plan.py` (pure: which route-months a run asks for, the day's pass, D42, narrowed to the busiest routes by demand, D45), `runner.collect` (runs a plan), `catalogue.py` (discovery downloads), `eurostat.py` (the demand dataset, D45), `graphql.py` (GraphQL `prices_round_trip` client + pure offer match, enrichment only, D43) |
 | `discovery.py` | Pure: catalogues + supplements → direct routes with kind and pt-PT name |
+| `demand.py` | Pure: Eurostat `avia_par_pt` JSON-stat → passengers per route-month (ICAO → IATA → city), the last twelve months and their mean, `rank_routes` (D45); `collector/eurostat.py` fetches and archives it |
 | `routes.py` | Routes as data: `sync` (config → `routes` table), `apply_discovery`, `mark_dormant`, `active_routes`, effective rules per route |
 | `storage/` | `schema.sql` + plain-SQL repository functions in `db.py`; `objects.py`/`s3.py` (object store: local dir or R2); `sync.py` (database pull/push, run lock, daily backups); `mirror.py` (photos and rendered slides in the store) |
 | `run_path.py` | Fast or full path for a run: fingerprint of what the site shows, stored after each full path (D25) |
@@ -86,7 +88,7 @@ traffic rules that **Instagram/social media** traffic is allowed before posting.
 ## Running each step
 
 ```bash
-uv run escapadinha routes discover         # find direct routes from the 6 airports (+ photos for new destinations)
+uv run escapadinha routes discover         # find direct routes from the 6 airports (+ photos for new destinations, + Eurostat demand per route, D45)
 uv run escapadinha routes discover --dry-run --no-photos   # show what would change, store nothing
 uv run escapadinha routes list             # every route + active/dormant counts per origin (pt-PT)
 uv run escapadinha collect                 # routes with prices × 3 departure months; the day's first run from 06:00 Lisbon: every active route × 6 (D42)
@@ -135,6 +137,26 @@ never had a price, the next daily pass: a run that didn't ask for a route never 
 sleep): with prices it stays, without it goes back to sleep. Nothing is deleted. Excluded routes
 are left alone.
 
+**Demand (DECISIONS D45):** the same discovery fetches Eurostat's `avia_par_pt` (passengers
+carried per month on each airport pair with a Portuguese airport; public API, no key; reuse
+authorised with the source acknowledged, which the site's "Como funciona" page does) and gives
+every stored route `demand_pax_month` (the mean of the dataset's last twelve months, a month
+without a value counting 0), `demand_period` (the last of those months) and the months themselves
+(`route_demand`). Partner airports are summed into our city codes (Orly + Charles de Gaulle +
+Beauvais = PAR) through the provider's `airports.json`; Eurostat labels pairs by ICAO, so
+`demand.ICAO_IATA` maps the codes (a partner not in it adds nothing). The dataset lags about two
+years (on 2026-10-19 the latest month was 2024-12), so the request asks for `demand.since_months`
+(36) of history. Routes Eurostat has no pair for (small routes are not disseminated) keep NULLs and
+behave as before. The answer is archived as it came under `archive/eurostat/`; a failed fetch is
+reported with the discovery's other errors and the previous figures stay. `routes discover` prints
+the summary: `Procura (Eurostat avia_par_pt, dados até 2024-12): 210 de 360 rotas com passageiros
+por mês, 8 sazonais; mais procuradas: LIS-LON 200 779, …`. What the figure drives: the order of
+origin pages and destination hubs (price, then demand), ties in the explorer, which routes the
+day's pass asks the far months (below) and the route page's notes ("Rota com pouca procura: os
+preços aparecem raramente" when a route has no recent price and fewer than
+`demand.thin_pax_month` (5000) passengers a month; "Rota sazonal" when months had none). A
+passenger count is never a price: it has no "€" and no `data-obs`.
+
 **Photos:** every destination of an active route gets a Pixabay photo automatically (query:
 `photos.queries` override, else the English city name), at most `photos.max_per_run` (40) per
 discovery or run, so ~160 destinations take four runs. Failures are retried next time.
@@ -146,7 +168,10 @@ Every run asks the routes that have returned a price for the next 3 departure mo
 day's pass**: it asks every active route for 6 months (`collector.daily_months_ahead`):
 - **months 4–6** build typical lows months before departure (Christmas, Carnaval, Easter), so a
   month enters the 3-month window with 30–45 days of history instead of ~7. The cache keeps a
-  found day for about 7 days, so once a day misses little;
+  found day for about 7 days, so once a day misses little. Since D45 only the
+  `collector.deep_routes` (80) busiest routes by Eurostat demand get them (`demand.rank_routes`;
+  the rest of the pass asks `months_ahead` like a regular run, and an open promotion's far month
+  is still asked); with no demand data stored, every route gets them as before;
 - **routes that never returned a price** (no `last_observed_at`; 121 of 360 on 2026-10-15) are
   asked only by the pass, until their first price; then every run asks them.
 
@@ -155,7 +180,8 @@ The site shows each route-month's newest prices: for months 4–6, those of the 
 newer), so a run between two passes changes nothing on the site. The pass is kept in the `meta`
 table (`collector.daily_pass`: Lisbon day and run id); a pass where every request failed doesn't
 count, and the next run tries again. `collect` and the Actions summary say which pass ran:
-`daily pass: months 1–6 of 360 routes · 2160 requests` or `regular pass: months 1–3 of 239
+`daily pass: months 1–6 of 360 routes · 2160 requests` (with demand data: `daily pass: months
+1–6 of 80 routes, months 1–3 of 280 routes · 1320 requests`) or `regular pass: months 1–3 of 239
 routes; 121 never-seen routes wait for the daily pass · 717 requests`. When the last recorded
 pass started more than 30 h ago, `run` warns after the collection, in the log and the summary:
 `Warning: the last daily pass (#57, 2026-10-15) started 30 h 05 min ago, more than 30 h: …`.
@@ -240,9 +266,13 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
     empty table. Changing it later has no effect; discovery adds the rest.
 - `collector`: `months_ahead` (3 = this month + 2, every run), `daily_months_ahead` (6, the
   day's pass) and `daily_pass_hour` (6, Lisbon: the day's first run from then is the pass; D42),
+  `deep_routes` (80: how many routes, by demand rank, the pass asks the far months; D45),
   currency, `requests_per_minute` (550). Nights come from each route's rules. GraphQL enrichment (D43):
   `graphql_requests_per_minute` (55, the API allows 60) and `enrich_per_run` (60 queries a run, one per trip;
   0 turns it off).
+- `demand` (D45): `since_months` (36: how much of Eurostat's monthly series to ask for; it lags
+  about two years) and `thin_pax_month` (5000: below it a route without a recent price says
+  "rota com pouca procura"; exported as `meta.demand.thin_pax_month`).
 - `photos`: `queries` (Pixabay search per destination code) and `max_per_run` (40).
 - `posting` (D32): `instagram_slots` (Lisbon time, default `09:00`, `13:00`, `19:00`),
   `max_per_day` (3 Instagram posts per Lisbon day), `max_check_age_hours` (6: a due post waits
@@ -1230,6 +1260,11 @@ uv run pytest -m "not browser"
   under 8 workers) and the pure offer match on the probe's real row shape; `test_enrich.py`: a run
   enriches only its matched low prices and candidates, never a price, archives the answers under
   an `enrich` run, keeps unmatched offers unknown, and the v13 → v14 upgrade.
+- `test_demand.py` (D45): the JSON-stat parser on the real Eurostat answer saved in
+  `fixtures/eurostat_avia_par_pt.json` (missing cells skipped), partner airports summed into a
+  city, the twelve-month window and the zero months, the rank, the client, the discovery that
+  stores the figures and archives the answer (a failed fetch reported, the old figures kept), the
+  day's pass narrowed by rank (plan and `run_collect`), the v15 → v16 upgrade and the export.
 - `test_backtest.py` (D44): the detector backtest on a synthetic database: the copy is
   read-only, run selection by id or by day, one flag per candidate, the 24 h recheck and the
   hindsight check, the new-low rule, the presets, the Markdown and JSON, `--state` and the script.
@@ -1317,6 +1352,13 @@ uv run pytest -m "not browser"
   user found the price, which can be several days old. Captions state both that date and when
   we checked it, and that prices change. Times are UTC, so trip dates are taken from the link's
   local dates.
+- **Eurostat `avia_par_pt`** (D45): passengers carried per month on each airport pair with a
+  Portuguese airport (compiled by INE from ANA and ANAC data), through the public dissemination
+  API (JSON-stat, no key, one request a month). Eurostat's copyright notice authorises reuse of
+  its statistical data for commercial and non-commercial purposes provided the source is
+  acknowledged: the site's "Como funciona" page says "Dados de passageiros: Eurostat,
+  avia_par_pt, reutilização autorizada com indicação da fonte". Used for demand only, never for
+  prices. ANAC's and ANA's own publications allow no reuse and are not read (research A13).
 - **Pixabay**: free commercial use under the Pixabay Content License. The API forbids
   hotlinking, so photos are downloaded once and cached, and every caption credits the
   contributor. Standard keys get `largeImageURL` (max 1280 px, slightly upscaled to

@@ -58,6 +58,9 @@ def _route(row: sqlite3.Row, cfg: RoutesConfig) -> Route:
         last_observed_at=(datetime.fromisoformat(row["last_observed_at"])
                           if row["last_observed_at"] else None),
         city_en=row["city_en"],
+        demand_pax_month=(None if row["demand_pax_month"] is None
+                          else float(row["demand_pax_month"])),
+        demand_period=row["demand_period"],
     )
 
 

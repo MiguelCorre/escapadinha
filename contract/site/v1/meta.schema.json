@@ -5,7 +5,7 @@
   "description": "When and from which collection run the data was exported, the detector settings the numbers were computed with, and the other files of this export.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "generated_at", "fixture", "run", "currency", "base_url", "detector", "files", "counts"],
+  "required": ["version", "generated_at", "fixture", "run", "currency", "base_url", "detector", "demand", "files", "counts"],
   "properties": {
     "version": {"$ref": "defs.schema.json#/$defs/version"},
     "generated_at": {"$ref": "defs.schema.json#/$defs/timestamp", "description": "The `now` every freshness window and typical low was computed at."},
@@ -47,6 +47,15 @@
         "min_dates_per_day": {"type": "integer", "minimum": 1, "description": "Added in v1 (D40): a day's low counts towards min_baseline_days only when that day saw at least this many different departure dates. Absent: every day counts (1)."},
         "max_offer_age_days": {"type": "integer"},
         "lookback_days": {"type": "integer"}
+      }
+    },
+    "demand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["thin_pax_month"],
+      "description": "Route demand (D45, routes.json `demand`): the rule the pages apply to it.",
+      "properties": {
+        "thin_pax_month": {"type": "integer", "minimum": 0, "description": "Below this many passengers a month, a route without a recent price says \"rota com pouca procura\" (config demand.thin_pax_month). A count, never a price."}
       }
     },
     "files": {

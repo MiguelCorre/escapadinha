@@ -105,6 +105,10 @@ class Route:
     discovered_at: datetime | None = None
     last_observed_at: datetime | None = None
     city_en: str | None = None         # English name from the provider catalogue (photo search)
+    # Demand from Eurostat avia_par_pt (D45): passengers per month on the airport pair (mean of
+    # the dataset's last twelve months) and the last of those months. None = no data.
+    demand_pax_month: float | None = None
+    demand_period: str | None = None
 
     @property
     def key(self) -> str:

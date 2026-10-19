@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { LowPriceRow, Route, SiteData } from "../src/lib/contract";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import {
-  bestMonths, calendarMonths, monthRows, originGroups, routeLowPrices, rulesText, typicalLowRule,
+  bestMonths, byPriceThenDemand, calendarMonths, demandView, monthRows, originGroups, routeLowPrices,
+  rulesText, typicalLowRule,
 } from "../src/lib/routes";
 
 const fixtures = loadSiteData(FIXTURES_DIR);
@@ -17,9 +18,78 @@ function route(over: Partial<Route> = {}): Route {
     rules: { direct_only: true, min_nights: 2, max_nights: 10, max_transfers: 0 },
     path: "/voos/lisboa-paris/", months: [], cheapest: null, calendar: [],
     counts: { observations: 0, low_prices: 0, promotions_live: 0, promotions_expired: 0 },
-    discovered_at: null, last_observed_at: null, ...over,
+    discovered_at: null, last_observed_at: null, demand: null, ...over,
   };
 }
+
+function demand(paxMonth: number, zero: string[] = []): Route["demand"] {
+  const months = Array.from({ length: 12 }, (_, i) => `2024-${String(i + 1).padStart(2, "0")}`);
+  return { pax_month: paxMonth, period: "2024-12",
+    months: months.map((month) => ({ month, pax: zero.includes(month) ? 0 : paxMonth })) };
+}
+
+function cheapest(price: number): Route["cheapest"] {
+  return { obs: 1, route: "LIS-PAR", price, departure: "2026-11-20", return: "2026-11-23", nights: 3,
+    airline: "TP", transfers: 0, return_transfers: 0, arrival_airport: "ORY", found_date: "2026-10-13",
+    fetched_at: "2026-10-13T20:15:00Z", baggage: null };
+}
+
+describe("byPriceThenDemand (D45)", () => {
+  it("puts the cheapest first, then the busiest, and routes without a price last", () => {
+    const a = route({ key: "LIS-A", cheapest: cheapest(60), demand: demand(1000) });
+    const b = route({ key: "LIS-B", cheapest: cheapest(60), demand: demand(50_000) });
+    const c = route({ key: "LIS-C", cheapest: cheapest(45), demand: null });
+    const d = route({ key: "LIS-D", cheapest: null, demand: demand(90_000) });
+    const e = route({ key: "LIS-E", cheapest: null, demand: null });
+    expect([e, d, a, b, c].sort(byPriceThenDemand).map((r) => r.key)).toEqual(["LIS-C", "LIS-B", "LIS-A", "LIS-D", "LIS-E"]);
+    expect(byPriceThenDemand(a, route({ cheapest: cheapest(60), demand: demand(1000) }))).toBe(0);  // the caller's tie
+  });
+
+  it("orders an origin's group by price, then demand, then city name", () => {
+    const data = {
+      ...fixtures,
+      routes: { version: 1 as const, routes: [
+        route({ key: "LIS-A", city: "Zurique", cheapest: cheapest(60), demand: demand(1000) }),
+        route({ key: "LIS-B", city: "Atenas", cheapest: cheapest(60), demand: demand(1000) }),
+        route({ key: "LIS-C", city: "Berlim", cheapest: cheapest(60), demand: demand(9000) }),
+        route({ key: "LIS-D", city: "Amesterdão", cheapest: null, demand: null }),
+        route({ key: "LIS-E", city: "Viena", cheapest: cheapest(30), demand: null }),
+      ] },
+    } as SiteData;
+    expect(originGroups(data, "LIS").map((g) => g.routes.map((r) => r.city))).toEqual([
+      ["Viena", "Berlim", "Atenas", "Zurique", "Amesterdão"],
+    ]);
+  });
+});
+
+describe("demandView (D45)", () => {
+  const rules = { thin_pax_month: 5000 };
+
+  it("is null without Eurostat data: the page shows nothing about demand", () => {
+    expect(demandView(route(), rules)).toBeNull();
+  });
+
+  it("formats the passengers as a count (never a price) and names the dataset's last month", () => {
+    const view = demandView(route({ demand: demand(141_591) }), rules)!;
+    expect(view.paxMonth).toBe("141\u00a0591");
+    expect(view.paxMonth).not.toContain("€");
+    expect(view.period).toBe("dezembro de 2024");
+    expect(view.thin).toBe(false);
+    expect(view.zeroMonths).toBeNull();
+  });
+
+  it("flags a thin route below the threshold and lists the months without passengers", () => {
+    const view = demandView(route({ demand: demand(3200, ["2024-01", "2024-02", "2024-11"]) }), rules)!;
+    expect(view.thin).toBe(true);
+    expect(view.zeroMonths).toBe("janeiro, fevereiro e novembro de 2024");
+    expect(demandView(route({ demand: demand(4999) }), rules)!.thin).toBe(true);
+    expect(demandView(route({ demand: demand(5000) }), rules)!.thin).toBe(false);
+    const twoYears = route({ demand: { pax_month: 10, period: "2024-06", months: [
+      { month: "2023-12", pax: 0 }, { month: "2024-01", pax: 0 }, { month: "2024-06", pax: 120 }] } });
+    expect(demandView(twoYears, rules)!.zeroMonths).toBe("dezembro de 2023 e janeiro de 2024");
+    expect(demandView(route({ demand: demand(10, ["2024-07"]) }), rules)!.zeroMonths).toBe("julho de 2024");
+  });
+});
 
 describe("monthRows", () => {
   it("gives the typical low and the average, or says there is not enough data yet", () => {
