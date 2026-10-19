@@ -8,10 +8,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from importlib.resources import files
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from escapadinha.models import Deal, Observation, Photo, Post
 
-SCHEMA_VERSION = 15
+if TYPE_CHECKING:
+    from escapadinha.demand import Demand
+
+SCHEMA_VERSION = 16
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -59,6 +63,17 @@ ROUTES_TABLE = """CREATE TABLE IF NOT EXISTS routes (
     discovered_at        TEXT NOT NULL,
     last_observed_at     TEXT,
     PRIMARY KEY (origin, destination)
+)"""
+
+# Passengers carried per month on a route's airport pair, from Eurostat `avia_par_pt` (D45):
+# the twelve months behind `routes.demand_pax_month`, for the seasonal note on the site.
+ROUTE_DEMAND_TABLE = """CREATE TABLE IF NOT EXISTS route_demand (
+    origin      TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    month       TEXT NOT NULL,                       -- YYYY-MM
+    pax         INTEGER NOT NULL,                    -- 0: no passengers reported that month
+    PRIMARY KEY (origin, destination, month),
+    FOREIGN KEY (origin, destination) REFERENCES routes (origin, destination)
 )"""
 
 # Steps that bring an existing database from version N-1 to N.
@@ -130,6 +145,12 @@ MIGRATIONS = {
     15: ["ALTER TABLE deals ADD COLUMN confidence TEXT "
          "CHECK (confidence IN ('low', 'medium', 'high'))",
          "ALTER TABLE deals ADD COLUMN new_low INTEGER"],
+    # Route demand from Eurostat (D45): passengers per month on the airport pair (mean of the
+    # dataset's last twelve months), the last of those months, and the months themselves. Both
+    # NULL until a discovery fetched the dataset, or when it has no series for the pair.
+    16: ["ALTER TABLE routes ADD COLUMN demand_pax_month NUMERIC",
+         "ALTER TABLE routes ADD COLUMN demand_period TEXT",
+         ROUTE_DEMAND_TABLE],
 }
 
 
@@ -753,6 +774,34 @@ def set_route_status(conn: sqlite3.Connection, keys: list[tuple[str, str]], stat
 def set_city_name(conn: sqlite3.Connection, destination: str, city_pt: str) -> None:
     conn.execute("UPDATE routes SET city_pt = ? WHERE destination = ?", (city_pt, destination))
     conn.commit()
+
+
+def set_route_demand(conn: sqlite3.Connection, figures: dict[str, "Demand"]) -> None:
+    """Replace every route's demand (D45) with `figures` (route key -> `demand.Demand`): a
+    route without one gets NULLs and no months, so a pair the dataset no longer has loses its
+    old figure. One transaction."""
+    conn.execute("DELETE FROM route_demand")
+    conn.execute("UPDATE routes SET demand_pax_month = NULL, demand_period = NULL")
+    for row in route_rows(conn):
+        figure = figures.get(f"{row['origin']}-{row['destination']}")
+        if figure is None:
+            continue
+        conn.execute("UPDATE routes SET demand_pax_month = ?, demand_period = ? "
+                     "WHERE origin = ? AND destination = ?",
+                     (figure.pax_month, figure.period, row["origin"], row["destination"]))
+        conn.executemany(
+            "INSERT INTO route_demand (origin, destination, month, pax) VALUES (?, ?, ?, ?)",
+            [(row["origin"], row["destination"], month, pax) for month, pax in figure.months])
+    conn.commit()
+
+
+def route_demand_months(conn: sqlite3.Connection) -> dict[str, list[tuple[str, int]]]:
+    """Route key -> [(month, passengers)] ascending, for every route with demand months."""
+    out: dict[str, list[tuple[str, int]]] = {}
+    for row in conn.execute("SELECT origin, destination, month, pax FROM route_demand "
+                            "ORDER BY origin, destination, month"):
+        out.setdefault(f"{row['origin']}-{row['destination']}", []).append((row["month"], row["pax"]))
+    return out
 
 
 def set_route_overrides(conn: sqlite3.Connection, origin: str, destination: str,

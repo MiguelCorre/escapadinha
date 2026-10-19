@@ -222,7 +222,7 @@ def test_upgrade_from_real_old_schemas_adds_the_enrichment_columns(ctx, fixture,
     old.commit()
     old.close()
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 15
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 16
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     assert _observation_columns(conn) == _observation_columns(fresh)
@@ -251,7 +251,7 @@ def test_upgrade_from_v13_keeps_observations_with_unknown_baggage(ctx):
                     '2026-10-12T09:00:00+00:00', 'k')""")
     conn.commit()
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 15
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     obs = db.get_observation(conn, 9)
     assert obs.price == 58 and (obs.with_baggage, obs.baggage_code, obs.gate, obs.found_at) == (None,) * 4
     db.set_enrichment(conn, 9, with_baggage=True, baggage_code="1PC20", gate="Trip.com",

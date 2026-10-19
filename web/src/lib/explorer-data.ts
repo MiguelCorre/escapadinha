@@ -4,7 +4,7 @@
 import type { LowPriceRow, Ponte, SiteData } from "./contract";
 import { bookingLink } from "./cta";
 import { lisbonDay } from "./dates";
-import type { PonteWindow } from "./explorer";
+import type { Demand, PonteWindow } from "./explorer";
 import type { Places } from "./low-prices";
 
 /** /explorar/dados/<ORIGIN>.json */
@@ -13,6 +13,17 @@ export interface OriginFile {
   generated_at: string;
   rows: LowPriceRow[];
   places: Places;
+  /** Destination -> passengers per month (D45), for the explorer's ties. */
+  demand: Demand;
+}
+
+/** The origin's routes' passengers per month by destination (routes.json `demand`, D45). */
+export function demandFor(data: SiteData, iata: string): Demand {
+  const out: Demand = {};
+  for (const r of data.routes.routes) {
+    if (r.origin === iata && r.demand) out[r.destination] = r.demand.pax_month;
+  }
+  return out;
 }
 
 export interface IslandConfig {
@@ -50,7 +61,8 @@ export function placesFor(data: SiteData, iata: string,
 export function originFile(data: SiteData, iata: string): OriginFile {
   const file = data.lowPrices[iata];
   for (const row of file.rows) bookingLink(row[11]);
-  return { origin: iata, generated_at: file.generated_at, rows: file.rows, places: placesFor(data, iata) };
+  return { origin: iata, generated_at: file.generated_at, rows: file.rows, places: placesFor(data, iata),
+    demand: demandFor(data, iata) };
 }
 
 export function islandConfig(data: SiteData): IslandConfig {

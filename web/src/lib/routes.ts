@@ -6,7 +6,7 @@
 import type { CalendarDay, Detector, Kind, LowPriceRow, Route, SiteData } from "./contract";
 import { daysInMonth, weekday } from "./dates";
 import { placesFor } from "./explorer-data";
-import { count, eur, monthYear, shortDate } from "./format";
+import { count, eur, integer, monthList, monthYear, shortDate } from "./format";
 import { lowPriceView, type LowPriceView } from "./low-prices";
 
 /** At most this many low prices on a route page (biggest discounts, shown by departure date), as
@@ -130,13 +130,66 @@ export interface OriginGroup {
   routes: Route[];
 }
 
-/** An origin's routes by kind (KIND_ORDER), each by the Portuguese city name. */
+/** The order of an origin page's routes and a destination hub's origins (D45): the cheapest
+ * found price first, then the busiest route (Eurostat passengers per month), then whatever
+ * order the caller had (the city name, the contract's origin order). Routes without a recent
+ * price come after those with one, the busiest first; dormant routes have none. */
+export function byPriceThenDemand(a: Pick<Route, "cheapest" | "demand">,
+  b: Pick<Route, "cheapest" | "demand">): number {
+  const priceA = a.cheapest?.price ?? Infinity;
+  const priceB = b.cheapest?.price ?? Infinity;
+  if (priceA !== priceB) return priceA < priceB ? -1 : 1;
+  return (b.demand?.pax_month ?? -1) - (a.demand?.pax_month ?? -1);
+}
+
+/** An origin's routes by kind (KIND_ORDER), each by price, then demand, then city name. */
 export function originGroups(data: SiteData, origin: string): OriginGroup[] {
   const mine = data.routes.routes.filter((r) => r.origin === origin);
   return KIND_ORDER.map((kind) => ({
     kind, label: data.labels.kinds[kind],
-    routes: mine.filter((r) => r.kind === kind).sort((a, b) => a.city.localeCompare(b.city, "pt")),
+    routes: mine.filter((r) => r.kind === kind)
+      .sort((a, b) => byPriceThenDemand(a, b) || a.city.localeCompare(b.city, "pt")),
   })).filter((g) => g.routes.length > 0);
+}
+
+export interface DemandView {
+  /** "141 591" passengers per month (a count, never a price). */
+  paxMonth: string;
+  /** "dezembro de 2024": the last month the dataset has. */
+  period: string;
+  /** Below meta.demand.thin_pax_month: with no recent price, the page says the route has little
+   * demand and prices show up rarely. */
+  thin: boolean;
+  /** Months the dataset shows without passengers, as "janeiro, fevereiro e março de 2024";
+   * null when every month had some: a seasonal route (or one that ended). */
+  zeroMonths: string | null;
+}
+
+/** What a route page says about demand (D45), or null without Eurostat data: then nothing. */
+export function demandView(route: Pick<Route, "demand">, rules: { thin_pax_month: number }): DemandView | null {
+  const d = route.demand;
+  if (!d) return null;
+  const zero = d.months.filter((m) => m.pax === 0).map((m) => m.month);
+  return {
+    paxMonth: integer(d.pax_month),
+    period: monthYear(d.period),
+    thin: d.pax_month < rules.thin_pax_month,
+    zeroMonths: zero.length ? zeroMonthsText(zero) : null,
+  };
+}
+
+/** ["2024-01", "2024-02", "2024-11"] -> "janeiro, fevereiro e novembro de 2024"; months of
+ * several years are listed per year ("novembro e dezembro de 2023 e janeiro de 2024"). */
+function zeroMonthsText(months: string[]): string {
+  const byYear = new Map<string, number[]>();
+  for (const m of months) {
+    const [year, month] = m.split("-");
+    if (!byYear.has(year)) byYear.set(year, []);
+    byYear.get(year)!.push(Number(month));
+  }
+  const parts = [...byYear.entries()].sort(([a], [b]) => a.localeCompare(b))
+    .map(([year, list]) => `${monthList(list)} de ${year}`);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} e ${parts.at(-1)}` : parts[0];
 }
 
 /** "voos diretos, estadias de 2 a 10 noites": which offers the route's numbers count. */

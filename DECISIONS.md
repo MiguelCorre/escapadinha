@@ -2575,3 +2575,88 @@ so nothing has to be hosted.
   sides, and `tests/test_backtest.py` (a synthetic database: the copy is read-only, run
   selection, one flag per candidate, the 24 h recheck, hindsight, the new-low rule, presets, the
   Markdown and JSON, `--state`, the script end to end).
+
+## D45: Route demand from Eurostat `avia_par_pt`: page order, the far-month pass, thin-route notes (2026-10-19, #48)
+- **Why:** 121 of the 360 active routes had never returned a price (D42) and nothing told a
+  route that matters (Lisbon–London, 200 000 passengers a month) from one that barely flies
+  (Terceira–Flores, 1 300). The research (`docs/research/2026-10-15-more-data-and-site-ideas.md`
+  A12, T3) probed Eurostat's `avia_par_pt` (passengers carried per month on each airport pair
+  with a Portuguese airport, compiled by INE from ANA and ANAC data; public dissemination API,
+  JSON-stat, no key; reuse authorised with the source acknowledged) and proposed it as the
+  demand signal: not a price source, never one (D13's no-scraping rule untouched; ANAC and ANA
+  allow no reuse, A13).
+- **What the pipeline does:** `demand.py` (pure) parses the JSON-stat answer by flattened
+  position into `{(reporting ICAO, partner ICAO, month): passengers}`, skipping cells without a
+  value; maps ICAO to IATA with `ICAO_IATA` (Eurostat labels pairs by ICAO, the provider's
+  catalogues carry IATA only, and `airports.json` has no ICAO field, so a hand table of the
+  Portuguese airports and the ~190 partner airports the dataset lists, each checked against the
+  catalogue's name and city on 2026-10-19; a partner not in it adds nothing); sums the partner
+  airports of a city through `airports.json` `city_code` (Orly + Charles de Gaulle + Beauvais =
+  PAR); and gives each route the dataset's **last twelve months with any value** and their mean,
+  a month without a value counting 0 (`Demand`: `pax_month`, `period`, `months`,
+  `zero_months`). The reporting airport is the route's origin, so LIS-FNC and FNC-LIS each read
+  their own pair. `collector/eurostat.py` makes the one GET per monthly discovery
+  (`unit=PAS&tra_meas=PAS_CRD&freq=M&sinceTimePeriod=<demand.since_months ago>`), refuses an
+  answer that is not the dataset, and archives it as it came under `archive/eurostat/`.
+  `pipeline.run_demand` runs inside `run_discover` after the routes are applied (so new routes get
+  a figure too), stores every route's figure with `db.set_route_demand` (NULLs and no months for
+  a pair the dataset lacks, so a dropped pair loses its old figure) and reports a `DemandUpdate`
+  (`Discovery.demand`); a failure of any kind is one more entry in the discovery's `errors`, the
+  previous figures stay and the discovery and the collection go on. Dry runs fetch and report,
+  store nothing.
+- **Schema v16:** `routes.demand_pax_month` (NUMERIC), `routes.demand_period` (TEXT, "YYYY-MM")
+  and the table `route_demand (origin, destination, month, pax)` with a foreign key to `routes`;
+  `schema.sql` and migration 16 (two ALTERs + CREATE); upgrades tested from v5, v7 and a v15
+  database. `Route` carries both columns; nothing else changed shape.
+- **What it drives:**
+  - **The day's pass (D42 revised):** `collector.deep_routes` (80) routes, ranked by
+    `demand.rank_routes` (passengers descending, ties by key), get `daily_months_ahead`; the rest
+    of the pass asks `months_ahead` like a regular run, and an open promotion's far month is still
+    asked (`Plan.far_months`, `Plan.deep`; `describe()` says "daily pass: months 1–6 of 80 routes,
+    months 1–3 of 280 routes"). With no figure stored on any route (the dataset never fetched)
+    every route gets the far months, as before; a route without a figure in a fleet that has
+    them is not among the busiest, so it gets the near months (the far months exist for
+    Christmas and Easter on routes people fly). Regular runs are unchanged. On the real routes
+    (210 of 360 with a figure on the 2026-10-19 copy, 56 of the 121 never-priced ones) the pass
+    drops from 360 × 6 = 2 160 to 80 × 6 + 280 × 3 = 1 320 requests: −840 a day.
+  - **Site:** `routes.json` gains `demand` (nullable, additive within v1: `pax_month`,
+    `period`, `months`) and `meta.json` `demand.thin_pax_month` (config `demand.thin_pax_month`,
+    5000). Origin pages and destination hubs order by the cheapest price found now, then
+    passengers, then the previous order (`routes.byPriceThenDemand`); the explorer breaks a price
+    tie by the route's passengers (`explore(…, demand)`, the per-origin JSON file carries the
+    map). The route page shows "Procura: cerca de 141 591 passageiros por mês … (Eurostat, dados
+    até dezembro de 2024)" and two notes (`routes.demandView`): "Rota com pouca procura: os
+    preços aparecem raramente" when the route has no recent price and fewer than
+    `thin_pax_month` passengers, "Rota sazonal" with the months at zero (hubs show a "rota
+    sazonal" tag). Nothing shows for a route without Eurostat data. The number is formatted by
+    `format.integer` (pt-PT space grouping, no sign): a passenger count is never a price, so the
+    traceability tests need no `data-obs` and the pt-PT lint passes. "Como funciona" gains "De
+    onde vêm os dados" with Eurostat's attribution line, checked by `web/test/seo.test.ts`.
+  - **CLI:** `routes discover` prints the summary (dataset month, routes with a figure, seasonal
+    ones, the five busiest with `i18n_pt.integer`).
+- **Choices:** 36 months of history instead of the ticket's 24, because the monthly series lagged
+  22 months on 2026-10-19 (24 months gave three months of values; `demand.since_months` makes it
+  one setting). A month without a value counts 0 in the mean (the dataset reports tiny values
+  such as 5 passengers, so a missing month is no service, not suppression; the sample has 56
+  pairs with partial series and 2 explicit zeros), which ranks a summer-only route by its annual
+  demand and shows its empty months. The window is the dataset's last twelve months for every
+  route (one `period`), not each route's own last twelve. Thin threshold 5000 passengers a month
+  (the first quartile of the routes with a figure is about 6 900; 22 of the never-priced routes
+  with a figure fall under it). Rank over active routes in the plan and the mean over all routes
+  on the site, each from the same stored figure.
+- **Fixtures:** the committed `routes.json` and `meta.json` were hand-edited (CLAUDE.md's
+  additive-field rule) to the value a regeneration writes: `demand: null` on every route (the
+  fixture database has no Eurostat data) and `meta.demand.thin_pax_month: 5000`; the full
+  regeneration still waits for #52. `web/test/synthetic-data.ts` gives three routes in four a
+  figure (thin and seasonal ones among them), so the scale build exercises the notes and the
+  order.
+- **Rejected:** the ticket's "6 or 3 months read per route by the collector" (the plan stays the
+  one place that decides what a run asks, D42: the rank is computed there from the routes passed
+  in); INE's API (fresher, CC BY 4.0, but airport totals by country, no pairs; A12); showing the
+  figure on origin pages and hubs (the number would crowd the price; the order carries it);
+  keeping a dormant-but-busy route active longer (A12's idea; dormancy judges prices, D23, and
+  nothing yet shows a busy route going dormant for lack of them).
+- **Tests:** `tests/test_demand.py` on the real answer saved in
+  `tests/fixtures/eurostat_avia_par_pt.json` (97 KB; Lisbon–Madrid December 2024 = 141 591 as the
+  research read it), `web/test/routes.test.ts`, `explorer.test.ts`, `seo.test.ts`,
+  `scale.test.ts`, the hub order in `route-pages.test.ts`.

@@ -162,6 +162,14 @@ export function ponteTitle(ponteName: string, origin: { name: string; article?: 
   return `${ponteName} ${fromPlace(origin.name, origin.article)}`;
 }
 
+/** 141591 -> "141 591": pt-PT groups thousands with a space (no-break). For counts such as
+ * passengers (D45), never for prices: a price is `eur`, with its sign. */
+export function integer(n: number): string {
+  const digits = String(Math.round(Math.abs(n)));
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
+  return n < 0 ? `${MINUS}${grouped}` : grouped;
+}
+
 /** (1, "noite", "noites") -> "1 noite"; 0 and 2+ take the plural. */
 export function count(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`;

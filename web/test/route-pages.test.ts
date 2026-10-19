@@ -137,7 +137,9 @@ describe("destination hub", () => {
     expect(text(best)).toMatch(/dezembro de 2026.*101,50 €.*novembro de 2026.*102 €/);
     const fao = doc().querySelector('main [data-origin="FAO"]')!;
     expect(text(fao)).toContain("Ainda sem dados suficientes");
+    // By the cheapest price found now (FAO 69 €, OPO 70 €, LIS 92 €), then demand (D45); the
+    // fixtures carry no demand, so ties would keep the contract's origin order.
     expect(doc().querySelectorAll("main [data-origin]").map((e) => e.getAttribute("data-origin")))
-      .toEqual(["LIS", "OPO", "FAO"]);
+      .toEqual(["FAO", "OPO", "LIS"]);
   });
 });

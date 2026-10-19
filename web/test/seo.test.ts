@@ -224,6 +224,8 @@ describe("About and Privacy pages", () => {
     expect(body).toContain("Nunca inventamos nem estimamos preços");
     expect(body).toContain("preço mínimo habitual");
     expect(body).toContain("comissão");
+    // Eurostat's reuse condition (D45): the source acknowledged, on the page that explains the data.
+    expect(body).toContain("Dados de passageiros: Eurostat, avia_par_pt, reutilização autorizada com indicação da fonte");
     expect(page("/sobre/").querySelector('main a[href="https://www.instagram.com/ondestaanocas/"]')).not.toBeNull();
   });
 });

@@ -111,7 +111,20 @@ CREATE TABLE IF NOT EXISTS routes (
     discovered_at        TEXT NOT NULL,
     last_observed_at     TEXT,                       -- newest sighting of a price on this route
     city_en              TEXT,                       -- English name (photo search), from discovery
+    demand_pax_month     NUMERIC,                    -- Eurostat passengers/month, mean of 12 months (D45)
+    demand_period        TEXT,                       -- the last of those months, YYYY-MM
     PRIMARY KEY (origin, destination)
+);
+
+-- Passengers carried per month on a route's airport pair, from Eurostat `avia_par_pt` (D45):
+-- the twelve months behind routes.demand_pax_month (0 = no passengers reported that month).
+CREATE TABLE IF NOT EXISTS route_demand (
+    origin      TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    month       TEXT NOT NULL,
+    pax         INTEGER NOT NULL,
+    PRIMARY KEY (origin, destination, month),
+    FOREIGN KEY (origin, destination) REFERENCES routes (origin, destination)
 );
 
 -- Pipeline bookkeeping, e.g. `routes.discovered_at` (last automatic route discovery).

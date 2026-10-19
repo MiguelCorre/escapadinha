@@ -258,7 +258,7 @@ def test_upgrade_from_real_old_schemas_gives_deals_the_baseline_columns(tmp_path
 
     conn = db.connect(path)
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 15
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 16
     fresh = db.connect(tmp_path / "fresh.db")
     db.init(fresh)
     assert _deal_columns(conn) == _deal_columns(fresh)

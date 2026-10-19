@@ -59,23 +59,30 @@ function matches(r: LowPriceRow, f: Filters, ponte: PonteWindow | null | undefin
   return true;
 }
 
-/** Destinations whose low prices pass the filters, each at its cheapest, sorted by price. */
+/** Destination city code -> passengers per month on the route from the explorer's origin
+ * (routes.json `demand.pax_month`, D45); a destination without a figure is absent. */
+export type Demand = Record<string, number>;
+
+/** Destinations whose low prices pass the filters, each at its cheapest, sorted by price; at the
+ * same price the busier route first (`demand`, D45), then the earlier departure. */
 export function explore(rows: LowPriceRow[], f: Filters,
-  pontes: (PonteWindow & { slug: string })[]): ExploreResult[] {
+  pontes: (PonteWindow & { slug: string })[], demand: Demand = {}): ExploreResult[] {
   const ponte = f.ponte ? pontes.find((p) => p.slug === f.ponte) ?? null : null;
   const byDest = new Map<string, ExploreResult>();
   for (const r of rows) {
     if (!matches(r, f, ponte)) continue;
     const seen = byDest.get(r[1]);
     if (!seen) byDest.set(r[1], { row: r, more: 0 });
-    else if (cheaper(r, seen.row)) byDest.set(r[1], { row: r, more: seen.more + 1 });
+    else if (cheaper(r, seen.row, demand)) byDest.set(r[1], { row: r, more: seen.more + 1 });
     else seen.more += 1;
   }
-  return [...byDest.values()].sort((a, b) => (cheaper(a.row, b.row) ? -1 : 1));
+  return [...byDest.values()].sort((a, b) => (cheaper(a.row, b.row, demand) ? -1 : 1));
 }
 
-function cheaper(a: LowPriceRow, b: LowPriceRow): boolean {
+function cheaper(a: LowPriceRow, b: LowPriceRow, demand: Demand): boolean {
   if (a[2] !== b[2]) return a[2] < b[2];
+  const pax = (r: LowPriceRow) => demand[r[1]] ?? -1;
+  if (pax(a) !== pax(b)) return pax(a) > pax(b);
   if (a[3] !== b[3]) return a[3] < b[3];
   return a[0] < b[0];
 }

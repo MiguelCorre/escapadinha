@@ -83,6 +83,10 @@ class CollectorConfig(BaseModel):
     # GraphQL enrichment (D43): baggage and agency for the run's low prices and candidates.
     graphql_requests_per_minute: int = Field(55, ge=1, le=60)   # the API allows 60/min
     enrich_per_run: int = Field(60, ge=0)         # GraphQL queries per run (one per trip); 0 = off
+    # The day's pass (D42) asks `daily_months_ahead` only of the routes ranked up to here by
+    # demand (Eurostat passengers, D45); the rest get `months_ahead`. Without any demand data
+    # every route gets the far months.
+    deep_routes: int = Field(80, ge=0)
 
     @model_validator(mode="after")
     def _daily_pass_asks_more(self):
@@ -448,6 +452,17 @@ class AffiliateConfig(BaseModel):
         return self.project_id
 
 
+class DemandConfig(BaseModel):
+    """Route demand from Eurostat `avia_par_pt` (D45), fetched with the monthly discovery."""
+
+    # History asked for: the monthly series lags about 22 months, so 36 months make sure the
+    # last twelve months with values are there.
+    since_months: int = Field(36, ge=12, le=120)
+    # Below this many passengers per month a route without a price shows "rota com pouca
+    # procura" on the site (meta.demand.thin_pax_month in the contract).
+    thin_pax_month: int = Field(5000, ge=0)
+
+
 class PhotosConfig(BaseModel):
     queries: dict[str, str] = {}
     # Photos fetched automatically per discovery/run for destinations still without one.
@@ -562,6 +577,7 @@ class AppConfig(BaseModel):
     # Madeira"); none for the others ("desde Lisboa"). Exported in origins.json for the site.
     origins_article: dict[str, Literal["o", "a", "os", "as"]] = {}
     photos: PhotosConfig = PhotosConfig()
+    demand: DemandConfig = DemandConfig()
     affiliate: AffiliateConfig = AffiliateConfig()
     site: SiteConfig = SiteConfig()
 

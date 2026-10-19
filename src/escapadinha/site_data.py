@@ -254,9 +254,11 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
         [o for o in cfg.routes.origins if any(r.origin == o for r in all_routes)]
         + sorted({r.origin for r in all_routes})))
     files: dict[str, dict] = {}
+    demand_months = db.route_demand_months(conn)
     files["routes.json"] = {"version": VERSION, "routes": [
         _route(ctx, r, months[r.key], cheapest[r.key], calendars[r.key], observed.get(r.key, 0),
-               low_count[r.key], *promo_count[r.key]) for r in all_routes]}
+               low_count[r.key], *promo_count[r.key], demand=_demand(r, demand_months.get(r.key, [])))
+        for r in all_routes]}
     files["origins.json"] = {"version": VERSION, "origins": [
         _origin(ctx, code, all_routes, low_count, promo_count) for code in origin_codes]}
     files["destinations.json"] = {"version": VERSION, "destinations": _destinations(
@@ -406,9 +408,18 @@ def _calendar(fresh: list[Observation], today: date) -> list[Observation]:
     return [best[d] for d in sorted(best)]
 
 
+def _demand(r: Route, months: list[tuple[str, int]]) -> dict | None:
+    """routes.json `demand` (D45): passengers per month (a count, never a price), the last
+    month the dataset has and each month's passengers; null without Eurostat data."""
+    if r.demand_pax_month is None or r.demand_period is None:
+        return None
+    return {"pax_month": int(round(r.demand_pax_month)), "period": r.demand_period,
+            "months": [{"month": m, "pax": pax} for m, pax in months]}
+
+
 def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | None,
            calendar: list[Observation], observations: int, low_prices: int, live: int,
-           expired: int) -> dict:
+           expired: int, *, demand: dict | None) -> dict:
     origin_city = ctx.config.origin_name(r.origin)
     return {
         "key": r.key, "origin": r.origin, "destination": r.destination, "city": r.city_pt,
@@ -422,6 +433,7 @@ def _route(ctx: Context, r: Route, months: list[dict], cheapest: Observation | N
         "counts": {"observations": observations, "low_prices": low_prices,
                    "promotions_live": live, "promotions_expired": expired},
         "discovered_at": db.utc_iso(r.discovered_at), "last_observed_at": db.utc_iso(r.last_observed_at),
+        "demand": demand,
     }
 
 
@@ -592,6 +604,9 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
                      "min_dates_per_day": det.min_dates_per_day,
                      "max_offer_age_days": det.max_offer_age_days,
                      "lookback_days": det.lookback_days},
+        # Route demand (D45): below this many passengers a month, a route without a price says
+        # "rota com pouca procura" (a count, never a price).
+        "demand": {"thin_pax_month": ctx.config.demand.thin_pax_month},
         "files": {"origins": "origins.json", "routes": "routes.json",
                   "destinations": "destinations.json", "promotions": "promotions.json",
                   "labels": "labels.json", "pontes": "pontes.json",
