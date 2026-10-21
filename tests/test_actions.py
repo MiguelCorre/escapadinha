@@ -19,7 +19,6 @@ from escapadinha.config import Context
 from escapadinha.models import Photo
 from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LocalObjectStore
-from escapadinha.website import build_site
 from escapadinha.website import astro, node
 from escapadinha.website import deploy as site_deploy
 from test_pipeline import REPO, EMPTY, ctx, mock_api, mock_links, seed_history  # noqa: F401
@@ -78,7 +77,6 @@ def test_routine_run_takes_the_fast_path_when_nothing_changed(home):
     assert "Path: full (first full path)" in first
     dist = node.dist_dir(home)
     assert (dist / "index.html").exists() and (dist / "_redirects").exists()
-    assert not home.site_dir.exists()                      # the legacy Jinja site isn't built
     shutil.rmtree(dist)
 
     second = run_cli()
@@ -419,11 +417,12 @@ def test_a_fresh_runners_site_data_lists_the_slides_only_the_bucket_has(tmp_path
 
 @respx.mock
 def test_a_fresh_runners_full_path_downloads_each_slide_once_and_nothing_else(tmp_path, bucket):
-    """Export then site build on a runner without output/ (D25 budget): the export reads the
-    slide names from the listing, the build downloads each slide PNG once, and never the
-    caption or meta.json it does not show."""
+    """Export then the build's promotion images on a runner without output/ (D25 budget): the
+    export reads the slide names from the listing, the build downloads each slide PNG once, and
+    never the caption or meta.json it does not show."""
     from collections import Counter
     from escapadinha import site_data
+    from escapadinha.website import astro
 
     pc = project(tmp_path / "pc")
     conn = pipeline.open_db(pc)
@@ -441,14 +440,16 @@ def test_a_fresh_runners_full_path_downloads_each_slide_once_and_nothing_else(tm
     bucket.get = lambda key: gets.update([key]) or real_get(key)
     export = site_data.export_site_data(runner, conn, tmp_path / "data", now=NOW, new_links=False)
     assert not [k for k in gets if k.startswith("output/")]          # names from the listing
-    build_site(runner, conn, now=NOW)
+    dist = tmp_path / "dist"
+    written, missing = astro._promotion_images(runner, conn, tmp_path / "data", dist)
+    assert written and missing == []
     downloaded = {k: n for k, n in gets.items() if k.startswith("output/")}
     assert sorted(k.rsplit("/", 1)[1] for k in downloaded) == \
         ["slide_01.png", "slide_02.png", "slide_03.png"]
     assert set(downloaded.values()) == {1}
     [promo] = export.files["promotions.json"]["promotions"]
     for path in [*promo["images"]["slides"], promo["images"]["thumb"], promo["images"]["og"]]:
-        assert (runner.site_dir / path.lstrip("/")).is_file(), path
+        assert (dist / path.lstrip("/")).is_file(), path
     assert promo["id"] == deal_id
 
 

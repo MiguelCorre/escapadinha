@@ -1,12 +1,12 @@
 """Every URL of the old site keeps working on the Astro site (D35): a page, or one 301 to a page.
 
 `website.crawl` checks a sitemap against a build (`_redirects` applied like Pages does) or
-against the live site (`escapadinha site crawl`, for the week before the Jinja code is deleted).
-The integration test builds the legacy Jinja site and the real Astro site (npm, `web/`) from the
-same database and crawls every page the old one published.
+against the live site (`escapadinha site crawl`, crawled daily in the cutover week). The
+integration test builds the real Astro site (npm, `web/`) from a database whose redirect history
+is the one the old Jinja site left, and crawls the old URLs: those of the committed sitemap the
+Jinja site served on 2026-10-14 (`docs/cutover/`), plus the pages it published outside it.
 """
 
-import shutil
 from datetime import timedelta
 from pathlib import Path
 
@@ -15,9 +15,9 @@ import pytest
 import respx
 from typer.testing import CliRunner
 
-from escapadinha import cli, pipeline, site_data
+from escapadinha import cli, pipeline, routes, site_data
 from escapadinha.storage import db
-from escapadinha.website import astro, build_site, crawl
+from escapadinha.website import astro, crawl, route_slug
 from test_pipeline import REPO, ctx  # noqa: F401
 from test_website import approved_deal
 
@@ -125,40 +125,46 @@ needs_web = pytest.mark.skipif(not (WEB / "node_modules" / "astro").is_dir(),
                                reason="web/node_modules missing: run `npm ci` in web/")
 
 
-def jinja_urls(site: Path) -> list[str]:
-    """Every URL the old site served: its sitemap, every page (expired promotions and guides
-    included, which the sitemap leaves out) and the sources of its _redirects."""
-    urls = crawl.sitemap_urls(str(site / "sitemap.xml"))
-    base = urls[0].split("/", 3)[:3]
-    for page in site.rglob("index.html"):
-        rel = page.parent.relative_to(site).as_posix()
-        urls.append("/".join(base) + ("/" if rel == "." else f"/{rel}/"))
-    urls += ["/".join(base) + source for source in crawl.parse_redirects(
-        (site / "_redirects").read_text("utf-8"))]
-    return sorted(set(urls))
+OLD_SITEMAP = REPO / "docs" / "cutover" / "jinja-sitemap-2026-10-14.xml"
+
+
+def test_the_old_sitemap_lists_only_pages_the_astro_site_still_builds():
+    """The Jinja site's sitemap on cutover day: the home page, /sobre/, /privacidade/ and one
+    page per route (/voos/<origem>-<destino>/), all of which the Astro site builds at the same
+    path (route slugs are stable, `website.route_slug`)."""
+    urls = crawl.sitemap_urls(str(OLD_SITEMAP))
+    paths = {"/" + u.split("/", 3)[3] for u in urls}
+    assert len(urls) == len(paths) == 363
+    assert {"/", "/sobre/", "/privacidade/"} <= paths
+    assert all(p.startswith("/voos/") and p.count("/") == 3
+               for p in paths - {"/", "/sobre/", "/privacidade/"})
 
 
 @needs_web
 @respx.mock
 def test_every_url_of_the_old_site_resolves_on_the_astro_build(ctx, tmp_path):
-    """The Jinja site (still buildable until #23 phase 2) and the Astro site from one database:
-    a promotion that expired long ago (the Jinja site kept its page, the contract dropped it)
-    and a reviewed Jinja guide, besides the routes and static pages."""
-    guide = ctx.guides_dir / "voos-baratos-dicas.yaml"
-    guide.write_text(guide.read_text("utf-8").replace("reviewed: false", "reviewed: true"), "utf-8")
+    """The old sitemap's URLs of this database's routes and static pages, plus what the Jinja
+    site published outside its sitemap: a promotion that expired long ago (the Jinja site kept
+    its page, the contract dropped it), its short alias and a Jinja guide."""
     conn = pipeline.open_db(ctx)
     deal_id = approved_deal(ctx, conn)
-    build_site(ctx, conn)                                   # the old site, while it was live
     db.set_deal_status(conn, deal_id, "expired")
     conn.execute("UPDATE deals SET last_checked_at = ? WHERE id = ?",
                  ((db.utcnow() - timedelta(days=40)).isoformat(), deal_id))
     conn.commit()
-    old = ctx.root / "old-site"
-    shutil.copytree(ctx.site_dir, old)
-    build_site(ctx, conn)                                   # its last build: the expired page
-    urls = sorted(set(jinja_urls(old)) | set(jinja_urls(ctx.site_dir)))
-    assert any(f"/promos/{deal_id}-lisboa-londres/" in u for u in urls)
-    assert any("/guias/voos-baratos-dicas/" in u for u in urls)
+    route_paths = {f"route:{r.key}": f"/voos/{route_slug(ctx.config.origin_name(r.origin), r.city_pt)}/"
+                   for r in routes.all_routes(conn, ctx.config.routes)}
+    old_promo = f"/promos/{deal_id}-lisboa-londres/"
+    pipeline.save_site_paths(conn, {                        # the history the Jinja builds left
+        **{f"page:{p}": [p] for p in ("/", "/sobre/", "/privacidade/")},
+        **{key: [path] for key, path in route_paths.items()},
+        f"deal:{deal_id}": [old_promo], "guide:voos-baratos-dicas": ["/guias/voos-baratos-dicas/"]})
+
+    base = "https://pontonomada.pt"
+    known = {"/", "/sobre/", "/privacidade/", *route_paths.values()}
+    urls = [u for u in crawl.sitemap_urls(str(OLD_SITEMAP)) if u.removeprefix(base) in known]
+    assert len(urls) == len(known)                          # every route here was on the old site
+    urls += [f"{base}{old_promo}", f"{base}/promos/{deal_id}", f"{base}/guias/voos-baratos-dicas/"]
 
     data = tmp_path / "data"
     site_data.export_site_data(ctx, conn, data, new_links=False)
@@ -170,5 +176,5 @@ def test_every_url_of_the_old_site_resolves_on_the_astro_build(ctx, tmp_path):
     broken = [f"{r.path} {r.status} {r.detail}" for r in results if not r.ok]
     assert broken == [] and len(results) == len(urls) >= 15
     redirected = {r.path: r.target for r in results if r.status == 301}
-    assert redirected[f"/promos/{deal_id}-lisboa-londres/"] == "/voos/lisboa-londres/"
+    assert redirected[old_promo] == "/voos/lisboa-londres/"
     assert redirected["/guias/voos-baratos-dicas/"] == "/dicas/voos-baratos/"   # approved 2026-10-15

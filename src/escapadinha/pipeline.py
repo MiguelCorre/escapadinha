@@ -284,7 +284,7 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
     """Evaluate the given (default: latest completed) run against each route's typical lows.
 
     Both tiers come from the offers seen in that run or later (D18, D24): low prices are
-    counted (the website lists them, `route_low_prices`); promotion candidates, minus offers
+    counted (the site data export lists them); promotion candidates, minus offers
     that already are a deal, become deals in status `new`.
     """
     cfg = ctx.config.detector
@@ -375,36 +375,12 @@ def _summarise(route: Route, offers: list[Observation], history: list[Observatio
                           lows)
 
 
-def route_low_prices(ctx: Context, conn: sqlite3.Connection, route: Route,
-                     history: list[Observation], now: datetime,
-                     run_offers: list[Observation] | None = None) -> list[detector.LowPrice]:
-    """The route's low prices in the latest completed run (D24), biggest discount first.
-
-    `run_offers`: that run's offers (all routes) when the caller already loaded them.
-    """
-    if run_offers is None:
-        run_id = db.latest_completed_run_id(conn)
-        run_offers = db.observations_seen_since(conn, run_id) if run_id else []
-    offers = [o for o in run_offers if o.route_key == route.key]
-    return detector.low_prices(offers, history, ctx.config.detector, now, route.rules)
-
-
 def route_history(ctx: Context, conn: sqlite3.Connection, route: Route,
                   now: datetime) -> list[Observation]:
     """The route's stored offers inside the typical low's lookback window."""
     return db.route_history(conn, route.origin, route.destination,
                             since=now - timedelta(days=ctx.config.detector.lookback_days),
                             exclude_run_id=None)
-
-def shown_low_prices(ctx: Context, conn: sqlite3.Connection, route: Route,
-                     history: list[Observation], now: datetime, run_offers: list[Observation],
-                     promoted: set[int]) -> list[detector.LowPrice]:
-    """The low prices a route page lists: the run's low prices minus the offers of live
-    promotions (`promoted`, shown above them), at most `site.low_prices_per_route`."""
-    lows = route_low_prices(ctx, conn, route, history, now, run_offers)
-    shown = [lp for lp in lows if lp.observation.id not in promoted]
-    return shown[: ctx.config.site.low_prices_per_route]
-
 
 def current_baselines(ctx: Context, conn: sqlite3.Connection,
                       route: Route) -> dict[tuple[int, int], detector.Baseline]:

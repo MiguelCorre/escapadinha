@@ -1,7 +1,7 @@
 """Website data contract v1 (D27): the JSON files the Astro site (#13) is built from.
 
 The schemas live in `contract/site/v1/*.schema.json`; this module writes data that
-matches them, from the same database queries and detector rules as the Jinja site:
+matches them, from the database and the detector's rules:
 
     meta.json            build metadata (contract version, generated_at, run id, settings)
     labels.json          pt-PT names the site cannot derive (airlines, airports, disclosure)
@@ -184,7 +184,7 @@ def published_destination_slugs(ctx: Context, conn: sqlite3.Connection) -> dict[
 def record_destination_paths(ctx: Context, conn: sqlite3.Connection, export: Export) -> None:
     """Remember every destination hub's path (D30): the next export keeps each hub at its slug
     (`destination_slugs`), and a path that ever changes keeps a 301 from the old one
-    (`website.redirects`, keys `destination:<code>` in `site.paths`, like the Jinja pages')."""
+    (`website.redirects`, keys `destination:<code>` in `site.paths`, like every page's)."""
     pages = {f"{DESTINATION_KEY}{d['code']}": d["path"]
              for d in export.files["destinations.json"]["destinations"]}
     pipeline.save_site_paths(conn, redirects.update_history(pipeline.site_paths(ctx, conn), pages))

@@ -1508,10 +1508,10 @@ so nothing has to be hosted.
   `ondestaanocas` (https://pontonomada.pt, D19). `run`'s full path is now render → `export
   site-data` into `web/src/data` (config `site.data_dir`, git-ignored) → `site build` (the Astro
   site, below) → `site deploy` (`web/dist` + the review Function) → `record_full_path`. The Jinja
-  build is no longer part of `run` and nothing deploys it: it stays as `site build-jinja`
+  build is no longer part of `run` and nothing deploys it: it stayed as `site build-jinja`
   (`website/__init__.py` `SiteBuilder` + `website/templates/`) only until **phase 2**, which
-  deletes it once the new site has been live for a week with no broken link reported by
-  `site crawl`. The shared helpers in `website/__init__.py` (slugs, `is_public`,
+  deleted it on 2026-10-21 after a week live with no broken link reported by `site crawl`
+  (below). The shared helpers in `website/__init__.py` (slugs, `is_public`,
   `public_deal_rows`, `deal_image_paths`) and the modules below stay.
 - **`site build` (`website/astro.py`):** `npm ci` only when `web/node_modules` is missing or
   was installed from something else: a stamp in node_modules, `.escapadinha-npm-ci`, holds the
@@ -1642,8 +1642,8 @@ so nothing has to be hosted.
   land on a served page, not on another rule), `check_live` asks the live site without following
   redirects (200, or 301 whose target answers 200; 302/308/404/5xx and chains are reported).
   `escapadinha site crawl --sitemap <url|file> [--base <host>] [--dist web/dist]` prints the count
-  and every broken URL and exits 1 on any. `tests/test_crawl.py` builds the legacy Jinja site
-  and the **real** Astro site (npm, `web/`, into a temporary folder) from one database, with a
+  and every broken URL and exits 1 on any. `tests/test_crawl.py` built (until phase 2) the
+  legacy Jinja site and the **real** Astro site (npm, `web/`, into a temporary folder) from one database, with a
   promotion that expired 40 days ago (its Jinja page stayed; the contract dropped it) and a
   reviewed Jinja guide, and crawls every page, sitemap URL and `_redirects` source of the old
   site: all resolve (skipped when `web/node_modules` is missing). On the real data the live
@@ -1676,11 +1676,28 @@ so nothing has to be hosted.
   all six** (assertion: accessibility = 1); the fixture `npm run lhci` (12 URLs) passes too. No promotion page could be measured (none in the
   real data); the fixture runs of D28/D34 cover them, and the slide-strip CLS flake noted in D28
   is to be checked on the first real promotion.
-- **Phase 2 (not here):** after a week live with `site crawl --sitemap <the old sitemap>`
-  clean, delete `SiteBuilder`/`build_site`, `website/templates/`, `site build-jinja` and their
-  tests; keep the slug helpers (move them out of `website/__init__.py`), `images.py`,
-  `routing.py`, `redirects.py`, `deploy.py`, `crawl.py`. Keep a copy of today's sitemap
-  (`web/dist/sitemap.xml` of the first deploy, or the Jinja one) for that week's crawls.
+- **Phase 2 (done 2026-10-21):** the `crawl` workflow ran daily from 2026-10-14 to 2026-10-20,
+  every run "363 URLs: 363 ok (0 by a 301), 0 broken", and a local `site crawl --sitemap
+  docs/cutover/jinja-sitemap-2026-10-14.xml` on 2026-10-21 gave the same. Deleted:
+  `SiteBuilder`/`build_site` and their page dataclasses, `website/templates/`, `site
+  build-jinja`, `.github/workflows/crawl.yml`, and what only the Jinja pages used
+  (`presentation.LowPriceView`/`build_low_price_view`, `pipeline.shown_low_prices`/
+  `route_low_prices`, config `site.low_prices_per_route` and `site.recent_expired`,
+  `Context.site_dir`); the Astro route page's cap is `LOW_PRICES_PER_ROUTE` in
+  `web/src/lib/routes.ts`. The Jinja-page tests went; their checks now run on the export:
+  website and low-price links, a failed link retried (`test_brand_switch.py`,
+  `test_website.py`, `test_site_data.py`), the slides a runner downloads (`test_actions.py`);
+  `test_traceability.py` keeps the checker, the captions and the scenario (the Astro pages are
+  traced against the export by `web/test/traceability.test.ts`, the export against the
+  database by `test_site_data.py`). `test_crawl.py` no longer builds the Jinja site: it seeds
+  the redirect history the Jinja builds left (`site.paths`) and crawls, on the real Astro
+  build, the committed sitemap's URLs of the test database's routes and static pages plus an
+  expired promotion, its short alias and a Jinja guide; another test checks the committed
+  sitemap itself (363 URLs, static pages and `/voos/<slug>/` only). Crawling the whole
+  committed sitemap on a test build is not possible: its 360 routes are the live database's.
+  The slug helpers stay in `website/__init__.py` (moving them was not worth the churn), as do
+  `images.py`, `routing.py`, `redirects.py`, `deploy.py`, `crawl.py`; the committed sitemap
+  stays as the list of old URLs the redirects must keep serving (`site crawl` reads it).
 
 ## D36: Instagram publisher (2026-10-14, #24)
 - **Media: JPEG slides on the public site.** Meta's content publishing API fetches images by URL

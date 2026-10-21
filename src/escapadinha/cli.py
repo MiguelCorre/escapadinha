@@ -450,27 +450,6 @@ def _site_build(until: float | None):
     return summary
 
 
-@site_app.command("build-jinja")
-def site_build_jinja() -> None:
-    """Legacy (until #23 phase 2): the old Jinja site into ./site. Never deployed any more."""
-    from escapadinha.website import build_site
-
-    ctx, conn = _ctx()
-    summary = build_site(ctx, conn)
-    console.print(f"Site built in [bold]{ctx.site_dir}[/]: {summary['live_deals']} live deals, "
-                  f"{summary['expired_pages']} expired pages, {summary['routes']} routes, "
-                  f"{summary['guides']} guides, {summary['redirects']} redirects")
-    console.print(f"  {summary['low_prices']} low prices on route pages: "
-                  f"{summary['low_price_links_created']} new partner links, "
-                  f"{summary['low_prices_without_link']} without a link yet")
-    for skipped in summary["skipped_redirects"]:
-        console.print(f"  [yellow]![/] redirect left out: {skipped}")
-    site = ctx.config.site
-    if not site.on_final_domain:
-        console.print(f"  [dim]Served at {site.base_url}; final domain {site.domain} not "
-                      f"connected yet (docs/runbooks/brand-switch.md)[/]")
-
-
 @export_app.command("site-data")
 def export_site_data(
     out: Annotated[Path | None, typer.Option(help="Directory (default: site.data_dir)")] = None,
@@ -529,7 +508,7 @@ def site_preview(port: Annotated[int, typer.Option()] = 8766) -> None:
 @site_app.command("crawl")
 def site_crawl(
     sitemap: Annotated[str, typer.Option(help="Old sitemap: URL or file "
-                                              "(e.g. a copy of the Jinja site's sitemap.xml)")],
+                                              "(e.g. docs/cutover/jinja-sitemap-2026-10-14.xml)")],
     base: Annotated[str | None, typer.Option(help="Crawl this host instead of the sitemap's "
                                                   "(e.g. a preview deployment)")] = None,
     dist: Annotated[Path | None, typer.Option(help="Check a local build (its _redirects) "

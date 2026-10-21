@@ -58,7 +58,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `instagram.py` | Instagram publisher (D36): Graph API carousel + story, error mapping, token refresh |
 | `pipeline.py` | Wires the DB to each step; `cli.py` exposes them |
 | `site_data.py` | Website data contract v1: JSON export for the Astro site + fixtures (`contract/site/v1/`) |
-| `website/` | `astro.py` (`site build`: npm, astro build, images), `routing.py` (`_redirects`/`_headers`), `deploy.py` (wrangler); the legacy Jinja site until #23 phase 2 |
+| `website/` | `astro.py` (`site build`: npm, astro build, images), `routing.py` (`_redirects`/`_headers`), `deploy.py` (wrangler), `crawl.py` (`site crawl`) |
 
 ## Setup
 
@@ -312,9 +312,9 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
     typical low (they run dearer); they can still be candidates against it.
   - `dedupe_days: 7` stops the same trip being re-flagged unless it gets cheaper.
   - `max_deals_per_route: 1` caps deals per route per run (biggest discount first).
-- `site.low_prices_per_route: 5` (biggest discounts listed per route page) and
-  `site.max_new_links_per_build: 300` (new low-price partner links per collection run, shared
-  by the site data export and the site build, ≤ 900).
+- `site.max_new_links_per_build: 300` (new low-price partner links per collection run, ≤ 900;
+  the site data export creates them). Route pages list at most five low prices
+  (`LOW_PRICES_PER_ROUTE` in `web/src/lib/routes.ts`).
 - `site.data_dir: output/site-data/v1` (where `export site-data` writes; `web/src/data` once the
   Astro package exists), `site.max_low_prices_per_origin: 1500` (row cap per low-price file) and
   `site.expired_promotions_days: 30` (expired promotions stay in the export this long).
@@ -661,7 +661,6 @@ uv run escapadinha site build         # npm ci if needed, astro build → web/di
 uv run escapadinha site preview       # http://127.0.0.1:8766 (web/dist; _redirects not applied)
 uv run escapadinha site setup         # one-time: create the Cloudflare Pages project (REST API)
 uv run escapadinha site deploy        # upload web/dist + the review Function if they changed (--force to always)
-uv run escapadinha site build-jinja   # legacy: the old Jinja site into ./site, never deployed (until #23 phase 2)
 uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # every URL: 200 or a 301 to a 200
 ```
 
@@ -705,16 +704,13 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
 - **Run integration:** `escapadinha run` exports, builds and deploys on its full path only
   (something the site shows changed, see [GitHub Actions](#github-actions-decisions-d25)), and
   deploys only when `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set.
-- **Legacy Jinja site:** `src/escapadinha/website/__init__.py` (`SiteBuilder`) and
-  `website/templates/` stay buildable (`site build-jinja`) for a week after the cutover, then
-  are deleted (#23 phase 2). Nothing deploys them.
 - **Old URLs:** `site crawl --sitemap <url or file>` checks every URL of a sitemap on the live
   site (no redirect followed: 200, or a 301 whose target answers 200; anything else is listed
   and the command exits 1). `--base https://<hash>.ondestaanocas.pages.dev` crawls a preview
-  deployment instead, `--dist web/dist` a local build with its `_redirects`. During the week
-  after the cutover (until 2026-10-21) the `crawl` workflow (`.github/workflows/crawl.yml`, daily
-  07:30 UTC) runs it on the live site with the Jinja sitemap saved before the switch,
-  `docs/cutover/jinja-sitemap-2026-10-14.xml`; a red run means an old URL broke.
+  deployment instead, `--dist web/dist` a local build with its `_redirects`. The old Jinja site's
+  sitemap, saved before the switch, is `docs/cutover/jinja-sitemap-2026-10-14.xml` (363 URLs):
+  crawled clean on the live site every day of the cutover week (2026-10-14 to 2026-10-21), after
+  which the Jinja code was deleted (#23 phase 2).
 
 ### Domain and redirects
 
@@ -1209,8 +1205,8 @@ PC sleeps start when it wakes. Output is appended to `logs/run-<date>.log`, endi
 ## Guides ("guia rápido")
 
 The website's tips and itineraries are MDX in `web/src/content/` (see "The Astro package", D33);
-the YAML guides below only feed the Instagram carousel (`render guide`) (and the legacy Jinja
-build until #23 phase 2; its old `/guias/<slug>/` URLs 301 to the tip naming them in `legacy_path`). Add `content/guides/<slug>.yaml` with a title, 3–8 tips, CTA, caption and hashtags (see the
+the YAML guides below only feed the Instagram carousel (`render guide`); the old Jinja site's
+`/guias/<slug>/` URLs 301 to the tip naming them in `legacy_path`. Add `content/guides/<slug>.yaml` with a title, 3–8 tips, CTA, caption and hashtags (see the
 sample). Guides are hand-written. Set `reviewed: true` after checking the facts; the CLI
 warns until then. `photo_destination` picks a cached photo (for example `LIS`; add its
 query under `photos.queries` and run `photos fetch --dest LIS`).
@@ -1269,7 +1265,7 @@ uv run pytest -m "not browser"
   read-only, run selection by id or by day, one flag per candidate, the 24 h recheck and the
   hindsight check, the new-low rule, the presets, the Markdown and JSON, `--state` and the script.
 - `test_traceability.py` (normal run, no browser) builds a database with promotions (live,
-  expired, new), low prices and typical lows, renders the whole site and every caption, and fails
+  expired, new), low prices and typical lows, renders every caption, and fails
   on any price string that isn't a referenced observation's price, a referenced deal's stored
   baseline or recheck price, or a typical low computed from the referenced route's observations.
 - `test_site_data.py` validates the JSON export and the committed fixtures against
@@ -1306,7 +1302,8 @@ uv run pytest -m "not browser"
 - `web/test/colours.test.ts` fails on a raw colour (hex, `rgb()`, `hsl()`) in `web/src/` or
   `web/functions/` outside the generated `tokens.css` / `tokens.ts`.
 - `test_crawl.py`: the crawl against a build and the live site (respx), and the cutover's check:
-  the legacy Jinja site and the real Astro build (npm) from one database, every old URL a page
+  the real Astro build (npm) from a database with the old site's redirect history, the old
+  sitemap's URLs (`docs/cutover/`) plus an expired promotion and a Jinja guide, every one a page
   or a 301 to one (skipped without `web/node_modules`).
 - `test_review_function_deploy.py`: `site deploy` uploads the Function with the Astro build, a
   Function change redeploys and takes the full path.
