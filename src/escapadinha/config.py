@@ -280,10 +280,8 @@ class SiteConfig(BaseModel):
     # Aviasales search form (D34): the `src` of the script Travelpayouts' widget constructor gives
     # (Tools → Widgets → Search form, Project "Pontonomada"). Null: no widget anywhere.
     search_widget: str | None = None
-    recent_expired: int = 6              # expired deals listed per route page
     # Low prices on route pages (D24): the biggest discounts per route, each with its own
     # tracked link from the partner links API, created once and stored in `partner_links`.
-    low_prices_per_route: int = Field(5, ge=0)
     # New low-price partner links per collection run, shared by the site data export and the
     # site build (the export first), biggest discounts first; the rest wait for the next run.
     # <= 900 keeps one build under the API's 100 requests/min (10 links per request).
@@ -673,10 +671,6 @@ class Context:
     @property
     def assets_dir(self) -> Path:
         return self.root / "assets"
-
-    @property
-    def site_dir(self) -> Path:
-        return self.root / "site"
 
     @property
     def guides_dir(self) -> Path:

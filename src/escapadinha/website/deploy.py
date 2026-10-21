@@ -27,8 +27,8 @@ from escapadinha.config import Context
 from escapadinha.storage import db
 from escapadinha.website import node
 
-# The build's timestamps: the footer ("Atualizado a <span class="num">14/10/2026 às 10:01</span>"
-# in the Astro pages, without the span in the legacy Jinja ones) and the explorer data's
+# The build's timestamps: the footer ("Atualizado a <span class="num">14/10/2026 às 10:01</span>",
+# the span optional) and the explorer data's
 # generated_at. Not content: a rebuild that only moved them is not deployed again.
 BUILT_AT = re.compile(rb"Atualizado a (?:<span[^>]*>)?[^<]*")
 GENERATED_AT = re.compile(rb'"generated_at":"[^"]*"')

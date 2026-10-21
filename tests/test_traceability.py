@@ -1,6 +1,7 @@
-"""Never fabricate prices (D2), enforced: render the whole site and every caption from a
-temporary database and fail when a price string cannot be traced to stored data that the
-page or caption references.
+"""Never fabricate prices (D2), enforced: render every caption from a temporary database and
+fail when a price string cannot be traced to stored data that the caption references. The same
+checker guards the site data export (`tests/test_site_data.py`); the Astro pages are checked
+against that export by `web/test/traceability.test.ts`.
 
 A page references observations with `data-obs`, deals with `data-deal` and a route's
 typical lows with `data-route`. A price is traceable when it equals:
@@ -17,7 +18,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from pathlib import Path
 
 import pytest
 import respx
@@ -29,7 +29,6 @@ from escapadinha.guides import load_guide
 from escapadinha.models import Observation
 from escapadinha.presentation import PhotoCredit
 from escapadinha.storage import db
-from escapadinha.website import build_site
 from test_pipeline import ctx, mock_links  # noqa: F401
 
 # '58 €', '85,40 €', '58€' (slides style), with a normal or non-breaking space.
@@ -89,11 +88,6 @@ def traceable_amounts(ctx: Context, conn, refs: Refs) -> set[int]:
 def untraceable(ctx: Context, conn, text: str, refs: Refs) -> list[str]:
     allowed = traceable_amounts(ctx, conn, refs)
     return [shown for shown, amount in prices_in(text) if amount not in allowed]
-
-
-def site_files(site_dir: Path) -> list[Path]:
-    return sorted(p for p in site_dir.rglob("*")
-                  if p.is_file() and p.suffix in (".html", ".xml", ".txt"))
 
 
 def all_captions(ctx: Context, conn) -> list[tuple[str, str, Refs]]:
@@ -199,7 +193,7 @@ def build_scenario(ctx: Context, conn) -> Scenario:
 
 @pytest.fixture
 def built(ctx):  # noqa: F811
-    """The scenario's database and the site built from it (partner links API mocked)."""
+    """The scenario's database, with a reviewed guide (partner links API mocked)."""
     with respx.mock:
         links = mock_links()
         conn = pipeline.open_db(ctx)
@@ -207,48 +201,27 @@ def built(ctx):  # noqa: F811
         guide = ctx.guides_dir / "voos-baratos-dicas.yaml"
         guide.write_text(guide.read_text("utf-8").replace("reviewed: false", "reviewed: true"),
                          "utf-8")
-        summary = build_site(ctx, conn)
-        yield ctx, conn, scenario, summary, links
+        yield ctx, conn, scenario, links
 
 
 # --- tests ----------------------------------------------------------------------------------
 
-def test_every_price_on_the_site_and_in_captions_traces_to_stored_data(built):
-    ctx, conn, scenario, summary, _ = built
+def test_every_price_in_captions_traces_to_stored_data(built):
+    ctx, conn, scenario, _ = built
     assert db.get_deal(conn, scenario.expired_deal)[0].status == "expired"
-    assert summary["live_deals"] == 1 and summary["low_prices"] >= 3
-
-    checked, shown = 0, 0
-    for path in site_files(ctx.site_dir):
-        text = path.read_text("utf-8")
-        bad = untraceable(ctx, conn, text, page_refs(text))
-        assert not bad, f"{path.relative_to(ctx.site_dir)}: untraceable prices {bad}"
-        checked += 1
-        shown += len(prices_in(text))
+    shown = 0
     for name, text, refs in all_captions(ctx, conn):
         bad = untraceable(ctx, conn, text, refs)
         assert not bad, f"{name}: untraceable prices {bad}"
         shown += len(prices_in(text))
-    assert checked > 15 and shown > 20          # the check really looked at prices
-
-
-def test_the_scenario_shows_every_kind_of_price(built):
-    """Guard against a vacuous traceability test: each price source is on some page."""
-    ctx, conn, scenario, _, _ = built
-    route = (ctx.site_dir / "voos/lisboa-londres/index.html").read_text("utf-8")
-    assert "80 €" in route and "85,40 €" in route          # low prices
-    assert "100,50 €" in route                              # typical low (even median)
-    assert "60 €" in route                                  # live promotion card
-    amounts = {amount for _, amount in prices_in(route)}
-    assert 9500 not in amounts and 5000 not in amounts      # neither tier (-5 %, not direct)
-    expired = next((ctx.site_dir / "promos").glob(f"{scenario.expired_deal}-*/index.html"))
-    assert "o preço subiu para 90 €" in expired.read_text("utf-8")
-    assert "26 €" in (ctx.site_dir / "voos/lisboa-barcelona/index.html").read_text("utf-8")
+    assert shown > 3                            # the check really looked at prices
 
 
 def test_checker_flags_fabricated_and_unreferenced_prices(built):
-    ctx, conn, scenario, _, _ = built
-    page = (ctx.site_dir / "voos/lisboa-londres/index.html").read_text("utf-8")
+    ctx, conn, scenario, _ = built
+    page = (f'<h1>Lisboa – Londres</h1><td data-route="LIS-LON">100,50 €</td>'
+            f'<li data-obs="{scenario.low_only[0]}">80 €</li>'
+            f'<p data-deal="{scenario.live_deal}">60 €</p>')
     assert untraceable(ctx, conn, page, page_refs(page)) == []
     fabricated = page.replace("</h1>", " desde 19 €</h1>", 1)
     assert untraceable(ctx, conn, fabricated, page_refs(fabricated)) == ["19 €"]
@@ -261,7 +234,7 @@ def test_checker_flags_fabricated_and_unreferenced_prices(built):
 
 
 def test_captions_reference_only_their_own_deal(built):
-    ctx, conn, scenario, _, _ = built
+    ctx, conn, scenario, _ = built
     captions = {name: (text, refs) for name, text, refs in all_captions(ctx, conn)}
     text, refs = captions[f"deal {scenario.live_deal} caption"]
     assert "60 €" in text and untraceable(ctx, conn, text, refs) == []

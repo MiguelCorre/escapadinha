@@ -10,7 +10,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list|retry`,
   `instagram token`,
-  `site build|preview|setup|deploy|crawl|build-jinja`, `design directions`, `export site-data|fixtures`,
+  `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
 - `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44]
   [--runs 19-57 | --days 14] [--candidates --state --json out.json]`: the detector backtest (D44),
@@ -31,7 +31,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - **Never fabricate prices.** Observations come only from API payloads. No seed/demo data
   outside tests (tests use `tmp_path`). Every deal must trace to `price_observations.id`.
   Every element on the site that shows a price carries `data-obs`, `data-deal` or `data-route`;
-  `tests/test_traceability.py` fails on any price string on a page or caption it can't trace.
+  `tests/test_traceability.py` fails on any price string in a caption it can't trace (the same
+  checker guards the export in `tests/test_site_data.py`; pages: `web/test/traceability.test.ts`).
   In the website JSON (`contract/site/v1`, D27) every price is an `eur` field next to its
   observation id, route key or deal id; a new price field must be taught to the checker in
   `tests/test_site_data.py` (a guard fails otherwise).
@@ -389,10 +390,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `crawl.py` (`site crawl`: a sitemap against a build or the live site),
   `images.py` (promotion WebP/thumb/OG + JPEG slides for Instagram, D36), `redirects.py` (rules), `deploy.py` (wrangler in `web/`,
   `function_files`, `deploy_hash`, fixture refusal); `__init__.py` shares with the export
-  `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`, ... **Legacy until #23
-  phase 2:** `SiteBuilder`/`build_site` + `templates/` (the Jinja site, `site build-jinja`, never
-  deployed, not part of `run`); don't extend them, and don't read them as the site's rules (the
-  Astro site in `web/` is the site).
+  `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`, ... (the Jinja site was
+  deleted in #23 phase 2; its old URLs, `docs/cutover/jinja-sitemap-2026-10-14.xml`, must keep
+  resolving: `tests/test_crawl.py`).
 - `src/escapadinha/pontes.py` + `content/holidays.yaml`: Portuguese holidays 2026–2027 and their
   long weekends (D31; pure `long_weekend`/`pontes`, exported as `pontes.json`, past ones too, raw
   values only). The ponte rule (departure and return inside the window) and the weekend rule

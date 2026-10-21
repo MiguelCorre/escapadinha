@@ -21,11 +21,12 @@ The steps before the first public post, in order. Tick them as they're done.
       `gh workflow run pipeline.yml -f full=true`).
 - [x] First production deploy of the Astro site: 2026-10-14 (run 38595287906); the live crawl of the
       old sitemap gave 363/363 ok the same evening.
-- [ ] For a week after that first deploy (until 2026-10-21), daily: `uv run escapadinha site crawl
+- [x] For a week after that first deploy (until 2026-10-21), daily: `uv run escapadinha site crawl
       --sitemap docs/cutover/jinja-sitemap-2026-10-14.xml` (the live Jinja sitemap saved before the
-      cutover, 363 URLs) reports no broken URL. `.github/workflows/crawl.yml` runs it every day at
-      07:30 UTC; a red run e-mails the owner.
-      Then delete the Jinja site (`SiteBuilder`, `website/templates/`, `site build-jinja`; #23 phase 2).
+      cutover, 363 URLs) reports no broken URL. Done: 7 daily runs of the `crawl` workflow
+      (2026-10-14 to 2026-10-20) and a local crawl on 2026-10-21, all 363/363 ok.
+      Then the Jinja site was deleted (`SiteBuilder`, `website/templates/`, `site build-jinja`,
+      the `crawl` workflow; #23 phase 2, 2026-10-21).
 - [ ] Put the site in the Instagram bio (https://pontonomada.pt once connected; until then
       https://ondestaanocas.pages.dev, which will redirect).
 - [ ] Review the "Como funciona" and "Privacidade" texts (`web/src/pages/sobre/`,

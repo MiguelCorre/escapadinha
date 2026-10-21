@@ -19,7 +19,6 @@ from typer.testing import CliRunner
 from escapadinha import cli, detector, pipeline, routes, site_data
 from escapadinha.models import Photo
 from escapadinha.storage import db
-from escapadinha.website import build_site
 from test_pipeline import ctx, mock_links, seed_history  # noqa: F401
 from test_traceability import (
     Refs, build_scenario, cents, history, offer, store_run, untraceable,
@@ -350,21 +349,6 @@ def test_low_prices_per_origin_with_found_date_and_tracked_links(exported):
 
 
 @respx.mock
-def test_promotion_images_are_the_files_the_site_build_writes(ctx, tmp_path):  # noqa: F811
-    from test_website import approved_deal
-    conn = pipeline.open_db(ctx)
-    deal_id = approved_deal(ctx, conn)
-    site_data.export_site_data(ctx, conn, tmp_path / "data")
-    [promo] = read(tmp_path / "data", "promotions.json")["promotions"]
-    images = promo["images"]
-    assert promo["id"] == deal_id and len(images["slides"]) == 3
-    build_site(ctx, conn)
-    for path in [*images["slides"], images["thumb"], images["og"], promo["path"]]:
-        target = ctx.site_dir / path.lstrip("/")
-        assert target.is_file() or (target / "index.html").is_file(), path
-
-
-@respx.mock
 def test_without_new_links_the_export_sends_no_partner_request(ctx, tmp_path):  # noqa: F811
     links = mock_links()
     conn = pipeline.open_db(ctx)
@@ -378,14 +362,14 @@ def test_without_new_links_the_export_sends_no_partner_request(ctx, tmp_path):  
     made = links.call_count - before
     link = site_data.LOW_COLS.index("link")
     assert made == 1 and all(r[link] for r in read(tmp_path / "data", "low-prices/LIS.json")["rows"])
-    build_site(ctx, conn)                                           # the Jinja site reuses them
+    site_data.export_site_data(ctx, conn, tmp_path / "data")       # stored: reused
     assert links.call_count - before == made
 
 
 @respx.mock
-def test_export_and_site_build_share_one_new_link_budget_per_run(ctx, tmp_path):  # noqa: F811
-    """`site.max_new_links_per_build` caps a run's export + site build together (D24, D27):
-    the export takes the biggest discounts, the build only what is left."""
+def test_exports_share_one_new_link_budget_per_run(ctx, tmp_path):  # noqa: F811
+    """`site.max_new_links_per_build` caps the new links of a run's exports together (D24,
+    D27): the biggest discounts first, nothing more until the next run."""
     links = mock_links()
     conn = pipeline.open_db(ctx)
     build_scenario(ctx, conn)
@@ -401,8 +385,6 @@ def test_export_and_site_build_share_one_new_link_budget_per_run(ctx, tmp_path):
     by_price = {(o.route_key, o.price): o.id for o in db.observations_seen_since(conn, run_id)}
     # LIS-ROM 70 € (-42 %) and LIS-LON 60 € (-40 %) are the biggest discounts.
     assert sorted(low_link_requests()) == sorted([by_price["LIS-ROM", 70], by_price["LIS-LON", 60]])
-    summary = build_site(ctx, conn)
-    assert len(low_link_requests()) == 2 and summary["low_price_links_created"] == 0
     site_data.export_site_data(ctx, conn, tmp_path / "data")
     assert len(low_link_requests()) == 2                      # still the same run: spent
 

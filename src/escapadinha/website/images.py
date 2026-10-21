@@ -2,8 +2,8 @@
 `slide_NN.webp` per slide (what the pages show), `slide_NN.jpg` per slide (what Instagram
 fetches: its API takes JPEG only, D36), `thumb.webp` (540 wide) and `og.jpg` (Open Graph) from
 the cover. The paths are the ones the contract names (`website.deal_image_paths`) and the
-publisher uses (`website.deal_jpeg_paths`); the Astro build (`website.astro`, D35) and the
-legacy Jinja build both write them with this function."""
+publisher uses (`website.deal_jpeg_paths`); the Astro build (`website.astro`, D35) writes
+them with this function."""
 
 from __future__ import annotations
 

@@ -7,15 +7,14 @@ import yaml
 import respx
 from pydantic import ValidationError
 
-from escapadinha import pipeline
+from escapadinha import pipeline, site_data
 from escapadinha.affiliate import API_URL as LINKS_URL
 from escapadinha.config import AffiliateConfig, SiteConfig
 from escapadinha.storage import db
-from escapadinha.website import build_site
 from escapadinha.website.redirects import (MAX_STATIC_REDIRECTS, headers_text, plan_redirects,
                                            update_history)
 from test_pipeline import REPO, ctx  # noqa: F401
-from test_website import approved_deal, html
+from test_website import approved_deal
 
 
 def link_requests():
@@ -117,77 +116,52 @@ def test_headers_noindex_only_hosts_that_are_not_the_site():
     assert "pontonomada.pt/*" not in text
 
 
-# --- site build ------------------------------------------------------------------------
+# --- the site's booking links ------------------------------------------------------------
+
+def booking_link(ctx, conn, out, deal_id):
+    """The promotion's booking link in a fresh site data export (what its page's button opens)."""
+    export = site_data.export_site_data(ctx, conn, out)
+    return {p["id"]: p["booking_link"]
+            for p in export.files["promotions.json"]["promotions"]}[deal_id]
+
 
 @respx.mock
-def test_site_uses_instagram_link_until_a_website_project_exists(ctx):
+def test_site_uses_instagram_link_until_a_website_project_exists(ctx, tmp_path):
     conn = pipeline.open_db(ctx)
     deal_id = approved_deal(ctx, conn)
-    before = len(link_requests())
-    build_site(ctx, conn)
+    link = booking_link(ctx, conn, tmp_path, deal_id)
     deal, _ = db.get_deal(conn, deal_id)
-    assert link_requests()[-1]["trs"] == 584711 and len(link_requests()) == before
-    assert f'href="{deal.affiliate_url}"' in html(ctx, f"promos/{deal_id}-lisboa-londres/index.html")
+    assert link == deal.affiliate_url
+    assert not [l for r in link_requests() for l in r["links"]              # no site-deal link
+                if l["sub_id"].startswith("site-deal-")]
+    assert {r["trs"] for r in link_requests()} == {584711}
 
 
 @respx.mock
-def test_site_uses_its_own_project_and_caches_links(ctx):
+def test_site_uses_its_own_project_and_caches_links(ctx, tmp_path):
     conn = pipeline.open_db(ctx)
     deal_id = approved_deal(ctx, conn)
     ctx.config.affiliate.projects["website"] = 700001
-    build_site(ctx, conn)
-    sent = link_requests()[-1]
-    assert sent["trs"] == 700001 and sent["links"][0]["sub_id"] == f"site-deal-{deal_id}"
-    page = html(ctx, f"promos/{deal_id}-lisboa-londres/index.html")
-    assert f'href="https://aviasales.tpo.lu/site-deal-{deal_id}" rel="sponsored' in page
-    assert "marker=" not in page
+    link = booking_link(ctx, conn, tmp_path, deal_id)
+    sent = [r for r in link_requests() if r["trs"] == 700001][-1]
+    assert sent["links"][0]["sub_id"] == f"site-deal-{deal_id}"
+    assert link == f"https://aviasales.tpo.lu/site-deal-{deal_id}" and "marker=" not in link
     deal, _ = db.get_deal(conn, deal_id)
     assert deal.affiliate_url == f"https://aviasales.tpo.lu/deal-{deal_id}"   # Instagram's untouched
-    count = len(link_requests())
-    build_site(ctx, conn)
-    assert len(link_requests()) == count                                    # cached per Project
+    count = len([r for r in link_requests() if r["trs"] == 700001])
+    booking_link(ctx, conn, tmp_path, deal_id)
+    assert len([r for r in link_requests() if r["trs"] == 700001]) == count    # cached per Project
 
 
 @respx.mock
-def test_failed_website_link_falls_back_to_the_deals_tracked_link(ctx):
+def test_failed_website_link_falls_back_to_the_deals_tracked_link(ctx, tmp_path):
     conn = pipeline.open_db(ctx)
     deal_id = approved_deal(ctx, conn)
     ctx.config.affiliate.projects["website"] = 700001
     ctx.secrets.travelpayouts_marker = ""            # PartnerLinksClient refuses: no request
-    build_site(ctx, conn)
     deal, _ = db.get_deal(conn, deal_id)
-    assert f'href="{deal.affiliate_url}"' in html(ctx, f"promos/{deal_id}-lisboa-londres/index.html")
+    assert booking_link(ctx, conn, tmp_path, deal_id) == deal.affiliate_url
     entry = pipeline.site_links(ctx, conn)["700001"][str(deal_id)]
     assert entry["url"] is None and "MARKER" in entry["error"]          # recorded, not hidden
-    ctx.secrets.travelpayouts_marker = "424242"      # retried on the next build
-    build_site(ctx, conn)
-    assert f"site-deal-{deal_id}" in html(ctx, f"promos/{deal_id}-lisboa-londres/index.html")
-
-
-@respx.mock
-def test_build_writes_redirects_and_old_paths_keep_working(ctx):
-    conn = pipeline.open_db(ctx)
-    deal_id = approved_deal(ctx, conn)
-    summary = build_site(ctx, conn)
-    rules = html(ctx, "_redirects")
-    assert f"/promos/{deal_id} /promos/{deal_id}-lisboa-londres/ 301" in rules
-    assert summary["skipped_redirects"] == []
-    conn.execute("UPDATE routes SET city_pt = 'Londres Centro' "      # slug changes
-                 "WHERE origin = 'LIS' AND destination = 'LON'")
-    conn.commit()
-    build_site(ctx, conn)
-    rules = html(ctx, "_redirects")
-    assert (f"/promos/{deal_id}-lisboa-londres/ /promos/{deal_id}-lisboa-londres-centro/ 301"
-            in rules)
-    assert "/voos/lisboa-londres/ /voos/lisboa-londres-centro/ 301" in rules
-    assert (ctx.site_dir / f"promos/{deal_id}-lisboa-londres-centro/index.html").exists()
-    assert "X-Robots-Tag: noindex" in html(ctx, "_headers")
-
-
-def test_switching_base_url_moves_canonicals_and_noindexes_the_old_host(ctx):
-    conn = pipeline.open_db(ctx)
-    ctx.config.site.base_url = "https://pontonomada.pt"
-    build_site(ctx, conn)
-    assert '<link rel="canonical" href="https://pontonomada.pt/">' in html(ctx, "index.html")
-    assert "Sitemap: https://pontonomada.pt/sitemap.xml" in html(ctx, "robots.txt")
-    assert "https://ondestaanocas.pages.dev/*\n  X-Robots-Tag: noindex" in html(ctx, "_headers")
+    ctx.secrets.travelpayouts_marker = "424242"      # retried on the next export
+    assert booking_link(ctx, conn, tmp_path, deal_id) == f"https://aviasales.tpo.lu/site-deal-{deal_id}"

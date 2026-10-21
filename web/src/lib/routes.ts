@@ -9,8 +9,8 @@ import { placesFor } from "./explorer-data";
 import { count, eur, integer, monthList, monthYear, shortDate } from "./format";
 import { lowPriceView, type LowPriceView } from "./low-prices";
 
-/** At most this many low prices on a route page (biggest discounts, shown by departure date), as
- * on the Jinja route page (D24, `site.low_prices_per_route`); the explorer shows all of them. */
+/** At most this many low prices on a route page (biggest discounts, shown by departure date,
+ * D24); the explorer shows all of them. */
 export const LOW_PRICES_PER_ROUTE = 5;
 /** The destination hub's "best months" per origin. */
 export const BEST_MONTHS = 3;

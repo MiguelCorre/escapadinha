@@ -4,11 +4,11 @@ Two ways, one result type:
 
 - `check_build(urls, dist)`: against a local build, applying its `_redirects` the way
   Cloudflare Pages does (a matching rule wins over a file; exact paths only, which is all the
-  generated file has). The cutover's test runs it on the old Jinja site's URLs.
+  generated file has). `tests/test_crawl.py` runs it on the old site's URLs.
 - `check_live(urls, client)`: against the live site (`escapadinha site crawl`), without
   following redirects: 200 is fine, 301 is fine when its `Location` answers 200; anything else
-  (404, 302, 308, 5xx, a redirect chain or loop) is reported. For the week between the cutover
-  and deleting the Jinja code (#23 phase 2).
+  (404, 302, 308, 5xx, a redirect chain or loop) is reported. The cutover week (#23) crawled
+  `docs/cutover/jinja-sitemap-2026-10-14.xml` daily with it.
 """
 
 from __future__ import annotations
