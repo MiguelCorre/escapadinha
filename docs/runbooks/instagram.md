@@ -1,5 +1,11 @@
 # Publicação automática no Instagram
 
+> **Em pausa desde 2026-10-24 (D46), por decisão do Miguel:** até ele dizer o contrário não sai nada
+> no Instagram; só o site publica. No `config.yaml`, `posting.publishers.instagram` está `paused`:
+> as publicações ficam na fila à espera (`queue list` diz porquê). Para retomar, volta a pôr
+> `instagram` e olha primeiro para a fila: o que ficou acumulado sai um por execução, nos horários,
+> para as promoções ainda válidas. Os passos abaixo continuam a valer para quando isso acontecer.
+
 Guia passo a passo para o Miguel (issue #24, decisão D36). O pipeline já sabe publicar no
 Instagram cada promoção aprovada: à hora marcada (`queue list`) publica um **carrossel** com as
 imagens da promoção e a legenda de sempre, e logo a seguir uma **story** com a capa. Antes de

@@ -3,7 +3,7 @@
 // one column, slides in a swipeable strip, big buttons. A small script posts the decisions as
 // JSON to /review/decision and /review/check and shows the answer in the card.
 import { BRAND } from "../../../src/lib/brand";
-import { discountPercent, eur, lisbonTimestamp } from "../../../src/lib/format";
+import { discountPercent, eur, lisbonTimestamp, timeAgo } from "../../../src/lib/format";
 import { TOKENS } from "../../../src/lib/tokens";
 import { CONFIDENCE_PT, DECISION_PT } from "./rules";
 import type { Outcome, ReviewEvent, Snapshot, SnapshotDeal } from "./types";
@@ -58,7 +58,25 @@ function copyBlock(label: string, attr: string, act: string, button: string, bod
     + `<button type="button" class="btn" data-act="${act}">${esc(button)}</button></details>`;
 }
 
-function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number): string {
+/** "encontrado a 14/10/2026" or, with the exact time (D46), "encontrado a 14/10/2026 às 09:17
+ * (há 1 h 20)"; the age is marked when under two hours: a fresh fare. */
+function foundLine(d: SnapshotDeal, now: Date): string {
+  if (d.found_at) {
+    const age = timeAgo(d.found_at, now);
+    const fresh = now.getTime() - Date.parse(d.found_at) < 2 * 3600_000;
+    return `encontrado a ${esc(lisbonTimestamp(d.found_at))} (${fresh ? `<strong>${esc(age)}</strong>` : esc(age)})`;
+  }
+  return d.found_on ? `encontrado a ${esc(d.found_on)}` : "";
+}
+
+/** D46: Aviasales' second opinion, their percentage as such; nothing when not on their list. */
+function partnerLine(d: SnapshotDeal): string {
+  const p = d.partner_offer;
+  if (!p) return "";
+  return esc(`oferta especial do Aviasales: ${discountPercent(Math.round(p.discount_pct))} face à média deles (visto a ${lisbonTimestamp(p.seen_at)})`);
+}
+
+function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number, now: Date): string {
   const mine = pending.filter((e) => e.deal_id === d.id);
   const flights = [d.airline, d.direct === true ? "voos diretos" : d.direct === false ? "com escala" : ""]
     .filter(Boolean).join(" · ");
@@ -77,7 +95,7 @@ function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number): st
   }
   if (d.status === "expired") notes.push(`<p class="notice bad">Expirado: ${esc(lc.expired_reason)}. Não publicar.</p>`);
   if (d.status === "approved") {
-    notes.push(`<p class="notice ok">Aprovado. Publica depressa: o preço é verificado de 2 em 2 horas e o deal expira se mudar.</p>`);
+    notes.push(`<p class="notice ok">Aprovado${d.review_note?.startsWith("aprovação automática") ? " pelas regras (D46): já está no site" : ""}. O preço é verificado de 30 em 30 minutos e o deal expira se mudar.</p>`);
   }
   if (d.status === "new") notes.push(`<p class="notice warn">Ainda não renderizado: aprova depois de a próxima execução gerar os slides.</p>`);
   if (d.review_note) notes.push(`<p class="notice warn">Nota: ${esc(d.review_note)}</p>`);
@@ -121,7 +139,8 @@ function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number): st
       ${row("Bagagem", esc(d.baggage ?? ""))}
       ${row("Agência", esc(d.gate ?? ""))}
       ${row("Desconto", dealLine(d))}
-      ${row("Preço visto", esc([d.found_on && `encontrado a ${d.found_on}`, `verificado a ${d.checked_at}`].filter(Boolean).join(" · ")))}
+      ${row("Preço visto", [foundLine(d, now), `verificado a ${esc(d.checked_at)}`].filter(Boolean).join(" · "))}
+      ${row("Aviasales", partnerLine(d))}
       ${row("Última verificação", esc(lastCheck))}
       ${row("Link", affiliate)}
       ${row("Página", d.page_url ? link(d.page_url, d.page_url) : "")}
@@ -267,7 +286,7 @@ export function renderPage(snapshot: Snapshot | null, { actor, pending, now }: {
     const age = (now.getTime() - Date.parse(snapshot.generated_at)) / 3_600_000;
     header = `<p class="meta">Fila de ${esc(lisbonTimestamp(snapshot.generated_at))} · entraste como ${esc(actor)}.</p>`
       + (age > STALE_HOURS ? `<p class="notice warn">A fila tem mais de ${STALE_HOURS} h: o pipeline pode estar parado. Vê o separador Actions no GitHub.</p>` : "");
-    const cards = (deals: SnapshotDeal[]) => deals.map((d) => card(d, pending, hours)).join("");
+    const cards = (deals: SnapshotDeal[]) => deals.map((d) => card(d, pending, hours, now)).join("");
     const list = (deals: SnapshotDeal[]) => `<ul class="list">${deals.map(compact).join("")}</ul>`;
     main = [
       section("fila", "Por rever", snapshot.queue, cards(snapshot.queue),

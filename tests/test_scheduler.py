@@ -1,5 +1,5 @@
-"""The 2-hourly schedule (D41): the scheduler Worker's config against the workflows it
-dispatches, the Actions fallback, the windows against the run log's 3 h warning, the Worker's
+"""The half-hourly schedule (D41, D46): the scheduler Worker's config against the workflows it
+dispatches, the Actions fallback, the windows against the run log's 2 h warning, the Worker's
 own tests (node:test), and that warning."""
 
 import json
@@ -19,7 +19,7 @@ from escapadinha.storage import db
 REPO = Path(__file__).parent.parent
 WORKER = REPO / "workers" / "scheduler"
 WORKFLOWS = REPO / ".github" / "workflows"
-EVERY = 120                       # minutes between two ticks of a `*/2` hour field
+EVERY = 30                        # minutes between two ticks (`17,47` minute field, D46)
 
 
 def wrangler() -> dict:
@@ -40,11 +40,13 @@ def fallback_env() -> dict:
 
 # --- the Worker's configuration -------------------------------------------------------------
 
-def test_the_worker_fires_every_two_hours_and_has_no_url():
+def test_the_worker_fires_every_thirty_minutes_and_has_no_url():
     config = wrangler()
     [cron] = config["triggers"]["crons"]
     minute, hour, *rest = cron.split()
-    assert minute.isdigit() and hour == "*/2" and rest == ["*", "*", "*"]
+    minutes = sorted(int(m) for m in minute.split(","))
+    assert minutes == [17, 47] and hour == "*" and rest == ["*", "*", "*"]
+    assert minutes[1] - minutes[0] == EVERY
     assert config["workers_dev"] is False and config["preview_urls"] is False
     assert "routes" not in config and "route" not in config
     assert config["main"] == "src/index.js" and (WORKER / config["main"]).is_file()
@@ -145,13 +147,15 @@ def test_the_fallback_runs_the_workers_tick_with_its_own_token_and_window():
 
 def test_a_healthy_schedule_never_warns_and_the_fallback_waits_for_the_warning():
     """The Worker skips a tick when a run started within its window: the longest gap that
-    leaves is window + 2 h, which must stay below the run log's warning. The fallback only
+    leaves is window + 30 min, which must stay below the run log's warning. The fallback only
     dispatches once that warning would be due, so with a working Worker it never does."""
     worker_window = int(wrangler()["vars"]["SKIP_IF_RUN_WITHIN_MINUTES"])
     fallback_window = int(fallback_env()["SKIP_IF_RUN_WITHIN_MINUTES"])
     warning = pipeline.RUN_GAP_WARNING / timedelta(minutes=1)
     assert worker_window + EVERY < warning <= fallback_window
-    assert worker_window >= 30          # a review decision's run spares the next tick
+    # A review decision's run spares the next tick; the scheduled run before a tick (EVERY
+    # minutes old by then) never does, or every tick would skip.
+    assert 10 <= worker_window < EVERY
 
 
 # --- the Worker's own tests -----------------------------------------------------------------
@@ -187,17 +191,17 @@ def started(conn, when: datetime, scope: str = "full", status: str = "ok") -> in
 
 def test_no_warning_before_the_first_run_or_on_schedule(conn):
     assert pipeline.late_run_warning(conn, NOW) is None
-    started(conn, NOW - timedelta(hours=2, minutes=45))      # a skipped tick's longest gap
+    started(conn, NOW - timedelta(minutes=50))               # a skipped tick's longest gap
     assert pipeline.late_run_warning(conn, NOW) is None
-    started(conn, NOW - timedelta(hours=3))
+    started(conn, NOW - timedelta(hours=2))
     assert pipeline.late_run_warning(conn, NOW - timedelta(seconds=1)) is None
 
 
-def test_a_previous_run_more_than_three_hours_old_is_a_warning(conn):
+def test_a_previous_run_more_than_two_hours_old_is_a_warning(conn):
     run_id = started(conn, NOW - timedelta(hours=5, minutes=7), status="failed")
     warning = pipeline.late_run_warning(conn, NOW)
-    assert warning == (f"the previous run (#{run_id}) started 5 h 07 min ago, more than 3 h: the "
-                       "2-hourly schedule missed a run. Check the scheduler Worker "
+    assert warning == (f"the previous run (#{run_id}) started 5 h 07 min ago, more than 2 h: the "
+                       "half-hourly schedule missed runs. Check the scheduler Worker "
                        "(docs/runbooks/agendamento.md).")
     assert "3 h 01 min" in pipeline.late_run_warning(conn, NOW - timedelta(hours=2, minutes=6))
 

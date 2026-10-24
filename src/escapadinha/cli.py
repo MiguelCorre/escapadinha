@@ -136,6 +136,64 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
                       f"({escape(reason)})")
 
 
+def _special_offers() -> str:
+    """The run's special-offers step (D46) and its report line."""
+    ctx, conn = _ctx()
+    return _report_special_offers(pipeline.run_special_offers(ctx, conn))
+
+
+def _report_special_offers(summary: pipeline.SpecialOffersSummary) -> str:
+    if summary.run_id is None and not summary.deals:
+        line = "Special offers: nothing to ask (no open deals)"
+    elif summary.run_id is None:
+        line = f"Special offers: skipped ({summary.deals} open deals)"
+    else:
+        line = (f"Special offers: {summary.queried} GraphQL requests, {summary.flagged} of "
+                f"{summary.deals} open deals on Aviasales' list"
+                + (f", {len(summary.errors)} failed" if summary.errors else ""))
+    console.print(line)
+    for err in summary.errors:
+        console.print(f"  [red]✗[/] {escape(err)}")
+    return line
+
+
+@app.command("special-offers")
+def special_offers() -> None:
+    """Ask Aviasales' special-offers list about every open deal (D46): their own discount shows
+    on the review pages as a second opinion, never as a price. The run does this after enrichment."""
+    ctx, conn = _ctx()
+    _report_special_offers(pipeline.run_special_offers(ctx, conn))
+
+
+def _auto_approve() -> list[str]:
+    """The run's automatic approvals (D46) and their report lines."""
+    ctx, conn = _ctx()
+    results = pipeline.run_auto_approve(ctx, conn)
+    lines = []
+    for r in results:
+        if r.approved:
+            console.print(f"  deal {r.deal_id} {r.route}: [green]✓ aprovado automaticamente[/] "
+                          f"({escape(r.reason)})")
+            lines.append(f"Auto-approved: deal {r.deal_id} {r.route} ({r.reason})")
+        else:
+            console.print(f"  deal {r.deal_id} {r.route}: [dim]fica para rever[/] ({escape(r.reason)})")
+    if results and not any(r.approved for r in results):
+        lines.append(f"Auto-approval: none of {len(results)} rendered candidates qualified")
+    return lines
+
+
+@app.command("auto-approve")
+def auto_approve() -> None:
+    """Approve for the website, by the rules in config `review.auto_approve` (D46), the rendered
+    candidates that pass them and a live price check. The run does this after rendering."""
+    ctx, _ = _ctx()
+    if not ctx.config.review.auto_approve.enabled:
+        console.print("Automatic approval is off (review.auto_approve.enabled).")
+        raise typer.Exit(0)
+    if not _auto_approve():
+        console.print("No rendered candidates.")
+
+
 @app.command()
 def enrich(run_id: Annotated[int | None, typer.Option(help="Run to enrich (default: latest)")] = None) -> None:
     """Baggage, selling agency and exact found time for the run's low prices and promotion
@@ -870,7 +928,7 @@ def _warn(warning: str | None, report: list[str]) -> None:
 
 
 def _warn_if_late(report: list[str]) -> None:
-    """The previous run more than 3 h before this one: the schedule missed a run (D41)."""
+    """The previous run more than 2 h before this one: the schedule missed runs (D41, D46)."""
     _, conn = _ctx()
     _warn(pipeline.late_run_warning(conn, db.utcnow()), report)
 
@@ -895,6 +953,7 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     recheck_cmd()
     detect()
     report.append(_enrich())                 # baggage and agency (D43): never fails the run
+    report.append(_special_offers())         # Aviasales' second opinion (D46): never fails the run
     publish_due()                            # every run: posting never waits for a full path (D32)
     ctx, conn = _ctx()
     decision = run_path.decide(ctx, conn, force=full)
@@ -908,6 +967,7 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
         console.print(f"{len(uploaded)} local files uploaded to the object store.")
     if render:
         render_deals()
+    report.extend(_auto_approve())           # D46: what passes the rules goes live in this deploy
     export = _export_site_data(None, new_links=True)   # → web/src/data (site.data_dir)
     if _site_build(until).installed:             # the Astro site → web/dist (D35)
         _github_output("npm_ci", "true")         # the workflow saves npm's cache (D35)

@@ -13,7 +13,7 @@ import yaml
 from PIL import Image
 from typer.testing import CliRunner
 
-from escapadinha import cli, pipeline, renderer, routes
+from escapadinha import cli, pipeline, renderer, routes, run_path
 from escapadinha.collector.travelpayouts import API_URL
 from escapadinha.config import Context
 from escapadinha.models import Photo
@@ -21,6 +21,8 @@ from escapadinha.storage import db, sync
 from escapadinha.storage.objects import LocalObjectStore
 from escapadinha.website import astro, node
 from escapadinha.website import deploy as site_deploy
+from escapadinha import auto_review
+from escapadinha.website import is_public
 from test_pipeline import REPO, EMPTY, ctx, mock_api, mock_links, seed_history  # noqa: F401
 from test_web_build import npm, web_package  # noqa: F401
 from test_website import approved_deal
@@ -133,15 +135,26 @@ def test_new_deals_and_review_decisions_take_the_full_path(home):
     conn.close()
     mock_api()
     mock_links()
-    assert "Path: full (first full path)" in run_cli()
+    out = run_cli()
+    assert "Path: full (first full path)" in out
+    # Rendered on the full path, then approved by the rules in the same run (D46): the deploy
+    # that follows publishes it; the run's report says so.
+    assert ("✓ aprovado automaticamente (confiança alta, novo mínimo, voos diretos)"
+            in " ".join(out.split()))                     # Rich wraps the line at 80 columns
     conn = pipeline.open_db(home)
-    [(deal, _)] = db.deals_with_status(conn, "rendered")    # rendered on the full path
-    assert "Path: fast" in run_cli()
+    [(deal, _)] = db.deals_with_status(conn, "approved")
+    assert deal.review_note == auto_review.NOTE and is_public(deal)
+    # Live, its "verificado a" moves on every recheck: the site data changes each run, but the
+    # site is rebuilt for that alone at most every refresh_min_gap_minutes (D46).
+    assert ("Path: fast (site data changed, rebuilt at most every 120 min (last full path 0 min ago))"
+            in " ".join(run_cli().split()))
+    later = db.utcnow() + timedelta(hours=3)
+    assert run_path.decide(home, conn, now=later) == run_path.PathDecision(True, "changed: site data")
 
     pipeline.reject(home, conn, deal.id, "não", actor="test")   # Miguel's decision between runs
     conn.close()
-    assert "Path: full (changed: promotions)" in run_cli()
-    assert "Path: fast" in run_cli()
+    assert "Path: full (changed: promotions, site data)" in run_cli()
+    assert "Path: fast (nothing the site shows changed)" in run_cli()
 
 
 def api(failing: set[str]):
@@ -184,7 +197,7 @@ def test_a_run_more_than_three_hours_after_the_previous_one_warns_in_its_log(hom
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     out = run_cli()
     assert f"Warning: the previous run (#{run_id}) started 5 h 0" in out
-    assert "2-hourly schedule missed a run" in out and "Run ok in" in out
+    assert "half-hourly schedule missed runs" in out and "Run ok in" in out
     assert f"- Warning: the previous run (#{run_id}) started 5 h 0" in summary.read_text("utf-8")
 
 

@@ -2683,3 +2683,90 @@ so nothing has to be hosted.
   mobile (performance 0.95 → 0.84, the `web` check red; merged by mistake on a wrong exit code).
   Now `<code>`, a system font: 0.95 again. Rule of thumb: no `<em>`/`<i>` in page copy unless the
   italic faces are dropped from `astro.config.ts`.
+
+## D46: Website first: automatic approval, paused channels, 30-minute runs, the partner's second opinion (2026-10-24)
+- **Miguel's decision (2026-10-24):** "Until I say so, we're not posting anything on Instagram or
+  Telegram. Only website." And: good deals should appear on the site by themselves, with the
+  information deals sites lead with (deferias.pt: route, baggage, airline, best months, how to
+  book). Research behind it: `docs/research/2026-10-24-faster-deal-discovery.md` (measured: a fare
+  reached us a median 12.5 h after a traveller found it; none of the 13 candidates so far was ever
+  reviewed; the pipeline, not the data, was the slow part).
+- **Publishers paused.** `posting.publishers` is `instagram: paused`, `telegram: paused`: a new
+  publisher name (`PublisherName`, `pipeline.PUBLISHERS["paused"]`, `posting.Paused` with
+  `pipeline.PAUSED_REASON`). Approvals still queue their posts (D32 unchanged); every due post
+  waits with the reason in `queue list`, nothing is settled, so a dry run never "publishes" what
+  Miguel said not to publish. To resume: switch the two names back (D36, D38) after reading
+  `queue list`: the backlog would go out for every promotion still valid and rechecked within
+  `max_check_age_hours` (Telegram at once, Instagram one per run at its slots). Only Miguel flips
+  this.
+- **Automatic approval for the website.** Config `review.auto_approve` (`AutoApproveConfig`,
+  on): in the full path, right after `render_deals`, `pipeline.run_auto_approve` takes every
+  `rendered` candidate that `auto_review.disqualified` accepts (rule `median`; `confidence` at
+  least `min_confidence` = `high`; `new_low` when `require_new_low`; nonstop both ways when
+  `direct_only`; a known `found_at` at most `max_found_age_hours` = 48 old; under `max_per_day` = 3
+  applied automatic approvals on the Lisbon day) and approves it through `pipeline.approve`:
+  the **live price check is the gate**, exactly as for a human (a moved price writes nothing and
+  the next recheck expires the deal). The event is an ordinary D26 event, actor
+  `auto_review.ACTOR` (`auto:regras`), note `auto_review.NOTE`; with R2 the run applies the
+  pending events at once (`apply_review_events`) so the export that follows publishes the deal
+  in the same run's deploy (new deal → full path, D25). Both review pages show it under
+  "Aprovadas" with the note and "Aprovado pelas regras (D46): já está no site"; a reject there
+  expires the page as before (approved → rejected is allowed). `max_per_day: 0` reports only.
+  CLI `escapadinha auto-approve`. The site's rule "only deals a human approved" becomes "only
+  deals a human or the rules approved": `website.is_public` is unchanged (it reads statuses).
+- **30-minute runs.** Worker cron `17,47 * * * *`, `SKIP_IF_RUN_WITHIN_MINUTES` 20 (below the 30
+  minutes between ticks, or every tick would skip), `pipeline.RUN_GAP_WARNING` 2 h ("the
+  half-hourly schedule missed runs"), fallback unchanged (every 6 h, window 180 min);
+  `tests/test_scheduler.py` keeps `window + 30 min < warning ≤ fallback window` and
+  `10 ≤ window < 30`. The Worker is deployed by hand (`docs/runbooks/agendamento.md`), so nothing
+  changes until Miguel deploys it. **Minutes:** 48 runs a day at ~2.2 billed minutes is about
+  3 200 min/month, over GitHub Free's 2 000: Miguel sets a spending limit on Actions before the
+  deploy (about 10 USD/month at 0.008 USD/min), or the pipeline stops when the quota ends.
+- **Rebuild throttle (D25/D35 amended).** A live promotion's "verificado a" moves on every
+  recheck, so with one on the site the site data changes every run. `run_path.decide`: when the
+  **site data is the only changed component** and the last full path (meta `run.full_path_at`,
+  written by `record_full_path`) is less than `site.refresh_min_gap_minutes` (120) old, the run
+  stays fast ("site data changed, rebuilt at most every 120 min"); a new or expired promotion, a
+  route, a new Lisbon day or code still rebuild at once. The site's "verificado a" may lag up to
+  2 h; the page's small print says the hours are Lisbon's and the price can change.
+- **The partner's second opinion.** Every run, after enrichment, `pipeline.run_special_offers`
+  asks the GraphQL `special_offers_round_trip` once per origin with an open deal
+  (`graphql.SPECIAL_OFFERS_QUERY`, introspected 2026-10-24: `ParamsSpecialOfferRoundTrip`, rows
+  are the `Price` type plus `discount`, "deviation from average price for current ticket" in
+  percent). A deal whose trip is on the list (`graphql.special_offer_for`: same city or airport,
+  local dates and a price within rounding; the largest discount of several rows) stores
+  `deals.partner_discount_pct` and `partner_offer_at` (schema v17, two nullable ALTERs; upgrade
+  tested from v5/v7 and a v15 database); off the list stores null (their current list, not a
+  memory). **A percentage, never a price:** nothing of theirs is stored as an observation, and the
+  pages print "oferta especial do Aviasales: −48% face à média deles (visto a …)", on the review
+  pages only. Answers archived under a `special_offers` run; a failing origin is reported and its
+  deals keep what they had. CLI `escapadinha special-offers`.
+- **Exact found time on the review pages.** The snapshot gains `found_at` (UTC, from D43's
+  enrichment; null when only the day is known) and `partner_offer` (`{discount_pct, seen_at}` or
+  null), both optional additions within v1 (CLAUDE.md's snapshot exception: the Function reads
+  the JSON as is). Both pages print "encontrado a 24/10/2026 às 13:05 (há 1 h 20)", the age in
+  bold under two hours (`format.timeAgo` on the Function, `i18n_pt.time_ago` locally, the same
+  rule). The approved notice says the price is verified every 30 minutes.
+- **The promotion page, deals-site style.** Live pages lead with a one-line summary ("Voos
+  diretos por 69 € ida e volta, com a Ryanair, só bagagem de mão.", the price on its `data-obs`;
+  `promotion.summaryParts`), and the ficha gains "Rotas" (Lisboa – Madeira (FNC) – Lisboa,
+  `routesLine`), "Melhores meses" (the route's three cheapest typical lows by month, names only,
+  linked to the route page where every day's price is traced; `routes.bestMonths`), "Publicada"
+  (`approved_at`, Lisbon) and, live only, a three-step "Como reservar" (open the partner's search,
+  confirm the final price and extras, the fare was found at X and verified at Y and can change).
+  The home card shows the airline and the baggage line. No new price field, no new contract
+  field: `web/test/traceability.test.ts` counts one more traced price on the live page.
+- **Rejected:** Telegram paging of the reviewer and a second `publish_due` after the deploy
+  (the research's items 1 and 2: Miguel wants no Telegram messages at all for now, and the
+  posts are paused); a per-channel kill switch instead of `paused` (one word in config is
+  clearer); dropping `checked_at` from the fingerprint (a page would then render a per-run
+  field, which `tests/test_web_build.py` forbids); Google Flights or airline endpoints as
+  sources (D13 stands; the research lists them with their risks for Miguel to decide).
+- **Tests:** `tests/test_auto_review.py` (rules, the run step, the live-check gate, the cap, the
+  switch, the command, paused publishers), `tests/test_special_offers.py` (query, parsing, match,
+  run step, archive, snapshot, local page, `time_ago`), `tests/test_scheduler.py` (the new
+  cadence), `tests/test_actions.py` (a full path approves and publishes; the throttle),
+  `tests/test_site_data.py` (the run order with the two new steps), `web/test/review/page.test.ts`
+  (found time, Aviasales row), `web/test/format.test.ts` (`timeAgo`), `web/test/pages.test.ts`
+  (summary, routes, best months, publication, how to book; expired pages have neither),
+  `web/test/traceability.test.ts`.

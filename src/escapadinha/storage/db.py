@@ -15,7 +15,7 @@ from escapadinha.models import Deal, Observation, Photo, Post
 if TYPE_CHECKING:
     from escapadinha.demand import Demand
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -151,6 +151,10 @@ MIGRATIONS = {
     16: ["ALTER TABLE routes ADD COLUMN demand_pax_month NUMERIC",
          "ALTER TABLE routes ADD COLUMN demand_period TEXT",
          ROUTE_DEMAND_TABLE],
+    # Aviasales' special-offer discount on a deal (D46): a percentage (their measure), never a
+    # price, and when we saw it. Both NULL until a run finds the trip on their list.
+    17: ["ALTER TABLE deals ADD COLUMN partner_discount_pct NUMERIC",
+         "ALTER TABLE deals ADD COLUMN partner_offer_at TEXT"],
 }
 
 
@@ -451,7 +455,19 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
         baseline_highest_obs_id=row["baseline_highest_obs_id"],
         confidence=row["confidence"],
         new_low=None if row["new_low"] is None else bool(row["new_low"]),
+        partner_discount_pct=(None if row["partner_discount_pct"] is None
+                              else float(row["partner_discount_pct"])),
+        partner_offer_at=_dt(row["partner_offer_at"]),
     )
+
+
+def set_partner_offer(conn: sqlite3.Connection, deal_id: int, discount_pct: float | None,
+                      at: datetime | None) -> None:
+    """D46: the Aviasales special-offer discount seen for this deal's trip (None: not listed
+    now). Only these two columns change; a price is never touched."""
+    conn.execute("UPDATE deals SET partner_discount_pct = ?, partner_offer_at = ? WHERE id = ?",
+                 (discount_pct, _ts(at) if at else None, deal_id))
+    conn.commit()
 
 
 def _dt(value: str | None) -> datetime | None:

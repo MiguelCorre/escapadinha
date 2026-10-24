@@ -60,6 +60,17 @@ def ctx(tmp_path, monkeypatch):
     return Context(root=tmp_path)
 
 
+def set_publishers(ctx, **names: str) -> None:
+    """Point channels at publishers for a test, in the loaded config and in the test's
+    config.yaml (a CLI call builds its own Context from the file). config.yaml pauses both
+    real publishers (D46), so their own tests switch them on here."""
+    ctx.config.posting.publishers.update(names)
+    path = ctx.root / "config.yaml"
+    config = yaml.safe_load(path.read_text("utf-8"))
+    config.setdefault("posting", {}).setdefault("publishers", {}).update(names)
+    path.write_text(yaml.safe_dump(config, allow_unicode=True), "utf-8")
+
+
 def seed_history(conn, *, days: int, price: float):
     """Synthetic past observations for LIS-LON (test data only): one per day at the day's
     low (`price` + 0..2) and a dearer one on the next departure date, so every day counts
@@ -84,8 +95,12 @@ def mock_api():
         lis_lon = request.url.params["origin"] == "LIS" and request.url.params["destination"] == "LON"
         return httpx.Response(200, json=FIXTURE if lis_lon else EMPTY)
     respx.get(API_URL).mock(side_effect=respond)
-    # The GraphQL enrichment (D43) finds no row: fields stay unknown (test_enrich has the matches).
-    respx.post(GRAPHQL_URL).mock(return_value=httpx.Response(200, json={"data": {"prices_round_trip": []}}))
+    # The GraphQL enrichment (D43) finds no row: fields stay unknown (test_enrich has the matches);
+    # Aviasales' special-offers list (D46) is empty (test_special_offers has the hits).
+    def graphql(request):
+        field = "special_offers_round_trip" if b"special_offers_round_trip" in request.content else "prices_round_trip"
+        return httpx.Response(200, json={"data": {field: []}})
+    respx.post(GRAPHQL_URL).mock(side_effect=graphql)
 
 
 def mock_links(ok=True):
@@ -258,7 +273,7 @@ def test_upgrade_from_real_old_schemas_gives_deals_the_baseline_columns(tmp_path
 
     conn = db.connect(path)
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 16
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 17
     fresh = db.connect(tmp_path / "fresh.db")
     db.init(fresh)
     assert _deal_columns(conn) == _deal_columns(fresh)

@@ -82,7 +82,11 @@ CREATE TABLE IF NOT EXISTS deals (
     -- D44, at detection: how much the typical low was trusted, and whether the price beat
     -- everything seen for the route-month in the window (1) or not (0). NULL: detected before.
     confidence      TEXT CHECK (confidence IN ('low', 'medium', 'high')),
-    new_low         INTEGER
+    new_low         INTEGER,
+    -- D46: Aviasales' own "special offer" discount for this trip (their deviation from their
+    -- average, a percentage, never a price), and when we last saw it. NULL: not on their list.
+    partner_discount_pct NUMERIC,
+    partner_offer_at     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS photos (

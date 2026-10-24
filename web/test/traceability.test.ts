@@ -24,11 +24,12 @@ describe("traceability of prices", () => {
       problems.push(...result.problems.map((p) => `${path}: ${p}`));
     }
     expect(problems).toEqual([]);
-    // The checker saw the prices it guards: 2 on the home page, 10 on the live promotion (title,
-    // OpenGraph and Twitter title and descriptions, price, typical low, the JSON-LD offer price and
-    // description), 3 on the expired one (old price, recheck price, typical low).
+    // The checker saw the prices it guards: 2 on the home page, 11 on the live promotion (title,
+    // OpenGraph and Twitter title and descriptions, the one-line summary (D46), price, typical
+    // low, the JSON-LD offer price and description), 3 on the expired one (old price, recheck
+    // price, typical low).
     const promos = ["/", ...[...checked.keys()].filter((p) => p.startsWith("/promos/"))];
-    expect(promos.reduce((n, p) => n + checked.get(p)!, 0)).toBe(15);
+    expect(promos.reduce((n, p) => n + checked.get(p)!, 0)).toBe(16);
     // Route pages: at least every calendar day, typical low and low price (two prices each).
     const routes = data.routes.routes;
     const lows = Object.values(data.lowPrices).reduce((n, f) => n + f.rows.length, 0);

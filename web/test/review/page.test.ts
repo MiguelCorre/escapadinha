@@ -75,6 +75,29 @@ describe("queue page", () => {
     }
   });
 
+  it("shows the exact found time with its age, and Aviasales' own opinion (D46)", async () => {
+    // NOW is 2026-10-14T09:30Z: found 1 h 05 before (fresh, marked), seen on their list at 09:00.
+    const snap = snapshot({ queue: [deal(7, { found_at: "2026-10-14T08:25:00Z",
+      partner_offer: { discount_pct: 48.2, seen_at: "2026-10-14T09:00:00Z" } })] });
+    expect(schemaErrors("snapshot", snap)).toEqual([]);
+    const { doc } = await open(snap);
+    const card = doc.querySelector('[data-deal="7"]')!;
+    const t = txt(card);
+    expect(t).toContain("encontrado a 14/10/2026 às 09:25 (há 1 h 05) · verificado a 14/10/2026 às 09:17");
+    expect(txt(card.querySelector("dd strong"))).toBe("há 1 h 05");
+    expect(t).toContain("oferta especial do Aviasales: −48% face à média deles (visto a 14/10/2026 às 10:00)");
+    // An older fare is not marked; a deal off their list, or an older snapshot, shows neither.
+    const old = snapshot({ queue: [deal(7, { found_at: "2026-10-12T08:25:00Z", partner_offer: null })] });
+    expect(schemaErrors("snapshot", old)).toEqual([]);
+    const older = txt((await open(old)).doc.querySelector('[data-deal="7"]'));
+    expect(older).toContain("encontrado a 12/10/2026 às 09:25 (há 2 dias)");
+    expect(older).not.toContain("Aviasales");
+    expect((await open(old)).doc.querySelector('[data-deal="7"] dd strong')).toBeNull();
+    const { found_at: _f, partner_offer: _p, ...before } = deal(7, { found_at: null });
+    const legacy = txt((await open(snapshot({ queue: [before] }))).doc.querySelector('[data-deal="7"]'));
+    expect(legacy).toContain("encontrado a 14/10/2026 · verificado a");
+  });
+
   it("says how much the typical low was trusted and whether the price is a new low (D44)", async () => {
     const line = "−44% vs. mínimo habitual 104 € (21 dias em 24, de 89 € a 131 €)";
     const cases: [Record<string, unknown>, string][] = [

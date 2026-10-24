@@ -86,6 +86,18 @@ def lisbon_timestamp(dt: datetime) -> str:
     return f"{local:%d/%m/%Y} às {local:%H:%M}"
 
 
+def time_ago(dt: datetime, now: datetime) -> str:
+    """'há 20 min', 'há 1 h 05', 'há 3 dias' (the same rule as the site's `format.timeAgo`);
+    never negative."""
+    minutes = max(0, int((now - dt).total_seconds() // 60))
+    if minutes < 60:
+        return f"há {minutes} min"
+    hours = minutes // 60
+    if hours < 48:
+        return f"há {hours} h {minutes % 60:02d}"
+    return f"há {hours // 24} dias"
+
+
 def number(value: float) -> str:
     """24 -> '24', 1.5 -> '1,5' (pt-PT: comma decimals, no trailing zeros)."""
     return f"{value:g}".replace(".", ",")

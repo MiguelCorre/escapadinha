@@ -1,10 +1,10 @@
-# The scheduled pipeline (DECISIONS D25): every 2 hours pull the database from R2, collect,
+# The scheduled pipeline (DECISIONS D25, D46): every 30 minutes pull the database from R2, collect,
 # recheck, detect, push. Rendering, the site build and the deploy (the full path) run only when
 # something the site shows changed; `escapadinha run` decides and logs why. Manual runs with
 # `full` and repository_dispatch events (the review Function on Pages sends `review-decision`,
 # D29) force the full path.
 #
-# No `schedule` here (D41): GitHub's cron is best effort (it fired 4.4–6.8 h apart). The 2-hourly
+# No `schedule` here (D41): GitHub's cron is best effort (it fired 4.4–6.8 h apart). The half-hourly
 # runs are workflow_dispatch events (full: false) sent by the Cloudflare Worker in
 # workers/scheduler/, and by pipeline-fallback.yml when no run started for 3 h. So every run of
 # this workflow is a real run, which is what both count to skip a tick.

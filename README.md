@@ -22,7 +22,7 @@ row, its first run and the archive object: price → deal → observation → ru
 Travelpayouts catalogues ──routes discover──▶ routes table (monthly; dormant after 30 days without prices)
 Eurostat avia_par_pt ─────┘ (passengers per route-month: page order, far-month pass, thin-route notes, D45)
                                                    │ active routes
-Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 2 h; months 4–6 once a day, D42)
+Travelpayouts API ──collect──▶ SQLite (price_observations, one row per offer)  (market=pt, every 30 min; months 4–6 once a day, D42)
                        └──────▶ data/objects/archive/runs/<run>.json.gz (raw responses)
                                    │
                                recheck  open deals: same trip still ≤ price, fresh, direct?
@@ -449,7 +449,7 @@ recheck.
   decision for you ([Instagram](#instagram-decisions-d36)); mark by hand only what you posted
   yourself.
 - Approved deals show the **WhatsApp text** with a copy button (also on the phone page).
-- Approved deals keep being rechecked every 2 h. If the price moves before you post, the deal
+- Approved deals keep being rechecked every 30 min. If the price moves before you post, the deal
   expires and the page tells you.
 
 The CLI applies the same rules:
@@ -463,6 +463,21 @@ uv run escapadinha deal published 12 --url https://www.instagram.com/p/...
 
 Status flow: `new → rendered → approved → published`. `rejected` and `expired` are final;
 `expired` is only set by price checks.
+
+### Automatic approval for the website (DECISIONS D46)
+
+Since 2026-10-24 the pipeline approves the best candidates itself, so they reach the site
+without waiting for a tap. In the full path, right after rendering, `escapadinha auto-approve`
+(the run does it) takes every `rendered` candidate that passes the rules in `review.auto_approve`
+(`config.yaml`): rule `median`, confidence `high` in the typical low (D44), a new low, nonstop both
+ways, a known found time at most 48 h old, and at most 3 automatic approvals a Lisbon day. It then
+approves it exactly as you would: the **live price check is the gate** (a moved price writes
+nothing; the next recheck expires the deal), the approval is an ordinary review event (actor
+`auto:regras`, note *aprovação automática (D46)*), applied in the same run, so the deploy that
+follows publishes the promotion page. Both review pages list it under **Aprovados** with that
+note; **Rejeitar** there takes it down (the page expires, as always). Everything else waits for
+you under **Por rever** with the reason it was left (*confiança média (precisa de alta)*, *não é um
+novo mínimo*, …) in the run log. `max_per_day: 0` only reports; `enabled: false` turns it off.
 
 ### Review decisions are events (D26)
 
@@ -496,6 +511,12 @@ so a review UI can warn before an approval gets too old). Slides of deals still 
 `review/slides/<id>/` as WebP (they aren't on the public site yet).
 
 ### Posting queue (DECISIONS D32)
+
+> **Paused since 2026-10-24 (D46).** Miguel's decision: nothing goes out on Instagram or Telegram
+> until he says so; only the website publishes. `posting.publishers` is `paused` for both channels:
+> approvals still queue their posts, every due post waits (*Em pausa por decisão do Miguel…* in
+> `queue list`), nothing is settled. To resume, switch the names back to `instagram` / `telegram`
+> after looking at `queue list`: the backlog would go out for every promotion still valid.
 
 When a run applies an approval it queues the promotion twice: **Instagram** at the next free daily
 slot (09:00, 13:00, 19:00 Lisbon time, at most 3 a day; `posting` in `config.yaml`) and
@@ -627,7 +648,7 @@ the WhatsApp text (when the snapshot has it) with copy buttons.
 - Each decision is one event in `review/events/pending/` (actor = your Access e-mail), then one
   `repository_dispatch` (`review-decision`) starts the pipeline, which applies it within minutes.
   If GitHub can't be reached the page says *a decisão ficou guardada; aplica-se no próximo run*:
-  the event is kept and the next scheduled run (≤ 2 h) applies it.
+  the event is kept and the next scheduled run (≤ 30 min) applies it.
 - The page shows when the snapshot was made (and warns when it's over 3 h old), pending decisions
   (a deal with one accepts no other) and recent refusals with their reason. An approval applied
   more than 24 h after its check is refused, as everywhere (D26).
@@ -676,7 +697,7 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
 | `/review` | The review queue (Pages Function behind Access, D29) |
 | `_redirects`, `_headers` | Cloudflare Pages rules (not pages), see "Domain and redirects" |
 
-- **Only approved deals go public**; an expired one keeps its page for
+- **Only approved deals go public** (by you, or by the rules of D46); an expired one keeps its page for
   `site.expired_promotions_days` (30) after it expired, `noindex` and without a booking button;
   after that its links 301 to its route page. Deals that expired or were rejected before approval
   never appear.
@@ -1093,7 +1114,7 @@ Without the CLI: download `backups/<date>/escapadinha.db` from the R2 dashboard 
 
 ## GitHub Actions (DECISIONS D25)
 
-`.github/workflows/pipeline.yml` runs `escapadinha run` every 2 hours, dispatched by the scheduler
+`.github/workflows/pipeline.yml` runs `escapadinha run` every 30 minutes, dispatched by the scheduler
 Worker (see *Schedule* below, D41), on `ubuntu-latest`: lock → pull the database from R2 → daily
 backup → (monthly discovery) → collect → recheck → detect (+ the queue against today's typical
 lows, D40) → publish due posts (D32) → **full path
@@ -1105,9 +1126,13 @@ only when needed** → push → unlock.
   site data exactly as the next build would read it (computed in memory, without the run id,
   timestamps and counters no page shows), routes (key, status, name), the Lisbon date, and the
   code, config and content (the Python package, `config.yaml`, `content/`, the web package's
-  sources and lockfile, the logo and fonts). If anything changed it takes the full path (render new deals → export the site
-  data → `site build` (Astro) → deploy when the content changed); otherwise it ends there. The log says which and why:
-  `Path: fast (nothing the site shows changed)`, `Path: full (changed: promotions, site data)`,
+  sources and lockfile, the logo and fonts). If anything changed it takes the full path (render new deals → approve by the
+  rules (D46) → export the site data → `site build` (Astro) → deploy when the content changed); otherwise it ends there.
+  One exception (D46): a live promotion's "verificado a" moves on every recheck, so when the site
+  data is the *only* change the site is rebuilt at most every `site.refresh_min_gap_minutes`
+  (120). The log says which and why:
+  `Path: fast (nothing the site shows changed)`, `Path: fast (site data changed, rebuilt at most
+  every 120 min (last full path 40 min ago))`, `Path: full (changed: promotions, site data)`,
   `Path: full (forced with --full)`. A full path that fails records nothing, so the next run
   tries again. The first run after Lisbon midnight is always full, so typical lows and
   "Atualizado a" are at most a day old.
@@ -1149,18 +1174,19 @@ only when needed** → push → unlock.
 GitHub's own cron is best effort (the 2-hourly one fired 4.4–6.8 h apart), so `pipeline.yml` has
 no `schedule`. Every routine run is a `workflow_dispatch` with `full: false`:
 - **The scheduler Worker** (`workers/scheduler/`, Cloudflare Workers free plan): a Cron Trigger
-  `17 */2 * * *` (UTC) dispatches `pipeline.yml` on `master`, unless a run of it was created in the
-  last 45 minutes (a review decision, a manual run, the fallback) or the workflow is disabled. One
+  `17,47 * * * *` (UTC, every 30 minutes since D46; 2-hourly before) dispatches `pipeline.yml` on
+  `master`, unless a run of it was created in the
+  last 20 minutes (a review decision, a manual run, the fallback) or the workflow is disabled. One
   line per tick in its Workers Logs: dispatched, skipped (and which run served the tick), or why
   the dispatch failed. The token is the Worker secret `GITHUB_ACTIONS_TOKEN` (fine-grained,
   this repository only, Actions: Read and write); it never reaches a log.
 - **The fallback** (`.github/workflows/pipeline-fallback.yml`): GitHub's cron every 6 h runs the
   same tick with Node and its own `GITHUB_TOKEN`, and dispatches only when no run started in the
   last 3 h, i.e. when the Worker missed its runs. Then the job fails on purpose, so GitHub e-mails
-  you. With a working Worker it never dispatches (a skipped tick leaves at most 2 h 45 min).
-- **The run log** warns when the previous collection started more than 3 h before this run:
-  `Warning: the previous run (#57) started 5 h 07 min ago, more than 3 h: the 2-hourly schedule
-  missed a run. …` (also in the run's summary). It also warns when the last daily pass is more
+  you. With a working Worker it never dispatches (a skipped tick leaves at most 50 min).
+- **The run log** warns when the previous collection started more than 2 h before this run:
+  `Warning: the previous run (#57) started 5 h 07 min ago, more than 2 h: the half-hourly schedule
+  missed runs. …` (also in the run's summary). It also warns when the last daily pass is more
   than 30 h old (D42, see *What a run collects*).
 - **Pause everything:** `gh workflow disable pipeline.yml` (the Worker and the fallback skip a
   disabled workflow); `gh workflow enable pipeline.yml` to resume.
@@ -1175,11 +1201,14 @@ not metered), and **GitHub rounds each job up to the whole minute**. Measured on
 before the daily pass (1,080 requests a run): a pipeline run took 1.7–3.4 min of wall time and
 billed 2–4 minutes (one took 6.2 and billed 7), 3.2 on average. With D42 a day has one pass of
 2,160 requests (~4 min of them, ~5 billed) and 11 regular runs of 717 (about a third shorter,
-~2.2 billed), so the pipeline uses ≈ **1000 min/month** with about one review-triggered run a
-day, plus the fallback's checks (≤ 4 a day, 1 min each) and the daily crawl while it lasts; the
-Web CI on pull requests bills 7–10 min a run. That fits only while Web CI stays under ~800 a
-month. Out of minutes, GitHub stops Actions in a private repo until the month ends, and the
-pipeline with it: D41 lists the knobs.
+~2.2 billed), so the 2-hourly pipeline used ≈ **1000 min/month**. **With the 30-minute runs
+(D46) it is 48 runs a day, about 3 200 min/month**, over GitHub Free's 2 000: before deploying
+the Worker's new cron, set a spending limit for Actions (account → *Settings* → *Billing and
+licensing* → *Spending limits*; about 10 USD/month at 0.008 USD per Linux minute), or the
+pipeline stops when the quota ends. The rebuild throttle keeps most runs on the fast path
+(~2 min); the fallback's checks (≤ 4 a day, 1 min each) and the Web CI on pull requests
+(7–10 min a run) come on top. Out of minutes, GitHub stops Actions in a private repo until the
+month ends, and the pipeline with it: D41 lists the knobs.
 - One run: *Actions* → the run → *Usage* (under *Run details*) shows its billable time; the
   summary shows our own `Duration`.
 - The month: your account → *Settings* → *Billing and licensing* → *Usage*, filtered on Actions.

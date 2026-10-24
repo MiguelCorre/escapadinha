@@ -15,7 +15,7 @@ import respx
 
 from escapadinha import instagram, pipeline, review_events
 from escapadinha.storage import db
-from test_pipeline import ctx  # noqa: F401
+from test_pipeline import set_publishers, ctx  # noqa: F401
 from test_posting import APPLIED, approved, by_channel, cli, publish, second_deal, utc
 
 ACCOUNT = "17841400000000001"
@@ -28,7 +28,7 @@ DUE = utc(2026, 12, 1, 9, 0)            # the 09:00 slot (Lisbon = UTC in Decemb
 def telegram_dry_run(ctx):
     """Only Instagram is under test: Telegram on the dry run, so it goes out at the approval
     (config.yaml's `telegram: telegram` would wait for its secrets, D38: test_telegram.py)."""
-    ctx.config.posting.publishers["telegram"] = "dry-run"
+    set_publishers(ctx, telegram="dry-run", instagram="instagram")   # config.yaml pauses it (D46)
 
 
 class FakeGraph:

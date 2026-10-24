@@ -12,6 +12,7 @@ import type { Promotion } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { bookingCta } from "../../lib/cta";
 import { airportLabel, promotionView } from "../../lib/promotion";
+import { bestMonths } from "../../lib/routes";
 import { promotionLd } from "../../lib/structured-data";
 
 export const getStaticPaths = (() => {
@@ -31,6 +32,10 @@ const view = promotionView(data, promotion);
 const cta = bookingCta(promotion.booking_link, promotion.live, data.labels);
 const arrival = airportLabel(view);
 const slides = promotion.images?.slides ?? [];
+// The route behind it (D46): its cheapest months and its page, where every day's price is traced.
+const route = data.routes.routes.find((r) => r.key === promotion.offer.route) ?? null;
+const months = route ? bestMonths(route).map((m) => m.label) : [];
+const monthsText = months.length < 2 ? months.join("") : `${months.slice(0, -1).join(", ")} e ${months.at(-1)}`;
 
 const title = view.live
   ? `${view.headline} por ${view.price.text} ida e volta · ${BRAND}`
@@ -72,6 +77,9 @@ const trip = promotionLd(data, promotion, view, description);
     <div class="order-1 md:order-2">
       {view.live && <p class="mb-sm"><span class="stamp">Promoção</span></p>}
       <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">{view.headline}</h1>
+      {view.live && (
+        <p class="mt-sm text-lead" data-summary>{view.summary.before} <span data-obs={view.obs} class="num font-semibold">{view.price.text}</span> {view.summary.after}</p>
+      )}
 
       {!view.live && (
         <div class="notice notice-expired mt-lg text-ink" data-expired data-obs={view.expiredObs ?? undefined}>
@@ -86,6 +94,9 @@ const trip = promotionLd(data, promotion, view, description);
       )}
 
       <dl class="mt-xl border-t-2 border-ink">
+        <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+          <dt class="label text-muted">Rotas</dt><dd class="text-right font-semibold">{view.routesLine}</dd>
+        </div>
         <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
           <dt class="label text-muted">Datas</dt><dd class="text-right font-semibold">{view.datesProse}</dd>
         </div>
@@ -114,13 +125,34 @@ const trip = promotionLd(data, promotion, view, description);
             <dt class="label text-muted">Preço habitual em {view.month}</dt><dd class="num text-right font-semibold">{view.typicalLow}</dd>
           </div>
         )}
+        {monthsText && route && (
+          <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+            <dt class="label text-muted">Melhores meses</dt><dd class="text-right font-semibold">{monthsText} · <a href={route.path} class="underline">todos os preços da rota</a></dd>
+          </div>
+        )}
         <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
           <dt class="label text-muted">Verificado por nós</dt><dd class="num text-right font-semibold">{view.checkedAt}</dd>
         </div>
+        {view.publishedOn && (
+          <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
+            <dt class="label text-muted">Publicada</dt><dd class="num text-right font-semibold">{view.publishedOn}</dd>
+          </div>
+        )}
       </dl>
       <p class="mt-xs text-small text-muted">O preço habitual é o mínimo típico da rota para o mês de partida. As horas são de Lisboa.</p>
 
       {cta && <BookingCta cta={cta} />}
+
+      {view.live && (
+        <section class="mt-xl" aria-labelledby="como-reservar">
+          <h2 id="como-reservar" class="label text-muted">Como reservar</h2>
+          <ol class="mt-sm list-decimal space-y-xs pl-lg">
+            <li>Carrega em <strong>{cta?.text ?? "Reservar"}</strong>: abre a pesquisa do parceiro já com estas datas.</li>
+            <li>Confirma o preço final antes de pagar. Mala de porão, lugar marcado e seguro são extras.</li>
+            <li>Os lugares a este preço são poucos: o preço foi encontrado a <span class="num">{view.foundOn ?? "—"}</span> e verificado por nós a <span class="num">{view.checkedAt}</span>; pode mudar a qualquer momento, e esta página expira quando mudar.</li>
+          </ol>
+        </section>
+      )}
 
       {promotion.post_url && (
         <p class="mt-lg" data-post-link>

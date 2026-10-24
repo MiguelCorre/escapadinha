@@ -18,6 +18,7 @@ import {
   fromPlace,
   ponteTitle,
   lisbonTimestamp,
+  timeAgo,
   longDate,
   longDateYear,
   monthList,
@@ -65,6 +66,15 @@ describe("pt-PT formats", () => {
     expect(monthList([4, 5, 9])).toBe("abril, maio e setembro");
     expect(monthList([12, 1])).toBe("dezembro e janeiro");
     expect(monthList([7])).toBe("julho");
+  });
+
+  it("says how long ago an instant was, never negative (D46)", () => {
+    const now = new Date("2026-10-24T12:00:00Z");
+    expect(timeAgo("2026-10-24T11:40:00Z", now)).toBe("há 20 min");
+    expect(timeAgo("2026-10-24T10:55:00Z", now)).toBe("há 1 h 05");
+    expect(timeAgo("2026-10-22T12:01:00Z", now)).toBe("há 47 h 59");
+    expect(timeAgo("2026-10-21T10:00:00Z", now)).toBe("há 3 dias");
+    expect(timeAgo("2026-10-24T12:05:00Z", now)).toBe("há 0 min");
   });
 
   it("shows instants in Lisbon time, summer and winter", () => {

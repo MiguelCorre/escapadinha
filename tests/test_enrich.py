@@ -222,7 +222,7 @@ def test_upgrade_from_real_old_schemas_adds_the_enrichment_columns(ctx, fixture,
     old.commit()
     old.close()
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 16
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 17
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     assert _observation_columns(conn) == _observation_columns(fresh)

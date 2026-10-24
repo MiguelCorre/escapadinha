@@ -134,6 +134,18 @@
         "found_date": {"type": ["string", "null"], "format": "date",
                        "description": "When a traveller found the price (provider cache)."},
         "found_on": {"type": ["string", "null"]},
+        "found_at": {"oneOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}],
+                     "description": "Optional (added within v1, D46): the exact UTC time a traveller found the price, from the GraphQL enrichment (D43); null when only found_date is known; absent from older snapshots. A UI shows how long ago, next to found_on."},
+        "partner_offer": {
+          "description": "Optional (added within v1, D46): the trip is on Aviasales' own 'special offers' list, with their discount (percent below their average price for the ticket: their measure, never a price of ours) and when a run last saw it there. Null when not listed now; absent from older snapshots.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["discount_pct", "seen_at"],
+          "properties": {
+            "discount_pct": {"type": "number"},
+            "seen_at": {"$ref": "#/$defs/timestamp"}
+          }
+        },
         "fetched_at": {"$ref": "#/$defs/timestamp", "description": "When our collection first saw it."},
         "checked_at": {"type": "string"},
         "detected_at": {"$ref": "#/$defs/timestamp"},
