@@ -11,7 +11,7 @@ name: Pipeline fallback
 
 on:
   schedule:
-    - cron: "47 */6 * * *"         # UTC; each check costs one billed minute
+    - cron: "47 */6 * * *"         # UTC; one minute a check, unmetered (public repo)
   workflow_dispatch:               # by hand: dispatches only when nothing ran for 3 h
 
 permissions:
