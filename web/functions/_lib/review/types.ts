@@ -94,6 +94,12 @@ export interface SnapshotDeal {
   /** GraphQL enrichment (D43): the selling agency and the baggage line ("só bagagem de mão"),
    * null when the offer had no match; absent from older snapshots. */
   gate?: string | null;
+  /** D47: the price source of the deal (travelpayouts, ryanair) and its name on pages; absent in
+   * snapshots made before. */
+  source?: string;
+  source_label?: string;
+  /** D47: the newest price of the same trip at every other source, cheapest first. */
+  also_seen?: { source: string; label: string; price_eur: number; observation_id: number; gate?: string | null; seen_at: string }[];
   with_baggage?: boolean | null;
   baggage?: string | null;
   rule: string;
@@ -128,6 +134,8 @@ export interface SnapshotDeal {
     last_checked_at: string | null;
     last_seen_price_eur: number | null;
     expired_reason: string | null;
+    /** D47: the source the query is for; absent (travelpayouts) in older snapshots. */
+    source?: string;
     query: Record<string, string | number>;
     rules: Rules;
   };

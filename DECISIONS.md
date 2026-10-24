@@ -2775,3 +2775,120 @@ so nothing has to be hosted.
   (found time, Aviasales row), `web/test/format.test.ts` (`timeAgo`), `web/test/pages.test.ts`
   (summary, routes, best months, publication, how to book; expired pages have neither),
   `web/test/traceability.test.ts`.
+
+## D47: The airlines' own fares next to the cache: Ryanair's fare finder, the link goes to the seller, a comparison per source (2026-10-24)
+- **Miguel's decisions (2026-10-24), after the research in
+  `docs/research/2026-10-24-faster-deal-discovery.md` and D46:** no paid data source ("Eu não
+  quero pagar por APIs"); accept D13's risk ("Aceitar os riscos do D13"); go through the
+  airlines' own endpoints ("Segue pelos endpoints das companhias"); several sources per
+  promotion, for comparison ("Não quero só 1 solução se pudermos implementar várias para fins
+  de comparação"); the deals sites' own mix is good enough ("O deferias.pt utiliza tanto as
+  companhias como o Skyscanner + Kayak"). Phase 1 (this entry) runs on GitHub; phase 2 (a browser
+  probe on Miguel's own PC for Google Flights / Kayak, where a residential IP and a real browser
+  profile are what those sites expect) is designed in `docs/plan/2026-10-24-pc-probe.md` and
+  installed by him.
+- **What the rule is now (D13 amended, not dropped).** Reading public fares with an automated
+  client is a breach of a site's terms, not a crime: in the EU it is enforceable as a contract
+  (CJEU C-30/14 Ryanair v PR Aviation, 2015), and the German BGH (I ZR 224/12, 2014) held that
+  scraping as such is not unfair competition but circumventing a site's technical barriers can be.
+  So the line moves from "no automated access" to **"no step around a technical barrier"**: a
+  plain request to the JSON the airline's own page calls, one at a time, with a user-agent that
+  names the site (`ryanair.user_agent`: `pontonomada.pt price check (+<base_url>/sobre/)`),
+  no retries, and the **first 403, 429 or challenge page stops the pass and pauses the source**
+  (`airlines.<source>.blocked_hours`, meta `airlines.<source>.blocked`). No stealth plugins,
+  proxies, captcha solving or user-agent spoofing, ever. Low volume: a bounded, rotating hot list,
+  never a bulk collector. The worst case is a cease-and-desist, not a surprise.
+- **Measured before building (2026-10-24):** Ryanair's `farfnd/v4/roundTripFares` answers a
+  plain `curl` with that user-agent in 0.24 s from the PC and **0.42 s from a GitHub-hosted
+  runner** (a throwaway workflow on `master`, removed here): one JSON per airport pair and
+  outbound window, the cheapest return per outbound day within the trip length, with each leg's
+  `priceUpdated`. **Wizz Air is out:** `wizzair.com/buildnumber` (the version every Wizz endpoint
+  needs) redirects to an AWS WAF "Human Verification" page on the first request, from the PC and
+  from the runner alike; by the rule above that door stays closed. easyJet blocked the 2026-10-15
+  fetch (research A-series). Ryanair is 2 665 of the copy's 7 845 observations (34 %), 259
+  (origin, destination, airport) pairs carry a Ryanair or Wizz fare.
+- **Source `ryanair` (`collector/ryanair.py`).** `parse_fares` (pure): one `Observation` per
+  fare, `source="ryanair"`, the route's city code as `destination` and the airport the fare lands
+  at as `destination_airport`, nonstop by construction (the fare finder lists Ryanair's own
+  flights), `found_at`/`found_date` = the newer `priceUpdated` of the two legs (when Ryanair last
+  changed the price: the closest thing to a traveller's "found" time for a live source),
+  `gate="Ryanair"`, `deep_link` = ryanair.com's flight selection for the same dates
+  (`booking_url`: the airline's page, no tracking, no commission). Dropped, never patched: a fare
+  without both legs or a positive summary price, or outside the route's nights range.
+  `RyanairSource.fetch_fares(origin, destination, airport, month, rules=)` is not a
+  `PriceSource` (those take a city code; the airline flies to airports). `RyanairError.kind`:
+  `blocked` (403/429, or 200 that is not JSON), `http`, `api`. `insert_observations` now stores
+  `gate` and `found_at` when the source gives them (the GraphQL enrichment, D43, still sets them
+  for Aviasales offers and matches Aviasales offers only).
+- **Hot list (`collector/hotlist.py`, pure; `pipeline.run_airlines`, CLI `airlines`).** Pairs =
+  (active route, airport) for every airport the cache's Ryanair offers used in the last
+  `lookback_days`, busiest route first (Eurostat demand rank, D45, then offers seen). Each run
+  asks **the open promotions' months on Ryanair flights first** (their recheck and the comparison
+  need the airline's price every run), then the next `max_requests_per_run` (pair, month) tasks
+  of a rotation over pairs × the run's `months_ahead` (cursor in meta `airlines.ryanair.cursor`):
+  20 per run, 48 runs a day, about 450 pair-months, so every pair-month about twice a day, under
+  1 000 requests a day at 20 a minute. Its own run row (source `ryanair`, scope `airlines`):
+  `latest_completed_run_id` keeps keying on the `full` collection run, and detection, the recheck
+  and the export read the airline's offers through `observations_seen_since` that older run. The
+  step runs right after the collection and never fails the run (`cli._airlines`). `routes.
+  last_observed_at` counts an airline sighting.
+- **The link goes to the seller (D13's "same place as the link", kept).** A deal from an airline
+  observation gets `affiliate_url` = its `deep_link` (`ensure_affiliate_links`, no partner API
+  call); the name stays, the meaning is "the booking link". The site exports `link_kind`
+  (`partner` | `airline`), `seller` and `source` on the promotion (contract v1, additive) and
+  `labels.disclosure.direct` ("Ligação direta ao site da companhia aérea: não recebemos comissão
+  por esta reserva."), and `cta.bookingCta(…, kind, seller)` gives an airline link the airline
+  note and that disclosure (it throws without the label: an airline button is never shown under
+  the affiliate disclosure, which would be false). "Como reservar" says "abre o site da Ryanair".
+- **The recheck trusts the deal's own source only.** `_fetch_trip_month` (behind `price_now`,
+  `live_check`, the approval gate) prices a Ryanair deal at Ryanair (same airport pair and
+  month); `run_recheck` judges a deal against the newest offers **of its own source** on the
+  route. Another source's price of the same trip is a comparison, never a confirmation: the
+  price shown must still hold where the link goes. `check_failure` names Ryanair's errors in
+  pt-PT. The review Function's live check is the prices_for_dates port, so the snapshot carries
+  `live_check.source` and the source's own `query` (`pipeline.live_check_query`; the schema's
+  `query` is now one of the two shapes), and **the Function refuses to check or approve a deal
+  from an airline source** (`handler.pipelineOnly`, 409, pt-PT): the automatic approval (D46)
+  or `deal approve` on the PC decide those. Rejecting needs no price and stays allowed.
+- **A comparison per source.** `pipeline.also_seen(conn, obs)`: the newest stored observation of
+  the same trip (route, dates) at every other source, cheapest first
+  (`db.trip_observations_by_source`). The snapshot carries `source`, `source_label` and
+  `also_seen` (each with `price_eur` and `observation_id`: `tests/test_review_events` traces
+  them), both review pages show "Fonte" and "Também visto" (`presentation.seller_label`:
+  "Aviasales via Kiwi.com", "Ryanair"), and a live promotion exports `also_seen`
+  (`{source, label, obs, eur}`, checked by `tests/test_site_data` like every price) which the
+  promotion page lists as "Também visto · Aviasales via Kiwi.com · 44 €", each on its
+  `data-obs`. The comparison prices change between runs: that is shown content, so it goes
+  through the fingerprint and the D46 throttle, not `PER_RUN`.
+- **Fixture by hand (allowed by the contract rule):** `contract/site/v1/fixtures/labels.json` regenerated
+  from a fixture export on an empty database (it holds no database data; `tests/test_affiliate_blocks`
+  compares it with such an export), which adds `disclosure.direct`. The other committed fixtures
+  keep their pre-D47 shape: every new promotion field is optional and absent there.
+- **Config `airlines.ryanair`** (`AirlinesConfig`): `enabled`, `max_requests_per_run` 20,
+  `requests_per_minute` 20, `blocked_hours` 24, `lookback_days` 90. Nothing in `.env`: the fare
+  finder needs no key.
+- **Not done here, on purpose:** Ryanair offers are **not low-price rows** on route pages: a row
+  cannot say its link kind yet and the list carries one partner disclosure for all its buttons;
+  the airline's fares still count for detection, the route's cheapest and the calendar (prices,
+  no button). The posts' caption and WhatsApp text keep `presentation.DISCLOSURE` ("links de
+  afiliado") for every deal, airline ones included: both channels are paused (D46) and that text
+  must change before an airline deal is ever posted. Wizz Air (behind a WAF challenge), easyJet
+  (blocked us), TAP and Vueling (no stable fare-calendar JSON) have no source; for them the
+  cache and its `price_now` stay the check. Phase 2 (the PC probe) is a separate design.
+- **Rejected:** a paid scraping API (SerpApi, Apify: Miguel pays for no API); a headless browser
+  from the GitHub runners (it is caught in hours and only survives with stealth plugins and
+  proxies, the very barrier-circumvention that turns a terms breach into something worse, and
+  it is slow and brittle); retries on 403/429 (the pause is the point); making `RyanairSource` a
+  `PriceSource` behind a city code (an airline flies to airports: the pair is explicit);
+  converting ryanair.com links through the partner links API (not a partner brand: a hand-built
+  URL to the airline is not a `marker=` URL and D19 does not apply); filtering the recheck's
+  "latest" by source only for airline deals (the rule is the same for every source).
+- **Tests:** `tests/test_ryanair.py` (parsing, the found time, the link, the request window,
+  the user-agent, blocked/http/api without retries), `tests/test_hotlist.py` (pairs, rotation,
+  promotions first, wrap-around, empty inputs), `tests/test_airlines.py` (the step and its run
+  row, a wall that pauses and the later retry, off/empty, a Ryanair fare that becomes the deal,
+  its airline link, its live check and recheck at Ryanair only, the snapshot and the export with
+  `link_kind`, `seller`, `also_seen`, the direct disclosure, no Ryanair low-price rows),
+  `tests/test_site_data.py` and `tests/test_review_events.py` (the price tracers learn
+  `also_seen`), `web/test/cta.test.ts` (the airline kind), `web/test/review/decision.test.ts`
+  (the Function leaves airline deals to the pipeline).

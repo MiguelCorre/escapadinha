@@ -32,6 +32,22 @@ collector:
   enrich_per_run: 60          # GraphQL queries per run, one per trip (candidates first, then the
                               # biggest low-price discounts; already matched offers are skipped); 0 = off
 
+# The airlines' own fare finders next to the Aviasales cache (DECISIONS D47): live prices,
+# minutes old, for the carriers whose fares reach the cache slowest (Ryanair: 34 % of our
+# offers). Never a bulk collector: each run asks the months of the open promotions on that
+# airline, then the next max_requests_per_run (airport pair, month) tasks of a rotation over every
+# pair the cache has shown for the airline, busiest route first (D45). One plain request at a time
+# with a user-agent that names the site, no retries, and never a step around a bot wall: the first
+# 403, 429 or challenge page pauses the source for blocked_hours (meta airlines.<source>.blocked;
+# `escapadinha airlines` shows it). Wizz Air sits behind an AWS WAF challenge (2026-10-24): not here.
+airlines:
+  ryanair:
+    enabled: true
+    max_requests_per_run: 20    # ~960 requests a day at 48 runs: every pair-month about twice a day
+    requests_per_minute: 20
+    blocked_hours: 24
+    lookback_days: 90           # offers this old name the pairs (origin, destination airport)
+
 # Two tiers (DECISIONS D24), both against the route's typical LOW for that departure month:
 # the median of daily lowest prices (day = when travellers found the price).
 #  - low price: a fresh price >= low_threshold below it; shown on route pages automatically.

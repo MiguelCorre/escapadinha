@@ -136,6 +136,34 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
                       f"({escape(reason)})")
 
 
+def _airlines() -> str:
+    """The run's airline step (D47) and its report line; an unexpected error is reported, never
+    raised (the cache's collection already happened and the run goes on)."""
+    ctx, conn = _ctx()
+    try:
+        return _report_airlines(pipeline.run_airlines(ctx, conn))
+    except Exception as exc:
+        line = f"Airlines: failed ({type(exc).__name__}: {exc})"
+        console.print(f"[red]{escape(line)}[/]")
+        return line
+
+
+def _report_airlines(summary: pipeline.AirlinesSummary) -> str:
+    line = f"Airlines: {summary.describe()}"
+    console.print(line)
+    for err in summary.errors:
+        console.print(f"  [red]✗[/] {escape(err)}")
+    return line
+
+
+@app.command("airlines")
+def airlines() -> None:
+    """The airlines' own fare finders for the hot list (D47): Ryanair's cheapest round trips
+    per departure day on the open promotions' months and the next pairs of the rotation."""
+    ctx, conn = _ctx()
+    _report_airlines(pipeline.run_airlines(ctx, conn))
+
+
 def _special_offers() -> str:
     """The run's special-offers step (D46) and its report line."""
     ctx, conn = _ctx()
@@ -950,6 +978,7 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     _warn_if_daily_pass_missed(report)
     if summary.status == "failed":           # every request failed: the run fails (exit 1)
         raise typer.Exit(1)
+    report.append(_airlines())               # the airlines' own fares (D47): never fails the run
     recheck_cmd()
     detect()
     report.append(_enrich())                 # baggage and agency (D43): never fails the run

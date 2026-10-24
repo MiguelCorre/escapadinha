@@ -30,6 +30,10 @@
           "published_at": {"anyOf": [{"$ref": "defs.schema.json#/$defs/timestamp"}, {"type": "null"}]},
           "checked_at": {"$ref": "defs.schema.json#/$defs/timestamp", "description": "Last recheck (or first fetch): \"verificado a\"."},
           "booking_link": {"$ref": "defs.schema.json#/$defs/link", "description": "Website Project link (sub_id site-deal-<id>); always null when not live."},
+          "source": {"type": "string", "description": "Added in v1 (D47): the price source of the offer and its link: travelpayouts (the Aviasales cache) or ryanair (the airline's own fare finder). Absent in older exports."},
+          "link_kind": {"type": "string", "enum": ["partner", "airline"], "description": "Added in v1 (D47): partner = a tracked Travelpayouts link (the site disclosure applies); airline = the airline's own page, no commission (labels.disclosure.direct applies). Absent in older exports: partner."},
+          "seller": {"type": "string", "description": "Added in v1 (D47): the source as pages name it (Aviasales, Ryanair), for the button's note."},
+          "also_seen": {"type": "array", "description": "Added in v1 (D47): the newest stored price of the same trip at every other source, cheapest first, each on its observation. A comparison the page shows as such; empty when not live.", "items": {"type": "object", "additionalProperties": false, "required": ["source", "label", "obs", "eur"], "properties": {"source": {"type": "string"}, "label": {"type": "string"}, "obs": {"$ref": "defs.schema.json#/$defs/obs_id"}, "eur": {"$ref": "defs.schema.json#/$defs/eur"}}}},
           "post_url": {"type": ["string", "null"], "pattern": "^https://(www\\.)?instagram\\.com/", "description": "The promotion's Instagram post (deals.post_url, from the published event: the Instagram publisher's permalink or a URL given by hand), null when not published there. Added in v1 (D36): an older export may lack it."},
           "expired": {
             "type": ["object", "null"],

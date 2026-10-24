@@ -11,6 +11,7 @@ import PriceBlock from "../../components/PriceBlock.astro";
 import type { Promotion } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { bookingCta } from "../../lib/cta";
+import { eur } from "../../lib/format";
 import { airportLabel, promotionView } from "../../lib/promotion";
 import { bestMonths } from "../../lib/routes";
 import { promotionLd } from "../../lib/structured-data";
@@ -29,7 +30,11 @@ interface Props {
 
 const { promotion } = Astro.props;
 const view = promotionView(data, promotion);
-const cta = bookingCta(promotion.booking_link, promotion.live, data.labels);
+const linkKind = promotion.link_kind ?? "partner";
+const cta = bookingCta(promotion.booking_link, promotion.live, data.labels, linkKind, promotion.seller ?? null);
+// D47: the same trip's newest price at every other source, each on its observation.
+const alsoSeen = promotion.live ? promotion.also_seen ?? [] : [];
+const opens = linkKind === "airline" ? `o site da ${promotion.seller ?? "companhia aérea"}` : "a pesquisa do parceiro";
 const arrival = airportLabel(view);
 const slides = promotion.images?.slides ?? [];
 // The route behind it (D46): its cheapest months and its page, where every day's price is traced.
@@ -130,6 +135,11 @@ const trip = promotionLd(data, promotion, view, description);
             <dt class="label text-muted">Melhores meses</dt><dd class="text-right font-semibold">{monthsText} · <a href={route.path} class="underline">todos os preços da rota</a></dd>
           </div>
         )}
+        {alsoSeen.map((a) => (
+          <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm" data-also-seen={a.source}>
+            <dt class="label text-muted">Também visto</dt><dd class="text-right font-semibold">{a.label} · <span class="num" data-obs={a.obs}>{eur(a.eur)}</span></dd>
+          </div>
+        ))}
         <div class="flex items-baseline justify-between gap-md border-b-2 border-rule py-sm">
           <dt class="label text-muted">Verificado por nós</dt><dd class="num text-right font-semibold">{view.checkedAt}</dd>
         </div>
@@ -147,7 +157,7 @@ const trip = promotionLd(data, promotion, view, description);
         <section class="mt-xl" aria-labelledby="como-reservar">
           <h2 id="como-reservar" class="label text-muted">Como reservar</h2>
           <ol class="mt-sm list-decimal space-y-xs pl-lg">
-            <li>Carrega em <strong>{cta?.text ?? "Reservar"}</strong>: abre a pesquisa do parceiro já com estas datas.</li>
+            <li>Carrega em <strong>{cta?.text ?? "Reservar"}</strong>: abre {opens} já com estas datas.</li>
             <li>Confirma o preço final antes de pagar. Mala de porão, lugar marcado e seguro são extras.</li>
             <li>Os lugares a este preço são poucos: o preço foi encontrado a <span class="num">{view.foundOn ?? "—"}</span> e verificado por nós a <span class="num">{view.checkedAt}</span>; pode mudar a qualquer momento, e esta página expira quando mudar.</li>
           </ol>

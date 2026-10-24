@@ -275,15 +275,15 @@ def insert_observations(conn: sqlite3.Connection, run_id: int,
                    run_id, last_run_id, source, origin, destination, origin_airport,
                    destination_airport, departure_date, return_date, nights, price, currency,
                    airline, flight_number, transfers, return_transfers, deep_link, fetched_at,
-                   last_seen_at, found_date, departure_at, return_at, dedup_key)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   last_seen_at, found_date, departure_at, return_at, dedup_key, gate, found_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT (dedup_key) DO NOTHING""",
             (run_id, run_id, o.source, o.origin, o.destination, o.origin_airport,
              o.destination_airport, o.departure_date.isoformat(), o.return_date.isoformat(),
              o.nights, o.price, o.currency, o.airline, o.flight_number, o.transfers,
              o.return_transfers, o.deep_link, seen, seen,
              o.found_date.isoformat() if o.found_date else None, o.departure_at, o.return_at,
-             o.dedup_key),
+             o.dedup_key, o.gate, _ts(o.found_at) if o.found_at else None),
         ).rowcount
         if inserted:
             new += 1
@@ -369,6 +369,31 @@ def route_history(conn: sqlite3.Connection, origin: str, destination: str, *,
         (origin, destination, _ts(since), exclude_run_id),
     )
     return [_row_to_observation(r) for r in rows]
+
+
+def airline_airport_counts(conn: sqlite3.Connection, airline: str, *,
+                           since: datetime) -> list[tuple[str, str, str, int]]:
+    """(origin, destination city, destination airport, offers) of the airline's offers fetched
+    since `since`, any source: the airport pairs an airline source asks for (D47)."""
+    rows = conn.execute(
+        """SELECT origin, destination, destination_airport, COUNT(*) AS n FROM price_observations
+           WHERE airline = ? AND fetched_at >= ? AND destination_airport IS NOT NULL
+           GROUP BY origin, destination, destination_airport ORDER BY n DESC""",
+        (airline, _ts(since)))
+    return [(r["origin"], r["destination"], r["destination_airport"], r["n"]) for r in rows]
+
+
+def trip_observations_by_source(conn: sqlite3.Connection, o: Observation) -> dict[str, Observation]:
+    """The newest stored observation of `o`'s trip (route and dates) from every source, by
+    source name: the comparison next to a promotion (D47)."""
+    rows = conn.execute(
+        """SELECT * FROM price_observations WHERE origin = ? AND destination = ?
+           AND departure_date = ? AND return_date = ? ORDER BY source, last_seen_at DESC, id DESC""",
+        (o.origin, o.destination, o.departure_date.isoformat(), o.return_date.isoformat()))
+    out: dict[str, Observation] = {}
+    for row in rows:
+        out.setdefault(row["source"], _row_to_observation(row))
+    return out
 
 
 def deal_observation_ids(conn: sqlite3.Connection) -> set[int]:

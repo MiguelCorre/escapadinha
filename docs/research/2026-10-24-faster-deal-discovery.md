@@ -13,6 +13,16 @@ review pages, and the deals-site information on promotion pages. Not implemented
 of the reviewer (no Telegram at all for now) and any new price source (sections 2.1–2.5 are his
 call).
 
+**Outcome, later the same day (DECISIONS D47):** no paid source ("Eu não quero pagar por APIs");
+D13's risk accepted for the airlines' own endpoints (§2.5), under a narrower rule: never a step
+around a technical barrier, low volume, identified, paused at the first wall. Built: Ryanair's
+fare finder as source `ryanair` (hot list after every collection, the link to ryanair.com, the
+recheck at the deal's own source, a per-source comparison on the review pages and the promotion
+page). Probed and closed: Wizz Air (AWS WAF "Human Verification" on `wizzair.com/buildnumber`,
+from the PC and from a GitHub runner). Ryanair's endpoint answered a GitHub runner in 0.42 s.
+Phase 2, Miguel's call: a browser probe on his own PC for Google Flights and Kayak (§2.4's
+comparison engines without the paid API), designed separately.
+
 Builds on [`2026-10-15-data-reliability.md`](2026-10-15-data-reliability.md) and
 [`2026-10-15-more-data-and-site-ideas.md`](2026-10-15-more-data-and-site-ideas.md) (sections A1–A14
 list every source checked under the free-tier, no-scraping constraints). This report drops those

@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from escapadinha import i18n_pt as pt
 from escapadinha import pipeline, review_events, review_snapshot
+from escapadinha.presentation import seller_label
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation
 from escapadinha.presentation import PhotoCredit, build_deal_view
@@ -65,6 +66,10 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "arrival_airport": view.arrival_airport,
         "baggage": view.baggage_line,            # D43: null when unknown (no row)
         "gate": view.gate,
+        # D47: the source the price (and the link) comes from, and other sources' newest price
+        # of the same trip, in pt-PT, for the "Também visto" row.
+        "source_label": view.source_label,
+        "also_seen_pt": [f"{seller_label(a)} {pt.eur(a.price)}" for a in pipeline.also_seen(conn, obs)],
         "rule": deal.rule,
         "discount_pct": view.discount_pct,
         "typical_low": None if deal.baseline_median is None else pt.eur(deal.baseline_median),

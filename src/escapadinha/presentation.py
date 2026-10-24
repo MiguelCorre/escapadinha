@@ -17,6 +17,24 @@ SITE_DISCLOSURE = ("Publicidade: os botões de reserva são links de afiliado. S
 # The disclosure in every affiliate block of an itinerary or tip (eSIM, insurance, activities, D37).
 BLOCK_DISCLOSURE = ("Publicidade: esta ligação é um link de afiliado. Se comprares através dela, "
                     "podemos receber uma comissão, sem custo extra para ti.")
+# Where a price was seen, as posts and pages name it (D47: an airline's own site is a source too).
+SOURCE_LABELS = {"travelpayouts": "Aviasales", "ryanair": "Ryanair"}
+# Next to the booking button of a promotion whose link goes to the airline's own site (D47): no
+# partner, no commission, so the site disclosure (which says the buttons are affiliate links)
+# would be false there.
+DIRECT_DISCLOSURE = ("Ligação direta ao site da companhia aérea: não recebemos comissão por "
+                     "esta reserva.")
+
+
+def source_label(source: str) -> str:
+    return SOURCE_LABELS.get(source, source)
+
+
+def seller_label(o) -> str:
+    """Where a price was seen, with the agency when the source is a metasearch: "Aviasales via
+    Kiwi.com", "Aviasales", "Ryanair" (the comparison next to a promotion, D47)."""
+    label = source_label(o.source)
+    return f"{label} via {o.gate}" if o.gate and o.gate != label else label
 # A post claims "−x % face ao habitual" only with this much confidence in the typical low (D44).
 CLAIM_CONFIDENCE = ("medium", "high")
 
@@ -166,7 +184,7 @@ def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination
         discount_pct=None if deal.discount_pct is None else round(deal.discount_pct * 100),
         found_on=pt.numeric_date(o.found_date) if o.found_date else None,
         checked_at=pt.lisbon_timestamp(o.fetched_at),
-        source_label="Aviasales" if o.source == "travelpayouts" else o.source,
+        source_label=SOURCE_LABELS.get(o.source, o.source),
         affiliate_url=deal.affiliate_url,
         photo=photo,
         baggage=o.with_baggage, baggage_line=pt.baggage_line(o.with_baggage), gate=o.gate,

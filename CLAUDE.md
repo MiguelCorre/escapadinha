@@ -9,7 +9,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `auto-approve`,
-  `special-offers`, `queue list|retry`,
+  `special-offers`, `airlines`, `queue list|retry`,
   `instagram token`,
   `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
@@ -190,7 +190,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   pinned wrangler (the pipeline's Cloudflare token is Pages-only).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
   collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → missed-pass warning
-  (`pipeline.missed_daily_pass_warning`, last recorded pass > 30 h ago) → recheck →
+  (`pipeline.missed_daily_pass_warning`, last recorded pass > 30 h ago) → `run_airlines`
+  (D47: the airlines' own fares for the hot list, its own run row, never fails the run) → recheck →
   detect (+ `run_reevaluate`, D40) → `run_enrich` (D43: never fails the run) →
   `run_special_offers` (D46: never fails the run) → `publish_due`
   (D32, every run: posting never waits for a full path) →
@@ -216,7 +217,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
 - **Baggage only from the GraphQL answer, never guessed** (D43): `with_baggage`, `baggage_code`,
-  `gate` and `found_at` on an observation come only from `collector/graphql.py`'s `match` (the
+  `gate` and `found_at` on an observation come only from `collector/graphql.py`'s `match` or,
+  for an airline source, from the airline's own payload at insertion (D47: `gate` = the
+  airline, `found_at` = its `priceUpdated`; the enrichment matches Aviasales offers only) (the
   Aviasales GraphQL row with the same link `t=` token, else the same airline, local dates and
   price), stored by `pipeline.enrich_offers` for the run's low prices and candidates (candidates
   first, at most `collector.enrich_per_run` queries, one per trip, 60/min API limit), and never
@@ -227,7 +230,21 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   archived under their own `enrich` run (scope `enrich`, source `travelpayouts-graphql`). HTTP in
   tests: respx only.
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
-- No scraping of booking sites or airlines (ToS and legal risk; see DECISIONS D13).
+- **No step around a technical barrier, ever** (D13 as amended by D47): no stealth plugins,
+  proxies, captcha solving or user-agent spoofing, no retries on a 403/429, no booking-site or
+  metasearch scraping. An airline's own fare-finder JSON is a source (`collector/ryanair.py`)
+  only under D47's rules: one plain request at a time, `ryanair.user_agent` naming the site, a
+  bounded rotating hot list (`collector/hotlist.py`, `pipeline.run_airlines`, after the
+  collection, never failing the run), and the first 403/429/challenge pauses the source for
+  `airlines.<source>.blocked_hours` (meta `airlines.<source>.blocked`). Wizz Air sits behind a
+  WAF challenge: not a source. Deals from an airline source link to the airline
+  (`affiliate_url` = the observation's `deep_link`, no partner API; the site shows
+  `link_kind: airline` with `labels.disclosure.direct`, never the affiliate disclosure); the
+  recheck and `price_now` judge a deal at **its own source only** (`_fetch_trip_month`,
+  `run_recheck`); another source's price of the same trip is `pipeline.also_seen`, a comparison
+  shown on the review pages and the promotion page (`also_seen`, each price on its `data-obs`),
+  never a confirmation. The review Function refuses to check or approve an airline-source deal
+  (`handler.pipelineOnly`): the automatic approval or `deal approve` on the PC decide those.
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
   only shows deals a human or the rules approved (D46: `review.auto_approve`, pure rules in
   `auto_review.disqualified`, `pipeline.run_auto_approve` in the full path right after
@@ -340,6 +357,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Update README.md, CLAUDE.md and DECISIONS.md in the same commit as a feature.
 
 ## Layout
+- `src/escapadinha/collector/ryanair.py` (D47): `parse_fares` (pure), `request_params`, `booking_url`,
+  `user_agent`, `RyanairSource.fetch_fares` (airport pair + month), `RyanairError` (`blocked` pauses
+  the source), `AIRLINE_SOURCES`; `hotlist.py` (pure): `pairs` (busiest first), `plan` → `HotPlan`
+  (open promotions' months first, then the rotation from the stored cursor); wired by
+  `pipeline.run_airlines` (+ `airline_pause`, `also_seen`, `live_check_query`), CLI `airlines`
 - `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `plan.py` (the day's pass,
   D42; `deep_routes_by_demand`, D45), `runner.collect` (runs a `Plan`), `catalogue.py`, `eurostat.py` (D45),
   `graphql.py` (D43: `GraphQLClient.prices_round_trip`, `parse_response`, pure `match` → `Match`;
