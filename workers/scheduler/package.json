@@ -2,7 +2,7 @@
   "name": "pontonomada-scheduler",
   "private": true,
   "type": "module",
-  "description": "Cloudflare Worker that dispatches the pipeline workflow every 2 hours (DECISIONS D41). No dependencies.",
+  "description": "Cloudflare Worker that dispatches the pipeline workflow every 30 minutes (DECISIONS D41, D46). No dependencies.",
   "engines": {
     "node": ">=22"
   },
