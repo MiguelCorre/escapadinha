@@ -37,9 +37,12 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from escapadinha import articles, detector, i18n_pt, pipeline, pontes, routes
+from escapadinha.collector.ryanair import AIRLINE_SOURCES
 from escapadinha.config import PROGRAMMES, Context
 from escapadinha.models import Deal, Observation, Route
-from escapadinha.presentation import BLOCK_DISCLOSURE, DISCLOSURE, SITE_DISCLOSURE
+from escapadinha.presentation import (
+    BLOCK_DISCLOSURE, DIRECT_DISCLOSURE, DISCLOSURE, SITE_DISCLOSURE, seller_label, source_label,
+)
 from escapadinha.storage import db
 from escapadinha.website import (
     DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, node,
@@ -222,8 +225,11 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
         cheapest[route.key] = min(fresh, key=lambda o: (o.price, o.departure_date, o.id),
                                   default=None)
         calendars[route.key] = _calendar(fresh, today)
-        lows[route.origin] += detector.low_prices(offers, history, cfg.detector, now,
-                                                  route.rules, baselines)
+        # Low-price rows carry partner links under one partner disclosure per list: an airline's
+        # own offers (D47) stay out of the rows until a row can say its link kind.
+        lows[route.origin] += [lp for lp in detector.low_prices(offers, history, cfg.detector, now,
+                                                                route.rules, baselines)
+                               if lp.observation.source not in AIRLINE_SOURCES]
 
     # Per-origin row cap (size budget): biggest discounts kept.
     cap = cfg.site.max_low_prices_per_origin
@@ -507,6 +513,13 @@ def _promotion(ctx: Context, conn: sqlite3.Connection, d: Deal, o: Observation, 
         "published_at": db.utc_iso(d.published_at),
         "checked_at": db.utc_iso(d.last_checked_at or o.fetched_at),
         "booking_link": link if live else None,
+        # D47: where the price and the link come from, and the newest price of the same trip at
+        # every other source (each on its observation): a comparison the page shows as such.
+        "source": o.source,
+        "link_kind": "airline" if o.source in AIRLINE_SOURCES else "partner",
+        "seller": source_label(o.source),
+        "also_seen": [{"source": a.source, "label": seller_label(a), "obs": a.id, "eur": _eur(a.price)}
+                      for a in pipeline.also_seen(conn, o)] if live else [],
         "post_url": d.post_url if d.post_url and INSTAGRAM_POST.match(d.post_url) else None,
         "expired": None if live else {"reason": d.expired_reason,
                                       "latest": _latest_seen(conn, d, o)},
@@ -540,7 +553,8 @@ def _labels() -> dict:
         "kinds": dict(i18n_pt.ROUTE_KIND), "route_status": dict(i18n_pt.ROUTE_STATUS),
         "months": list(i18n_pt.MONTHS), "months_short": list(i18n_pt.MONTHS_SHORT),
         "weekdays_short": list(i18n_pt.WEEKDAYS_SHORT),
-        "disclosure": {"site": SITE_DISCLOSURE, "post": DISCLOSURE, "affiliate": BLOCK_DISCLOSURE},
+        "disclosure": {"site": SITE_DISCLOSURE, "post": DISCLOSURE, "affiliate": BLOCK_DISCLOSURE,
+                       "direct": DIRECT_DISCLOSURE},
     }
 
 

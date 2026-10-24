@@ -84,6 +84,17 @@ async function check(deal: SnapshotDeal, env: Env, deps: Deps): Promise<LiveChec
   return liveCheck(deal, { token: env.TRAVELPAYOUTS_TOKEN, fetch: deps.fetch, now: deps.now });
 }
 
+/** D47: the Function prices Aviasales deals only (its live check is the prices_for_dates port).
+ * A deal from an airline's own site is checked by the pipeline: the automatic approval, or
+ * `escapadinha deal approve` on the PC. The pt-PT reason, or null when the Function may check. */
+export function pipelineOnly(deal: SnapshotDeal): string | null {
+  const source = deal.live_check.source;
+  if (!source || source === "travelpayouts") return null;
+  const name = deal.source_label ?? source;
+  return `Esta promoção vem de ${name} e só o pipeline a verifica: a aprovação automática trata dela, `
+    + "ou aprova no PC (escapadinha deal approve).";
+}
+
 async function onCheck(request: Request, env: Env, deps: Deps): Promise<Response> {
   const body = await readBody(request);
   if (body instanceof Response) return body;
@@ -93,6 +104,8 @@ async function onCheck(request: Request, env: Env, deps: Deps): Promise<Response
   if (!OPEN_STATUSES.includes(deal.status)) {
     return fail(`O deal ${deal.id} está '${STATUS_PT[deal.status]}' e já não é verificado.`, 409);
   }
+  const only = pipelineOnly(deal);
+  if (only) return fail(only, 409);
   try {
     const result = await check(deal, env, deps);
     return json({ ok: true, check: result, message: result.valid
@@ -135,6 +148,8 @@ async function onDecision(request: Request, env: Env, deps: Deps, actor: string)
   // pipeline.approve: the live check is the gate; a moved price writes nothing.
   let live: LiveCheck | null = null;
   if (kind === "approve") {
+    const only = pipelineOnly(deal);
+    if (only) return fail(only, 409);
     try {
       live = await check(deal, env, deps);
     } catch (exc) {

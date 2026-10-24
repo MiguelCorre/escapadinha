@@ -69,7 +69,8 @@ export interface Labels {
   months_short: string[];
   weekdays_short: string[];
   /** affiliate: in every affiliate block (D37); absent in older exports. */
-  disclosure: { site: string; post: string; affiliate?: string };
+  /** direct: next to an airline's own link (D47); absent in older exports. */
+  disclosure: { site: string; post: string; affiliate?: string; direct?: string };
 }
 
 export interface Origin {
@@ -151,6 +152,15 @@ export interface Destination {
   photo: Photo | null;
 }
 
+export type LinkKind = "partner" | "airline";
+
+export interface AlsoSeen {
+  source: string;
+  label: string;      // "Aviasales via Kiwi.com", "Ryanair"
+  obs: number;
+  eur: number;
+}
+
 export interface Promotion {
   id: number;
   route: string;
@@ -167,6 +177,17 @@ export interface Promotion {
   published_at: string | null;
   checked_at: string;
   booking_link: string | null;
+  /** D47: the price source of the offer and its link (travelpayouts = the Aviasales cache,
+   * ryanair = the airline's own fare finder); absent in older exports. */
+  source?: string;
+  /** D47: partner = tracked Travelpayouts link (site disclosure), airline = the airline's own
+   * page, no commission (labels.disclosure.direct). Absent in older exports: partner. */
+  link_kind?: LinkKind;
+  /** D47: the source as pages name it (Aviasales, Ryanair), for the button's note. */
+  seller?: string;
+  /** D47: the newest price of the same trip at every other source, cheapest first, each on its
+   * observation: a comparison the page shows as such. Empty when not live. */
+  also_seen?: AlsoSeen[];
   /** Its Instagram post once published (D36); absent in exports before the field existed. */
   post_url?: string | null;
   expired: { reason: string | null; latest: { obs: number; price: number } | null } | null;

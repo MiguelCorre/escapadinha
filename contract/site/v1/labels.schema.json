@@ -41,6 +41,7 @@
       "properties": {
         "site": {"type": "string", "description": "Next to every booking button."},
         "post": {"type": "string", "description": "Captions and CTA slides (presentation.DISCLOSURE)."},
+        "direct": {"type": "string", "description": "Added in v1 (D47): next to the booking button of a promotion whose link goes to the airline's own site (presentation.DIRECT_DISCLOSURE); absent in older exports."},
         "affiliate": {"type": "string", "description": "Added in v1 (D37): in every affiliate block of an itinerary or tip (presentation.BLOCK_DISCLOSURE); absent in older exports."}
       }
     }

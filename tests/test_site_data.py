@@ -119,7 +119,8 @@ CHECKED = {
     "routes": {("/routes/*/months/*/typical_low", "eur"), ("/routes/*/months/*/average", "eur"),
                ("/routes/*/cheapest", "offer"), ("/routes/*/calendar/*/price", "eur")},
     "promotions": {("/promotions/*/offer", "offer"), ("/promotions/*/typical_low", "eur"),
-                   ("/promotions/*/expired/latest/price", "eur")},
+                   ("/promotions/*/expired/latest/price", "eur"),
+                   ("/promotions/*/also_seen/*/eur", "eur")},
     "low-prices": {("/rows/*/2", "eur"), ("/rows/*/10", "eur")},
 }
 
@@ -167,6 +168,9 @@ def untraced_prices(ctx, conn, out: Path) -> list[str]:
         offer(f"promotion {p['id']}", p["offer"], obs.route_key)
         if p["offer"]["obs"] != obs.id:
             bad.append(f"promotion {p['id']}: offer is not the deal's observation")
+        for a in p.get("also_seen", []):           # D47: each comparison price on its observation
+            offer(f"promotion {p['id']} also_seen {a['source']}", {"obs": a["obs"], "price": a["eur"]},
+                  obs.route_key)
         if p["typical_low"] is not None and cents(p["typical_low"]) != cents(deal.baseline_median):
             bad.append(f"promotion {p['id']} typical_low: {p['typical_low']}")
         if p["expired"]:

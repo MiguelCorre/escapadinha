@@ -96,6 +96,24 @@ class CollectorConfig(BaseModel):
         return self
 
 
+class AirlineSourceConfig(BaseModel):
+    """One airline's own fare finder as a price source (D47): the hot list runner asks the open
+    promotions' months on that airline, then `max_requests_per_run` (airport pair, month) tasks
+    of a rotation over every pair the cache has shown for it. A 403, 429 or challenge page
+    pauses the source for `blocked_hours` (meta `airlines.<source>.blocked`): never a retry,
+    never a step around a wall."""
+
+    enabled: bool = True
+    max_requests_per_run: int = Field(20, ge=0, le=200)   # tasks per run, promotions' months first
+    requests_per_minute: int = Field(20, ge=1, le=60)     # one plain request at a time, paced
+    blocked_hours: int = Field(24, ge=1, le=24 * 14)
+    lookback_days: int = Field(90, ge=1)                  # offers this old name the airport pairs
+
+
+class AirlinesConfig(BaseModel):
+    ryanair: AirlineSourceConfig = AirlineSourceConfig()
+
+
 class ConfidenceConfig(BaseModel):
     """When a typical low is `high` confidence (D44): at least `high_days` daily lows whose
     coefficient of variation is at most `high_max_cv`. Below the maturity gate (D40) it is
@@ -594,6 +612,7 @@ class AppConfig(BaseModel):
     instagram: InstagramConfig = InstagramConfig()
     telegram: TelegramConfig = TelegramConfig()
     collector: CollectorConfig = CollectorConfig()
+    airlines: AirlinesConfig = AirlinesConfig()   # the airlines' own fare finders (D47)
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()
     origins_pt: dict[str, str] = {}

@@ -92,7 +92,8 @@ uv run escapadinha routes discover         # find direct routes from the 6 airpo
 uv run escapadinha routes discover --dry-run --no-photos   # show what would change, store nothing
 uv run escapadinha routes list             # every route + active/dormant counts per origin (pt-PT)
 uv run escapadinha collect                 # routes with prices × 3 departure months; the day's first run from 06:00 Lisbon: every active route × 6 (D42)
-uv run escapadinha recheck                 # re-verifies open deals against the latest run
+uv run escapadinha airlines                # Ryanair's fare finder for the hot list: open promotions' months on Ryanair first, then the next 20 pair-months of the rotation (D47)
+uv run escapadinha recheck                 # re-verifies open deals against the latest run, each at its own source
 uv run escapadinha detect                  # latest run: low prices + promotion candidates per route; expires queued deals that aren't candidates today (D40)
 uv run escapadinha enrich                  # latest run: baggage, selling agency and exact found time for its low prices and candidates (GraphQL, D43)
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
@@ -221,6 +222,29 @@ get/put/list/delete/lock). Without R2 keys the store is `data/objects/`; with th
 Upgrading from schema v6 collapses duplicates (rows with a deal keep their id), parks the old
 `raw_json` values and archives them per run on the next command (`reconstructed: true`), then
 VACUUMs. On the real database: 9.4 MB → 0.65 MB plus 0.8 MB of archives.
+
+### The airlines' own fares next to the cache (DECISIONS D47)
+
+The cache reaches us a median 12.5 h after a traveller found a fare (research 2026-10-24).
+Ryanair's own fare finder (`farfnd/v4/roundTripFares`, the JSON behind ryanair.com's Fare
+Finder) answers in under half a second with the cheapest round trip per departure day, live, so
+right after every collection `run_airlines` asks it for a **hot list**: the months of the open
+promotions on Ryanair flights first, then the next `airlines.ryanair.max_requests_per_run` (airport
+pair, month) tasks of a rotation over every pair the cache has shown a Ryanair fare for
+(busiest route first). Its offers are stored like any other (`source` `ryanair`, `gate`
+`Ryanair`, `found_at` = Ryanair's own `priceUpdated`, the link to ryanair.com for the dates) under
+their own run row (scope `airlines`), and detection reads them with the collection's.
+
+The rules (D13 as amended by D47): one plain request at a time, a user-agent that names the site,
+no retries, and the first 403, 429 or challenge page stops the pass and pauses the source for
+`blocked_hours` (`escapadinha airlines` prints "paused until …"). Never a step around a barrier:
+Wizz Air's endpoints sit behind a WAF challenge and are not read.
+
+A promotion from a Ryanair fare links to ryanair.com (no commission; the page shows the direct
+disclosure instead of the affiliate one), is rechecked **at Ryanair only** (the price must hold
+where the link goes), and lists the same trip's newest price at every other source as "Também
+visto" (a comparison, never a confirmation). The review page on the phone cannot check or approve
+such a deal: the automatic approval or `deal approve` on the PC do.
 
 ### Baggage and agency from the GraphQL API (DECISIONS D43)
 After detection, `enrich` (part of `run`, never fails it) asks the Aviasales GraphQL Flights Data
@@ -1380,6 +1404,12 @@ uv run pytest -m "not browser"
   user found the price, which can be several days old. Captions state both that date and when
   we checked it, and that prices change. Times are UTC, so trip dates are taken from the link's
   local dates.
+- **Ryanair fare finder** (D47): `https://www.ryanair.com/api/farfnd/v4/roundTripFares`, the
+  JSON ryanair.com's own Fare Finder calls; no key, no terms page of its own (Ryanair's website
+  terms forbid automated access: a contractual risk Miguel accepted on 2026-10-24, kept small by
+  D47's rules: low volume, an identifying user-agent, no retries, a pause at the first wall, and
+  links that send the traveller to ryanair.com). Prices are stored as returned, with Ryanair's own
+  `priceUpdated` as the found time.
 - **Eurostat `avia_par_pt`** (D45): passengers carried per month on each airport pair with a
   Portuguese airport (compiled by INE from ANA and ANAC data), through the public dissemination
   API (JSON-stat, no key, one request a month). Eurostat's copyright notice authorises reuse of

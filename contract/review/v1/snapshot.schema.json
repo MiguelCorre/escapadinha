@@ -104,6 +104,9 @@
                       "description": "Stops on the way out, from the deal's observation (null: unknown). Optional (added within v1): the review Function's live check applies the route's max_transfers to it like the pipeline; without it, it falls back to `direct`."},
         "return_transfers": {"type": ["integer", "null"], "minimum": 0,
                              "description": "Stops on the way back, as `transfers`."},
+        "source": {"type": "string", "description": "Optional (added within v1, D47): the price source the deal's observation (and its link) comes from: travelpayouts (the Aviasales cache) or an airline's own site (ryanair); absent from older snapshots."},
+        "source_label": {"type": "string", "description": "Optional (D47): the source as the pages name it (Aviasales, Ryanair)."},
+        "also_seen": {"type": "array", "description": "Optional (D47): the newest stored price of the same trip at every other source, cheapest first. A comparison, never a confirmation: the recheck trusts the deal's own source only.", "items": {"type": "object", "additionalProperties": false, "required": ["source", "label", "price_eur", "observation_id", "seen_at"], "properties": {"source": {"type": "string"}, "label": {"type": "string", "description": "\"Aviasales via Kiwi.com\", \"Ryanair\"."}, "price_eur": {"type": "number"}, "observation_id": {"type": "integer"}, "gate": {"type": ["string", "null"]}, "seen_at": {"$ref": "#/$defs/timestamp"}}}},
         "gate": {"type": ["string", "null"],
                  "description": "The agency selling the offer, from the Aviasales GraphQL row matched to it (D43); null when no row matched. Optional (added within v1)."},
         "with_baggage": {"type": ["boolean", "null"],
@@ -165,10 +168,14 @@
                                 "description": "Last recheck by the pipeline (collection or `deal check`)."},
             "last_seen_price_eur": {"type": ["number", "null"]},
             "expired_reason": {"type": ["string", "null"]},
+            "source": {"type": "string", "description": "Optional (D47): the source `query` is for. The review Function prices Aviasales deals (travelpayouts) only; a deal from an airline's own site is left to the pipeline (automatic approval, or `deal approve` on the PC)."},
             "query": {
               "type": "object",
-              "description": "Exact query of the provider request (prices_for_dates) that prices this trip now, the same the collection sends for the route-month (with direct=\"true\" on a route that takes only nonstop flights, D43); the API token goes in the X-Access-Token header.",
-              "required": ["origin", "destination", "departure_at", "one_way", "currency"],
+              "description": "Exact query of the request that prices this trip now at the deal's own source (`source`). Aviasales (travelpayouts, the default): prices_for_dates, the same the collection sends for the route-month (with direct=\"true\" on a route that takes only nonstop flights, D43); the API token goes in the X-Access-Token header. Ryanair (D47): the fare finder's roundTripFares request for the airport pair and month (the Function does not send it: the pipeline checks those deals).",
+              "oneOf": [
+                {"required": ["origin", "destination", "departure_at", "one_way", "currency"]},
+                {"required": ["departureAirportIataCode", "arrivalAirportIataCode", "outboundDepartureDateFrom", "outboundDepartureDateTo", "durationFrom", "durationTo", "currency"]}
+              ],
               "additionalProperties": {"type": ["string", "integer"]}
             },
             "rules": {

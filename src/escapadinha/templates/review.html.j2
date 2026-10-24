@@ -161,6 +161,8 @@ function card(d) {
         ${row("Chegada", esc(d.arrival_airport))}
         ${row("Bagagem", esc(d.baggage))}
         ${row("Agência", esc(d.gate))}
+        ${row("Fonte", esc(d.source_label))}
+        ${row("Também visto", esc((d.also_seen_pt || []).join(" · ")))}
         ${row("Deal", deal)}
         ${row("Preço visto", [d.found_at_pt ? `encontrado a ${esc(d.found_at_pt)} (${d.found_fresh ? "<strong>" : ""}${esc(d.found_ago)}${d.found_fresh ? "</strong>" : ""})` : d.found_on && `encontrado a ${esc(d.found_on)}`, `verificado a ${esc(d.checked_at)}`].filter(Boolean).join(" · "))}
         ${row("Aviasales", esc(d.partner_offer_pt))}

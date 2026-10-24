@@ -21,10 +21,9 @@ from pathlib import Path
 from PIL import Image
 
 from escapadinha import pipeline, review_events
-from escapadinha.collector.travelpayouts import request_params
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation
-from escapadinha.presentation import PhotoCredit, build_deal_view
+from escapadinha.presentation import PhotoCredit, build_deal_view, seller_label, source_label
 from escapadinha.review import STATUS_PT, TABS
 from escapadinha.storage import db
 from escapadinha.website import is_public, promo_image_dir, promo_slug
@@ -126,7 +125,6 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
     route = pipeline.route_for(ctx, conn, obs.route_key)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=PhotoCredit.from_photo(None, None))
-    c = ctx.config.collector
     return {
         "id": deal.id,
         "status": deal.status,
@@ -150,6 +148,14 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "transfers": obs.transfers,              # the live check's stop limit (D29)
         "return_transfers": obs.return_transfers,
         "gate": obs.gate,                        # GraphQL enrichment (D43): null = no match
+        # D47: where the price comes from (the link goes there too) and the newest price of the
+        # same trip at every other source, cheapest first: a comparison, never a confirmation.
+        "source": obs.source,
+        "source_label": source_label(obs.source),
+        "also_seen": [{"source": a.source, "label": seller_label(a), "price_eur": a.price,
+                       "observation_id": a.id, "gate": a.gate,
+                       "seen_at": db.utc_iso(a.last_seen_at or a.fetched_at)}
+                      for a in pipeline.also_seen(conn, obs)],
         "with_baggage": obs.with_baggage,
         "baggage": view.baggage_line,
         "rule": deal.rule,
@@ -181,9 +187,8 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
             "last_checked_at": db.utc_iso(deal.last_checked_at),
             "last_seen_price_eur": deal.last_seen_price,
             "expired_reason": deal.expired_reason,
-            "query": request_params(obs.origin, obs.destination, obs.departure_date.replace(day=1),
-                                    route.rules, currency=c.currency,
-                                    limit=c.limit_per_request, market=c.market),
+            "source": obs.source,                # D47: the Function checks Aviasales deals only
+            "query": pipeline.live_check_query(ctx, obs, route.rules),
             "rules": {**route.rules.to_json(),
                       "max_offer_age_days": ctx.config.detector.max_offer_age_days},
         },

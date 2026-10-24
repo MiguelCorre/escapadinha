@@ -25,7 +25,12 @@ from escapadinha.collector import graphql
 from escapadinha.collector.catalogue import TravelpayoutsCatalogue
 from escapadinha.collector.eurostat import EurostatClient, EurostatError
 from escapadinha.collector import eurostat
-from escapadinha.collector.travelpayouts import RateLimiter, TravelpayoutsError, TravelpayoutsSource
+from escapadinha.collector import hotlist, ryanair
+from escapadinha.collector.base import departure_months
+from escapadinha.collector.ryanair import RyanairError, RyanairSource
+from escapadinha.collector.travelpayouts import (
+    RateLimiter, TravelpayoutsError, TravelpayoutsSource, request_params,
+)
 from escapadinha.config import Context, DetectorConfig
 from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation, Post, Route, RouteRules
@@ -79,6 +84,156 @@ def run_collect(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
     if daily and summary.status != "failed":
         db.set_meta(conn, DAILY_PASS, json.dumps({"day": today.isoformat(), "run": summary.run_id}))
     return summary
+
+
+# --- the airlines' own fares (D47) ---------------------------------------------
+
+AIRLINE_BLOCKED = "airlines.{}.blocked"   # meta: {"at", "until", "status"}: the source is paused
+AIRLINE_CURSOR = "airlines.{}.cursor"     # meta: {"cursor": n}: where the rotation continues
+
+
+@dataclass(frozen=True)
+class AirlinesSummary:
+    """What the airline step did: its own run row (scope `airlines`), or why nothing was asked."""
+
+    source: str
+    run_id: int | None          # None: nothing asked (disabled, paused, no pairs known)
+    status: str                 # ok | partial | failed | blocked | paused | disabled | empty
+    n_requests: int
+    n_observations: int
+    n_new: int
+    errors: list[str]
+    plan: hotlist.HotPlan | None = None
+    paused_until: datetime | None = None
+
+    def describe(self) -> str:
+        name = ryanair.SELLER if self.source == ryanair.SOURCE else self.source
+        if self.status == "disabled":
+            return f"{name}: off (airlines.{self.source}.enabled)"
+        if self.status == "paused":
+            return f"{name}: paused until {self.paused_until:%Y-%m-%d %H:%M} UTC after a block"
+        if self.status == "empty":
+            return f"{name}: nothing to ask (no airport pairs seen for it yet)"
+        text = (f"{name}: {self.status}, {self.plan.describe()}, {self.n_requests} requests, "
+                f"{self.n_observations} offers ({self.n_new} new)")
+        if self.status == "blocked":
+            text += f"; paused until {self.paused_until:%Y-%m-%d %H:%M} UTC"
+        if self.errors:
+            text += f", {len(self.errors)} failed"
+        return text
+
+
+def also_seen(conn: sqlite3.Connection, obs: Observation) -> list[Observation]:
+    """The newest stored price of the deal's trip at every other source, cheapest first: the
+    comparison the review pages and the promotion page show (D47). A comparison, never a
+    confirmation: the recheck only trusts the deal's own source."""
+    others = [o for s, o in db.trip_observations_by_source(conn, obs).items() if s != obs.source]
+    return sorted(others, key=lambda o: (o.price, o.source))
+
+
+def live_check_query(ctx: Context, obs: Observation, rules: RouteRules) -> dict:
+    """The exact provider request that prices the deal's trip now, at the deal's own source
+    (`_fetch_trip_month` sends the same): the snapshot carries it for the review Function."""
+    month = obs.departure_date.replace(day=1)
+    if obs.source == ryanair.SOURCE:
+        return ryanair.request_params(obs.origin, obs.destination_airport or "", month, rules)
+    c = ctx.config.collector
+    return request_params(obs.origin, obs.destination, month, rules, currency=c.currency,
+                          limit=c.limit_per_request, market=c.market)
+
+
+def airline_pause(conn: sqlite3.Connection, source: str, now: datetime) -> datetime | None:
+    """Until when the source is paused after a block, if it still is."""
+    until = db.get_meta_json(conn, AIRLINE_BLOCKED.format(source)).get("until")
+    if until and datetime.fromisoformat(until) > now:
+        return datetime.fromisoformat(until)
+    return None
+
+
+def ryanair_source(ctx: Context) -> RyanairSource:
+    c = ctx.config.airlines.ryanair
+    return RyanairSource(user_agent=ryanair.user_agent(ctx.config.site.base_url),
+                         limiter=RateLimiter(c.requests_per_minute))
+
+
+def run_airlines(ctx: Context, conn: sqlite3.Connection,
+                 now: datetime | None = None) -> AirlinesSummary:
+    """Ryanair's fare finder for the hot list (D47): the open promotions' months on Ryanair
+    flights, then the next `max_requests_per_run` (airport pair, month) tasks of the rotation,
+    one request at a time. Its own run row (source `ryanair`, scope `airlines`): detection and
+    the recheck read its offers like the collection's (`observations_seen_since` the collection
+    run, which is older). The first 403/429/challenge stops the pass and pauses the source for
+    `blocked_hours`. Any other failed request is listed and the pass goes on. Never raises."""
+    now = now or db.utcnow()
+    c = ctx.config.airlines.ryanair
+    name = ryanair.SOURCE
+    if not c.enabled:
+        return AirlinesSummary(name, None, "disabled", 0, 0, 0, [])
+    until = airline_pause(conn, name, now)
+    if until is not None:
+        return AirlinesSummary(name, None, "paused", 0, 0, 0, [], paused_until=until)
+    active = routes.active_routes(conn, ctx.config.routes)
+    seen = db.airline_airport_counts(conn, ryanair.AIRLINE,
+                                     since=now - timedelta(days=c.lookback_days))
+    known = hotlist.pairs(active, seen)
+    today = now.astimezone(i18n_pt.LISBON).date()
+    months = departure_months(today, ctx.config.collector.months_ahead)
+    trips = [(o.origin, o.destination, o.destination_airport, o.departure_date.replace(day=1))
+             for _, o in db.open_deals(conn) if o.airline == ryanair.AIRLINE]
+    cursor = int(db.get_meta_json(conn, AIRLINE_CURSOR.format(name)).get("cursor", 0))
+    plan = hotlist.plan(known, months=months, deal_trips=trips, cursor=cursor,
+                        limit=c.max_requests_per_run)
+    if not plan.tasks:
+        return AirlinesSummary(name, None, "empty", 0, 0, 0, [], plan)
+    source = ryanair_source(ctx)
+    run_id = db.start_run(conn, name, scope="airlines")
+    errors: list[str] = []
+    responses: list[dict] = []
+    n_requests = n_observations = n_new = 0
+    blocked: int | None = None
+    for pair, month in plan.tasks:
+        n_requests += 1
+        label = f"{pair.route.key}/{pair.airport} {month:%Y-%m}"
+        try:
+            fetched = source.fetch_fares(pair.route.origin, pair.route.destination, pair.airport,
+                                         month, rules=pair.route.rules)
+        except RyanairError as exc:
+            errors.append(f"{label}: {exc}")
+            if exc.kind == "blocked":
+                blocked = exc.status
+                break
+            continue
+        except Exception as exc:  # one pair-month must not lose the rest
+            errors.append(f"{label}: {exc}")
+            continue
+        responses.append(fetched.response)
+        stored = db.insert_observations(conn, run_id, fetched.observations)
+        n_observations += len(fetched.observations)
+        n_new += stored.new
+    failed_requests = len(errors)
+    try:
+        archive.write_run(ctx.object_store, conn, run_id, responses)
+    except Exception as exc:  # prices are stored; say loudly that their payloads are not
+        errors.append(f"archive: {exc}")
+    paused_until = None
+    if blocked is not None:
+        paused_until = ryanair.pause_until(now, c.blocked_hours)
+        db.set_meta(conn, AIRLINE_BLOCKED.format(name), json.dumps(
+            {"at": now.isoformat(), "until": paused_until.isoformat(), "status": blocked}))
+        status = "blocked"
+    elif not errors:
+        status = "ok"
+    elif failed_requests < n_requests:
+        status = "partial"
+    else:
+        status = "failed"
+    db.set_meta(conn, AIRLINE_CURSOR.format(name), json.dumps({"cursor": plan.cursor}))
+    db.touch_routes_observed(conn, run_id)
+    db.finish_run(conn, run_id, status="failed" if status in ("failed", "blocked") else status,
+                  n_requests=n_requests, n_observations=n_observations, n_new=n_new,
+                  error="\n".join(errors) or None)
+    return AirlinesSummary(name, run_id, status, n_requests, n_observations, n_new, errors, plan,
+                           paused_until)
 
 
 def latest_offers(ctx: Context, conn: sqlite3.Connection,
@@ -456,7 +611,8 @@ def enrich_offers(ctx: Context, conn: sqlite3.Connection, offers: list[Observati
     null. Answers are archived under an `enrich` run (D18). Never raises: a failed query (a
     429 that kept failing, a GraphQL error) is listed in `errors` and the run goes on."""
     budget = ctx.config.collector.enrich_per_run
-    if not offers or budget == 0:
+    offers = [o for o in offers if o.source == TravelpayoutsSource.name]   # an airline's own
+    if not offers or budget == 0:                                           # row has no GraphQL match
         return EnrichSummary(None, len(offers), 0, 0, len(offers), [])
     groups: dict[tuple[str, str, date, date], list[Observation]] = {}
     for o in offers:
@@ -579,7 +735,9 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
     latest = db.observations_seen_since(conn, run_id)
     results = []
     for deal, obs in db.open_deals(conn):
-        route_latest = [o for o in latest if o.route_key == obs.route_key]
+        # The deal's own source only: the price shown must still hold where the link goes
+        # (D13, D47); another source's price is a comparison, never a confirmation.
+        route_latest = [o for o in latest if o.route_key == obs.route_key and o.source == obs.source]
         if obs.run_id >= run_id or not route_latest:
             continue
         rules = route_for(ctx, conn, obs.route_key).rules
@@ -642,10 +800,15 @@ def price_source(ctx: Context) -> TravelpayoutsSource:
 
 def _fetch_trip_month(ctx: Context, conn: sqlite3.Connection,
                       obs: Observation) -> tuple[Fetched, RouteRules]:
-    """The deal's route and departure month, priced now (one request)."""
+    """The deal's route and departure month, priced now (one request) at the deal's own
+    source: the price shown must come from the same place as the link (D13, D47)."""
     rules = route_for(ctx, conn, obs.route_key).rules
-    fetched = price_source(ctx).fetch(obs.origin, obs.destination,
-                                      obs.departure_date.replace(day=1), rules=rules)
+    month = obs.departure_date.replace(day=1)
+    if obs.source == ryanair.SOURCE:
+        fetched = ryanair_source(ctx).fetch_fares(obs.origin, obs.destination,
+                                                  obs.destination_airport or "", month, rules=rules)
+    else:
+        fetched = price_source(ctx).fetch(obs.origin, obs.destination, month, rules=rules)
     return fetched, rules
 
 
@@ -656,7 +819,13 @@ def check_failure(exc: Exception) -> str:
     """The reviewer's pt-PT reason when the provider couldn't price a deal: no English and no
     response text (that stays in the run's error / the log). The review Function says the same
     (web/functions/_lib/review/live-check.ts; cases in live-check-cases.json `failures`)."""
-    if isinstance(exc, TravelpayoutsError) and exc.kind == "http" and exc.status == 429:
+    if isinstance(exc, RyanairError) and exc.kind == "blocked":
+        why = "a Ryanair recusou o pedido (a fonte fica em pausa)"
+    elif isinstance(exc, RyanairError) and exc.kind == "http":
+        why = f"a Ryanair respondeu com o erro HTTP {exc.status}"
+    elif isinstance(exc, RyanairError):
+        why = "resposta inesperada da Ryanair"
+    elif isinstance(exc, TravelpayoutsError) and exc.kind == "http" and exc.status == 429:
         why = "o Travelpayouts está a limitar os pedidos. Tenta daqui a um minuto"
     elif isinstance(exc, TravelpayoutsError) and exc.kind == "http":
         why = f"o Travelpayouts respondeu com o erro HTTP {exc.status}"
@@ -689,7 +858,7 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
         raise ReviewError(f"O deal {deal_id} está '{STATUS_PT[deal.status]}' e já não é verificado.")
     if ctx.remote_store:
         return deal, price_now(ctx, conn, deal_id, now)
-    run_id = db.start_run(conn, TravelpayoutsSource.name, scope="live_check")
+    run_id = db.start_run(conn, obs.source, scope="live_check")
     try:
         fetched, rules = _fetch_trip_month(ctx, conn, obs)
     except Exception as exc:
@@ -1332,12 +1501,17 @@ def _write_text(path: Path, text: str) -> None:
 
 def ensure_affiliate_links(ctx: Context, conn: sqlite3.Connection,
                            pairs: list[tuple[Deal, Observation]]) -> list[tuple[Deal, Observation]]:
-    """Generate (once) a tracked partner link per deal; failures are recorded, not hidden.
-
-    Deals without a link are retried on every render. There is deliberately no fallback
-    to a hand-built `marker=` URL: the program terms allow only network tools.
+    """The booking link of each deal, once: a tracked partner link for an Aviasales offer, the
+    airline's own page for an airline source (D47: no commission, no partner API). Partner
+    failures are recorded, not hidden, and retried on every render. There is deliberately no
+    fallback to a hand-built `marker=` URL: the program terms allow only network tools.
     """
-    missing = [(d, o) for d, o in pairs if not d.affiliate_url and o.deep_link]
+    for d, o in pairs:
+        if not d.affiliate_url and o.deep_link and o.source in ryanair.AIRLINE_SOURCES:
+            db.set_deal_affiliate(conn, d.id, o.deep_link, None)
+    pairs = [db.get_deal(conn, d.id) for d, _ in pairs]
+    missing = [(d, o) for d, o in pairs if not d.affiliate_url and o.deep_link
+               and o.source not in ryanair.AIRLINE_SOURCES]
     if not missing:
         return pairs
     links = _partner_links(ctx, "instagram", [(d.id, o) for d, o in missing], sub_prefix="deal")

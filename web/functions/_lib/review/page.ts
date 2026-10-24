@@ -138,6 +138,8 @@ function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number, now
       ${row("Chegada", esc(d.arrival_airport))}
       ${row("Bagagem", esc(d.baggage ?? ""))}
       ${row("Agência", esc(d.gate ?? ""))}
+      ${row("Fonte", esc(d.source_label ?? ""))}
+      ${row("Também visto", esc((d.also_seen ?? []).map((a) => `${a.label} ${eur(a.price_eur)}`).join(" · ")))}
       ${row("Desconto", dealLine(d))}
       ${row("Preço visto", [foundLine(d, now), `verificado a ${esc(d.checked_at)}`].filter(Boolean).join(" · "))}
       ${row("Aviasales", partnerLine(d))}

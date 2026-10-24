@@ -57,6 +57,9 @@ def untraced_prices(conn, snap: dict) -> list[str]:
                        d["typical_low_eur"] == deal.baseline_median),
                       ("last_seen_price_eur", seen, seen == deal.last_seen_price
                        and db.trip_observation_at(conn, obs, seen) is not None)]
+            for a in d.get("also_seen", []):      # D47: a comparison price is its observation's
+                checks.append(("price_eur", a["price_eur"],
+                               db.get_observation(conn, a["observation_id"]).price == a["price_eur"]))
             for side in ("lowest", "highest") if d.get("baseline") else ():
                 price, oid = d["baseline"][f"{side}_eur"], d["baseline"][f"{side}_observation_id"]
                 checks.append((f"{side}_eur", price, db.get_observation(conn, oid).price == price))

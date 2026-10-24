@@ -51,6 +51,23 @@ describe("approve", () => {
     expect(w.net.to(DISPATCH)).toHaveLength(0);
   });
 
+  it("leaves a promotion from an airline's own site to the pipeline (D47)", async () => {
+    const base = deal(7);
+    const ryanair = deal(7, { source: "ryanair", source_label: "Ryanair",
+      live_check: { ...base.live_check, source: "ryanair", query: { departureAirportIataCode: "LIS" } } });
+    const w = await world(snapshot({ queue: [ryanair] }));
+    const { res, body } = await decide(w, { type: "approve", deal_id: 7 });
+    expect(res.status).toBe(409);
+    expect(body.message).toBe("Esta promoção vem de Ryanair e só o pipeline a verifica: a aprovação automática "
+      + "trata dela, ou aprova no PC (escapadinha deal approve).");
+    expect(w.net.to(PRICES)).toHaveLength(0);          // never asks Travelpayouts for it
+    expect(w.store.keys(PENDING)).toEqual([]);
+    expect(w.net.to(DISPATCH)).toHaveLength(0);
+    // a rejection needs no price: still allowed
+    const rejected = await decide(w, { type: "reject", deal_id: 7 });
+    expect(rejected.res.status).toBe(200);
+  });
+
   it("refuses when the provider can't be asked", async () => {
     const w = await world();
     w.net.on(PRICES, () => new Response("boom", { status: 502 }));
