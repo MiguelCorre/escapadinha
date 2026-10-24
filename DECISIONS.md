@@ -2718,8 +2718,9 @@ so nothing has to be hosted.
   minutes between ticks, or every tick would skip), `pipeline.RUN_GAP_WARNING` 2 h ("the
   half-hourly schedule missed runs"), fallback unchanged (every 6 h, window 180 min);
   `tests/test_scheduler.py` keeps `window + 30 min < warning ≤ fallback window` and
-  `10 ≤ window < 30`. The Worker is deployed by hand (`docs/runbooks/agendamento.md`), so nothing
-  changes until Miguel deploys it. **Minutes:** 48 runs a day at ~2.2 billed minutes is about
+  `10 ≤ window < 30`. The Worker is deployed by hand (`docs/runbooks/agendamento.md`); **deployed
+  2026-10-24 13:43 UTC** (version `0803f378`, Miguel: "corre tu o worker"; the secret stayed), so
+  the half-hourly schedule runs from the 14:47 UTC tick. **Minutes:** 48 runs a day at ~2.2 billed minutes is about
   3 200 min/month. *Corrected 2026-10-24, same day:* this entry first said "over GitHub Free's
   2 000, Miguel sets a spending limit on Actions before the deploy", but the repo is public and
   GitHub does not meter standard GitHub-hosted runners in public repositories (D25 already noted
