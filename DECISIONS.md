@@ -2892,3 +2892,68 @@ so nothing has to be hosted.
   `tests/test_site_data.py` and `tests/test_review_events.py` (the price tracers learn
   `also_seen`), `web/test/cta.test.ts` (the airline kind), `web/test/review/decision.test.ts`
   (the Function leaves airline deals to the pipeline).
+
+## D48: The browser probe on Miguel's PC: Google Flights as a comparison source (2026-10-24)
+- **Miguel's decision (2026-10-24):** "Avança com a fase 2: constrói a sonda para o meu PC, só
+  Google Flights para começar, e dá-me o runbook de instalação." Design: `docs/plan/2026-10-24-pc-probe.md`;
+  runbook (pt-PT, Task Scheduler): `docs/runbooks/sonda.md`. Phase 2 of D47.
+- **Why at home and only there.** The agencies Miguel wants to compare with have no price API
+  for us and sit behind bot walls; the one page that compares them live is a metasearch, and from
+  GitHub's runners an automated browser is caught within hours and only survives with the
+  barrier circumvention D47 forbids. On his PC, with his residential IP and a real Chrome profile,
+  one search at a time at a human pace is what the site expects from a person comparing fares.
+  Nothing hides the probe: a visible Chrome (`probe.headless: false`; true is detected more
+  often and buys nothing honest), no stealth, no proxy, no captcha solving; the first wall
+  (consent page, "unusual traffic", captcha, 403) ends the run and pauses the probe
+  `probe.paused_hours` (`probe/state.json`).
+- **Read once before building (2026-10-24, from this PC):** the public `q=` URL ("Flights from
+  LIS to STN on … returning … nonstop one adult economy", `hl=en&gl=PT&curr=EUR`) lands on round-trip
+  results after a consent page (declined once per profile); each row's text is
+  `3:10 PM | – | 6:00 PM | Ryanair | 2 hr 50 min | LIS–STN | Nonstop | 137 kg CO2e | Avg emissions | €65 | round trip`
+  (the operating carrier appended as "RyanairOperated by Malta Air"); choosing the outbound
+  lists the returns with the round-trip total; choosing the return opens the booking page, whose
+  sellers are links labelled "Continue to book with Ryanair airline for 65 euros" (an OTA reads
+  "… with eDreams online travel agency for …"), with a "View options" button for more. Google's
+  own price insight ("€65 is low … usually €100–315") is there too and is not read (its measure,
+  not a price of ours: the D46 rule for the partner's opinion would apply).
+- **The pipeline decides what is searched (`probe/wanted.json`, `pipeline.run_probe_wanted`,
+  after detection on every run):** every open promotion's trip first (the comparison next to
+  it), then the cheapest fresh nonstop offer of each route, busiest route first (Eurostat rank,
+  D45), in rotation (meta `probe.cursor`), up to `probe.max_trips` (10: three page loads a trip,
+  8–12 minutes a run at 20–45 s pauses). Pure: `probe/wanted.py`.
+- **The probe (`escapadinha probe setup|run|status`, `probe/runner.py`, `probe/google_flights.py`):**
+  `setup` opens the probe's own profile (`~/.pontonomada/probe-chrome`, never Miguel's) on the
+  home page and declines consent (the most privacy-preserving answer); `run` reads the list,
+  searches each trip (`gf.search`: results → cheapest nonstop outbound → cheapest return →
+  booking options, with `expand_options`; the parsers are pure over the page's texts and never
+  guess: no price, no row), pauses between trips, writes one `probe/results/<stamp>.json`
+  (every page text it used, per trip) and `probe/state.json`; a `Wall` stops it (exit 2) and the
+  results read so far are still written. Playwright over the PC's Chrome (`channel="chrome"`) is
+  the only browser code (`ChromeFlights`); tests drive a fake `Flights`.
+- **The import (`pipeline.run_probe_import`, after the airline step on every run, never failing
+  the run):** one run row (source `google_flights`, scope `probe`), an observation per
+  (trip, seller) with `gate` = the seller, `airline` from the row's carrier name when the pt-PT
+  table knows it, `found_at` = the read time, **`deep_link` None**; the files are archived with
+  the run and deleted; a file that cannot be read is listed and left for the next run.
+- **A comparison source (`pipeline.COMPARISON_SOURCES`, `comparable`).** Its offers never enter
+  detection (candidates, low prices, the typical low: `run_detect`, `route_history`), nor a
+  route page (`site_data` `by_route`): D47's rule that a deal links to, and is rechecked at, a
+  source the pipeline can ask itself, and the probe is neither always on nor a seller. They
+  show as "Também visto" (`also_seen`, now one entry per source **and seller**:
+  `db.trip_observations_by_source` keys by `(source, gate)`), "Google Flights via eDreams 55 €",
+  on both review pages and the promotion page, each on its observation. They are also a hot
+  signal only in that sense; a probe price never changes a status.
+- **Config `probe`** (`ProbeConfig`): `enabled`, `engine` (google_flights), `max_trips` 10,
+  `pause_seconds_min/max` 20/45, `paused_hours` 24, `headless` false, `profile_dir` (default
+  under the user's home). Nothing in `.env`: the PC's existing R2 keys (the ones `store pull`
+  uses) carry the probe's writes; a token restricted to `probe/` is a later hardening.
+- **Not done here:** Kayak and Skyscanner (the design's order: only if Google Flights leaves a
+  gap); OTA sellers appear only when Google lists them for the itinerary (often the airline
+  alone on Ryanair routes); the scheduled task is Miguel's to create (runbook); no second engine
+  abstraction beyond `probe.engine`.
+- **Rejected:** running the probe on GitHub (D47); headless by default; a probe-only
+  promotion or button; letting the probe pick trips; reading Google's price insight as a price.
+- **Tests:** `tests/test_probe.py` (the wanted list and its rotation, the parsers over the real
+  texts, `search` over a fake browser incl. a wall, results → observations without links, the
+  runner's file and state, pause and retry after a wall, the pipeline's list and import, the
+  comparison-source exclusions and the per-seller "Também visto").

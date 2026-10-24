@@ -9,7 +9,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `auto-approve`,
-  `special-offers`, `airlines`, `queue list|retry`,
+  `special-offers`, `airlines`, `probe setup|run|status` (the PC, D48), `queue list|retry`,
   `instagram token`,
   `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
@@ -191,8 +191,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
   collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → missed-pass warning
   (`pipeline.missed_daily_pass_warning`, last recorded pass > 30 h ago) → `run_airlines`
-  (D47: the airlines' own fares for the hot list, its own run row, never fails the run) → recheck →
-  detect (+ `run_reevaluate`, D40) → `run_enrich` (D43: never fails the run) →
+  (D47: the airlines' own fares for the hot list, its own run row, never fails the run) →
+  `run_probe_import` (D48: the PC probe's results as a comparison source, never fails the run) → recheck →
+  detect (+ `run_reevaluate`, D40) → `run_probe_wanted` (D48: the probe's next list, never fails
+  the run) → `run_enrich` (D43: never fails the run) →
   `run_special_offers` (D46: never fails the run) → `publish_due`
   (D32, every run: posting never waits for a full path) →
   `run_path.decide` (D46: site data the only change and the last full path under
@@ -245,6 +247,14 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   shown on the review pages and the promotion page (`also_seen`, each price on its `data-obs`),
   never a confirmation. The review Function refuses to check or approve an airline-source deal
   (`handler.pipelineOnly`): the automatic approval or `deal approve` on the PC decide those.
+- **The browser probe runs only on Miguel's PC** (D48, `escapadinha probe`, `docs/runbooks/sonda.md`):
+  Google Flights read like a person for the trips the pipeline lists (`run_probe_wanted` →
+  `probe/wanted.json`), results imported by `run_probe_import` as source `google_flights`, a
+  **comparison source** (`pipeline.COMPARISON_SOURCES`, `comparable`): never a candidate, a low
+  price, a typical low, a route page or a link; only `also_seen` (one entry per source and
+  seller). The probe never picks trips, logs in, spoofs anything or works around a wall: a
+  `Wall` ends the run and pauses it (`probe/state.json`). Its only browser code is
+  `probe/google_flights.ChromeFlights`; parsers are pure over the page's texts and never guess.
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
   only shows deals a human or the rules approved (D46: `review.auto_approve`, pure rules in
   `auto_review.disqualified`, `pipeline.run_auto_approve` in the full path right after
@@ -362,6 +372,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   the source), `AIRLINE_SOURCES`; `hotlist.py` (pure): `pairs` (busiest first), `plan` → `HotPlan`
   (open promotions' months first, then the rotation from the stored cursor); wired by
   `pipeline.run_airlines` (+ `airline_pause`, `also_seen`, `live_check_query`), CLI `airlines`
+- `src/escapadinha/probe/` (D48): `wanted.py` (pure: `Trip`, `plan`, JSON), `google_flights.py`
+  (`search_url`, `parse_result`, `cheapest_nonstop`, `parse_booking`, `airline_code`, `wall_reason`,
+  pure `search` over a `Flights`, `ChromeFlights` = Playwright on the PC's Chrome), `results.py`
+  (pure: record/document, `to_observations`), `runner.py` (`run`: list → searches → one results file
+  + `probe/state.json`); wired by `pipeline.run_probe_wanted` / `run_probe_import`, CLI `probe`
 - `src/escapadinha/collector/`: `TravelpayoutsSource` (+ `RateLimiter`), `plan.py` (the day's pass,
   D42; `deep_routes_by_demand`, D45), `runner.collect` (runs a `Plan`), `catalogue.py`, `eurostat.py` (D45),
   `graphql.py` (D43: `GraphQLClient.prices_round_trip`, `parse_response`, pure `match` → `Match`;

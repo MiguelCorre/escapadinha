@@ -1,6 +1,7 @@
 """The scheduled run as GitHub Actions runs it (D25): fast or full path, a fresh runner
 with only the bucket, one route failing, the workflow file itself."""
 
+import time
 import json
 import shutil
 from datetime import timedelta
@@ -13,6 +14,7 @@ import yaml
 from PIL import Image
 from typer.testing import CliRunner
 
+from escapadinha import i18n_pt as pt
 from escapadinha import cli, pipeline, renderer, routes, run_path
 from escapadinha.collector.travelpayouts import API_URL
 from escapadinha.config import Context
@@ -145,11 +147,19 @@ def test_new_deals_and_review_decisions_take_the_full_path(home):
     [(deal, _)] = db.deals_with_status(conn, "approved")
     assert deal.review_note == auto_review.NOTE and is_public(deal)
     # Live, its "verificado a" moves on every recheck: the site data changes each run, but the
-    # site is rebuilt for that alone at most every refresh_min_gap_minutes (D46).
+    # site is rebuilt for that alone at most every refresh_min_gap_minutes (D46). The contract
+    # keeps times to the second: a second run inside the same second as the first fetch would
+    # see nothing changed (a 0 s run with the fake npm), so step into the next second first.
+    time.sleep(1.1)
     assert ("Path: fast (site data changed, rebuilt at most every 120 min (last full path 0 min ago))"
             in " ".join(run_cli().split()))
-    later = db.utcnow() + timedelta(hours=3)
-    assert run_path.decide(home, conn, now=later) == run_path.PathDecision(True, "changed: site data")
+    now = db.utcnow()
+    later = now + timedelta(hours=3)
+    # Past the throttle the site data alone takes the full path; late in the evening three hours
+    # cross the Lisbon midnight and the day component changes too.
+    new_day = later.astimezone(pt.LISBON).date() != now.astimezone(pt.LISBON).date()
+    assert run_path.decide(home, conn, now=later) == run_path.PathDecision(
+        True, "changed: site data" + (", new day" if new_day else ""))
 
     pipeline.reject(home, conn, deal.id, "não", actor="test")   # Miguel's decision between runs
     conn.close()

@@ -203,7 +203,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     cfg = ctx.config
     run_id, run_offers = pipeline.latest_offers(ctx, conn, now)   # far months: the day's pass (D42)
     by_route: dict[str, list[Observation]] = defaultdict(list)
-    for o in run_offers:
+    for o in pipeline.comparable(run_offers):      # a comparison source is not a route's price (D48)
         by_route[o.route_key].append(o)
     all_routes = sorted((r for r in routes.all_routes(conn, cfg.routes)
                          if only_routes is None or r.key in only_routes), key=lambda r: r.key)

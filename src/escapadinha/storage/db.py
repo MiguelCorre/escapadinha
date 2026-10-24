@@ -383,16 +383,17 @@ def airline_airport_counts(conn: sqlite3.Connection, airline: str, *,
     return [(r["origin"], r["destination"], r["destination_airport"], r["n"]) for r in rows]
 
 
-def trip_observations_by_source(conn: sqlite3.Connection, o: Observation) -> dict[str, Observation]:
-    """The newest stored observation of `o`'s trip (route and dates) from every source, by
-    source name: the comparison next to a promotion (D47)."""
+def trip_observations_by_source(conn: sqlite3.Connection,
+                                o: Observation) -> dict[tuple[str, str | None], Observation]:
+    """The newest stored observation of `o`'s trip (route and dates) per (source, seller):
+    the comparison next to a promotion (D47; a probe source lists several sellers, D48)."""
     rows = conn.execute(
         """SELECT * FROM price_observations WHERE origin = ? AND destination = ?
            AND departure_date = ? AND return_date = ? ORDER BY source, last_seen_at DESC, id DESC""",
         (o.origin, o.destination, o.departure_date.isoformat(), o.return_date.isoformat()))
-    out: dict[str, Observation] = {}
+    out: dict[tuple[str, str | None], Observation] = {}
     for row in rows:
-        out.setdefault(row["source"], _row_to_observation(row))
+        out.setdefault((row["source"], row["gate"]), _row_to_observation(row))
     return out
 
 

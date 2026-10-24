@@ -52,6 +52,10 @@ app.add_typer(design_app, name="design")
 store_app = typer.Typer(help="Database sync with the R2 bucket (pull, push, status, check).",
                         no_args_is_help=True)
 app.add_typer(store_app, name="store")
+probe_app = typer.Typer(help="The browser probe on this PC (D48): Google Flights for the trips the "
+                        "pipeline lists, written to the object store as a comparison source.",
+                        no_args_is_help=True)
+app.add_typer(probe_app, name="probe")
 export_app = typer.Typer(help="Website data contract v1 (contract/site/v1): JSON for the Astro site.",
                          no_args_is_help=True)
 app.add_typer(export_app, name="export")
@@ -162,6 +166,93 @@ def airlines() -> None:
     per departure day on the open promotions' months and the next pairs of the rotation."""
     ctx, conn = _ctx()
     _report_airlines(pipeline.run_airlines(ctx, conn))
+
+
+def _probe_import() -> str:
+    """The run's import of the PC probe's results (D48) and its report line; never raises."""
+    ctx, conn = _ctx()
+    try:
+        summary = pipeline.run_probe_import(ctx, conn)
+    except Exception as exc:
+        line = f"Probe results: failed ({type(exc).__name__}: {exc})"
+        console.print(f"[red]{escape(line)}[/]")
+        return line
+    console.print(summary.describe())
+    for err in summary.errors:
+        console.print(f"  [red]✗[/] {escape(err)}")
+    return summary.describe()
+
+
+def _probe_wanted() -> str:
+    """The run's list for the PC probe (D48) and its report line; never raises."""
+    ctx, conn = _ctx()
+    try:
+        line = pipeline.run_probe_wanted(ctx, conn).describe()
+    except Exception as exc:
+        line = f"Probe list: failed ({type(exc).__name__}: {exc})"
+        console.print(f"[red]{escape(line)}[/]")
+        return line
+    console.print(line)
+    return line
+
+
+def _probe_profile(ctx: Context) -> Path:
+    custom = ctx.config.probe.profile_dir
+    return Path(custom).expanduser() if custom else Path.home() / ".pontonomada" / "probe-chrome"
+
+
+@probe_app.command("setup")
+def probe_setup() -> None:
+    """First run on this PC: open Chrome with the probe's own profile on Google Flights and
+    decline the consent page (the most privacy-preserving answer), once. Then `probe run`."""
+    from escapadinha.probe.google_flights import ChromeFlights
+    ctx, _ = _ctx()
+    profile = _probe_profile(ctx)
+    console.print(f"Perfil do Chrome da sonda: {profile}")
+    flights = ChromeFlights(profile, headless=False)
+    try:
+        console.print(flights.decline_consent())
+    finally:
+        flights.close()
+
+
+@probe_app.command("run")
+def probe_run(limit: Annotated[int | None, typer.Option(help="Trips this run (default: probe.max_trips)")] = None) -> None:
+    """One run: read probe/wanted.json, search each trip in Chrome at a human pace, write one
+    results file to the object store; a wall ends the run and pauses the probe."""
+    from escapadinha.probe import runner
+    from escapadinha.probe.google_flights import ChromeFlights
+    ctx, _ = _ctx()
+    cfg = ctx.config.probe
+    profile = _probe_profile(ctx)
+    summary = runner.run(
+        ctx.object_store, lambda: ChromeFlights(profile, headless=cfg.headless),
+        now=db.utcnow(), limit=cfg.max_trips if limit is None else limit,
+        pause=(cfg.pause_seconds_min, cfg.pause_seconds_max), paused_hours=cfg.paused_hours,
+        enabled=cfg.enabled, clock=db.utcnow)
+    console.print(summary.describe())
+    if summary.status == "wall":
+        raise typer.Exit(2)
+
+
+@probe_app.command("status")
+def probe_status() -> None:
+    """The probe's state in the object store: last run, pause, results waiting for the pipeline."""
+    from escapadinha.probe import results as probe_results, runner
+    ctx, _ = _ctx()
+    state = runner.read_state(ctx.object_store)
+    if not state:
+        console.print("Sem estado ainda: a sonda nunca correu.")
+    for key in ("last_run_at", "last_trips", "last_searched", "last_results", "paused_until", "reason"):
+        if key in state:
+            console.print(f"{key}: {state[key]}")
+    waiting = ctx.object_store.list(probe_results.RESULTS_PREFIX)
+    console.print(f"Ficheiros de resultados à espera do pipeline: {len(waiting)}")
+    try:
+        wanted = json.loads(ctx.object_store.get("probe/wanted.json").decode("utf-8"))
+        console.print(f"Lista a pesquisar: {len(wanted.get('trips', []))} viagens (gerada a {wanted.get('generated_at')})")
+    except KeyError:
+        console.print("Lista a pesquisar: ainda não foi escrita pelo pipeline.")
 
 
 def _special_offers() -> str:
@@ -979,8 +1070,10 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     if summary.status == "failed":           # every request failed: the run fails (exit 1)
         raise typer.Exit(1)
     report.append(_airlines())               # the airlines' own fares (D47): never fails the run
+    report.append(_probe_import())           # the PC probe's results (D48): never fails the run
     recheck_cmd()
     detect()
+    report.append(_probe_wanted())           # what the PC probe searches next (D48): never fails the run
     report.append(_enrich())                 # baggage and agency (D43): never fails the run
     report.append(_special_offers())         # Aviasales' second opinion (D46): never fails the run
     publish_due()                            # every run: posting never waits for a full path (D32)

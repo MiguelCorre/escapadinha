@@ -26,7 +26,6 @@ from escapadinha.collector.catalogue import TravelpayoutsCatalogue
 from escapadinha.collector.eurostat import EurostatClient, EurostatError
 from escapadinha.collector import eurostat
 from escapadinha.collector import hotlist, ryanair
-from escapadinha.collector.base import departure_months
 from escapadinha.collector.ryanair import RyanairError, RyanairSource
 from escapadinha.collector.travelpayouts import (
     RateLimiter, TravelpayoutsError, TravelpayoutsSource, request_params,
@@ -35,6 +34,9 @@ from escapadinha.config import Context, DetectorConfig
 from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation, Post, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
+from escapadinha.probe import google_flights as probe_engine
+from escapadinha.probe import results as probe_results
+from escapadinha.probe import wanted as probe_wanted
 from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
 from escapadinha.recheck import Recheck, promotion_expiry, recheck
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, UnknownDeal, check_decision
@@ -127,8 +129,9 @@ def also_seen(conn: sqlite3.Connection, obs: Observation) -> list[Observation]:
     """The newest stored price of the deal's trip at every other source, cheapest first: the
     comparison the review pages and the promotion page show (D47). A comparison, never a
     confirmation: the recheck only trusts the deal's own source."""
-    others = [o for s, o in db.trip_observations_by_source(conn, obs).items() if s != obs.source]
-    return sorted(others, key=lambda o: (o.price, o.source))
+    others = [o for (s, _gate), o in db.trip_observations_by_source(conn, obs).items()
+              if s != obs.source]
+    return sorted(others, key=lambda o: (o.price, o.source, o.gate or ""))
 
 
 def live_check_query(ctx: Context, obs: Observation, rules: RouteRules) -> dict:
@@ -234,6 +237,121 @@ def run_airlines(ctx: Context, conn: sqlite3.Connection,
                   error="\n".join(errors) or None)
     return AirlinesSummary(name, run_id, status, n_requests, n_observations, n_new, errors, plan,
                            paused_until)
+
+
+# --- the probe on the PC (D48) ----------------------------------------------------
+
+# Sources that only compare: their offers never enter detection (candidates, low prices, the
+# typical low) or a route page; they show as "Também visto" next to a promotion (D47's rule:
+# a deal links to, and is rechecked at, a source the pipeline can ask itself).
+COMPARISON_SOURCES = frozenset({probe_engine.SOURCE})
+PROBE_CURSOR = "probe.cursor"          # meta: {"cursor": n}: where the wanted rotation continues
+
+
+def comparable(observations: list[Observation]) -> list[Observation]:
+    """Observations a detector may use: the comparison sources left out."""
+    return [o for o in observations if o.source not in COMPARISON_SOURCES]
+
+
+@dataclass(frozen=True)
+class WantedSummary:
+    trips: int
+    promotions: int
+    key: str
+
+    def describe(self) -> str:
+        return (f"Probe list: {self.trips} trips" + (f" ({self.promotions} open promotions first)"
+                                                    if self.promotions else "") + f" → {self.key}")
+
+
+def run_probe_wanted(ctx: Context, conn: sqlite3.Connection,
+                     now: datetime | None = None) -> WantedSummary:
+    """Write `probe/wanted.json` for the PC's probe (D48): every open promotion's trip, then the
+    cheapest fresh nonstop offer of each route, busiest route first, in rotation (meta
+    `probe.cursor`), up to `probe.max_trips`. Runs after detection on every run."""
+    now = now or db.utcnow()
+    cfg = ctx.config
+    promotions = [(d.id, o) for d, o in db.open_deals(conn)]
+    run_id, offers = latest_offers(ctx, conn, now)
+    active = routes.active_routes(conn, cfg.routes)
+    ranks = demand.rank_routes(active)
+    ordered = sorted(active, key=lambda r: (ranks.get(r.key, len(active) + 1), r.key))
+    by_route: dict[str, list[Observation]] = {}
+    for o in comparable(offers):
+        by_route.setdefault(o.route_key, []).append(o)
+    cheapest: list[Observation] = []
+    for route in ordered:
+        fresh = [o for o in detector.eligible(by_route.get(route.key, []), route.rules)
+                 if detector.is_fresh(o, cfg.detector, now) and o.transfers == 0
+                 and o.return_transfers == 0]
+        if fresh:
+            cheapest.append(min(fresh, key=lambda o: (o.price, o.departure_date, o.id)))
+    cursor = int(db.get_meta_json(conn, PROBE_CURSOR).get("cursor", 0))
+    plan = probe_wanted.plan(promotions, cheapest, cursor=cursor, limit=cfg.probe.max_trips)
+    ctx.object_store.put(probe_wanted.KEY, json.dumps(
+        probe_wanted.to_json(plan, generated_at=now, run_id=run_id), ensure_ascii=False).encode("utf-8"))
+    db.set_meta(conn, PROBE_CURSOR, json.dumps({"cursor": plan.cursor}))
+    return WantedSummary(len(plan.trips), plan.n_promotions, probe_wanted.KEY)
+
+
+@dataclass(frozen=True)
+class ProbeImport:
+    run_id: int | None          # its own run row (source google_flights, scope probe), or None
+    files: int
+    records: int
+    searches_ok: int
+    observations: int
+    n_new: int
+    errors: list[str]
+
+    def describe(self) -> str:
+        if not self.files:
+            return "Probe results: none waiting"
+        text = (f"Probe results: {self.files} files, {self.searches_ok} of {self.records} searches "
+                f"with booking options, {self.observations} offers ({self.n_new} new)")
+        if self.errors:
+            text += f", {len(self.errors)} failed"
+        return text
+
+
+def run_probe_import(ctx: Context, conn: sqlite3.Connection,
+                     now: datetime | None = None) -> ProbeImport:
+    """Read the probe's results files from the object store, store their offers (source
+    `google_flights`, a comparison source) under one run row (scope `probe`), archive the files
+    with that run and delete them. Never raises: a file that cannot be read is listed and left
+    in place for the next run."""
+    keys = ctx.object_store.list(probe_results.RESULTS_PREFIX)
+    if not keys:
+        return ProbeImport(None, 0, 0, 0, 0, 0, [])
+    run_id = db.start_run(conn, probe_engine.SOURCE, scope="probe")
+    responses: list[dict] = []
+    errors: list[str] = []
+    records = ok = n_obs = n_new = 0
+    imported: list[str] = []
+    for key in keys:
+        try:
+            doc = json.loads(ctx.object_store.get(key).decode("utf-8"))
+            found = probe_results.to_observations(doc)
+        except Exception as exc:  # a bad file must not lose the others, nor stop the run
+            errors.append(f"{key}: {exc}")
+            continue
+        stored = db.insert_observations(conn, run_id, found.observations)
+        records += found.records
+        ok += found.searches_ok
+        n_obs += len(found.observations)
+        n_new += stored.new
+        responses.append({"key": key, "document": doc})
+        imported.append(key)
+    try:
+        archive.write_run(ctx.object_store, conn, run_id, responses)
+        for key in imported:
+            ctx.object_store.delete(key)
+    except Exception as exc:  # the files stay; the next run reads them again (dedup keeps one row)
+        errors.append(f"archive: {exc}")
+    status = "ok" if not errors else ("partial" if imported else "failed")
+    db.finish_run(conn, run_id, status=status, n_requests=len(keys), n_observations=n_obs,
+                  n_new=n_new, error="\n".join(errors) or None)
+    return ProbeImport(run_id, len(keys), records, ok, n_obs, n_new, errors)
 
 
 def latest_offers(ctx: Context, conn: sqlite3.Connection,
@@ -452,12 +570,13 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
 
     results = []
     for route in routes.active_routes(conn, ctx.config.routes):
-        offers = [o for o in run_obs if o.route_key == route.key]
+        offers = [o for o in run_obs if o.route_key == route.key and o.source not in COMPARISON_SOURCES]
         if not offers:
             results.append(RouteDetection(route.key, 0, None, None, "no_data", [], "no prices this run"))
             continue
-        history = db.route_history(conn, route.origin, route.destination,
-                                   since=now - timedelta(days=cfg.lookback_days), exclude_run_id=None)
+        history = comparable(db.route_history(conn, route.origin, route.destination,
+                                              since=now - timedelta(days=cfg.lookback_days),
+                                              exclude_run_id=None))
         recent = db.recently_flagged_offers(conn, route.origin, route.destination,
                                             since=now - timedelta(days=cfg.dedupe_days))
         found = detector.detect(offers, history, recent, cfg, route.price_cap_eur, now,
@@ -532,10 +651,11 @@ def _summarise(route: Route, offers: list[Observation], history: list[Observatio
 
 def route_history(ctx: Context, conn: sqlite3.Connection, route: Route,
                   now: datetime) -> list[Observation]:
-    """The route's stored offers inside the typical low's lookback window."""
-    return db.route_history(conn, route.origin, route.destination,
-                            since=now - timedelta(days=ctx.config.detector.lookback_days),
-                            exclude_run_id=None)
+    """The route's stored offers inside the typical low's lookback window (the comparison
+    sources left out, D48)."""
+    return comparable(db.route_history(conn, route.origin, route.destination,
+                                       since=now - timedelta(days=ctx.config.detector.lookback_days),
+                                       exclude_run_id=None))
 
 def current_baselines(ctx: Context, conn: sqlite3.Connection,
                       route: Route) -> dict[tuple[int, int], detector.Baseline]:
