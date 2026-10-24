@@ -1196,19 +1196,21 @@ no `schedule`. Every routine run is a `workflow_dispatch` with `full: false`:
   job for it. Step by step, with the token and the check: **[docs/runbooks/agendamento.md](docs/runbooks/agendamento.md)**.
 - **Tests:** `node --test` in `workers/scheduler` (no dependencies; `uv run pytest` runs it too).
 
-**Minutes used.** A private repo on GitHub Free gets 2000 Linux minutes a month (public repos are
-not metered), and **GitHub rounds each job up to the whole minute**. Measured on 10-13..15,
+**Minutes used.** The repo is public, and GitHub does not meter standard GitHub-hosted runners
+(`ubuntu-latest`, the only kind we use) in public repositories: the pipeline's minutes cost
+nothing and there is no monthly quota to run out of. The figures below matter only if the repo
+ever goes private (GitHub Free: 2000 Linux minutes a month, Actions stop when they end, D41 lists
+the knobs). **GitHub rounds each job up to the whole minute**. Measured on 10-13..15,
 before the daily pass (1,080 requests a run): a pipeline run took 1.7–3.4 min of wall time and
 billed 2–4 minutes (one took 6.2 and billed 7), 3.2 on average. With D42 a day has one pass of
 2,160 requests (~4 min of them, ~5 billed) and 11 regular runs of 717 (about a third shorter,
 ~2.2 billed), so the 2-hourly pipeline used ≈ **1000 min/month**. **With the 30-minute runs
-(D46) it is 48 runs a day, about 3 200 min/month**, over GitHub Free's 2 000: before deploying
-the Worker's new cron, set a spending limit for Actions (account → *Settings* → *Billing and
-licensing* → *Spending limits*; about 10 USD/month at 0.008 USD per Linux minute), or the
-pipeline stops when the quota ends. The rebuild throttle keeps most runs on the fast path
+(D46) it is 48 runs a day, about 3 200 min/month**, free while the repo is public (in a private
+repo that is over Free's 2 000: a spending limit for Actions, account → *Settings* → *Billing and
+licensing* → *Spending limits*, about 10 USD/month at 0.008 USD per Linux minute, or the
+pipeline stops when the quota ends). The rebuild throttle keeps most runs on the fast path
 (~2 min); the fallback's checks (≤ 4 a day, 1 min each) and the Web CI on pull requests
-(7–10 min a run) come on top. Out of minutes, GitHub stops Actions in a private repo until the
-month ends, and the pipeline with it: D41 lists the knobs.
+(7–10 min a run) come on top.
 - One run: *Actions* → the run → *Usage* (under *Run details*) shows its billable time; the
   summary shows our own `Duration`.
 - The month: your account → *Settings* → *Billing and licensing* → *Usage*, filtered on Actions.

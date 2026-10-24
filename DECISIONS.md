@@ -2720,8 +2720,12 @@ so nothing has to be hosted.
   `tests/test_scheduler.py` keeps `window + 30 min < warning ≤ fallback window` and
   `10 ≤ window < 30`. The Worker is deployed by hand (`docs/runbooks/agendamento.md`), so nothing
   changes until Miguel deploys it. **Minutes:** 48 runs a day at ~2.2 billed minutes is about
-  3 200 min/month, over GitHub Free's 2 000: Miguel sets a spending limit on Actions before the
-  deploy (about 10 USD/month at 0.008 USD/min), or the pipeline stops when the quota ends.
+  3 200 min/month. *Corrected 2026-10-24, same day:* this entry first said "over GitHub Free's
+  2 000, Miguel sets a spending limit on Actions before the deploy", but the repo is public and
+  GitHub does not meter standard GitHub-hosted runners in public repositories (D25 already noted
+  it as an option), so there is no quota and no spending limit to set; the 2 000-minute figure
+  applies only if the repo ever goes private (D41's knobs). README "Minutes used" and the
+  runbook say the same.
 - **Rebuild throttle (D25/D35 amended).** A live promotion's "verificado a" moves on every
   recheck, so with one on the site the site data changes every run. `run_path.decide`: when the
   **site data is the only changed component** and the last full path (meta `run.full_path_at`,

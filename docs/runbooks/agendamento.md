@@ -10,11 +10,13 @@ sozinho se segue o caminho rápido ou o completo.
 
 - **Sem execuções repetidas:** se uma execução começou há menos de 20 minutos (por exemplo a que
   uma decisão tua no telemóvel lançou), o Worker não pede outra nesse tique.
-- **Minutos do GitHub (D46):** 48 execuções por dia são cerca de 3 200 minutos por mês, acima dos
-  2 000 gratuitos. **Antes de publicares o Worker com o novo horário**, define um limite de
-  despesa para o Actions: a tua fotografia → **Settings** → **Billing and licensing** → **Spending
-  limits** → Actions, por exemplo 15 USD/mês (cerca de 10 USD/mês a 0,008 USD por minuto). Sem
-  isso, quando os 2 000 minutos acabarem o pipeline para até ao fim do mês.
+- **Minutos do GitHub (D46):** o repo é público e o GitHub não conta os minutos dos runners
+  standard (`ubuntu-latest`, os únicos que usamos) em repositórios públicos: as 48 execuções por
+  dia (cerca de 3 200 minutos por mês) não custam nada e não há quota a esgotar. Só se o repo
+  passar a privado é que voltam os 2 000 minutos gratuitos do plano Free; nesse caso, antes de
+  publicar o Worker, define um limite de despesa para o Actions (a tua fotografia → **Settings** →
+  **Billing and licensing** → **Spending limits** → Actions, cerca de 10 USD/mês a 0,008 USD por
+  minuto), ou o pipeline para quando a quota acabar.
 - **Pausa:** com o workflow desligado (`gh workflow disable pipeline.yml`, como no restauro de
   uma cópia da base de dados), o Worker não faz nada.
 - **Rede de segurança:** o workflow **Pipeline fallback** do GitHub corre de 6 em 6 horas (quando o
