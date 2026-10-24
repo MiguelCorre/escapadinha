@@ -43,10 +43,18 @@ def test_wanted_lists_open_promotions_first_then_rotates_the_cheapest_offers():
     first = wanted.plan(promos, cheapest, cursor=0, limit=3)
     assert [t.reason for t in first.trips] == ["promotion", "promotion", "low"]
     assert first.trips[0].deal_id == 7 and first.trips[2].destination == "ROM"   # LIS-LON already in
-    assert first.cursor == 2 and first.n_promotions == 2
+    assert first.cursor == 4 and first.n_promotions == 2          # 2 promotions + LON (dup) + ROM
     assert first.describe() == "3 trips (2 open promotions first)"
-    second = wanted.plan([], cheapest, cursor=first.cursor, limit=2)
+    second = wanted.plan(promos, cheapest, cursor=first.cursor, limit=2)
     assert [t.destination for t in second.trips] == ["BCN", "LON"] and second.cursor == 1
+    assert second.n_promotions == 1 and second.describe() == "2 trips (1 open promotions first)"
+    # more promotions than the limit: they rotate too, so each gets its turn
+    many = [(i, obs(destination=f"X{i:02d}", oid=100 + i)) for i in range(5)]
+    a = wanted.plan(many, [], cursor=0, limit=2)
+    b = wanted.plan(many, [], cursor=a.cursor, limit=2)
+    c = wanted.plan(many, [], cursor=b.cursor, limit=2)
+    assert [t.deal_id for t in a.trips] == [0, 1] and [t.deal_id for t in b.trips] == [2, 3]
+    assert [t.deal_id for t in c.trips] == [4, 0] and c.cursor == 1
     doc = wanted.to_json(first, generated_at=NOW, run_id=5)
     back = wanted.from_json(json.loads(json.dumps(doc)))
     assert back == list(first.trips) and doc["run"] == 5 and doc["version"] == 1

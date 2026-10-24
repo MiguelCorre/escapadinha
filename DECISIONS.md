@@ -2920,7 +2920,9 @@ so nothing has to be hosted.
   after detection on every run):** every open promotion's trip first (the comparison next to
   it), then the cheapest fresh nonstop offer of each route, busiest route first (Eurostat rank,
   D45), in rotation (meta `probe.cursor`), up to `probe.max_trips` (10: three page loads a trip,
-  8–12 minutes a run at 20–45 s pauses). Pure: `probe/wanted.py`.
+  8–12 minutes a run at 20–45 s pauses). Pure: `probe/wanted.py`. *Same evening:* the first
+  list had 23 open promotions for a limit of 10, so the rotation now runs over the promotions
+  and then the routes' offers as one sequence; every promotion gets its turn within three runs.
 - **The probe (`escapadinha probe setup|run|status`, `probe/runner.py`, `probe/google_flights.py`):**
   `setup` opens the probe's own profile (`~/.pontonomada/probe-chrome`, never Miguel's) on the
   home page and declines consent (the most privacy-preserving answer); `run` reads the list,

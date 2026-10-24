@@ -63,27 +63,32 @@ def trip_of(o: Observation, reason: str, deal_id: int | None = None) -> Trip:
 def plan(promotions: Iterable[tuple[int, Observation]], cheapest: Sequence[Observation], *,
          cursor: int, limit: int) -> Wanted:
     """`promotions`: (deal id, observation) of every open promotion; `cheapest`: one fresh
-    nonstop offer per route, busiest route first (the caller ranks them). Promotions first (each
-    trip once), then `cheapest` from `cursor` on, wrapping around, until `limit` trips."""
+    nonstop offer per route, busiest route first (the caller ranks them). One rotation: the
+    promotions (each trip once) then `cheapest`, from `cursor` on, wrapping around, `limit`
+    trips a run; `n_promotions` counts the promotions in this run's list."""
+    limit = max(limit, 0)
     trips: list[Trip] = []
     seen: set[tuple[str, str, date, date]] = set()
+    promo_trips: list[Trip] = []
     for deal_id, o in promotions:
         t = trip_of(o, "promotion", deal_id)
         if t.key not in seen:
-            trips.append(t)
+            promo_trips.append(t)
             seen.add(t.key)
-    n_promotions = len(trips)
-    rotation = list(cheapest)
+    # One rotation over promotions then the routes' cheapest offers: with more open promotions
+    # than `limit` (23 against 10 on 2026-10-24) every promotion still gets its turn.
+    rotation = promo_trips + [trip_of(o, "low") for o in cheapest]
     position = cursor % len(rotation) if rotation else 0
     taken = 0
-    while rotation and taken < len(rotation) and len(trips) < max(limit, 0):
-        t = trip_of(rotation[(position + taken) % len(rotation)], "low")
+    keys: set[tuple[str, str, date, date]] = set()
+    while rotation and taken < len(rotation) and len(trips) < limit:
+        t = rotation[(position + taken) % len(rotation)]
         taken += 1
-        if t.key not in seen:
+        if t.key not in keys:
             trips.append(t)
-            seen.add(t.key)
+            keys.add(t.key)
     new_cursor = (position + taken) % len(rotation) if rotation else 0
-    return Wanted(tuple(trips), new_cursor, n_promotions)
+    return Wanted(tuple(trips), new_cursor, sum(t.reason == "promotion" for t in trips))
 
 
 def to_json(wanted: Wanted, *, generated_at: datetime, run_id: int | None) -> dict:
