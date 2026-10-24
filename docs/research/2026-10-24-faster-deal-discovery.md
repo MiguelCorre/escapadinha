@@ -287,7 +287,7 @@ typical case.
 1. **Decide on D13.** Keep it (then recommendations 1–5 and the OAG/Skyscanner/Duffel talks), or
    accept scraping-grade sources for the hot list and the live check (then add 6–7 with the
    safeguards in §2.4–2.5 and record it as a D-entry).
-2. **E-mail three vendors this week** (templates on request): OAG (Retailer PPS / alerts, pilot
+2. **E-mail three vendors this week** (drafts: [`2026-10-24-vendor-emails.md`](2026-10-24-vendor-emails.md)): OAG (Retailer PPS / alerts, pilot
    price, publishing rights), Skyscanner Data Products (Live Pricing Services, publishing and link
    terms), Duffel sales (Order Form covering publication of selected fares with a link; airline
    consents under cl. 2.5(k)).
