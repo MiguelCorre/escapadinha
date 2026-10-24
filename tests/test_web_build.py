@@ -527,7 +527,9 @@ def store_offer(conn, price: float, departure) -> None:
 def test_what_the_exported_data_shows_decides_the_path_not_the_run_bookkeeping(ctx):
     """A new run that finds the same offers changes generated_at, the run id, the routes'
     observation counts and last-seen times: none is on the site, so the path stays fast. A
-    new cheapest price is (route, origin and hub pages, calendar): full path."""
+    new cheapest price is (route, origin and hub pages, calendar): full path, once the last
+    full path is `site.refresh_min_gap_minutes` old (D46: site data alone rebuilds at most
+    that often; a live promotion's "verificado a" would otherwise rebuild every run)."""
     from datetime import date
     conn = pipeline.open_db(ctx)
     store_offer(conn, 120, date(2026, 12, 4))
@@ -535,8 +537,13 @@ def test_what_the_exported_data_shows_decides_the_path_not_the_run_bookkeeping(c
     store_offer(conn, 120, date(2026, 12, 4))              # the same offer seen again
     assert run_path.decide(ctx, conn) == run_path.PathDecision(False, "nothing the site shows changed")
     store_offer(conn, 99, date(2026, 12, 4))               # a cheaper one: the site changes
-    decision = run_path.decide(ctx, conn)
+    assert run_path.decide(ctx, conn) == run_path.PathDecision(
+        False, "site data changed, rebuilt at most every 120 min (last full path 0 min ago)")
+    later = db.utcnow() + timedelta(minutes=ctx.config.site.refresh_min_gap_minutes)
+    decision = run_path.decide(ctx, conn, now=later)
     assert decision.full and decision.reason == "changed: site data"
+    ctx.config.site.refresh_min_gap_minutes = 0            # no throttle: at once
+    assert run_path.decide(ctx, conn).full
 
 
 def test_a_full_path_records_the_export_it_deployed_not_a_later_state(ctx):

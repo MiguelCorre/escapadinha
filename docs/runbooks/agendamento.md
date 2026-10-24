@@ -1,23 +1,29 @@
-# Agendamento: o pipeline de 2 em 2 horas
+# Agendamento: o pipeline de 30 em 30 minutos
 
 Guia passo a passo para o Miguel (issue #43, decisão D41). O horário do próprio GitHub não é de
 confiança: as execuções marcadas de 2 em 2 horas chegavam com 4,4 a 6,8 horas de intervalo
 (mediana 5,5 h). Agora quem dá a hora é um **Worker da Cloudflare** (`workers/scheduler/`, plano
-gratuito). De 2 em 2 horas, aos :17 (hora UTC), pede ao GitHub uma execução do workflow
+gratuito). De 30 em 30 minutos, aos :17 e aos :47 (hora UTC; de 2 em 2 horas até à D46), pede ao
+GitHub uma execução do workflow
 **Pipeline** (`pipeline.yml`), igual à do botão **Run workflow** sem *Full path*: o pipeline decide
 sozinho se segue o caminho rápido ou o completo.
 
-- **Sem execuções repetidas:** se uma execução começou há menos de 45 minutos (por exemplo a que
-  uma decisão tua no telemóvel lançou), o Worker não pede outra nessa hora.
+- **Sem execuções repetidas:** se uma execução começou há menos de 20 minutos (por exemplo a que
+  uma decisão tua no telemóvel lançou), o Worker não pede outra nesse tique.
+- **Minutos do GitHub (D46):** 48 execuções por dia são cerca de 3 200 minutos por mês, acima dos
+  2 000 gratuitos. **Antes de publicares o Worker com o novo horário**, define um limite de
+  despesa para o Actions: a tua fotografia → **Settings** → **Billing and licensing** → **Spending
+  limits** → Actions, por exemplo 15 USD/mês (cerca de 10 USD/mês a 0,008 USD por minuto). Sem
+  isso, quando os 2 000 minutos acabarem o pipeline para até ao fim do mês.
 - **Pausa:** com o workflow desligado (`gh workflow disable pipeline.yml`, como no restauro de
   uma cópia da base de dados), o Worker não faz nada.
 - **Rede de segurança:** o workflow **Pipeline fallback** do GitHub corre de 6 em 6 horas (quando o
   GitHub se lembra). Só lança o pipeline se não houve nenhuma execução nas últimas 3 horas, ou seja,
   se o Worker falhou. Nesse caso a execução do fallback fica **vermelha de propósito**, para o
   GitHub te mandar um e-mail.
-- **Aviso no registo:** quando a execução anterior começou há mais de 3 horas, o registo do
+- **Aviso no registo:** quando a execução anterior começou há mais de 2 horas, o registo do
   pipeline (e o resumo da execução) diz *"Warning: the previous run (#N) started 5 h 07 min ago,
-  more than 3 h: the 2-hourly schedule missed a run."*
+  more than 2 h: the half-hourly schedule missed runs."*
 
 O Worker precisa de um token do GitHub que só sirva para lançar workflows deste repositório. Fica
 guardado como **segredo do Worker** na Cloudflare: nunca no repositório, no `.env`, nos segredos do
@@ -94,25 +100,25 @@ Sem terminal, pelo painel: Cloudflare → **Workers & Pages** → `pontonomada-s
 - [ ] (Opcional) `npx --yes wrangler@4.149.0 logout`: o PC deixa de ter acesso à conta da
       Cloudflare pelo wrangler. Para voltar a publicar o Worker, repete o `login`.
 
-## 4. Verificar: duas execuções com 2 horas de intervalo
+## 4. Verificar: duas execuções com 30 minutos de intervalo
 
-O Worker corre aos :17 das horas pares UTC. Em Lisboa: até 25 de outubro de 2026 (hora de verão)
-às 01:17, 03:17, …, 23:17; depois disso às 00:17, 02:17, …, 22:17.
+O Worker corre aos :17 e aos :47 de cada hora (UTC; em Lisboa a mesma coisa no inverno, uma hora
+mais tarde no verão).
 
-- [ ] Passada a primeira dessas horas depois do passo 3: Cloudflare → `pontonomada-scheduler` →
+- [ ] Passado o primeiro desses minutos depois do passo 3: Cloudflare → `pontonomada-scheduler` →
       separador **Logs** (ou **Observability**). Aparece uma linha *"Dispatched pipeline.yml on
-      master: no run in the last 45 min."* Também pode ser *"… started N min ago, within 45 min:
+      master: no run in the last 20 min."* Também pode ser *"… started N min ago, within 20 min:
       nothing dispatched."*, se outra execução tinha começado pouco antes: está certo, a
-      verificação passa para as duas horas seguintes.
-- [ ] Duas horas depois, outra linha *"Dispatched …"*.
+      verificação passa para a meia hora seguinte.
+- [ ] Meia hora depois, outra linha *"Dispatched …"*.
 - [ ] No terminal:
 
   ```bash
   gh run list --workflow pipeline.yml --event workflow_dispatch --limit 5
   ```
 
-  As duas execuções mais recentes estão verdes e começaram com cerca de 2 horas de diferença,
-  pouco depois dos :17 (coluna **AGE**; as horas exatas com
+  As duas execuções mais recentes estão verdes e começaram com cerca de 30 minutos de diferença,
+  pouco depois dos :17 e dos :47 (coluna **AGE**; as horas exatas com
   `gh run list --workflow pipeline.yml --event workflow_dispatch --limit 5 --json createdAt,conclusion`).
 - [ ] No registo de cada uma (passo **Run**) **não** aparece *"Warning: the previous run …"*.
 - [ ] (Opcional) A rede de segurança: `gh workflow run pipeline-fallback.yml`. Acaba **verde**,

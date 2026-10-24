@@ -34,14 +34,25 @@ API_URL = "https://api.travelpayouts.com/graphql/v1/query"
 SOURCE = "travelpayouts-graphql"
 PAGE_LIMIT = 400          # the API's maximum `paging.limit` ("limit must be equal or less than 400")
 REQUESTS_PER_MINUTE = 60  # the API's limit (`X-Rate-Limit: 60`); config caps below it
-FIELDS = ("departure_at return_at origin_airport_iata destination_airport_iata value currency "
-          "number_of_changes main_airline found_at with_baggage baggage_code gate ticket_link")
+FIELDS = ("departure_at return_at origin_airport_iata destination_airport_iata destination_city_iata "
+          "value currency number_of_changes main_airline found_at with_baggage baggage_code gate "
+          "ticket_link")
 QUERY = f"""query PricesRoundTrip($params: ParamsRoundTrip!, $paging: Paging, $currency: String, $market: String) {{
   prices_round_trip(params: $params, paging: $paging, grouping: NONE, sorting: VALUE_ASC,
                     currency: $currency, market: $market) {{
     {FIELDS}
   }}
 }}"""
+# Aviasales' own "special offers" (D46): round trips from one origin they flag as abnormally
+# cheap, each with `discount`, their deviation from their average price for the ticket (a
+# percentage; their measure, never shown as a price). Introspected 2026-10-24
+# (`ParamsSpecialOfferRoundTrip`: origin, destination, depart_months, direct, ...; no sorting).
+SPECIAL_OFFERS_QUERY = f"""query SpecialOffers($params: ParamsSpecialOfferRoundTrip!, $paging: Paging, $currency: String, $market: String) {{
+  special_offers_round_trip(params: $params, paging: $paging, currency: $currency, market: $market) {{
+    {FIELDS} discount
+  }}
+}}"""
+SPECIAL_OFFERS_FIELD = "special_offers_round_trip"
 
 
 class GraphQLError(TravelpayoutsError):
@@ -66,6 +77,8 @@ class Offer:
     baggage_code: str             # "0PC" = no checked bag, "1PC20" = one 20 kg bag, "" unknown
     gate: str                     # the selling agency
     ticket_link: str              # the REST link's path without its `/search` prefix
+    discount: float | None = None # special offers only (D46): Aviasales' % below their average
+    destination_city: str | None = None   # `destination_city_iata`, when the answer has it
 
     @property
     def ticket(self) -> str | None:
@@ -135,9 +148,17 @@ def variables(origin: str, destination: str, departure: date, ret: date, *, dire
             "currency": currency.lower(), "market": market}
 
 
-def parse_response(payload: dict) -> list[Offer]:
-    """The rows of a `prices_round_trip` answer. GraphQL errors raise; rows missing a field we
-    need are dropped, never patched up."""
+def special_offers_variables(origin: str, *, currency: str, market: str | None,
+                             limit: int = PAGE_LIMIT) -> dict:
+    """The variables of one `special_offers_round_trip` query: every flagged round trip from
+    this origin, one page of `limit`."""
+    return {"params": {"origin": origin}, "paging": {"limit": limit, "offset": 0},
+            "currency": currency.lower(), "market": market}
+
+
+def parse_response(payload: dict, field: str = "prices_round_trip") -> list[Offer]:
+    """The rows of a `prices_round_trip` (or, `field`, a `special_offers_round_trip`) answer.
+    GraphQL errors raise; rows missing a field we need are dropped, never patched up."""
     if not isinstance(payload, dict):
         raise GraphQLError("GraphQL: not a JSON object", kind="api")
     errors = payload.get("errors")
@@ -146,9 +167,9 @@ def parse_response(payload: dict) -> list[Offer]:
         message = first.get("message", "unknown") if isinstance(first, dict) else str(first)
         raise GraphQLError(f"GraphQL error: {message}", kind="api")
     data = payload.get("data") or {}
-    rows = data.get("prices_round_trip") if isinstance(data, dict) else None
+    rows = data.get(field) if isinstance(data, dict) else None
     if rows is None:
-        raise GraphQLError("GraphQL: no prices_round_trip in the answer", kind="api")
+        raise GraphQLError(f"GraphQL: no {field} in the answer", kind="api")
     offers = []
     for row in rows:
         try:
@@ -169,10 +190,37 @@ def parse_response(payload: dict) -> list[Offer]:
                 baggage_code=str(row.get("baggage_code") or ""),
                 gate=str(row["gate"]),
                 ticket_link=str(row["ticket_link"]),
+                discount=_percentage(row.get("discount")),
+                destination_city=(None if row.get("destination_city_iata") is None
+                                  else str(row["destination_city_iata"])),
             ))
         except (KeyError, TypeError, ValueError):
             continue
     return offers
+
+
+def _percentage(value: object) -> float | None:
+    """A finite number as given (Aviasales' `discount`, a percentage), else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def special_offer_for(obs: Observation, offers: list[Offer]) -> Offer | None:
+    """The special offer that is this observation's trip (D46): same destination city or
+    airport, same local dates, nonstop status compatible and a price within rounding
+    (`price_matches`), else None. Several matching rows: the one with the largest discount."""
+    rows = [o for o in offers
+            if o.destination_airport == (obs.destination_airport or obs.destination)
+            or _city(o) == obs.destination]
+    rows = [o for o in rows if o.trip_dates == (obs.departure_date, obs.return_date)
+            and price_matches(o.value, obs.price)]
+    rows = [o for o in rows if o.discount is not None]
+    return max(rows, key=lambda o: o.discount, default=None)
+
+
+def _city(offer: Offer) -> str | None:
+    return offer.destination_city
 
 
 def price_matches(value: float, price: float) -> bool:
@@ -231,6 +279,17 @@ class GraphQLClient:
         self._limiter = limiter
         self._limit = limit
 
+    def special_offers_round_trip(self, origin: str) -> Answer:
+        """Aviasales' special offers from one origin (D46), with their `discount`."""
+        vars_ = special_offers_variables(origin, currency=self._currency, market=self._market,
+                                         limit=self._limit)
+        payload = self._post(vars_, SPECIAL_OFFERS_QUERY)
+        fetched_at = self._now()
+        offers = parse_response(payload, SPECIAL_OFFERS_FIELD)
+        return Answer(offers, {
+            "source": SOURCE, "query": SPECIAL_OFFERS_FIELD, "origin": origin,
+            "fetched_at": fetched_at.isoformat(), "variables": vars_, "payload": payload})
+
     def prices_round_trip(self, origin: str, destination: str, departure: date, ret: date, *,
                           direct: bool) -> Answer:
         """The cached round trips of one route and trip dates, cheapest first."""
@@ -244,8 +303,8 @@ class GraphQLClient:
             "departure": departure.isoformat(), "return": ret.isoformat(),
             "fetched_at": fetched_at.isoformat(), "variables": vars_, "payload": payload})
 
-    def _post(self, vars_: dict) -> dict:
-        body = {"query": QUERY, "variables": vars_}
+    def _post(self, vars_: dict, query: str = QUERY) -> dict:
+        body = {"query": query, "variables": vars_}
         for attempt in range(1, self._max_attempts + 1):
             if self._limiter:
                 self._limiter.wait()

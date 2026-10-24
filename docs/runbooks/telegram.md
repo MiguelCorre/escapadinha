@@ -1,5 +1,11 @@
 # Publicação automática no Telegram
 
+> **Em pausa desde 2026-10-24 (D46), por decisão do Miguel:** até ele dizer o contrário não sai nada
+> no Telegram; só o site publica. No `config.yaml`, `posting.publishers.telegram` está `paused`:
+> as publicações ficam na fila à espera (`queue list` diz porquê). Para retomar, volta a pôr
+> `telegram` e olha primeiro para a fila: o que ficou acumulado sai de uma vez, para as promoções
+> ainda válidas. Os passos abaixo continuam a valer para quando isso acontecer.
+
 Guia passo a passo para o Miguel (issue #21, decisão D38). O pipeline já sabe publicar cada
 promoção aprovada num **canal público do Telegram**: uma mensagem com a imagem de capa da
 promoção e o mesmo texto do WhatsApp (destino, preço, datas, quando o preço foi encontrado e

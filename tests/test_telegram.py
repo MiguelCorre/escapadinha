@@ -16,7 +16,7 @@ import respx
 from escapadinha import pipeline, review_events, telegram
 from escapadinha.presentation import DISCLOSURE
 from escapadinha.storage import db
-from test_pipeline import ctx  # noqa: F401
+from test_pipeline import ctx, set_publishers  # noqa: F401
 from test_web_build import npm  # noqa: F401
 from test_posting import APPLIED, approve_event, approved, by_channel, cli, publish, second_deal, utc
 
@@ -28,7 +28,7 @@ SITE = "https://pontonomada.pt"
 @pytest.fixture(autouse=True)
 def instagram_dry_run(ctx):
     """Only Telegram is under test: Instagram on the dry run (no Graph API calls)."""
-    ctx.config.posting.publishers["instagram"] = "dry-run"
+    set_publishers(ctx, instagram="dry-run", telegram="telegram")   # config.yaml pauses it (D46)
 
 
 def send(ctx, conn, now) -> tuple[list[tuple], list[str]]:

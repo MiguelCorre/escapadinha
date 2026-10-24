@@ -28,6 +28,9 @@ const arrival = airportLabel(view);
       <a href={view.path} class="text-ink no-underline after:absolute after:inset-0 hover:underline">{view.headline}</a>
     </h3>
     <PriceBlock view={view} />
+    {(view.airline || view.baggage) && (
+      <p class="text-small text-muted" data-flight>{[view.airline, view.baggage].filter(Boolean).join(" · ")}</p>
+    )}
     {arrival && (
       <p class="flex flex-wrap items-center gap-x-xs gap-y-2xs text-small text-muted">
         <span>Chegada: {arrival}</span>

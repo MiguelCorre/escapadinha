@@ -1,5 +1,5 @@
-# The scheduler Worker (DECISIONS D41): a Cron Trigger dispatches .github/workflows/pipeline.yml
-# every 2 hours. Deployed by hand from this folder (docs/runbooks/agendamento.md):
+# The scheduler Worker (DECISIONS D41, D46): a Cron Trigger dispatches .github/workflows/pipeline.yml
+# every 30 minutes. Deployed by hand from this folder (docs/runbooks/agendamento.md):
 #   npm run deploy      (package.json: wrangler pinned to config.yaml's site.wrangler_version)
 # The GitHub token is a secret (`wrangler secret put GITHUB_ACTIONS_TOKEN`, see the runbook), never
 # a var here. tests/test_scheduler.py checks these values against the workflows.
@@ -10,15 +10,16 @@ workers_dev = false       # no URL: the Worker has no fetch handler, only the cr
 preview_urls = false
 
 [triggers]
-crons = ["17 */2 * * *"]  # UTC, every 2 hours at :17 (the minute GitHub's cron used, D25)
+crons = ["17,47 * * * *"]  # UTC, every 30 minutes at :17 and :47 (D46; :17 since D25)
 
 [vars]
 GITHUB_REPOSITORY = "MiguelCorre/escapadinha"
 WORKFLOW = "pipeline.yml"
 REF = "master"
 # A run created this recently (a review decision, a manual run, the fallback) serves this tick.
-# 45 + 120 = 165 min, the longest gap a skip can make, stays below the run log's 3 h warning.
-SKIP_IF_RUN_WITHIN_MINUTES = "45"
+# Below the 30 min between ticks (else every tick would skip); 20 + 30 = 50 min, the longest gap
+# a skip can make, stays below the run log's 2 h warning (D46).
+SKIP_IF_RUN_WITHIN_MINUTES = "20"
 
 [observability]
 enabled = true            # Workers Logs: each tick's line (dispatched / skipped / why it failed)

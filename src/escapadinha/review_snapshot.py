@@ -161,6 +161,11 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "new_low": deal.new_low,                 # D44: cheaper than everything seen (null: unknown)
         "found_date": obs.found_date.isoformat() if obs.found_date else None,
         "found_on": view.found_on,
+        "found_at": db.utc_iso(obs.found_at),   # exact, from GraphQL (D43); null = day only
+        # D46: Aviasales' own special-offer discount for the trip (their measure, never a price).
+        "partner_offer": (None if deal.partner_discount_pct is None else
+                          {"discount_pct": deal.partner_discount_pct,
+                           "seen_at": db.utc_iso(deal.partner_offer_at)}),
         "fetched_at": db.utc_iso(obs.fetched_at),
         "checked_at": view.checked_at,
         "detected_at": db.utc_iso(deal.detected_at),

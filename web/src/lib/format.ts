@@ -146,6 +146,16 @@ const LISBON = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
 
+/** "há 20 min", "há 1 h 05", "há 3 dias": how long before `now` a UTC instant was. Never
+ * negative (a clock ahead of ours reads "há 0 min"). */
+export function timeAgo(utc: string, now: Date): string {
+  const minutes = Math.max(0, Math.floor((now.getTime() - Date.parse(utc)) / 60_000));
+  if (minutes < 60) return `há ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `há ${hours} h ${String(minutes % 60).padStart(2, "0")}`;
+  return `há ${Math.floor(hours / 24)} dias`;
+}
+
 /** UTC instant -> "12/10/2026 às 22:17" in Lisbon time. */
 export function lisbonTimestamp(utc: string): string {
   const p = Object.fromEntries(LISBON.formatToParts(new Date(utc)).map((x) => [x.type, x.value]));

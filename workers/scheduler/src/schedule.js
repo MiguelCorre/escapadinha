@@ -1,9 +1,9 @@
 // @ts-check
 /**
- * The 2-hourly schedule (DECISIONS D41): dispatch the pipeline workflow on GitHub unless a run of
- * it started a short while ago. One tick, shared by the Cloudflare Worker (`index.js`, a Cron
- * Trigger every 2 h, window 45 min) and the Actions fallback (`fallback.js`, every 6 h, window
- * 180 min).
+ * The half-hourly schedule (DECISIONS D41, D46): dispatch the pipeline workflow on GitHub unless
+ * a run of it started a short while ago. One tick, shared by the Cloudflare Worker (`index.js`, a
+ * Cron Trigger every 30 min, window 20 min) and the Actions fallback (`fallback.js`, every 6 h,
+ * window 180 min).
  *
  * Pure apart from what is passed in (fetch, the clock, the log), so the tests run it without a
  * network. The token only ever goes into the Authorization header: every line logged and every

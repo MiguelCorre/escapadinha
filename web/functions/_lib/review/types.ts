@@ -109,6 +109,12 @@ export interface SnapshotDeal {
   new_low?: boolean | null;
   found_date: string | null;
   found_on: string | null;
+  /** D46: the exact UTC found time (GraphQL, D43), null when only the day is known; absent
+   * from older snapshots. */
+  found_at?: string | null;
+  /** D46: Aviasales' own special-offer discount for the trip (percent below their average,
+   * their measure, never a price) and when a run last saw it; null when not listed now. */
+  partner_offer?: { discount_pct: number; seen_at: string } | null;
   fetched_at: string;
   checked_at: string;
   detected_at: string;

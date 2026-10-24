@@ -18,7 +18,7 @@ def load() -> dict:
 
 
 def test_triggers_on_demand_only():
-    """The 2-hourly runs are dispatches from the scheduler Worker and its Actions fallback (D41,
+    """The half-hourly runs are dispatches from the scheduler Worker and its Actions fallback (D41,
     tests/test_scheduler.py); GitHub's own cron no longer starts this workflow."""
     on = load()["on"]
     assert "schedule" not in on

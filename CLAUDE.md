@@ -8,7 +8,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `routes list|discover`, `photos fetch`,
-  `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `queue list|retry`,
+  `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `auto-approve`,
+  `special-offers`, `queue list|retry`,
   `instagram token`,
   `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
@@ -177,23 +178,26 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   directly; use `pipeline.deal_folder` / `guide_folder` (pass `files=` the glob you read, e.g.
   `pipeline.SLIDES`, so a runner downloads only those, once), `deal_slide_names` (names only, no
   download), `deal_view` (its photo).
-- The schedule (D41): `pipeline.yml` has no `schedule`, so every run of it is a real run. The
-  Worker `workers/scheduler/` (Cron Trigger every 2 h, window 45 min) and
+- The schedule (D41, D46): `pipeline.yml` has no `schedule`, so every run of it is a real run.
+  The Worker `workers/scheduler/` (Cron Trigger every 30 min at :17 and :47, window 20 min) and
   `pipeline-fallback.yml` (GitHub's cron every 6 h, window 3 h; its job fails on purpose when it
   dispatches, so GitHub e-mails) both run `src/schedule.js` `tick`: skip a disabled workflow or
-  a run created within the window, else dispatch `full: false`. Keep `Worker window + 2 h <
-  pipeline.RUN_GAP_WARNING ≤ fallback window` and the vars equal to the fallback's env
-  (`tests/test_scheduler.py`). The GitHub token (`GITHUB_ACTIONS_TOKEN`, fine-grained, Actions:
+  a run created within the window, else dispatch `full: false`. Keep `10 ≤ Worker window < 30`
+  and `Worker window + 30 min < pipeline.RUN_GAP_WARNING (2 h) ≤ fallback window` and the vars
+  equal to the fallback's env (`tests/test_scheduler.py`). The GitHub token (`GITHUB_ACTIONS_TOKEN`, fine-grained, Actions:
   read/write) is only a Worker secret, never a var; every log line and error goes through
   `redact`. The Worker stays plain JS without npm packages or a URL, deployed by hand with the
   pinned wrangler (the pipeline's Cloudflare token is Pages-only).
 - `run` order (`cli._run_steps`): `apply_review_events` (D26) → late-run warning (D41, previous
   collection > 3 h ago) → upkeep → collect (the day's pass when due, D42) → missed-pass warning
   (`pipeline.missed_daily_pass_warning`, last recorded pass > 30 h ago) → recheck →
-  detect (+ `run_reevaluate`, D40) → `run_enrich` (D43: never fails the run) → `publish_due`
+  detect (+ `run_reevaluate`, D40) → `run_enrich` (D43: never fails the run) →
+  `run_special_offers` (D46: never fails the run) → `publish_due`
   (D32, every run: posting never waits for a full path) →
-  `run_path.decide` → full path only, its Node commands inside one deadline
-  (`node.deadline()`, D35) (render → `export site-data` (D27, → `web/src/data`; keep the
+  `run_path.decide` (D46: site data the only change and the last full path under
+  `site.refresh_min_gap_minutes` old → fast) → full path only, its Node commands inside one
+  deadline (`node.deadline()`, D35) (render → `run_auto_approve` (D46) → `export site-data`
+  (D27, → `web/src/data`; keep the
   returned `Export`) → `site build` (Astro, D35: npm ci if needed, astro build, promotion images,
   `_redirects`/`_headers` → `web/dist`; the paths it implies go to `site.paths.pending`) →
   `site deploy` (`web/dist` + Functions; refuses a fixture build; on success, or skipped as
@@ -225,8 +229,21 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - pt-PT formatting lives in `i18n_pt.py` (no OS locale). Times are shown in Europe/Lisbon.
 - No scraping of booking sites or airlines (ToS and legal risk; see DECISIONS D13).
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
-  only shows deals a human approved; expired promotions stay `noindex` without a booking link
-  for `site.expired_promotions_days`, then 301 to their route page (D35).
+  only shows deals a human or the rules approved (D46: `review.auto_approve`, pure rules in
+  `auto_review.disqualified`, `pipeline.run_auto_approve` in the full path right after
+  `render_deals`, through `pipeline.approve` so the live price check is the gate; actor
+  `auto_review.ACTOR`, an ordinary D26 event, applied in the same run; Miguel can reject it
+  afterwards); expired promotions stay `noindex` without a booking link for
+  `site.expired_promotions_days`, then 301 to their route page (D35).
+- **Instagram and Telegram are paused** (Miguel, 2026-10-24, D46): `posting.publishers` is
+  `paused` for both (`pipeline.PUBLISHERS["paused"]`: due posts wait with `PAUSED_REASON`, never a
+  dry run). Only Miguel switches them back; never change it for him.
+- Aviasales' special offers (D46): `pipeline.run_special_offers` every run after enrichment, one
+  GraphQL `special_offers_round_trip` per origin with an open deal, their `discount` stored on
+  `deals.partner_discount_pct` / `partner_offer_at` (v17) and shown on the review pages only as
+  "oferta especial do Aviasales: −x% face à média deles": **a percentage, never a price**, never an
+  observation, never on the site. The snapshot's `found_at` and `partner_offer` are optional v1
+  additions; both pages print "encontrado a … (há 1 h 20)" (`format.timeAgo` / `i18n_pt.time_ago`).
 - Review decisions (approve, reject, published) are events (D26): writers (`pipeline.approve` /
   `reject` / `mark_published`, the review page, the review Function) only write
   `review/events/pending/`; `review_events.apply_pending` is the only code that changes those
@@ -356,6 +373,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   the recheck within 24 h and in hindsight), `rule_sets` presets, `state`, `markdown`/`to_json`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
+- `src/escapadinha/auto_review.py`: the automatic approval's pure rules (D46: `disqualified`, `ACTOR`,
+  `NOTE`, `summary`); wired by `pipeline.run_auto_approve` / `auto_approvals_today`
 - `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,
   `pending`, `apply_pending`); `review_snapshot.py`: `review/snapshot.json` + `review/slides/`;
   `web.py` + `templates/review.html.j2`: the local review page

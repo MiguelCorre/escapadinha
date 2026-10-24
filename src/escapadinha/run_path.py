@@ -20,6 +20,11 @@ the `meta` table at the end of every successful full path:
   lockfile) and the logo and fonts the build inlines.
 
 A failed full path records nothing, so the next run takes the full path again.
+
+Throttle (D46): a live promotion's "verificado a" moves on every run's recheck, so with one on
+the site the site data changes every 30 minutes. When the site data is the only component that
+changed, the full path waits until `site.refresh_min_gap_minutes` have passed since the last one
+(the time is recorded with the fingerprint); every other change rebuilds at once.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import escapadinha
@@ -38,6 +43,7 @@ from escapadinha.storage import db
 from escapadinha.website import node
 
 FINGERPRINT = "run.full_path_fingerprint"   # meta key: components at the last full path
+FULL_PATH_AT = "run.full_path_at"           # meta key: when the last full path recorded them (UTC)
 LABELS = {"promotions": "promotions", "site_data": "site data", "routes": "routes",
           "day": "new day", "code": "code or config"}
 # The web package's sources: what `npm run build` turns into the site (D35). web/src/data is
@@ -130,14 +136,32 @@ def decide(ctx: Context, conn: sqlite3.Connection, *, force: bool = False,
         return PathDecision(True, "first full path")
     before, current = json.loads(stored), fingerprint(ctx, conn, now)
     changed = [LABELS[k] for k in current if before.get(k) != current[k]]
+    if changed == [LABELS["site_data"]]:
+        gap = timedelta(minutes=ctx.config.site.refresh_min_gap_minutes)
+        last = last_full_path(conn)
+        since = (now or db.utcnow()) - last if last else None
+        if since is not None and since < gap:
+            minutes = int(since.total_seconds() // 60)
+            return PathDecision(False, f"site data changed, rebuilt at most every "
+                                       f"{ctx.config.site.refresh_min_gap_minutes} min "
+                                       f"(last full path {minutes} min ago)")
     if changed:
         return PathDecision(True, "changed: " + ", ".join(changed))
     return PathDecision(False, "nothing the site shows changed")
 
 
-def record_full_path(ctx: Context, conn: sqlite3.Connection, export: site_data.Export) -> None:
-    """After a successful full path: what the published outputs now reflect. `export` is the
-    site data that was written and built (and deployed): its digest and its day are recorded,
-    not the database's state at a later moment (an offer that went stale, or a new Lisbon day,
-    between the export and now must still take the next run's full path)."""
+def last_full_path(conn: sqlite3.Connection) -> datetime | None:
+    """When the last successful full path recorded its fingerprint; None before the first, or
+    for a fingerprint recorded before D46 (then the throttle does not hold the next rebuild)."""
+    value = db.get_meta(conn, FULL_PATH_AT)
+    return datetime.fromisoformat(value) if value else None
+
+
+def record_full_path(ctx: Context, conn: sqlite3.Connection, export: site_data.Export,
+                     now: datetime | None = None) -> None:
+    """After a successful full path: what the published outputs now reflect, and when. `export`
+    is the site data that was written and built (and deployed): its digest and its day are
+    recorded, not the database's state at a later moment (an offer that went stale, or a new
+    Lisbon day, between the export and now must still take the next run's full path)."""
     db.set_meta(conn, FINGERPRINT, json.dumps(fingerprint(ctx, conn, export=export)))
+    db.set_meta(conn, FULL_PATH_AT, db.utc_iso(now or db.utcnow()))

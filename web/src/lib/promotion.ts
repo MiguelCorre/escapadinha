@@ -73,12 +73,36 @@ export interface PromotionView extends Place {
   checkedAt: string;          // ours: last recheck, else first fetch, Lisbon time ("verificado a")
   expiredReason: string | null;
   expiredObs: number | null;  // the observation behind the price in the reason
+  /** The one-line summary deals sites lead with (D46): "Voos diretos por 69 € ida e volta, com a
+   * Ryanair, só bagagem de mão." The price sits between `before` and `after`, so the page can put
+   * it on its data-obs. `after` ends with the full stop. */
+  summary: { before: string; after: string };
+  routesLine: string;         // "Lisboa – Madeira (FNC) – Lisboa"
+  publishedOn: string | null; // when it went live on the site (approved_at, Lisbon time)
+}
+
+/** "Voos diretos" when nonstop both ways, "Voos" otherwise (unknown stops included). */
+function flightsWord(offer: Offer): string {
+  return offer.transfers === 0 && offer.return_transfers === 0 ? "Voos diretos" : "Voos";
+}
+
+export function summaryParts(offer: Offer, airline: string | null, baggage: string | null): { before: string; after: string } {
+  const extras = [airline && `com a ${airline}`, baggage].filter(Boolean).join(", ");
+  return { before: `${flightsWord(offer)} por`, after: `ida e volta${extras ? `, ${extras}` : ""}.` };
+}
+
+export function routesLine(p: Place): string {
+  const there = `${p.city}${p.arrivalCode ? ` (${p.arrivalCode})` : ""}`;
+  return `${p.originName} – ${there} – ${p.originName}`;
 }
 
 export function promotionView(data: SiteData, p: Promotion): PromotionView {
   const o = p.offer;
+  const where = place(data, o);
+  const airline = o.airline ? data.labels.airlines[o.airline] ?? o.airline : null;
+  const baggage = baggageText(o.baggage);
   return {
-    ...place(data, o),
+    ...where,
     id: p.id,
     obs: o.obs,
     path: p.path,
@@ -90,12 +114,15 @@ export function promotionView(data: SiteData, p: Promotion): PromotionView {
     dates: `${shortDate(o.departure)} → ${shortDate(o.return)}`,
     datesProse: dateRange(o.departure, o.return),
     nights: nights(o.nights),
-    airline: o.airline ? data.labels.airlines[o.airline] ?? o.airline : null,
+    airline,
     stops: stops(o),
-    baggage: baggageText(o.baggage),
+    baggage,
     foundOn: o.found_date ? numericDate(o.found_date) : null,
     checkedAt: lisbonTimestamp(p.checked_at),
     expiredReason: p.expired?.reason ?? null,
     expiredObs: p.expired?.latest?.obs ?? null,
+    summary: summaryParts(o, airline, baggage),
+    routesLine: routesLine(where),
+    publishedOn: p.approved_at ? lisbonTimestamp(p.approved_at) : null,
   };
 }

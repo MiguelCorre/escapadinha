@@ -69,6 +69,7 @@ describe("home page", () => {
     expect(text(card)).toContain("−32%");
     expect(text(card)).toContain("sáb, 31 out → ter, 3 nov · 3 noites");
     expect(text(card)).toContain("11/10/2026");
+    expect(text(card.querySelector("[data-flight]")!)).toBe("Ryanair");       // baggage unknown: no line (D43)
   });
 
   it("lists the recently expired promotion as expired, without its booking link", () => {
@@ -106,6 +107,22 @@ describe("live promotion page", () => {
     expect(body).toContain("Ryanair");
   });
 
+  it("leads with the one-line summary and lists routes, best months, publication and how to book (D46)", () => {
+    const d = doc();
+    const summary = d.querySelector("main [data-summary]")!;
+    expect(text(summary)).toBe("Voos diretos por 69 € ida e volta, com a Ryanair.");   // baggage unknown: not said
+    expect(text(summary.querySelector('[data-obs="7226"]')!)).toBe("69\u00a0€");
+    const body = text(d.querySelector("main")!);
+    expect(body).toContain("Lisboa – Madeira (FNC) – Lisboa");
+    expect(body).toContain("novembro de 2026, dezembro de 2026 e outubro de 2026");   // cheapest typical low first
+    expect(d.querySelector('main a[href="/voos/lisboa-madeira/"]')).not.toBeNull();
+    expect(body).toContain("14/10/2026 às 04:01");                                    // approved_at, Lisbon
+    const steps = d.querySelectorAll("main #como-reservar ~ ol li");
+    expect(steps.length).toBe(3);
+    expect(text(steps[0])).toContain("abre a pesquisa do parceiro já com estas datas");
+    expect(text(steps[2])).toContain("encontrado a 11/10/2026 e verificado por nós a 14/10/2026 às 10:01");
+  });
+
   it("has one tracked booking button with the disclosure next to it", () => {
     const links = doc().querySelectorAll('a[rel~="sponsored"]');
     expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/parceiro/site-deal-8"]);
@@ -129,6 +146,11 @@ describe("expired promotion page", () => {
 
   it("names the remote arrival airport in the headline", () => {
     expect(text(doc().querySelector("h1")!)).toBe("Lisboa → Paris (Beauvais)");
+  });
+
+  it("has no booking steps and no price-led summary", () => {
+    expect(page(EXPIRED).querySelector("#como-reservar")).toBeNull();
+    expect(page(EXPIRED).querySelector("[data-summary]")).toBeNull();
   });
 
   it("has no booking button", () => {

@@ -43,8 +43,11 @@ A Function vai para o ar com o site, no caminho completo do pipeline.
 - [ ] Escreve o teu e-mail → **Send me a code** → copia o código do e-mail → entra.
 - [ ] Vês "Fila de aprovação", a hora da fila ("Fila de dd/mm/aaaa às hh:mm") e "entraste como
       miguelahpc@hotmail.com". A página cabe no ecrã sem deslizar para os lados.
-- [ ] Se aparecer "Ainda não há snapshot da fila", espera pela próxima execução (de 2 em 2 horas)
-      ou repete o passo 1.
+- [ ] Se aparecer "Ainda não há snapshot da fila", espera pela próxima execução (de 30 em 30
+      minutos) ou repete o passo 1.
+- [ ] Desde a D46 as melhores candidatas (confiança alta, novo mínimo, voos diretos, preço
+      confirmado na hora) são aprovadas pelo próprio pipeline e aparecem em **Aprovadas** com a nota
+      "aprovação automática (D46)": já estão no site. Se uma não devia estar, **Rejeitar** tira-a.
 - [ ] Se a fila estiver vazia ("Nenhum deal por rever"), espera por uma candidata real: não se
       inventam promoções. Continua quando houver pelo menos uma em **Por rever**.
 

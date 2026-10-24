@@ -13,7 +13,7 @@ from pathlib import Path, PureWindowsPath
 
 import httpx
 
-from escapadinha import (archive, demand, detector, discovery, i18n_pt, instagram, posting, review_events,
+from escapadinha import (archive, auto_review, demand, detector, discovery, i18n_pt, instagram, posting, review_events,
                          routes, telegram)
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.articles import Article
@@ -95,13 +95,13 @@ def latest_offers(ctx: Context, conn: sqlite3.Connection,
                                           (last["run"], far_from) if last else None)
 
 
-# The schedule dispatches a run every 2 h (D41); its skips leave at most 2 h 45 min between runs.
-RUN_GAP_WARNING = timedelta(hours=3)
+# The schedule dispatches a run every 30 min (D41, D46); its skips leave at most 50 min between runs.
+RUN_GAP_WARNING = timedelta(hours=2)    # D46: 30-minute runs; was 3 h for the 2-hourly ones
 
 
 def late_run_warning(conn: sqlite3.Connection, now: datetime) -> str | None:
     """The run log's warning when the previous collection started more than `RUN_GAP_WARNING`
-    before `now` (D41): the 2-hourly schedule missed at least one run. None on time or without
+    before `now` (D41): the half-hourly schedule missed runs. None on time or without
     a previous run. Live checks (scope `live_check`) are not runs."""
     previous = db.latest_collection_start(conn)
     if previous is None or now - previous[1] <= RUN_GAP_WARNING:
@@ -109,7 +109,7 @@ def late_run_warning(conn: sqlite3.Connection, now: datetime) -> str | None:
     run_id, started = previous
     hours, minutes = divmod(int((now - started).total_seconds() // 60), 60)
     return (f"the previous run (#{run_id}) started {hours} h {minutes:02d} min ago, more than "
-            f"{RUN_GAP_WARNING.seconds // 3600} h: the 2-hourly schedule missed a run. Check the "
+            f"{RUN_GAP_WARNING.seconds // 3600} h: the half-hourly schedule missed runs. Check the "
             "scheduler Worker (docs/runbooks/agendamento.md).")
 
 
@@ -507,6 +507,62 @@ def enrich_offers(ctx: Context, conn: sqlite3.Connection, offers: list[Observati
     return EnrichSummary(run_id, len(offers), len(tasks), matched, skipped, errors)
 
 
+@dataclass(frozen=True)
+class SpecialOffersSummary:
+    run_id: int | None        # its own run row (scope `special_offers`; the archive holds the answers)
+    deals: int                # open deals looked at
+    queried: int              # one GraphQL request per origin with an open deal
+    flagged: int              # deals found on Aviasales' list
+    errors: list[str]
+
+
+def run_special_offers(ctx: Context, conn: sqlite3.Connection,
+                       now: datetime | None = None) -> SpecialOffersSummary:
+    """Aviasales' own "special offers" as a second opinion for the reviewer (D46): one
+    `special_offers_round_trip` query per origin that has an open deal; a deal whose trip is on
+    the list (`graphql.special_offer_for`) stores their `discount` (a percentage of their average:
+    their measure, shown as such and never as a price), a deal not on it stores null. Answers
+    are archived under a `special_offers` run. Never raises: a failed origin is reported and its
+    deals keep what they had."""
+    now = now or db.utcnow()
+    deals = db.open_deals(conn)
+    if not deals:
+        return SpecialOffersSummary(None, 0, 0, 0, [])
+    try:
+        client = graphql_client(ctx)
+    except TravelpayoutsError as exc:
+        return SpecialOffersSummary(None, len(deals), 0, 0, [str(exc)])
+    by_origin: dict[str, list[tuple[Deal, Observation]]] = {}
+    for deal, obs in deals:
+        by_origin.setdefault(obs.origin, []).append((deal, obs))
+    run_id = db.start_run(conn, graphql.SOURCE, scope="special_offers")
+    errors: list[str] = []
+    responses: list[dict] = []
+    flagged = 0
+    for origin, pairs in sorted(by_origin.items()):
+        try:
+            answer = client.special_offers_round_trip(origin)
+        except Exception as exc:          # one origin must not lose the rest
+            errors.append(f"{origin}: {exc}")
+            continue
+        responses.append(answer.response)
+        for deal, obs in pairs:
+            found = graphql.special_offer_for(obs, answer.offers)
+            db.set_partner_offer(conn, deal.id, None if found is None else found.discount,
+                                 None if found is None else now)
+            flagged += found is not None
+    try:
+        archive.write_run(ctx.object_store, conn, run_id, responses)
+    except Exception as exc:
+        errors.append(f"archive: {exc}")
+    status = "ok" if not errors else ("partial" if responses else "failed")
+    db.finish_run(conn, run_id, status=status, n_requests=len(by_origin),
+                  n_observations=sum(len(r["payload"].get("data", {}).get(graphql.SPECIAL_OFFERS_FIELD) or [])
+                                     for r in responses),
+                  n_new=flagged, error="\n".join(errors) or None)
+    return SpecialOffersSummary(run_id, len(deals), len(by_origin), flagged, errors)
+
+
 # --- recheck ------------------------------------------------------------------
 
 def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None,
@@ -761,6 +817,58 @@ def mark_published(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     return _decide(ctx, conn, event)
 
 
+@dataclass(frozen=True)
+class AutoReview:
+    """What the automatic approval (D46) did with one rendered candidate."""
+
+    deal_id: int
+    route: str
+    approved: bool
+    reason: str                  # pt-PT: what passed, or why it was left to a human
+
+
+def auto_approvals_today(conn: sqlite3.Connection, now: datetime) -> int:
+    """Applied automatic approvals settled on `now`'s Lisbon day (the daily cap)."""
+    today = now.astimezone(i18n_pt.LISBON).date()
+    return sum(1 for o in db.review_event_outcomes(conn)
+               if o.get("actor") == auto_review.ACTOR and o.get("type") == "approve"
+               and o.get("outcome") == "applied"
+               and datetime.fromisoformat(o["settled_at"]).astimezone(i18n_pt.LISBON).date() == today)
+
+
+def run_auto_approve(ctx: Context, conn: sqlite3.Connection,
+                     now: datetime | None = None) -> list[AutoReview]:
+    """Automatic approval for the website (D46), in the full path right after rendering: every
+    rendered candidate that passes `auto_review.disqualified` is approved through `approve` (the
+    live price check is the gate, as for a human; a moved price writes nothing and the next
+    recheck expires the deal), then the pending events are applied, so the export that follows
+    publishes it. Never raises for one deal: a failed check or a refused decision is reported.
+    With `max_per_day` 0 it only reports what would be approved."""
+    now = now or db.utcnow()
+    cfg = ctx.config.review.auto_approve
+    results: list[AutoReview] = []
+    if not cfg.enabled:
+        return results
+    approved_today = auto_approvals_today(conn, now)
+    written = False
+    for deal, obs in db.deals_with_status(conn, "rendered"):
+        why = auto_review.disqualified(deal, obs, cfg, now=now, approved_today=approved_today)
+        if why is not None:
+            results.append(AutoReview(deal.id, obs.route_key, False, why))
+            continue
+        try:
+            approve(ctx, conn, deal.id, auto_review.NOTE, actor=auto_review.ACTOR, now=now)
+        except (ReviewError, TravelpayoutsError) as exc:
+            results.append(AutoReview(deal.id, obs.route_key, False, str(exc)))
+            continue
+        approved_today += 1
+        written = True
+        results.append(AutoReview(deal.id, obs.route_key, True, auto_review.summary(deal, obs)))
+    if written and ctx.remote_store:          # a local database applied it in `_decide` already
+        apply_review_events(ctx, conn, now)
+    return results
+
+
 def apply_review_events(ctx: Context, conn: sqlite3.Connection,
                         now: datetime | None = None) -> list[review_events.Outcome]:
     """First step of every run: apply pending review events (D26). Never raises for a bad event.
@@ -875,9 +983,15 @@ class PublisherKind:
     notices: Callable[[Context, sqlite3.Connection], list[str]] = lambda ctx, conn: []
 
 
+# `paused` (D46): the channel is kept quiet on purpose; due posts wait, nothing is settled.
+PAUSED_REASON = ("Em pausa por decisão do Miguel (2026-10-24): só o site publica. As publicações "
+                 "ficam à espera; para retomar, muda posting.publishers no config.yaml.")
+
 # The one place a publisher is registered (a test checks config's `PublisherName` against it).
 PUBLISHERS: dict[str, PublisherKind] = {
     "dry-run": PublisherKind(lambda s: posting.DryRunPublisher(s.log)),
+    "paused": PublisherKind(lambda s: posting.Paused("paused", PAUSED_REASON),
+                            lambda ctx, conn: [PAUSED_REASON]),
     "instagram": PublisherKind(_instagram_publisher,
                                lambda ctx, conn: instagram.notices(conn)),
     "telegram": PublisherKind(_telegram_publisher,

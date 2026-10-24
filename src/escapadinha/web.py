@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import timedelta
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
@@ -50,6 +51,7 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
     caption_file = folder / "caption.txt" if folder else None
     slides = sorted(p.name for p in folder.glob("slide_*.png")) if folder and folder.exists() else []
     baseline = review_snapshot.baseline_json(pipeline.baseline_range(conn, deal))
+    now = db.utcnow()
     return {
         "id": deal.id,
         "status": deal.status,
@@ -75,6 +77,14 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "confidence_pt": CONFIDENCE_PT.get(deal.confidence),
         "new_low": deal.new_low,
         "found_on": view.found_on,
+        # D46: the exact found time (GraphQL, D43) with its age, and Aviasales' second opinion.
+        "found_at_pt": pt.lisbon_timestamp(obs.found_at) if obs.found_at else None,
+        "found_ago": pt.time_ago(obs.found_at, now) if obs.found_at else None,
+        "found_fresh": bool(obs.found_at) and now - obs.found_at < timedelta(hours=2),
+        "partner_offer_pt": (None if deal.partner_discount_pct is None else
+                             f"oferta especial do Aviasales: −{round(deal.partner_discount_pct)}% "
+                             f"face à média deles (visto a "
+                             f"{pt.lisbon_timestamp(deal.partner_offer_at)})"),
         "checked_at": view.checked_at,
         "last_checked_at": pt.lisbon_timestamp(deal.last_checked_at) if deal.last_checked_at else None,
         "last_seen_price": None if deal.last_seen_price is None else pt.eur(deal.last_seen_price),

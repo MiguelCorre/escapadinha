@@ -192,11 +192,25 @@ site:
   data_dir: web/src/data                      # read by the Astro build in web/ (D35, git-ignored)
   max_low_prices_per_origin: 1500
   expired_promotions_days: 30                 # expired promotions kept on the site; older links 301 to the route (D35)
+  refresh_min_gap_minutes: 120                # D46: a change to the site data alone (a live promotion's "verificado a"
+                                              # moves every run) rebuilds the site at most this often
 
 # Review decisions (DECISIONS D26): an approve event whose live price check is older than this
 # is refused when a run applies it (check the price again); reject/published never expire.
 review:
   approve_max_age_hours: 24
+  # Automatic approval for the website (DECISIONS D46, Miguel 2026-10-24): a rendered candidate
+  # that passes all of these and a live price check is approved by the pipeline itself, in the
+  # run that rendered it, and goes live on the site in that run's deploy. Reject it on the review
+  # page if it should not be there (the page expires). max_per_day: 0 only reports what would be
+  # approved.
+  auto_approve:
+    enabled: true
+    min_confidence: high       # D44: at least confidence.high_days daily lows with CV <= high_max_cv
+    require_new_low: true      # below everything seen for the route-month (new_low_margin)
+    direct_only: true          # nonstop both ways
+    max_found_age_hours: 48    # when the exact found time is known (GraphQL, D43)
+    max_per_day: 3
 
 # Posting queue (DECISIONS D32): approving a promotion queues an Instagram post at the next free
 # daily slot (Lisbon time, at most max_per_day a day) and a Telegram post at once; every run
@@ -207,9 +221,14 @@ posting:
   max_per_day: 3
   max_check_age_hours: 6      # not rechecked (or approved) this recently: the post waits
   max_attempts: 5             # publisher errors before a post is cancelled
+  # Miguel, 2026-10-24 (D46): nothing goes out on Instagram or Telegram until he says so; only
+  # the website publishes. `paused` keeps every due post waiting (never a dry run, which would
+  # settle it). To resume: instagram -> instagram (D36), telegram -> telegram (D38), and first
+  # look at `queue list`: the posts queued meanwhile would go out (Telegram at once, Instagram one
+  # per run at its slots) for every promotion still valid and rechecked within max_check_age_hours.
   publishers:
-    instagram: instagram      # due posts wait while INSTAGRAM_ACCESS_TOKEN / INSTAGRAM_ACCOUNT_ID are unset (D36)
-    telegram: telegram        # due posts wait while TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL are unset (D38)
+    instagram: paused         # was: instagram (due posts wait while INSTAGRAM_* are unset, D36)
+    telegram: paused          # was: telegram (due posts wait while TELEGRAM_* are unset, D38)
 
 # Instagram publisher (D36, docs/runbooks/instagram.md). login: instagram = Instagram API with
 # Instagram Login (graph.instagram.com, no Facebook Page; the token is refreshed when fewer than

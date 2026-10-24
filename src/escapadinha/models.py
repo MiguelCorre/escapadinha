@@ -144,6 +144,10 @@ class Deal:
     # and whether the price beat everything seen in the window. None for deals detected before.
     confidence: str | None = None
     new_low: bool | None = None
+    # D46: Aviasales' own "special offer" discount for the trip (a percentage of their average,
+    # their measure, never a price) and when a run last saw it on their list. None: not listed.
+    partner_discount_pct: float | None = None
+    partner_offer_at: datetime | None = None
 
 
 @dataclass(frozen=True)

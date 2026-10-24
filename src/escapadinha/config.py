@@ -294,6 +294,10 @@ class SiteConfig(BaseModel):
     # Expired promotions stay in the export (and on the site, noindex) this many days after they
     # expired; afterwards their links 301 to the route page (`website.routing`, D35).
     expired_promotions_days: int = Field(30, ge=0)
+    # D46: with a live promotion every run moves its "verificado a", so the site data changes
+    # every 30 minutes. When that is the only change, the site is rebuilt at most this often;
+    # a new or expired promotion, a new day, a route or code change still rebuild at once.
+    refresh_min_gap_minutes: int = Field(120, ge=0)
 
     @field_validator("base_url")
     @classmethod
@@ -468,13 +472,35 @@ class PhotosConfig(BaseModel):
     max_per_run: int = Field(40, ge=0, le=45)
 
 
+Confidence = Literal["low", "medium", "high"]
+
+
+class AutoApproveConfig(BaseModel):
+    """Automatic approval of promotion candidates for the website (D46): the pipeline writes an
+    approve event (actor `auto_review.ACTOR`) for a rendered candidate that passes every rule
+    here and a live price check, and applies it in the same run, so the promotion goes live on
+    the site without waiting for a human. Miguel can still reject it afterwards (the page then
+    expires: `noindex`, no button). Off by default; config.yaml turns it on."""
+    enabled: bool = False
+    min_confidence: Confidence = "high"      # trust in the typical low at detection (D44)
+    require_new_low: bool = True             # cheaper than everything seen for the route-month
+    direct_only: bool = True                 # nonstop both ways, whatever the route's rules allow
+    # A fare whose exact found time is known (GraphQL, D43) must be at most this old; without
+    # it the detector's own freshness window (max_offer_age_days) is the only age rule.
+    max_found_age_hours: float = Field(48, gt=0)
+    max_per_day: int = Field(3, ge=0)        # auto-approvals per Lisbon day; 0 = report only
+
+
 class ReviewConfig(BaseModel):
     # An approval's live price check stays valid this long: older approve events are refused
     # when the pipeline applies them (D26). Reject and published events never expire.
     approve_max_age_hours: float = Field(24, gt=0)
+    auto_approve: AutoApproveConfig = AutoApproveConfig()
 
 
-PublisherName = Literal["dry-run", "instagram", "telegram"]
+# `paused` (D46): a channel kept quiet on purpose (Miguel's decision, 2026-10-24: only the
+# website publishes); due posts wait with that notice, never a dry run that would settle them.
+PublisherName = Literal["dry-run", "instagram", "telegram", "paused"]
 
 
 # The Graph API host per login flow (D36): the only place it is written.
@@ -551,7 +577,7 @@ class PostingConfig(BaseModel):
             raise ValueError(f"posting.publishers: unknown channel(s) {unknown}, "
                              f"use {list(POST_CHANNELS)}")
         for channel, name in sorted(v.items()):
-            if name != "dry-run" and name != channel:
+            if name not in ("dry-run", "paused") and name != channel:
                 raise ValueError(f"posting.publishers: the {name} publisher only posts to the "
                                  f"{name} channel, not {channel!r}")
         return {**{channel: "dry-run" for channel in POST_CHANNELS}, **v}

@@ -128,7 +128,7 @@ function card(d) {
   const notes = [];
   if (flash[d.id]) notes.push(`<div class="notice ${flash[d.id].kind}">${esc(flash[d.id].text)}</div>`);
   if (d.status === "expired") notes.push(`<div class="notice bad">Expirado: ${esc(d.expired_reason)}. Não publicar.</div>`);
-  if (d.status === "approved") notes.push(`<div class="notice ok">Aprovado. Publica depressa: o preço é verificado de 2 em 2 horas e o deal expira se mudar.</div>`);
+  if (d.status === "approved") notes.push(`<div class="notice ok">Aprovado${(d.review_note || "").startsWith("aprovação automática") ? " pelas regras (D46): já está no site" : ""}. O preço é verificado de 30 em 30 minutos e o deal expira se mudar.</div>`);
   if (d.review_note) notes.push(`<div class="notice warn">Nota: ${esc(d.review_note)}</div>`);
   for (const p of d.pending) notes.push(`<div class="notice warn">Decisão pendente: ${esc(p.type_pt)} (${esc(p.actor)}, ${esc(p.created_at)}). É aplicada na próxima execução.</div>`);
 
@@ -162,7 +162,8 @@ function card(d) {
         ${row("Bagagem", esc(d.baggage))}
         ${row("Agência", esc(d.gate))}
         ${row("Deal", deal)}
-        ${row("Preço visto", esc([d.found_on && `encontrado a ${d.found_on}`, `verificado a ${d.checked_at}`].filter(Boolean).join(" · ")))}
+        ${row("Preço visto", [d.found_at_pt ? `encontrado a ${esc(d.found_at_pt)} (${d.found_fresh ? "<strong>" : ""}${esc(d.found_ago)}${d.found_fresh ? "</strong>" : ""})` : d.found_on && `encontrado a ${esc(d.found_on)}`, `verificado a ${esc(d.checked_at)}`].filter(Boolean).join(" · "))}
+        ${row("Aviasales", esc(d.partner_offer_pt))}
         ${row("Última verificação", d.last_checked_at ? esc(`${d.last_checked_at}${d.last_seen_price ? ` · ${d.last_seen_price}` : ""}`) : "")}
         ${row("Link", link)}
         ${row("Publicado", d.published_at ? esc(d.published_at) + (d.post_url ? ` · <a href="${esc(d.post_url)}" target="_blank" rel="noopener">ver post</a>` : "") : "")}
