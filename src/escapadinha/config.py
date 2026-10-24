@@ -114,6 +114,27 @@ class AirlinesConfig(BaseModel):
     ryanair: AirlineSourceConfig = AirlineSourceConfig()
 
 
+class ProbeConfig(BaseModel):
+    """The browser probe on Miguel's PC (D48): Google Flights read like a person, for the trips
+    the pipeline lists in `probe/wanted.json`. Everything here is pacing and placement; nothing
+    hides the probe from the site (a wall pauses it for `paused_hours`)."""
+
+    enabled: bool = True
+    engine: Literal["google_flights"] = "google_flights"
+    max_trips: int = Field(10, ge=0, le=60)              # trips per run (3 page loads each)
+    pause_seconds_min: float = Field(20, ge=0)           # between trips, like a reader
+    pause_seconds_max: float = Field(45, ge=0)
+    paused_hours: int = Field(24, ge=1, le=24 * 14)      # after a wall
+    headless: bool = False                               # a visible Chrome window, as a person has
+    profile_dir: str | None = None                       # default: ~/.pontonomada/probe-chrome
+
+    @model_validator(mode="after")
+    def _pause_range(self):
+        if self.pause_seconds_max < self.pause_seconds_min:
+            raise ValueError("probe.pause_seconds_max must be >= probe.pause_seconds_min")
+        return self
+
+
 class ConfidenceConfig(BaseModel):
     """When a typical low is `high` confidence (D44): at least `high_days` daily lows whose
     coefficient of variation is at most `high_max_cv`. Below the maturity gate (D40) it is
@@ -613,6 +634,7 @@ class AppConfig(BaseModel):
     telegram: TelegramConfig = TelegramConfig()
     collector: CollectorConfig = CollectorConfig()
     airlines: AirlinesConfig = AirlinesConfig()   # the airlines' own fare finders (D47)
+    probe: ProbeConfig = ProbeConfig()            # the browser probe on the PC (D48)
     detector: DetectorConfig = DetectorConfig()
     routes: RoutesConfig = RoutesConfig()
     origins_pt: dict[str, str] = {}

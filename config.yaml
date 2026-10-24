@@ -48,6 +48,20 @@ airlines:
     blocked_hours: 24
     lookback_days: 90           # offers this old name the pairs (origin, destination airport)
 
+# The browser probe on Miguel's PC (DECISIONS D48, docs/runbooks/sonda.md): Google Flights read
+# like a person for the trips the pipeline lists (probe/wanted.json: open promotions first, then
+# the cheapest fresh offer of each route in rotation). Its prices are a comparison source
+# (google_flights): "Também visto" next to a promotion, never a deal or a button. A wall (consent
+# page, "unusual traffic", captcha) ends the run and pauses the probe; nothing hides it.
+probe:
+  enabled: true
+  engine: google_flights
+  max_trips: 10               # per run, three page loads each: 10 trips ≈ 8–12 min at the pauses below
+  pause_seconds_min: 20
+  pause_seconds_max: 45
+  paused_hours: 24
+  headless: false             # a visible Chrome window, as a person has; true is detected more often
+
 # Two tiers (DECISIONS D24), both against the route's typical LOW for that departure month:
 # the median of daily lowest prices (day = when travellers found the price).
 #  - low price: a fresh price >= low_threshold below it; shown on route pages automatically.
