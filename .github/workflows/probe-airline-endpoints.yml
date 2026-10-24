@@ -1,0 +1,24 @@
+# Temporary probe (D47): does Ryanair's fare finder answer from a GitHub-hosted runner? Deleted after.
+name: Probe airline endpoints
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ryanair roundTripFares LIS-STN
+        run: |
+          curl -sS -m 25 -o rt.json -w "ryanair rt: http %{http_code} in %{time_total}s, %{size_download} bytes\n" \
+            -A "pontonomada.pt price check (contact: itachob@gmail.com)" -H "Accept: application/json" \
+            "https://www.ryanair.com/api/farfnd/v4/roundTripFares?departureAirportIataCode=LIS&arrivalAirportIataCode=STN&outboundDepartureDateFrom=2026-11-01&outboundDepartureDateTo=2026-11-30&inboundDepartureDateFrom=2026-11-03&inboundDepartureDateTo=2026-12-07&durationFrom=2&durationTo=7&market=pt-pt&adultPaxCount=1&currency=EUR&searchMode=ALL" || true
+          head -c 300 rt.json; echo
+      - name: Ryanair cheapestPerDay LIS-STN
+        run: |
+          curl -sS -m 25 -o cal.json -w "ryanair cal: http %{http_code} in %{time_total}s, %{size_download} bytes\n" \
+            -A "pontonomada.pt price check (contact: itachob@gmail.com)" -H "Accept: application/json" \
+            "https://www.ryanair.com/api/farfnd/v4/roundTripFares/LIS/STN/cheapestPerDay?outboundMonthOfDate=2026-11-01&inboundMonthOfDate=2026-11-01&currency=EUR" || true
+          head -c 300 cal.json; echo
+      - name: Wizz buildnumber
+        run: |
+          curl -sS -m 20 -A "pontonomada.pt price check (contact: itachob@gmail.com)" -w "\nwizz build: http %{http_code} in %{time_total}s\n" "https://wizzair.com/buildnumber" | head -c 300 || true
