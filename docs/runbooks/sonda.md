@@ -1,11 +1,13 @@
-# A sonda no teu PC: Google Flights como comparação (DECISIONS D48)
+# A sonda no teu PC: Google Flights e Kayak como comparação (DECISIONS D48, D49)
 
 A sonda é um comando do próprio projeto (`escapadinha probe`) que abre o Chrome **no teu PC**,
-pesquisa no Google Flights as viagens que o pipeline lhe pede e grava o que viu (preço mais
-barato sem escalas e quem o vende: companhia, eDreams, Kiwi…) no armazenamento R2. Na corrida
-seguinte, o pipeline importa esses preços como **fonte de comparação** (`google_flights`): aparecem
-como "Também visto · Google Flights via eDreams · 55 €" ao lado de cada promoção, nas páginas de
-revisão e na página pública. Nunca fazem uma promoção sozinhos nem levam um botão de reserva.
+pesquisa as viagens que o pipeline lhe pede no Google Flights e depois no Kayak (D49: dois
+**motores**, no mesmo browser, uma pesquisa de cada vez, nunca em paralelo) e grava o que viu
+(preço mais barato sem escalas e, no Google Flights, quem o vende: companhia, eDreams, Kiwi…) no
+armazenamento R2. Na corrida seguinte, o pipeline importa esses preços como **fontes de
+comparação** (`google_flights`, `kayak`): aparecem como "Também visto · Google Flights via eDreams
+· 55 €" e "Kayak · 44 €" ao lado de cada promoção, nas páginas de revisão e na página pública.
+Nunca fazem uma promoção sozinhos nem levam um botão de reserva.
 
 **Porquê no teu PC e não no GitHub:** com o teu IP de casa e um perfil real do Chrome, uma pesquisa
 de cada vez a ritmo humano é o que o Google espera de uma pessoa a comparar preços. A sonda não
@@ -28,10 +30,11 @@ cd C:/Users/DESKTOP/Downloads/escapadinha && uv run escapadinha probe setup
 ```
 
 Abre o Chrome com um perfil só da sonda (`%USERPROFILE%\.pontonomada\probe-chrome`, não o teu
-perfil pessoal) na página do Google Flights e, se aparecer a página de consentimento, escolhe
-**Rejeitar tudo** (a opção que menos dados guarda) e fecha. Se a página de consentimento não tiver
-esse botão, o comando diz-to: responde tu na janela e fecha-a. Não inicies sessão em nenhuma conta
-Google nesse perfil.
+perfil pessoal) na página do Google Flights e depois na do Kayak e, em cada uma, se aparecer o
+pedido de consentimento, escolhe **Rejeitar tudo** / **Recusar tudo** (a opção que menos dados
+guarda) e fecha. Se uma página de consentimento não tiver esse botão, o comando diz-to: responde
+tu na janela e fecha-a. Não inicies sessão em nenhuma conta nesse perfil. Se já tinhas o perfil
+do D48, basta correr o `setup` outra vez para recusar o consentimento do Kayak.
 
 ## Passo 2: uma corrida de teste
 
@@ -42,17 +45,21 @@ mostra "Lista a pesquisar: N viagens"):
 cd C:/Users/DESKTOP/Downloads/escapadinha && uv run escapadinha probe run --limit 2
 ```
 
-Vais ver o Chrome abrir, pesquisar duas viagens (três páginas cada: ida, regresso, opções de
-reserva) com pausas de 20 a 45 segundos, e fechar. No fim imprime, por exemplo,
-`probe: ok, 2 of 2 trips searched, 2 with booking options`. O estado fica em:
+Vais ver o Chrome abrir, pesquisar duas viagens, cada uma primeiro no Google Flights (três
+páginas: ida, regresso, opções de reserva) e depois no Kayak (uma página: a lista de resultados
+diretos, do mais barato), com pausas de 20 a 45 segundos entre viagens (metade entre os dois
+motores), e fechar. No fim imprime, por exemplo, `probe: ok, 2 of 2 trips searched, 2 with
+booking options; google_flights: 2 searched, 2 priced; kayak: 2 searched, 2 priced`. O estado
+fica em:
 
 ```bash
 cd C:/Users/DESKTOP/Downloads/escapadinha && uv run escapadinha probe status
 ```
 
 Na corrida seguinte do pipeline (de 30 em 30 minutos) o resumo da execução no GitHub traz a linha
-`Probe results: 1 files, 2 of 2 searches with booking options, …` e as páginas de revisão passam
-a mostrar "Também visto · Google Flights via …" nas promoções pesquisadas.
+`Probe results: 1 files, 4 of 4 searches with booking options, …` (cada viagem conta uma pesquisa
+por motor) e as páginas de revisão passam a mostrar "Também visto · Google Flights via …" e
+"Kayak …" nas promoções pesquisadas.
 
 ## Passo 3: agendar no Windows (de 30 em 30 minutos, às :05 e :35)
 
@@ -69,25 +76,30 @@ mkdir -p "$USERPROFILE/.pontonomada" && schtasks /Create /TN "Pontonomada sonda"
   sessão" é interativo e que a próxima execução está marcada.
 - [ ] Depois da primeira execução agendada, lê `%USERPROFILE%\.pontonomada\sonda.log`.
 
-Cada corrida demora cerca de 8 a 12 minutos para 10 viagens (`probe.max_trips`). Se preferires
-menos tempo de janela aberta, baixa `max_trips` no `config.yaml` ou alonga as pausas.
+Cada corrida demora cerca de 12 a 15 minutos para 10 viagens (`probe.max_trips`) nos dois
+motores. Se preferires menos tempo de janela aberta, baixa `max_trips` no `config.yaml`, alonga
+as pausas, ou deixa só um motor em `probe.engines` (`[google_flights]` ou `[kayak]`; a ordem da
+lista é a ordem em que cada viagem é pesquisada).
 
 ## Parar, pausar, retomar
 
 - **Parar de vez:** `schtasks /Delete /TN "Pontonomada sonda" /F`.
 - **Pausar:** `schtasks /Change /TN "Pontonomada sonda" /DISABLE` (e `/ENABLE` para retomar), ou
   `probe.enabled: false` no `config.yaml` (a tarefa corre mas não faz nada).
-- **Pausa automática:** depois de um muro a sonda não pesquisa durante `probe.paused_hours` (24);
-  `probe status` mostra `paused_until` e `reason` (`consent`: repete o passo 1; `unusual_traffic`
-  ou `captcha`: espera; se voltar a acontecer, baixa `max_trips` e alonga as pausas, nunca o
-  contrário). Para retomar antes do prazo apaga o estado: `probe/state.json` no bucket.
+- **Pausa automática, por motor:** depois de um muro **esse motor** não pesquisa durante
+  `probe.paused_hours` (24) e o outro continua; `probe status` mostra, por motor, `paused until …
+  (reason)` (`consent`: repete o passo 1; `unusual_traffic`, `captcha` ou, no Kayak,
+  `press_and_hold`: espera; se voltar a acontecer, baixa `max_trips` e alonga as pausas, nunca o
+  contrário). Com os dois motores em pausa a sonda não abre o browser. Para retomar antes do
+  prazo apaga a entrada do motor em `engines` no `probe/state.json` do bucket (ou o ficheiro).
 - **PC desligado:** não acontece nada; o pipeline continua sem a comparação e retoma quando a
   sonda voltar a correr.
 
 ## O que a sonda nunca faz
 
 Não inicia sessão, não guarda cookies além da recusa do consentimento, não muda de identidade
-(user-agent, IP), não resolve captchas, não pesquisa em paralelo e não decide o que pesquisar: lê
+(user-agent, IP), não resolve captchas nem carrega no "press and hold" do Kayak, não pesquisa em
+paralelo (um browser, um motor de cada vez) e não decide o que pesquisar: lê
 `probe/wanted.json`, que o pipeline escreve em cada corrida (as promoções abertas primeiro, depois
 a oferta mais barata de cada rota, em rotação). Os preços que grava são os que a página mostrou,
 com a hora em que os leu; nunca viram uma promoção por si (D47: uma promoção liga a, e é verificada

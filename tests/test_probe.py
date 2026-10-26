@@ -9,10 +9,13 @@ import respx
 
 from escapadinha import pipeline, review_snapshot, site_data
 from escapadinha.models import Observation
+from escapadinha.probe import engine, kayak
 from escapadinha.probe import google_flights as gf
 from escapadinha.probe import results, runner, wanted
 from escapadinha.storage import db
 from escapadinha.storage.objects import LocalObjectStore
+from escapadinha.config import ProbeConfig
+from escapadinha.presentation import SOURCE_LABELS, seller_label
 from test_pipeline import ctx, mock_api, seed_history  # noqa: F401
 
 NOW = datetime(2026, 10, 24, 16, 30, tzinfo=timezone.utc)
@@ -134,6 +137,18 @@ class FakeFlights:
         self.closed = True
 
 
+class FakeSession:
+    """What `probe run` opens: the engines over one browser, closed once."""
+
+    def __init__(self, *browsers, modules=(gf,)):
+        self.browsers = browsers
+        self.engines = [engine.Bound(m, b) for m, b in zip(modules, browsers)]
+
+    def close(self):
+        for b in self.browsers:
+            b.close()
+
+
 def test_search_picks_the_cheapest_nonstop_legs_and_reads_the_sellers():
     fake = FakeFlights([ROW_STOP, ROW_OPERATED, ROW_CHEAP], [ROW_RETURN], [BOOK_OTA, BOOK_AIRLINE, "Track prices"])
     found = gf.search(fake, "LIS", "STN", date(2026, 11, 19), date(2026, 11, 22), rng=random.Random(1))
@@ -168,8 +183,10 @@ def test_results_become_observations_per_seller_without_links():
                       (gf.Option("Ryanair", "airline", 65.0), gf.Option("eDreams", "online travel agency", 1062.0)), "ok")
     doc = results.document([results.record(trip(), found, NOW),
                             results.record(trip(), gf.Search("https://g/y", None, None, (), "no_results"), NOW)],
-                           engine="google_flights", started_at=NOW, finished_at=NOW, stopped=None,
+                           engines=("google_flights",), started_at=NOW, finished_at=NOW, stopped=None,
                            wanted_generated_at=None)
+    assert doc["engine"] == "google_flights" and doc["engines"] == ["google_flights"]
+    assert doc["records"][0]["engine"] == "google_flights"
     got = results.to_observations(json.loads(results.dumps(doc)))
     assert (got.records, got.searches_ok) == (2, 1)
     assert [(o.gate, o.price) for o in got.observations] == [("Ryanair", 65.0), ("eDreams", 1062.0)]
@@ -179,6 +196,12 @@ def test_results_become_observations_per_seller_without_links():
     assert o.found_at == NOW and o.fetched_at == NOW and (o.transfers, o.return_transfers) == (0, 0)
     assert json.loads(o.raw_json)["outbound"].startswith("3:10 PM")
     assert o.dedup_key != got.observations[1].dedup_key
+    # a pre-D49 file: records without `engine` are the document's engine (Google Flights)
+    old = json.loads(results.dumps(doc))
+    for rec in old["records"]:
+        del rec["engine"]
+    del old["engines"]
+    assert [o.source for o in results.to_observations(old).observations] == ["google_flights"] * 2
 
 
 def test_runner_writes_one_results_file_and_its_state(tmp_path):
@@ -189,20 +212,23 @@ def test_runner_writes_one_results_file_and_its_state(tmp_path):
 
     def open_flights():
         fakes.append(FakeFlights([ROW_CHEAP], [ROW_RETURN], [BOOK_AIRLINE]))
-        return fakes[-1]
+        return FakeSession(fakes[-1])
     clock = iter(NOW + timedelta(minutes=m) for m in range(1, 10))
     summary = runner.run(store, open_flights, now=NOW, limit=10, pause=(20, 45), paused_hours=24,
                          rng=random.Random(2), clock=lambda: next(clock))
     assert summary.status == "ok" and (summary.trips, summary.searched, summary.with_options) == (2, 2, 2)
-    assert summary.describe() == "probe: ok, 2 of 2 trips searched, 2 with booking options"
+    assert summary.describe() == ("probe: ok, 2 of 2 trips searched, 2 with booking options; "
+                                  "google_flights: 2 searched, 2 priced")
     assert fakes[0].closed and any(log.startswith("pause 2") or log.startswith("pause 3") or log.startswith("pause 4") for log in fakes[0].log)
     [key] = store.list(results.RESULTS_PREFIX)
     assert key == summary.results_key and key.startswith("probe/results/20261024T16")
     doc = json.loads(store.get(key))
     assert doc["engine"] == "google_flights" and doc["stopped"] is None and len(doc["records"]) == 2
     assert doc["records"][0]["trip"]["deal_id"] == 7 and doc["records"][0]["options"][0]["seller"] == "Ryanair"
+    assert doc["records"][0]["engine"] == "google_flights"
     state = runner.read_state(store)
     assert state["last_trips"] == 2 and state["last_results"] == key and "paused_until" not in state
+    assert state["engines"] == {"google_flights": {"last_searched": 2, "last_priced": 2}}
     # nothing to search: no browser is opened
     store.put(wanted.KEY, json.dumps(wanted.to_json(wanted.plan([], [], cursor=0, limit=5), generated_at=NOW, run_id=9)).encode())
     assert runner.run(store, open_flights, now=NOW, limit=10, pause=(0, 0), paused_hours=24).status == "empty"
@@ -227,20 +253,24 @@ def test_a_wall_ends_the_run_keeps_what_was_read_and_pauses_the_probe(tmp_path):
                 fake.wall_at = "open"
             return original(url)
         fake.open = open_
-        return fake
+        return FakeSession(fake)
     summary = runner.run(store, open_flights, now=NOW, limit=10, pause=(0, 0), paused_hours=24,
                          rng=random.Random(3))
-    assert summary.status == "wall" and summary.reason == "unusual_traffic"
+    assert summary.status == "wall" and summary.reason == "google_flights: unusual_traffic"
     assert (summary.searched, summary.with_options) == (1, 1) and calls[0].closed
-    assert "paused until 2026-10-25 16:30 UTC" in summary.describe()
+    assert "google_flights: 1 searched, 1 priced, unusual_traffic, paused until 2026-10-25 16:30 UTC" in summary.describe()
     doc = json.loads(store.get(summary.results_key))
-    assert doc["stopped"] == "unusual_traffic" and len(doc["records"]) == 1
+    assert doc["stopped"] == {"google_flights": "unusual_traffic"} and len(doc["records"]) == 1
     state = runner.read_state(store)
-    assert state["reason"] == "unusual_traffic" and runner.paused_until(state, NOW) == NOW + timedelta(hours=24)
+    assert state["engines"]["google_flights"]["reason"] == "unusual_traffic"
+    assert runner.paused_until(state, NOW, "google_flights") == NOW + timedelta(hours=24)
+    assert runner.paused_until(state, NOW, "kayak") is None             # the pause is the engine's
     again = runner.run(store, open_flights, now=NOW + timedelta(hours=1), limit=10, pause=(0, 0), paused_hours=24)
     assert again.status == "paused" and len(calls) == 1
     later = runner.run(store, open_flights, now=NOW + timedelta(hours=25), limit=10, pause=(0, 0), paused_hours=24)
     assert later.status in ("ok", "partial", "wall") and len(calls) == 2
+    # a pre-D49 state (one top-level pause) still pauses the probe
+    assert runner.paused_until({"paused_until": (NOW + timedelta(hours=2)).isoformat()}, NOW, "kayak") == NOW + timedelta(hours=2)
 
 
 # --- the pipeline side -----------------------------------------------------------------------
@@ -273,7 +303,7 @@ def test_the_pipeline_lists_trips_for_the_probe_and_imports_its_results_as_a_com
                       (gf.Option("Kiwi.com", "online travel agency", 20.0),), "ok")
     at = db.utcnow()
     body = results.dumps(results.document([results.record(t, found, at), results.record(other, cheap, at)],
-                                          engine="google_flights", started_at=at, finished_at=at,
+                                          engines=("google_flights",), started_at=at, finished_at=at,
                                           stopped=None, wanted_generated_at=doc["generated_at"]))
     ctx.object_store.put(results.results_key(at), body)
     ctx.object_store.put("probe/results/broken.json", b"{not json")
@@ -282,7 +312,7 @@ def test_the_pipeline_lists_trips_for_the_probe_and_imports_its_results_as_a_com
     assert imported.errors == ["probe/results/broken.json: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"]
     assert ctx.object_store.list("probe/results/") == ["probe/results/broken.json"]   # imported ones archived and removed
     row = conn.execute("SELECT source, scope, status, archive_key FROM fetch_runs WHERE id = ?", (imported.run_id,)).fetchone()
-    assert (row["source"], row["scope"], row["status"]) == ("google_flights", "probe", "partial") and row["archive_key"]
+    assert (row["source"], row["scope"], row["status"]) == ("probe", "probe", "partial") and row["archive_key"]
     stored = [o for o in db.observations_seen_since(conn, imported.run_id) if o.source == "google_flights"]
     assert sorted((o.gate, o.price) for o in stored) == [("Kiwi.com", 20.0), ("Ryanair", 57.0), ("eDreams", 55.0)]
     assert all(o.deep_link is None for o in stored)
@@ -303,3 +333,167 @@ def test_the_pipeline_lists_trips_for_the_probe_and_imports_its_results_as_a_com
                                                                          ("Google Flights via Ryanair", 57.0)]
     assert all(db.get_observation(conn, a["observation_id"]).price == a["price_eur"] for a in mine["also_seen"])
     assert pipeline.run_probe_import(ctx, conn).files == 1                 # only the broken one is left
+
+
+# --- Kayak (D49) -----------------------------------------------------------------------------
+
+# A numbered result ("Resultado número 1") as kayak.pt shows it (read on 2026-10-26 from this
+# PC): the card's text and its aria-labels (the segments name the airline and times per leg).
+KAYAK_CARD = kayak.Card(
+    "6:30 – 8:30\nOPOAeroporto Francisco Sá Carneiro\n-\nFNCAeroporto da Madeira\ndireto\n2h 00m\n"
+    "21:20 – 23:25\nFNCAeroporto da Madeira\n-\nOPOAeroporto Francisco Sá Carneiro\ndireto\n2h 05m\n"
+    "Ryanair\n0\n0\n44\u00a0€\nBásica\nSelecionar",
+    ("Guardar", "Segmento 1: Ryanair, OPO 6:30 - FNC 8:30. Seleciona para ver todos os resultados com este segmento.",
+     "Segmento 2: Ryanair, FNC 21:20 - OPO 23:25. Seleciona para ver todos os resultados com este segmento.",
+     "0 malas de mão permitidas, não incluídas no preço", "Básica"))
+KAYAK_MIXED = kayak.Card(
+    "6:00 – 8:05\nOPOAeroporto Francisco Sá Carneiro\n-\nFNCAeroporto da Madeira\ndireto\n2h 05m\n"
+    "13:50 – 15:55\nFNCAeroporto da Madeira\n-\nOPOAeroporto Francisco Sá Carneiro\ndireto\n2h 05m\n"
+    "easyJet, Ryanair\n0\n0\n48 €\nLight + Básica\nSelecionar",
+    ("Segmento 1: easyJet, OPO 6:00 - FNC 8:05. Seleciona para ver todos os resultados com este segmento.",
+     "Segmento 2: Ryanair, FNC 13:50 - OPO 15:55. Seleciona para ver todos os resultados com este segmento."))
+KAYAK_STOP = kayak.Card(
+    "7:00 – 13:15\nOPOAeroporto Francisco Sá Carneiro\n-\nFNCAeroporto da Madeira\n1 escala\n6h 15m\n"
+    "13:50 – 15:55\nFNCAeroporto da Madeira\n-\nOPOAeroporto Francisco Sá Carneiro\ndireto\n2h 05m\n"
+    "TAP AIR PORTUGAL\n1\n0\n1.062 €\nBásica\nSelecionar", ())
+KAYAK_AD = kayak.Card("Voos de Porto para Funchal\nEncontra ótimas ofertas na eDreams\n67 €\ndireto\neDreams\nAnúncio\nVer oferta", ())
+
+
+def test_kayak_parses_the_card_as_shown_and_never_guesses():
+    it = kayak.parse_card(KAYAK_CARD)
+    assert (it.price, it.nonstop) == (44.0, True)
+    assert (it.outbound.airline, it.outbound.departs, it.outbound.arrives) == ("Ryanair", "6:30", "8:30")
+    assert (it.inbound.airline, it.inbound.departs, it.inbound.arrives) == ("Ryanair", "21:20", "23:25")
+    assert it.outbound.price == 44.0 and it.outbound.text == KAYAK_CARD.text
+    mixed = kayak.parse_card(KAYAK_MIXED)
+    assert (mixed.outbound.airline, mixed.inbound.airline, mixed.price) == ("easyJet", "Ryanair", 48.0)
+    stop = kayak.parse_card(KAYAK_STOP)
+    assert stop.nonstop is False and stop.price == 1062.0 and stop.outbound.airline is None   # no labels: no guess
+    assert kayak.parse_card(KAYAK_AD) is None                                   # one leg: not a result
+    assert kayak.parse_card(kayak.Card("Filtrar voos\n96 de 1733 voos", ())) is None
+    assert kayak.cheapest_nonstop([KAYAK_STOP, KAYAK_MIXED, KAYAK_CARD]) == (2, kayak.parse_card(KAYAK_CARD))
+    assert kayak.cheapest_nonstop([KAYAK_STOP]) is None
+    assert kayak.price_of("1.062 €") == 1062.0 and kayak.price_of("44\u00a0€") == 44.0 and kayak.price_of("0 €") is None
+    assert kayak.airline_code("Ryanair") == "FR" and kayak.airline_code("TAP AIR PORTUGAL") == "TP"
+
+
+def test_kayak_url_and_wall_reasons():
+    assert kayak.search_url("OPO", "FNC", date(2026, 12, 17), date(2026, 12, 21)) == \
+        "https://www.kayak.pt/flights/OPO-FNC/2026-12-17/2026-12-21/1adults?sort=price_a&fs=stops=0"
+    assert kayak.wall_reason("https://www.kayak.pt/flights/x", "", "Press and hold the button to confirm") == "press_and_hold"
+    assert kayak.wall_reason("https://www.kayak.pt/security/check", "KAYAK", "") == "press_and_hold"
+    assert kayak.wall_reason("https://x", "", "please confirm you are not a robot (captcha)") == "captcha"
+    assert kayak.wall_reason("https://x", "Access Denied", "You don't have permission") == "blocked"
+    assert kayak.wall_reason("https://www.kayak.pt/flights/OPO-FNC/2026-12-17/2026-12-21/1adults",
+                             "OPO para FNC, 17/12 – 21/12", "96 de 1733 voos 44 €") is None
+
+
+class FakeKayak:
+    """A scripted Kayak: one results page per search."""
+
+    def __init__(self, cards, *, wall=None):
+        self.cards_, self.wall = cards, wall
+        self.log: list[str] = []
+        self.closed = False
+
+    def open(self, url):
+        self.log.append(f"open {url[:50]}")
+        if self.wall:
+            return engine.View("https://www.kayak.pt/security/check", "KAYAK", "Press and hold")
+        return engine.View(url, "OPO para FNC", "96 de 1733 voos")
+
+    def cards(self):
+        return self.cards_
+
+    def pause(self, seconds):
+        self.log.append(f"pause {seconds:.0f}")
+
+    def close(self):
+        self.closed = True
+
+
+def test_kayak_search_reads_one_page_and_names_no_seller():
+    found = kayak.search(FakeKayak([KAYAK_STOP, KAYAK_MIXED, KAYAK_CARD]), "OPO", "FNC", date(2026, 12, 17), date(2026, 12, 21))
+    assert found.outcome == "ok" and found.price == 44.0 and found.outbound.airline == "Ryanair"
+    assert found.options == (engine.Option(None, "metasearch", 44.0),)
+    assert kayak.search(FakeKayak([]), "OPO", "FNC", date(2026, 12, 17), date(2026, 12, 21)).outcome == "no_results"
+    assert kayak.search(FakeKayak([KAYAK_STOP]), "OPO", "FNC", date(2026, 12, 17), date(2026, 12, 21)).outcome == "no_nonstop"
+    try:
+        kayak.search(FakeKayak([KAYAK_CARD], wall=True), "OPO", "FNC", date(2026, 12, 17), date(2026, 12, 21))
+    except engine.Wall as wall:
+        assert wall.reason == "press_and_hold"
+    else:
+        raise AssertionError("a wall must stop the search")
+
+
+def test_kayak_results_become_kayak_observations_labelled_kayak():
+    found = kayak.search(FakeKayak([KAYAK_CARD]), "OPO", "FNC", date(2026, 12, 17), date(2026, 12, 21))
+    t = wanted.Trip("OPO", "FNC", "FNC", date(2026, 12, 17), date(2026, 12, 21), "promotion", 16, 1)
+    doc = results.document([results.record(t, found, NOW, engine="kayak")], engines=("google_flights", "kayak"),
+                           started_at=NOW, finished_at=NOW, stopped=None, wanted_generated_at=None)
+    assert doc["engines"] == ["google_flights", "kayak"] and doc["records"][0]["engine"] == "kayak"
+    [o] = results.to_observations(json.loads(results.dumps(doc))).observations
+    assert (o.source, o.gate, o.price, o.airline, o.deep_link) == ("kayak", None, 44.0, "FR", None)
+    assert (o.origin, o.destination, o.destination_airport) == ("OPO", "FNC", "FNC")
+    assert seller_label(o) == "Kayak" and SOURCE_LABELS["kayak"] == "Kayak"
+    assert "kayak" in pipeline.COMPARISON_SOURCES and pipeline.comparable([o]) == []
+    # an engine this code does not know yields nothing
+    doc["records"][0]["engine"] = "skyscanner"
+    assert results.to_observations(doc).observations == [] and results.to_observations(doc).searches_ok == 0
+
+
+def test_the_runner_searches_each_trip_on_every_engine_and_pauses_only_the_walled_one(tmp_path):
+    store = LocalObjectStore(tmp_path / "objects")
+    plan = wanted.plan([(7, obs(oid=1)), (8, obs(destination="PAR", airport="BVA", oid=2))], [], cursor=0, limit=5)
+    store.put(wanted.KEY, json.dumps(wanted.to_json(plan, generated_at=NOW, run_id=9)).encode())
+    sessions = []
+
+    def open_session():
+        flights = FakeFlights([ROW_CHEAP], [ROW_RETURN], [BOOK_AIRLINE])
+        kayak_ = FakeKayak([KAYAK_CARD], wall=True)                # Kayak walls on the first trip
+        sessions.append(FakeSession(flights, kayak_, modules=(gf, kayak)))
+        return sessions[-1]
+    summary = runner.run(store, open_session, now=NOW, limit=10, pause=(0, 0), paused_hours=24,
+                         engine_names=("google_flights", "kayak"), rng=random.Random(4))
+    assert summary.status == "wall" and summary.reason == "kayak: press_and_hold"
+    assert (summary.trips, summary.searched, summary.with_options) == (2, 2, 2)   # Google went on
+    names = [(e.name, e.searched, e.with_options, e.wall) for e in summary.engines]
+    assert names == [("google_flights", 2, 2, None), ("kayak", 0, 0, "press_and_hold")]
+    assert summary.describe() == ("probe: wall, 2 of 2 trips searched, 2 with booking options; "
+                                  "google_flights: 2 searched, 2 priced; kayak: 0 searched, 0 priced, "
+                                  "press_and_hold, paused until 2026-10-25 16:30 UTC")
+    flights, kayak_ = sessions[0].browsers
+    assert flights.closed and kayak_.closed and sum(l.startswith("open") for l in kayak_.log) == 1   # one try, no retry
+    assert flights.log.count("expand") == 2
+    doc = json.loads(store.get(summary.results_key))
+    assert doc["engines"] == ["google_flights", "kayak"] and doc["stopped"] == {"kayak": "press_and_hold"}
+    assert [r["engine"] for r in doc["records"]] == ["google_flights", "google_flights"]
+    state = runner.read_state(store)
+    assert state["engines"]["google_flights"] == {"last_searched": 2, "last_priced": 2}
+    assert state["engines"]["kayak"]["reason"] == "press_and_hold" and "paused_until" not in state
+    # the next run skips Kayak and keeps its pause; Google Flights searches
+    again = runner.run(store, open_session, now=NOW + timedelta(hours=1), limit=10, pause=(0, 0), paused_hours=24,
+                       engine_names=("google_flights", "kayak"), rng=random.Random(5))
+    assert again.status == "ok" and len(sessions[1].browsers[1].log) == 0
+    assert [(e.name, e.searched, e.paused_until is not None) for e in again.engines] == [("google_flights", 2, False), ("kayak", 0, True)]
+    assert runner.read_state(store)["engines"]["kayak"]["reason"] == "press_and_hold"
+    # every engine paused: no browser is opened
+    for s in sessions:
+        s.browsers[1].wall = True
+    both = {"engines": {"google_flights": {"paused_until": (NOW + timedelta(hours=3)).isoformat(), "reason": "captcha"},
+                        "kayak": {"paused_until": (NOW + timedelta(hours=5)).isoformat(), "reason": "press_and_hold"}}}
+    store.put(results.STATE_KEY, json.dumps(both).encode())
+    paused = runner.run(store, open_session, now=NOW + timedelta(hours=2), limit=10, pause=(0, 0), paused_hours=24,
+                        engine_names=("google_flights", "kayak"))
+    assert paused.status == "paused" and paused.paused_until == NOW + timedelta(hours=5) and len(sessions) == 2
+    assert paused.describe() == "probe: paused until 2026-10-24 21:30 UTC (captcha, press_and_hold)"
+    # config: the engines list has defaults, an order and no duplicates
+    assert ProbeConfig().engines == ["google_flights", "kayak"]
+    assert ProbeConfig(engines=["kayak"]).engines == ["kayak"]
+    for bad in ([], ["kayak", "kayak"], ["skyscanner"]):
+        try:
+            ProbeConfig(engines=bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"probe.engines {bad} must be refused")

@@ -48,15 +48,17 @@ airlines:
     blocked_hours: 24
     lookback_days: 90           # offers this old name the pairs (origin, destination airport)
 
-# The browser probe on Miguel's PC (DECISIONS D48, docs/runbooks/sonda.md): Google Flights read
-# like a person for the trips the pipeline lists (probe/wanted.json: open promotions first, then
-# the cheapest fresh offer of each route in rotation). Its prices are a comparison source
-# (google_flights): "Também visto" next to a promotion, never a deal or a button. A wall (consent
-# page, "unusual traffic", captcha) ends the run and pauses the probe; nothing hides it.
+# The browser probe on Miguel's PC (DECISIONS D48, D49, docs/runbooks/sonda.md): Google Flights
+# and Kayak read like a person for the trips the pipeline lists (probe/wanted.json: open
+# promotions first, then the cheapest fresh offer of each route in rotation). Their prices are
+# comparison sources (google_flights, kayak): "Também visto" next to a promotion, never a deal or
+# a button. Each trip is searched on every engine in this order, in one browser, one search at a
+# time. A wall (consent page, "unusual traffic", captcha, "press and hold") ends that engine's run
+# and pauses it (probe/state.json, per engine); nothing hides the probe.
 probe:
   enabled: true
-  engine: google_flights
-  max_trips: 10               # per run, three page loads each: 10 trips ≈ 8–12 min at the pauses below
+  engines: [google_flights, kayak]
+  max_trips: 10               # per run; 3 page loads a trip on Google Flights + 1 on Kayak ≈ 12–15 min
   pause_seconds_min: 20
   pause_seconds_max: 45
   paused_hours: 24

@@ -18,7 +18,8 @@ SITE_DISCLOSURE = ("Publicidade: os botões de reserva são links de afiliado. S
 BLOCK_DISCLOSURE = ("Publicidade: esta ligação é um link de afiliado. Se comprares através dela, "
                     "podemos receber uma comissão, sem custo extra para ti.")
 # Where a price was seen, as posts and pages name it (D47: an airline's own site is a source too).
-SOURCE_LABELS = {"travelpayouts": "Aviasales", "ryanair": "Ryanair", "google_flights": "Google Flights"}
+SOURCE_LABELS = {"travelpayouts": "Aviasales", "ryanair": "Ryanair", "google_flights": "Google Flights",
+                 "kayak": "Kayak"}
 # Next to the booking button of a promotion whose link goes to the airline's own site (D47): no
 # partner, no commission, so the site disclosure (which says the buttons are affiliate links)
 # would be false there.

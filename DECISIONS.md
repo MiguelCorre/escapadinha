@@ -2959,3 +2959,68 @@ so nothing has to be hosted.
   texts, `search` over a fake browser incl. a wall, results → observations without links, the
   runner's file and state, pause and retry after a wall, the pipeline's list and import, the
   comparison-source exclusions and the per-seller "Também visto").
+
+## D49: Kayak as the probe's second engine; a pause per engine (2026-10-26)
+- **Miguel's decision (2026-10-26):** "avança com o Kayak": the second comparison source next to
+  Google Flights, the way deferias.pt compares the airlines with Skyscanner and Kayak (D47). Per
+  trip the probe runs Google Flights, then Kayak, in one browser, never two in parallel.
+- **Read once before building (2026-10-26, from this PC, `docs/research/2026-10-26-kayak-probe.md`):**
+  kayak.pt answers a plain visit from a visible Chrome without a wall: a cookie dialog with
+  "Recusar tudo" (declined once per profile), then the public search URL
+  (`/flights/OPO-FNC/2026-12-17/2026-12-21/1adults?sort=price_a&fs=stops=0`: one adult,
+  cheapest first, nonstop filter) lands on a list of numbered cards
+  (`[role=group][aria-label="Resultado número N"]`) that streams in for about ten seconds.
+  A card names the airlines, the times and "direto" per leg (and, in its segment checkboxes'
+  labels, "Segmento 1: Ryanair, OPO 6:30 - FNC 8:30."), the bag counts, the fare and the price
+  of the cheapest booking site for that itinerary. **The sellers themselves are not on the
+  page:** expanding the card shows "11 ofertas desde 44 €", and its "Selecionar" link goes
+  straight to the seller (ryanair.com). Reading them would cost a page on every seller's site:
+  not done.
+- **Engine `kayak` (`probe/kayak.py`), one page load a trip:** `search_url`, `parse_card`
+  (pure, over the card's text and labels: price with the pt-PT thousands dot, two legs, nonstop
+  only when both legs read "direto", the airline of each leg from its segment label, else None),
+  `cheapest_nonstop`, `wall_reason` ("press and hold" / `/security/`, captcha, "unusual
+  activity", access denied), `search` → the shared `Search` with one `Option(seller=None,
+  kind="metasearch", price)`. Source `kayak`, label "Kayak": the comparison reads "Também visto ·
+  Kayak · 44 €" (`seller_label` prints the source alone when there is no seller). The airline
+  code comes from the pt-PT table as on Google Flights; a name it does not know stays None.
+- **One browser, every engine (`probe/engine.py`, `probe/browser.py`).** The shapes the engines
+  share (`Result`, `Option`, `Search`, `View`, `Wall`, `airline_code`) moved to `engine.py`
+  (`google_flights` re-exports them); `browser.ChromeSession` is the probe's one Chrome window
+  (the profile of D48), and `google_flights.ChromeFlights` / `kayak.ChromeKayak` are adapters
+  over the same page. `probe run` opens one session and binds the configured engines in order
+  (`engine.Bound`); `probe setup` declines consent on each engine's home page. Config
+  `probe.engines: [google_flights, kayak]` replaces `probe.engine` (a list in search order, each
+  engine once, at least one; `ProbeEngine`). The run's pause between trips stays; between two
+  engines on the same trip the probe takes half of it.
+- **A pause per engine (`probe/state.json` `engines.<name>`).** A `Wall` ends the run **for
+  that engine only**: the others go on with the trip and the rest of the list. The state keeps
+  `last_searched` / `last_priced` per engine and, after a wall, `paused_until`, `reason`,
+  `paused_at` under the engine's name; `runner.paused_until(state, now, engine)` also honours a
+  pre-D49 top-level pause (the whole probe's). A run skips a paused engine, and with every
+  configured engine paused opens no browser (`status: paused`). `probe status` lists the
+  engines; `ProbeSummary.engines` and `describe()` say what each engine did ("kayak: 0 searched,
+  0 priced, press_and_hold, paused until …"). Exit code 2 on any wall, as before.
+- **Results and import.** A record carries `engine` (`results.record(…, engine=)`); the
+  document lists `engines` in search order and keeps `engine` (the first) and `stopped` as
+  engine → reason for pre-D49 readers (a plain reason is read as Google Flights'). `to_observations`
+  maps the record's engine to its source (`results.SOURCES`; a record without `engine` is the
+  document's engine, a record from an unknown engine yields nothing) and stores `gate` null when
+  the engine names no seller. The import's run row is source `probe` (scope `probe`): its
+  observations carry each engine's source. `pipeline.COMPARISON_SOURCES` is `probe.SOURCES`
+  (both engines): Kayak prices never enter detection, a low price, a typical low or a route
+  page either.
+- **Not done here:** Skyscanner (the design's "only if the first two leave a gap", and the most
+  aggressive with automation); Kayak's sellers (above); a Kayak link (there is none to a seller
+  that is not Kayak's own redirect); any change to the site (the promotion page already lists
+  every comparison with its label).
+- **Rejected:** kayak.ie for English texts (the comparison should be what a traveller in
+  Portugal sees; the parsers read pt-PT); following "Selecionar" to read the sellers (a page view
+  on each seller's site per trip); a second Chrome profile or window per engine (two browsers);
+  retrying a Kayak wall on Google Flights' schedule (each engine pauses on its own).
+- **Tests:** `tests/test_probe.py` (the card parsers over the real texts incl. a mixed-carrier
+  and a one-stop card and a sponsored one, the URL and the walls, `search` over a fake Kayak
+  incl. a wall, Kayak results → `kayak` observations labelled "Kayak" and excluded by
+  `comparable`, a two-engine run where Kayak walls on the first trip and Google Flights finishes
+  the list, the per-engine pause kept on the next run, every engine paused → no browser, the
+  pre-D49 state and file shapes, `ProbeConfig.engines` validation).

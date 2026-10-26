@@ -94,9 +94,9 @@ uv run escapadinha routes list             # every route + active/dormant counts
 uv run escapadinha collect                 # routes with prices × 3 departure months; the day's first run from 06:00 Lisbon: every active route × 6 (D42)
 uv run escapadinha airlines                # Ryanair's fare finder for the hot list: open promotions' months on Ryanair first, then the next 20 pair-months of the rotation (D47)
 uv run escapadinha recheck                 # re-verifies open deals against the latest run, each at its own source
-uv run escapadinha probe setup             # PC only (D48): the probe's own Chrome profile, consent declined once
-uv run escapadinha probe run               # PC only: Google Flights for the trips in probe/wanted.json → probe/results/ (docs/runbooks/sonda.md)
-uv run escapadinha probe status            # PC only: last run, pause after a wall, results waiting for the pipeline
+uv run escapadinha probe setup             # PC only (D48): the probe's own Chrome profile, consent declined once on Google Flights and Kayak
+uv run escapadinha probe run               # PC only: Google Flights, then Kayak (D49), for the trips in probe/wanted.json → probe/results/ (docs/runbooks/sonda.md)
+uv run escapadinha probe status            # PC only: last run, each engine's pause after a wall, results waiting for the pipeline
 uv run escapadinha detect                  # latest run: low prices + promotion candidates per route; expires queued deals that aren't candidates today (D40)
 uv run escapadinha enrich                  # latest run: baggage, selling agency and exact found time for its low prices and candidates (GraphQL, D43)
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
@@ -249,7 +249,7 @@ where the link goes), and lists the same trip's newest price at every other sour
 visto" (a comparison, never a confirmation). The review page on the phone cannot check or approve
 such a deal: the automatic approval or `deal approve` on the PC do.
 
-### The browser probe on the PC: Google Flights as a comparison (DECISIONS D48)
+### The browser probe on the PC: Google Flights and Kayak as comparisons (DECISIONS D48, D49)
 
 The agencies (eDreams, Booking, Kiwi…) have no price API for us; the page that compares them live
 is Google Flights, and only a person at home can read it without the barrier circumvention D47
@@ -258,11 +258,15 @@ Windows Task Scheduler, `docs/runbooks/sonda.md`): it reads `probe/wanted.json`,
 pipeline run writes after detection (open promotions' trips first, then the cheapest fresh offer
 of each route in rotation), searches each trip in a visible Chrome with its own profile at a
 human pace (results → cheapest nonstop outbound → cheapest return → booking options), and writes
-one `probe/results/<stamp>.json` with the page's own texts. The next pipeline run imports it as
-source `google_flights`: a **comparison source**, never a candidate, a low price, a route page or
-a button; it shows as "Também visto · Google Flights via eDreams · 55 €" next to a promotion,
-one entry per seller. A wall (consent page, "unusual traffic", captcha) ends the run and pauses
-the probe for a day; nothing hides it and nothing retries around it.
+one `probe/results/<stamp>.json` with the page's own texts. Since D49 each trip is then searched
+on Kayak too (kayak.pt, one page: the cheapest nonstop itinerary's price and airlines; the page
+names no seller), in the same browser, one search at a time. The next pipeline run imports the
+file as sources `google_flights` and `kayak`: **comparison sources**, never a candidate, a low
+price, a route page or a button; they show as "Também visto · Google Flights via eDreams · 55 €"
+and "Kayak · 44 €" next to a promotion, one entry per source and seller. A wall (consent page,
+"unusual traffic", captcha, Kayak's "press and hold") ends the run for that engine and pauses it
+for a day (`probe/state.json`, per engine); the other engine goes on; nothing hides the probe and
+nothing retries around it.
 
 ### Baggage and agency from the GraphQL API (DECISIONS D43)
 After detection, `enrich` (part of `run`, never fails it) asks the Aviasales GraphQL Flights Data
@@ -1433,6 +1437,11 @@ uv run pytest -m "not browser"
   access, a contractual risk Miguel accepted on 2026-10-24 under D47's rules (one search at a
   time, nothing hidden, a wall pauses the probe). Prices are stored as shown, per seller, as a
   comparison that never becomes a promotion or a link.
+- **Kayak** (D49, the PC probe only): kayak.pt's public results page, read like Google Flights
+  above (one search at a time, in a visible Chrome at home, nothing hidden, a wall pauses the
+  engine); Kayak's terms forbid automated access, the same contractual risk under the same rules.
+  Prices are stored as shown (the cheapest booking site's price for the itinerary, which the page
+  does not name), as a comparison that never becomes a promotion or a link.
 - **Eurostat `avia_par_pt`** (D45): passengers carried per month on each airport pair with a
   Portuguese airport (compiled by INE from ANA and ANAC data), through the public dissemination
   API (JSON-stat, no key, one request a month). Eurostat's copyright notice authorises reuse of
