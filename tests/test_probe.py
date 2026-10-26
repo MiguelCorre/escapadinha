@@ -159,8 +159,14 @@ def test_search_picks_the_cheapest_nonstop_legs_and_reads_the_sellers():
     assert "click outbound 2" in fake.log and "click inbound 0" in fake.log and "expand" in fake.log
 
 
+PASSENGER_ROWS = ["AdultsRemove adult11Add adult", "Children Aged 2-11Aged 2 to 11Remove child aged 2 to 1100Add child aged 2 to 11"]
+
+
 def test_search_reports_what_it_could_not_find_and_stops_at_a_wall():
     assert gf.search(FakeFlights([], [], []), "LIS", "STN", date(2026, 11, 19), date(2026, 11, 22)).outcome == "no_results"
+    # the page's passenger picker is a list too: rows without a price are not results
+    assert gf.search(FakeFlights(PASSENGER_ROWS, [], []), "LIS", "STN", date(2026, 11, 19), date(2026, 11, 22)).outcome == "no_results"
+    assert gf.search(FakeFlights(PASSENGER_ROWS + [ROW_STOP], [], []), "LIS", "STN", date(2026, 11, 19), date(2026, 11, 22)).outcome == "no_nonstop"
     assert gf.search(FakeFlights([ROW_STOP], [], []), "LIS", "STN", date(2026, 11, 19), date(2026, 11, 22)).outcome == "no_nonstop"
     assert gf.search(FakeFlights([ROW_CHEAP], [], []), "LIS", "STN", date(2026, 11, 19), date(2026, 11, 22)).outcome == "no_return"
     assert gf.search(FakeFlights([ROW_CHEAP], [ROW_RETURN], []), "LIS", "STN", date(2026, 11, 19), date(2026, 11, 22)).outcome == "no_options"

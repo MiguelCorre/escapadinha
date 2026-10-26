@@ -3018,6 +3018,16 @@ so nothing has to be hosted.
   Portugal sees; the parsers read pt-PT); following "Selecionar" to read the sellers (a page view
   on each seller's site per trip); a second Chrome profile or window per engine (two browsers);
   retrying a Kayak wall on Google Flights' schedule (each engine pauses on its own).
+- **Same afternoon, Google Flights' misses:** the first two-engine runs had Google Flights at
+  `no_nonstop` / `no_return` / `no_options` on 18 of 50 trips where Kayak priced the same
+  nonstop Ryanair itinerary; a replay of one (OPO–STN) parsed every row. The cause was timing:
+  `[role=list] li` also matches the passenger picker ("Adults…"), present before any result, so
+  `wait_for_selector` returned at once and `rows()` read the list before the results streamed
+  in (the same after choosing the outbound, and for the booking labels). `ChromeFlights` now
+  waits until a row parses (a price on it), up to 30 s on the results page, 20 s on the return
+  list, 15 s for a "book with" label (`_settle`; a wait for rendering, never a retry of a
+  request), and `search` reports `no_results` when no row carries a price (the passenger rows
+  alone are not results). Tests: the passenger rows as a page.
 - **Tests:** `tests/test_probe.py` (the card parsers over the real texts incl. a mixed-carrier
   and a one-stop card and a sponsored one, the URL and the walls, `search` over a fake Kayak
   incl. a wall, Kayak results → `kayak` observations labelled "Kayak" and excluded by
