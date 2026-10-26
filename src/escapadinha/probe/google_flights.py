@@ -130,7 +130,7 @@ def search(flights: Flights, origin: str, airport: str, departure: date, ret: da
     url = search_url(origin, airport, departure, ret)
     _check(flights.open(url))
     rows = flights.rows()
-    if not rows:
+    if not any(parse_result(r) for r in rows):     # the page's other lists (passengers) are not results
         return Search(url, None, None, (), "no_results")
     best = cheapest_nonstop(rows)
     if best is None:
@@ -154,13 +154,28 @@ class ChromeFlights:
     reported, never worked around."""
 
     ROWS = "[role=list] li"
+    RESULTS_WAIT_S = 30.0           # results stream in after the page: wait for a priced row
+    STEP_WAIT_S = 20.0              # the return list, after choosing the outbound
+    LABELS_WAIT_S = 15.0            # the booking options, after choosing the return
 
     def __init__(self, session: ChromeSession):
         self._s = session
         self._page = session.page
 
+    def _settle(self, max_s: float) -> None:
+        """Wait until a row parses (a price on it) or `max_s` passes: `[role=list] li` also
+        matches the passenger picker, which is there before any result (the 2026-10-26 misses:
+        18 of 50 searches read the list too early and saw no priced row)."""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < max_s:
+            if any(parse_result(r) for r in self.rows()):
+                return
+            time.sleep(1.0)
+
     def open(self, url: str) -> View:
-        return self._s.goto(url, wait_for=self.ROWS)
+        self._s.goto(url, wait_for=self.ROWS)
+        self._settle(self.RESULTS_WAIT_S)
+        return self._s.view()
 
     def rows(self) -> list[str]:
         items = self._page.locator(self.ROWS)
@@ -179,6 +194,7 @@ class ChromeFlights:
         except Exception:
             pass
         time.sleep(2)
+        self._settle(self.STEP_WAIT_S)
         return self._s.view()
 
     def expand_options(self) -> None:
@@ -191,16 +207,20 @@ class ChromeFlights:
             pass
 
     def booking_labels(self) -> list[str]:
-        out = []
-        links = self._page.locator("a[aria-label], button[aria-label]")
-        for i in range(links.count()):
-            try:
-                lab = links.nth(i).get_attribute("aria-label") or ""
-            except Exception:
-                continue
-            if "book with" in lab.lower():
-                out.append(lab)
-        return out
+        t0 = time.monotonic()
+        while True:
+            out = []
+            links = self._page.locator("a[aria-label], button[aria-label]")
+            for i in range(links.count()):
+                try:
+                    lab = links.nth(i).get_attribute("aria-label") or ""
+                except Exception:
+                    continue
+                if "book with" in lab.lower():
+                    out.append(lab)
+            if out or time.monotonic() - t0 >= self.LABELS_WAIT_S:
+                return out
+            time.sleep(1.0)
 
     def pause(self, seconds: float) -> None:
         self._s.pause(seconds)
