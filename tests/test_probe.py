@@ -234,7 +234,7 @@ def test_runner_writes_one_results_file_and_its_state(tmp_path):
     assert doc["records"][0]["engine"] == "google_flights"
     state = runner.read_state(store)
     assert state["last_trips"] == 2 and state["last_results"] == key and "paused_until" not in state
-    assert state["engines"] == {"google_flights": {"last_searched": 2, "last_priced": 2}}
+    assert state["engines"] == {"google_flights": {"last_searched": 2, "last_priced": 2, "last_errors": 0}}
     # nothing to search: no browser is opened
     store.put(wanted.KEY, json.dumps(wanted.to_json(wanted.plan([], [], cursor=0, limit=5), generated_at=NOW, run_id=9)).encode())
     assert runner.run(store, open_flights, now=NOW, limit=10, pause=(0, 0), paused_hours=24).status == "empty"
@@ -475,7 +475,7 @@ def test_the_runner_searches_each_trip_on_every_engine_and_pauses_only_the_walle
     assert doc["engines"] == ["google_flights", "kayak"] and doc["stopped"] == {"kayak": "press_and_hold"}
     assert [r["engine"] for r in doc["records"]] == ["google_flights", "google_flights"]
     state = runner.read_state(store)
-    assert state["engines"]["google_flights"] == {"last_searched": 2, "last_priced": 2}
+    assert state["engines"]["google_flights"] == {"last_searched": 2, "last_priced": 2, "last_errors": 0}
     assert state["engines"]["kayak"]["reason"] == "press_and_hold" and "paused_until" not in state
     # the next run skips Kayak and keeps its pause; Google Flights searches
     again = runner.run(store, open_session, now=NOW + timedelta(hours=1), limit=10, pause=(0, 0), paused_hours=24,
@@ -503,3 +503,32 @@ def test_the_runner_searches_each_trip_on_every_engine_and_pauses_only_the_walle
             pass
         else:
             raise AssertionError(f"probe.engines {bad} must be refused")
+
+
+def test_a_browser_error_loses_one_search_not_the_run(tmp_path, capsys):
+    """A navigation timeout on Kayak (2026-10-26 13:35: Playwright's TimeoutError on kayak.pt) is
+    not a wall: that search is counted as failed, the other engine and the next trips go on, and
+    the records read so far are written."""
+    store = LocalObjectStore(tmp_path / "objects")
+    plan = wanted.plan([(7, obs(oid=1)), (8, obs(destination="PAR", airport="BVA", oid=2))], [], cursor=0, limit=5)
+    store.put(wanted.KEY, json.dumps(wanted.to_json(plan, generated_at=NOW, run_id=9)).encode())
+
+    class FlakyKayak(FakeKayak):
+        def open(self, url):
+            if "BVA" not in url:
+                raise TimeoutError("Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to " + url)
+            return super().open(url)
+
+    def open_session():
+        return FakeSession(FakeFlights([ROW_CHEAP], [ROW_RETURN], [BOOK_AIRLINE]), FlakyKayak([KAYAK_CARD]),
+                           modules=(gf, kayak))
+    summary = runner.run(store, open_session, now=NOW, limit=10, pause=(0, 0), paused_hours=24,
+                         engine_names=("google_flights", "kayak"), rng=random.Random(6))
+    assert summary.status == "ok" and (summary.searched, summary.with_options) == (2, 2)
+    assert [(e.name, e.searched, e.errors, e.wall) for e in summary.engines] == [("google_flights", 2, 0, None), ("kayak", 1, 1, None)]
+    assert summary.describe().endswith("kayak: 1 searched, 1 priced, 1 failed")
+    doc = json.loads(store.get(summary.results_key))
+    assert [r["engine"] for r in doc["records"]] == ["google_flights", "google_flights", "kayak"] and doc["stopped"] is None
+    state = runner.read_state(store)
+    assert state["engines"]["kayak"] == {"last_searched": 1, "last_priced": 1, "last_errors": 1}
+    assert "TimeoutError: Page.goto: Timeout 60000ms exceeded." in capsys.readouterr().err

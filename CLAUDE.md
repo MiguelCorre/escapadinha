@@ -23,6 +23,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `SITE_DATA_DIR`, default `web/src/data`; fails on purpose until `escapadinha export site-data`
   fills it; `escapadinha site build` does npm ci + build + images + routing), `npm run lhci`,
   `npm run tokens`. `npx vitest run test/review` runs only the review Function's tests.
+- The probe's container (D50): `docker compose -f docker/probe/compose.yaml build` (after every
+  change: the code is baked in) and `… run --rm probe setup|run|status`; Chrome for Linux on
+  Xvfb (headed), profile in the volume `pontonomada-probe`, `.env` only at run time
+  (`tests/test_probe_docker.py`).
 - Scheduler Worker (`cd workers/scheduler`, no dependencies): `node --test` (`uv run pytest` runs it
   too); deployed by hand only, `npm run deploy` (D41, `docs/runbooks/agendamento.md`). Wrangler's
   version has one source, config `site.wrangler_version`: every `wrangler@<version>` written in
@@ -408,6 +412,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `.github/workflows/pipeline.yml`: `escapadinha run` on Actions, dispatched every 2 h (D41);
   `full` input or `repository_dispatch` → `--full` (D25). `pipeline-fallback.yml`: the schedule's
   fallback (D41)
+- `docker/probe/`: the probe's container (D50): `Dockerfile` (Python 3.14, `uv sync --frozen`,
+  `playwright install --with-deps chrome`, `xvfb-run … escapadinha probe`), `compose.yaml`
+  (volume `pontonomada-probe` at `/root/.pontonomada`, `env_file` `.env`); `.dockerignore` at the root
 - `workers/scheduler/`: the scheduler Worker (D41): `wrangler.toml` (cron, vars), `src/schedule.js`
   (`tick`, `settings`, `recentRun`, `redact`), `src/index.js` (the Worker's `scheduled`),
   `src/fallback.js` (the Actions fallback's entry, exit codes), `test/` (node:test); runbook

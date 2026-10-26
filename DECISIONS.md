@@ -2786,6 +2786,49 @@ so nothing has to be hosted.
   The D44 claim rule is unchanged: a post or page says "−x %" at medium or high, so every
   automatically approved promotion may still claim its discount.
 
+## D50: The probe in a container: Chrome for Linux on a virtual display, off Miguel's desktop (2026-10-26)
+- **Miguel's decision (2026-10-26):** the visible Chrome every half hour got in the way of his
+  work on the PC ("para não me estorvar enquanto tou a fazer outras coisas neste PC"); asked
+  for Docker and, given the trade-off below, chose it: "Avança com o Docker: Chrome Linux num
+  ecrã virtual (Xvfb), perfil num volume, a tarefa agendada a chamar o docker, runbook e D50."
+- **What runs where.** The price collection never ran on the PC (GitHub, D41); only the probe
+  (D48, D49) does. It now runs in a container on the same PC (`docker/probe/Dockerfile`,
+  `docker/probe/compose.yaml`): Python 3.14, the project from the lock (`uv sync --frozen`),
+  **Google Chrome for Linux** through Playwright's `chrome` channel (the same `channel="chrome"`
+  as on Windows) on a **virtual display** (`xvfb-run`): a headed browser that nobody watches,
+  not headless (D48: headless is detected more and buys nothing honest). Same residential IP
+  (Docker Desktop's NAT), same `escapadinha probe setup|run|status`, same pauses and walls. The
+  profile lives in the named volume `pontonomada-probe`, mounted at `/root/.pontonomada`, which
+  is where `cli._probe_profile` already defaults (`~/.pontonomada/probe-chrome`): no code
+  change. The R2 keys reach the container from `.env` at run time (compose `env_file`); the image
+  holds no secret, no database and no `data/` (`.dockerignore`). `TZ=Europe/Lisbon`,
+  `shm_size: 1g` (Chrome's shared memory), `init: true` (reaps Xvfb's children).
+- **The code is baked in, not mounted.** `docker compose build` copies the checkout into the
+  image; a code or config change reaches the probe only after a rebuild. That is on purpose:
+  until now the Windows task ran `uv run escapadinha probe run` straight from the working tree,
+  so a half-edited branch was live at the next :05/:35 (2026-10-26, while D49 was being written).
+  The runbook says to rebuild after `git pull`.
+- **The trade-off, stated.** D48 chose a visible Windows Chrome because that is what Google
+  expects from a person; a Linux Chrome with a fresh profile looks more like a server, so Google
+  may answer with more consent pages or "unusual traffic" walls. The rules are unchanged: the
+  first wall pauses that engine a day, nothing retries, nothing hides. **Measured on the first
+  container run (2026-10-26 13:55 UTC):** `probe setup` declined both consent pages by itself
+  ("Reject all", "Recusar tudo"); `probe run --limit 2` searched 2 of 2 trips, Google Flights
+  priced 1 and Kayak 2, no wall, 4 minutes, the file in R2 for the next pipeline run. Kayak gave
+  no sign of caring either way.
+- **Not done here:** a VNC/noVNC view into the container (the container's profile is its own,
+  separate from the Windows one, so a consent page without a reject button cannot be answered
+  by hand yet: the runbook says to report it); a Linux cron inside the container (the Windows
+  task keeps the schedule and the log, now calling `docker compose run`); a second machine.
+- **Rejected:** headless Chromium (D48); mounting the working tree into the container (brings
+  back the half-edited-branch hazard and clashes with the Windows `.venv`); an off-screen
+  window on Windows (`--window-position`: Chrome treats an occluded window as hidden and
+  throttles it; it still steals focus on launch); running the task "whether the user is logged
+  on or not" (Docker Desktop lives in the user's session).
+- **Tests:** `tests/test_probe_docker.py` (the image's Python is the project's, the `chrome`
+  channel and Xvfb, headed, the same `escapadinha probe` command, the lock; compose: the profile
+  volume at the CLI's default home, `env_file` and no secrets in the image, `.dockerignore`).
+
 ## D47: The airlines' own fares next to the cache: Ryanair's fare finder, the link goes to the seller, a comparison per source (2026-10-24)
 - **Miguel's decisions (2026-10-24), after the research in
   `docs/research/2026-10-24-faster-deal-discovery.md` and D46:** no paid data source ("Eu não
@@ -3037,7 +3080,11 @@ so nothing has to be hosted.
   waits until a row parses (a price on it), up to 30 s on the results page, 20 s on the return
   list, 15 s for a "book with" label (`_settle`; a wait for rendering, never a retry of a
   request), and `search` reports `no_results` when no row carries a price (the passenger rows
-  alone are not results). Tests: the passenger rows as a page.
+  alone are not results). Tests: the passenger rows as a page. *Later the same day:* the 13:35
+  run died on Playwright's `TimeoutError` (kayak.pt took over 60 s to answer one navigation) and
+  lost the nine trips already read: a browser error that is not a `Wall` now counts as that
+  engine's failed search (`EngineSummary.errors`, state `last_errors`, a line on stderr) and
+  the run goes on; only a wall pauses an engine, and nothing is retried.
 - **Tests:** `tests/test_probe.py` (the card parsers over the real texts incl. a mixed-carrier
   and a one-stop card and a sponsored one, the URL and the walls, `search` over a fake Kayak
   incl. a wall, Kayak results → `kayak` observations labelled "Kayak" and excluded by
