@@ -1,0 +1,21 @@
+# The PC probe in a container (D50, docs/runbooks/sonda.md):
+#   docker compose -f docker/probe/compose.yaml build            # once, and after every code change
+#   docker compose -f docker/probe/compose.yaml run --rm probe setup
+#   docker compose -f docker/probe/compose.yaml run --rm probe run
+#   docker compose -f docker/probe/compose.yaml run --rm probe status
+# The Chrome profile (and nothing else) persists in the named volume `pontonomada-probe`.
+services:
+  probe:
+    build:
+      context: ../..
+      dockerfile: docker/probe/Dockerfile
+    image: pontonomada-probe
+    env_file: ../../.env          # the R2 keys the probe writes with; never baked into the image
+    volumes:
+      - probe-home:/root/.pontonomada
+    shm_size: 1g                  # Chrome's shared memory; the default 64 MB crashes tabs
+    init: true
+
+volumes:
+  probe-home:
+    name: pontonomada-probe

@@ -95,6 +95,59 @@ lista é a ordem em que cada viagem é pesquisada).
 - **PC desligado:** não acontece nada; o pipeline continua sem a comparação e retoma quando a
   sonda voltar a correr.
 
+## A sonda em Docker, fora do teu ambiente de trabalho (D50)
+
+Desde 2026-10-26 a sonda pode correr num contentor no mesmo PC: o mesmo `escapadinha probe`,
+com o Google Chrome para Linux num ecrã virtual (Xvfb: um browser com janela, só que ninguém a
+vê; não é headless), o perfil num volume do Docker e as chaves R2 lidas do `.env` na hora. Nada
+aparece no teu ecrã e nada te rouba o foco. O IP continua a ser o de casa. A contrapartida: um
+Chrome de Linux com perfil novo parece mais um servidor, por isso o Google pode mostrar mais
+páginas de consentimento ou "unusual traffic"; a regra é a mesma (o primeiro muro pausa esse
+motor um dia, sem retentativas).
+
+O que precisas: o Docker Desktop instalado e **a correr** (está: Docker 29 com WSL2). A tarefa
+agendada continua a precisar da tua sessão iniciada, porque o Docker Desktop vive nela.
+
+1. Construir a imagem (uma vez, e **depois de cada `git pull`**: o código vai dentro da imagem,
+   uma alteração só chega à sonda depois de reconstruir; demora uns minutos à primeira):
+
+   ```bash
+   cd C:/Users/DESKTOP/Downloads/escapadinha && docker compose -f docker/probe/compose.yaml build
+   ```
+
+2. O perfil do Chrome do contentor (uma vez; é um perfil novo, separado do do Windows): abre as
+   páginas do Google Flights e do Kayak no ecrã virtual e recusa o consentimento sozinho.
+
+   ```bash
+   cd C:/Users/DESKTOP/Downloads/escapadinha && docker compose -f docker/probe/compose.yaml run --rm probe setup
+   ```
+
+   Se disser que a página de consentimento não tem botão de recusa, não há janela para
+   responderes: diz-me, e vemos a página (um VNC para o contentor fica para depois).
+
+3. Uma corrida de teste e o estado:
+
+   ```bash
+   cd C:/Users/DESKTOP/Downloads/escapadinha && docker compose -f docker/probe/compose.yaml run --rm probe run --limit 2
+   ```
+
+   ```bash
+   cd C:/Users/DESKTOP/Downloads/escapadinha && docker compose -f docker/probe/compose.yaml run --rm probe status
+   ```
+
+4. Trocar a tarefa agendada para chamar o contentor (substitui a do passo 3 acima; o registo
+   continua em `sonda.log`):
+
+   ```bash
+   schtasks /Create /TN "Pontonomada sonda" /SC MINUTE /MO 30 /ST 00:05 /TR "cmd /c cd /d C:\Users\DESKTOP\Downloads\escapadinha && docker compose -f docker\probe\compose.yaml run --rm probe run >> %USERPROFILE%\.pontonomada\sonda.log 2>&1" /F
+   ```
+
+- O perfil e o `state.json` local do contentor vivem no volume `pontonomada-probe`
+  (`docker volume ls`); apagá-lo (`docker volume rm pontonomada-probe`) é começar do zero
+  (volta ao passo 2). O estado da sonda que conta continua a ser o do bucket (`probe/state.json`).
+- Para voltar ao Chrome do Windows basta repor a tarefa do passo 3 da secção anterior; o perfil
+  do Windows continua em `%USERPROFILE%\.pontonomada\probe-chrome`.
+
 ## O que a sonda nunca faz
 
 Não inicia sessão, não guarda cookies além da recusa do consentimento, não muda de identidade

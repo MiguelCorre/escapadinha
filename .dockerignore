@@ -1,0 +1,22 @@
+# What the probe image never contains (docker/probe/Dockerfile, D50): secrets, local state,
+# the web package's dependencies and builds, virtual environments, editors' folders.
+.env
+.env.*
+data/
+output/
+site/
+logs/
+assets/photos/
+.venv/
+node_modules/
+web/node_modules/
+web/dist/
+web/.astro/
+web/.lighthouseci/
+web/src/data/
+workers/*/.wrangler/
+.git/
+.github/
+.claude/
+__pycache__/
+*.py[oc]

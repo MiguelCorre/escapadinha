@@ -97,6 +97,8 @@ uv run escapadinha recheck                 # re-verifies open deals against the 
 uv run escapadinha probe setup             # PC only (D48): the probe's own Chrome profile, consent declined once on Google Flights and Kayak
 uv run escapadinha probe run               # PC only: Google Flights, then Kayak (D49), for the trips in probe/wanted.json → probe/results/ (docs/runbooks/sonda.md)
 uv run escapadinha probe status            # PC only: last run, each engine's pause after a wall, results waiting for the pipeline
+docker compose -f docker/probe/compose.yaml build                 # the probe's container (D50): rebuild after every git pull
+docker compose -f docker/probe/compose.yaml run --rm probe run    # the same probe, Chrome for Linux on a virtual display, off the desktop
 uv run escapadinha detect                  # latest run: low prices + promotion candidates per route; expires queued deals that aren't candidates today (D40)
 uv run escapadinha enrich                  # latest run: baggage, selling agency and exact found time for its low prices and candidates (GraphQL, D43)
 uv run escapadinha stats LIS-LON           # history size, min/max, current median
@@ -266,7 +268,10 @@ price, a route page or a button; they show as "Também visto · Google Flights v
 and "Kayak · 44 €" next to a promotion, one entry per source and seller. A wall (consent page,
 "unusual traffic", captcha, Kayak's "press and hold") ends the run for that engine and pauses it
 for a day (`probe/state.json`, per engine); the other engine goes on; nothing hides the probe and
-nothing retries around it.
+nothing retries around it. Since D50 the probe runs in a container on the same PC
+(`docker/probe/`): Google Chrome for Linux on a virtual display (headed, not headless), the
+profile in the volume `pontonomada-probe`, the code baked into the image (rebuild after a
+change), the R2 keys from `.env` at run time; the Windows task calls `docker compose run`.
 
 ### Baggage and agency from the GraphQL API (DECISIONS D43)
 After detection, `enrich` (part of `run`, never fails it) asks the Aviasales GraphQL Flights Data

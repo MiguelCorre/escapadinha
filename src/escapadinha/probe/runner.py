@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import random
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -24,6 +25,7 @@ class EngineSummary:
     with_options: int
     wall: str | None = None                 # the wall that stopped this engine, if one did
     paused_until: datetime | None = None    # already paused before the run, or paused by it
+    errors: int = 0                         # searches the browser could not finish (a timeout)
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,8 @@ class ProbeSummary:
                 f"{self.with_options} with booking options")
         for e in self.engines:
             text += f"; {e.name}: {e.searched} searched, {e.with_options} priced"
+            if e.errors:
+                text += f", {e.errors} failed"
             if e.wall:
                 text += f", {e.wall}, paused until {e.paused_until:%Y-%m-%d %H:%M} UTC"
             elif e.paused_until:
@@ -104,6 +108,7 @@ def run(store: ObjectStore, open_session: Callable[[], Session], *, now: datetim
     session = open_session()
     records: list[dict] = []
     walls: dict[str, str] = {}
+    errors: dict[str, int] = {}
     searched: dict[str, int] = {}
     priced: dict[str, int] = {}
     trips_searched: set[int] = set()
@@ -131,6 +136,12 @@ def run(store: ObjectStore, open_session: Callable[[], Session], *, now: datetim
                 except Wall as wall:
                     walls[engine.name] = wall.reason
                     continue
+                except Exception as exc:    # a navigation timeout, a closed page: this search is lost,
+                    errors[engine.name] = errors.get(engine.name, 0) + 1   # the run and the records go on
+                    print(f"probe: {engine.name} {trip.origin}-{trip.airport or trip.destination} "
+                          f"{trip.departure}: {type(exc).__name__}: {str(exc).splitlines()[0][:160]}",
+                          file=sys.stderr)
+                    continue
                 searched[engine.name] = searched.get(engine.name, 0) + 1
                 trips_searched.add(i)
                 if found.options:
@@ -154,7 +165,8 @@ def run(store: ObjectStore, open_session: Callable[[], Session], *, now: datetim
             new_engines[name] = entry
     summaries: list[EngineSummary] = []
     for name in engine_order:
-        entry = {"last_searched": searched.get(name, 0), "last_priced": priced.get(name, 0)}
+        entry = {"last_searched": searched.get(name, 0), "last_priced": priced.get(name, 0),
+                 "last_errors": errors.get(name, 0)}
         until = None
         if name in walls:
             until = now + timedelta(hours=paused_hours)
@@ -162,7 +174,7 @@ def run(store: ObjectStore, open_session: Callable[[], Session], *, now: datetim
                       "paused_at": now.isoformat()}
         new_engines[name] = entry
         summaries.append(EngineSummary(name, searched.get(name, 0), priced.get(name, 0),
-                                       walls.get(name), until))
+                                       walls.get(name), until, errors.get(name, 0)))
     for name, until in prior.items():                # engines paused before this run
         if until and name not in engine_order:
             summaries.append(EngineSummary(name, 0, 0, None, until))
