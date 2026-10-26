@@ -238,7 +238,7 @@ review:
   # approved.
   auto_approve:
     enabled: true
-    min_confidence: high       # D44: at least confidence.high_days daily lows with CV <= high_max_cv
+    min_confidence: medium     # Miguel, 2026-10-26 (D46 addendum): the typical low past the maturity gate (D44); high = confidence.high_days daily lows with CV <= high_max_cv
     require_new_low: true      # below everything seen for the route-month (new_low_margin)
     direct_only: true          # nonstop both ways
     max_found_age_hours: 48    # when the exact found time is known (GraphQL, D43)
