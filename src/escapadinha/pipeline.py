@@ -34,7 +34,7 @@ from escapadinha.config import Context, DetectorConfig
 from escapadinha.guides import load_guide
 from escapadinha.models import Deal, Observation, Post, Route, RouteRules
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
-from escapadinha.probe import google_flights as probe_engine
+from escapadinha import probe
 from escapadinha.probe import results as probe_results
 from escapadinha.probe import wanted as probe_wanted
 from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
@@ -243,8 +243,10 @@ def run_airlines(ctx: Context, conn: sqlite3.Connection,
 
 # Sources that only compare: their offers never enter detection (candidates, low prices, the
 # typical low) or a route page; they show as "Também visto" next to a promotion (D47's rule:
-# a deal links to, and is rechecked at, a source the pipeline can ask itself).
-COMPARISON_SOURCES = frozenset({probe_engine.SOURCE})
+# a deal links to, and is rechecked at, a source the pipeline can ask itself). The probe's
+# engines (D48 Google Flights, D49 Kayak).
+COMPARISON_SOURCES = frozenset(probe.SOURCES)
+PROBE_RUN_SOURCE = "probe"             # the import's run row (its observations carry each engine's source)
 PROBE_CURSOR = "probe.cursor"          # meta: {"cursor": n}: where the wanted rotation continues
 
 
@@ -296,7 +298,7 @@ def run_probe_wanted(ctx: Context, conn: sqlite3.Connection,
 
 @dataclass(frozen=True)
 class ProbeImport:
-    run_id: int | None          # its own run row (source google_flights, scope probe), or None
+    run_id: int | None          # its own run row (source probe, scope probe), or None
     files: int
     records: int
     searches_ok: int
@@ -317,13 +319,13 @@ class ProbeImport:
 def run_probe_import(ctx: Context, conn: sqlite3.Connection,
                      now: datetime | None = None) -> ProbeImport:
     """Read the probe's results files from the object store, store their offers (source
-    `google_flights`, a comparison source) under one run row (scope `probe`), archive the files
-    with that run and delete them. Never raises: a file that cannot be read is listed and left
+    `google_flights` or `kayak`: comparison sources) under one run row (source `probe`, scope
+    `probe`), archive the files with that run and delete them. Never raises: a file that cannot be read is listed and left
     in place for the next run."""
     keys = ctx.object_store.list(probe_results.RESULTS_PREFIX)
     if not keys:
         return ProbeImport(None, 0, 0, 0, 0, 0, [])
-    run_id = db.start_run(conn, probe_engine.SOURCE, scope="probe")
+    run_id = db.start_run(conn, PROBE_RUN_SOURCE, scope="probe")
     responses: list[dict] = []
     errors: list[str] = []
     records = ok = n_obs = n_new = 0
@@ -1070,7 +1072,9 @@ def _decide(ctx: Context, conn: sqlite3.Connection, event: review_events.Event,
     review_events.write(ctx.object_store, event)
     outcome = None
     if not ctx.remote_store:
-        outcome = next((o for o in apply_review_events(ctx, conn) if o.event_id == event.id), None)
+        # at the event's own time: a caller's `now` (tests, backfills) must not meet the real clock here
+        outcome = next((o for o in apply_review_events(ctx, conn, event.created_at)
+                        if o.event_id == event.id), None)
     return ReviewResult(event, db.get_deal(conn, event.deal_id)[0], outcome, check)
 
 
