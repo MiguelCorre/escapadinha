@@ -52,7 +52,7 @@ app.add_typer(design_app, name="design")
 store_app = typer.Typer(help="Database sync with the R2 bucket (pull, push, status, check).",
                         no_args_is_help=True)
 app.add_typer(store_app, name="store")
-probe_app = typer.Typer(help="The browser probe on this PC (D48): Google Flights for the trips the "
+probe_app = typer.Typer(help="The browser probe on this PC (D48, D49): Google Flights and Kayak for the trips the "
                         "pipeline lists, written to the object store as a comparison source.",
                         no_args_is_help=True)
 app.add_typer(probe_app, name="probe")
@@ -201,35 +201,59 @@ def _probe_profile(ctx: Context) -> Path:
     return Path(custom).expanduser() if custom else Path.home() / ".pontonomada" / "probe-chrome"
 
 
+class _ProbeSession:
+    """`probe run`'s browser: one Chrome window (the probe's profile), the configured engines
+    bound over it in config order (D49: Google Flights, then Kayak, on every trip)."""
+
+    def __init__(self, profile: Path, *, headless: bool, engine_names: list[str]):
+        from escapadinha import probe
+        from escapadinha.probe.browser import ChromeSession
+        from escapadinha.probe.engine import Bound
+        from escapadinha.probe.google_flights import ChromeFlights
+        from escapadinha.probe.kayak import ChromeKayak
+        self.session = ChromeSession(profile, headless=headless)
+        adapters = {"google_flights": ChromeFlights, "kayak": ChromeKayak}
+        self.engines = [Bound(probe.ENGINES[name], adapters[name](self.session)) for name in engine_names]
+
+    def close(self) -> None:
+        self.session.close()
+
+
 @probe_app.command("setup")
 def probe_setup() -> None:
-    """First run on this PC: open Chrome with the probe's own profile on Google Flights and
-    decline the consent page (the most privacy-preserving answer), once. Then `probe run`."""
+    """First run on this PC: open Chrome with the probe's own profile on Google Flights and on
+    Kayak and decline each consent page (the most privacy-preserving answer), once. Then
+    `probe run`."""
+    from escapadinha.probe.browser import ChromeSession
     from escapadinha.probe.google_flights import ChromeFlights
+    from escapadinha.probe.kayak import ChromeKayak
     ctx, _ = _ctx()
     profile = _probe_profile(ctx)
     console.print(f"Perfil do Chrome da sonda: {profile}")
-    flights = ChromeFlights(profile, headless=False)
+    session = ChromeSession(profile, headless=False)
     try:
-        console.print(flights.decline_consent())
+        for name in ctx.config.probe.engines:
+            adapter = ChromeFlights(session) if name == "google_flights" else ChromeKayak(session)
+            console.print(adapter.decline_consent())
     finally:
-        flights.close()
+        session.close()
 
 
 @probe_app.command("run")
 def probe_run(limit: Annotated[int | None, typer.Option(help="Trips this run (default: probe.max_trips)")] = None) -> None:
-    """One run: read probe/wanted.json, search each trip in Chrome at a human pace, write one
-    results file to the object store; a wall ends the run and pauses the probe."""
+    """One run: read probe/wanted.json, search each trip on every engine (Google Flights, then
+    Kayak) in Chrome at a human pace, write one results file to the object store; a wall ends
+    the run for that engine and pauses it."""
     from escapadinha.probe import runner
-    from escapadinha.probe.google_flights import ChromeFlights
     ctx, _ = _ctx()
     cfg = ctx.config.probe
     profile = _probe_profile(ctx)
     summary = runner.run(
-        ctx.object_store, lambda: ChromeFlights(profile, headless=cfg.headless),
+        ctx.object_store,
+        lambda: _ProbeSession(profile, headless=cfg.headless, engine_names=list(cfg.engines)),
         now=db.utcnow(), limit=cfg.max_trips if limit is None else limit,
         pause=(cfg.pause_seconds_min, cfg.pause_seconds_max), paused_hours=cfg.paused_hours,
-        enabled=cfg.enabled, clock=db.utcnow)
+        enabled=cfg.enabled, engine_names=tuple(cfg.engines), clock=db.utcnow)
     console.print(summary.describe())
     if summary.status == "wall":
         raise typer.Exit(2)
@@ -246,6 +270,11 @@ def probe_status() -> None:
     for key in ("last_run_at", "last_trips", "last_searched", "last_results", "paused_until", "reason"):
         if key in state:
             console.print(f"{key}: {state[key]}")
+    for name, entry in (state.get("engines") or {}).items():
+        line = f"{name}: {entry.get('last_searched', 0)} searched, {entry.get('last_priced', 0)} priced"
+        if entry.get("paused_until"):
+            line += f", paused until {entry['paused_until']} ({entry.get('reason')})"
+        console.print(line)
     waiting = ctx.object_store.list(probe_results.RESULTS_PREFIX)
     console.print(f"Ficheiros de resultados à espera do pipeline: {len(waiting)}")
     try:

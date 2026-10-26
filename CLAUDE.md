@@ -9,7 +9,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `auto-approve`,
-  `special-offers`, `airlines`, `probe setup|run|status` (the PC, D48), `queue list|retry`,
+  `special-offers`, `airlines`, `probe setup|run|status` (the PC, D48, D49), `queue list|retry`,
   `instagram token`,
   `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
@@ -247,14 +247,21 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   shown on the review pages and the promotion page (`also_seen`, each price on its `data-obs`),
   never a confirmation. The review Function refuses to check or approve an airline-source deal
   (`handler.pipelineOnly`): the automatic approval or `deal approve` on the PC decide those.
-- **The browser probe runs only on Miguel's PC** (D48, `escapadinha probe`, `docs/runbooks/sonda.md`):
-  Google Flights read like a person for the trips the pipeline lists (`run_probe_wanted` →
-  `probe/wanted.json`), results imported by `run_probe_import` as source `google_flights`, a
-  **comparison source** (`pipeline.COMPARISON_SOURCES`, `comparable`): never a candidate, a low
-  price, a typical low, a route page or a link; only `also_seen` (one entry per source and
-  seller). The probe never picks trips, logs in, spoofs anything or works around a wall: a
-  `Wall` ends the run and pauses it (`probe/state.json`). Its only browser code is
-  `probe/google_flights.ChromeFlights`; parsers are pure over the page's texts and never guess.
+- **The browser probe runs only on Miguel's PC** (D48, D49, `escapadinha probe`, `docs/runbooks/sonda.md`):
+  Google Flights, then Kayak (`probe.engines`, in that order on every trip, one browser, never
+  two), read like a person for the trips the pipeline lists (`run_probe_wanted` →
+  `probe/wanted.json`), results imported by `run_probe_import` (run row source `probe`) as sources
+  `google_flights` / `kayak` (`probe.SOURCES`), **comparison sources**
+  (`pipeline.COMPARISON_SOURCES`, `comparable`): never a candidate, a low price, a typical low, a
+  route page or a link; only `also_seen` (one entry per source and seller; Kayak names no seller:
+  "Kayak · 44 €"). The probe never picks trips, logs in, spoofs anything or works around a wall:
+  a `Wall` ends the run **for that engine** and pauses it (`probe/state.json` `engines.<name>`;
+  the others go on). Its only browser code is `probe/browser.ChromeSession` and the adapters
+  `google_flights.ChromeFlights` / `kayak.ChromeKayak` over it; the shared shapes live in
+  `probe/engine.py`; parsers are pure over the page's texts and never guess. A new engine is a
+  module with `ENGINE`/`SOURCE`/`LABEL`, pure parsers, `search(browser, …)` and an adapter,
+  registered in `probe.ENGINES`, `results.SOURCES`, `presentation.SOURCE_LABELS` and
+  `config.ProbeEngine`.
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
   only shows deals a human or the rules approved (D46: `review.auto_approve`, pure rules in
   `auto_review.disqualified`, `pipeline.run_auto_approve` in the full path right after
@@ -372,7 +379,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   the source), `AIRLINE_SOURCES`; `hotlist.py` (pure): `pairs` (busiest first), `plan` → `HotPlan`
   (open promotions' months first, then the rotation from the stored cursor); wired by
   `pipeline.run_airlines` (+ `airline_pause`, `also_seen`, `live_check_query`), CLI `airlines`
-- `src/escapadinha/probe/` (D48): `wanted.py` (pure: `Trip`, `plan`, JSON), `google_flights.py`
+- `src/escapadinha/probe/` (D48, D49): `engine.py` (shared: `Result`, `Option`, `Search`, `View`,
+  `Wall`, `airline_code`, the `Engine`/`Session` protocols, `Bound`), `browser.py`
+  (`ChromeSession`: the one Chrome window), `kayak.py` (`search_url`, `Card`, `parse_card`,
+  `cheapest_nonstop`, `wall_reason`, pure `search` over a `Kayak`, `ChromeKayak`),
+  `wanted.py` (pure: `Trip`, `plan`, JSON), `google_flights.py`
   (`search_url`, `parse_result`, `cheapest_nonstop`, `parse_booking`, `airline_code`, `wall_reason`,
   pure `search` over a `Flights`, `ChromeFlights` = Playwright on the PC's Chrome), `results.py`
   (pure: record/document, `to_observations`), `runner.py` (`run`: list → searches → one results file

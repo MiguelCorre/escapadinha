@@ -114,13 +114,17 @@ class AirlinesConfig(BaseModel):
     ryanair: AirlineSourceConfig = AirlineSourceConfig()
 
 
+ProbeEngine = Literal["google_flights", "kayak"]
+
+
 class ProbeConfig(BaseModel):
-    """The browser probe on Miguel's PC (D48): Google Flights read like a person, for the trips
-    the pipeline lists in `probe/wanted.json`. Everything here is pacing and placement; nothing
-    hides the probe from the site (a wall pauses it for `paused_hours`)."""
+    """The browser probe on Miguel's PC (D48, D49): Google Flights and Kayak read like a person,
+    for the trips the pipeline lists in `probe/wanted.json`. `engines` run in this order on each
+    trip, in one browser, one search at a time. Everything here is pacing and placement; nothing
+    hides the probe from the sites (a wall pauses that engine for `paused_hours`)."""
 
     enabled: bool = True
-    engine: Literal["google_flights"] = "google_flights"
+    engines: list[ProbeEngine] = ["google_flights", "kayak"]
     max_trips: int = Field(10, ge=0, le=60)              # trips per run (3 page loads each)
     pause_seconds_min: float = Field(20, ge=0)           # between trips, like a reader
     pause_seconds_max: float = Field(45, ge=0)
@@ -132,6 +136,8 @@ class ProbeConfig(BaseModel):
     def _pause_range(self):
         if self.pause_seconds_max < self.pause_seconds_min:
             raise ValueError("probe.pause_seconds_max must be >= probe.pause_seconds_min")
+        if not self.engines or len(set(self.engines)) != len(self.engines):
+            raise ValueError("probe.engines must name at least one engine, each once")
         return self
 
 
