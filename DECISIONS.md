@@ -2775,6 +2775,16 @@ so nothing has to be hosted.
   (found time, Aviasales row), `web/test/format.test.ts` (`timeAgo`), `web/test/pages.test.ts`
   (summary, routes, best months, publication, how to book; expired pages have neither),
   `web/test/traceability.test.ts`.
+- **Addendum (Miguel, 2026-10-26): `min_confidence: medium`.** Two days in, the queue held 43
+  candidates on four routes (OPO-FNC, LIS-PAR, OPO-PAR, OPO-BCN), every one a direct Ryanair new
+  low 40–60 % under the typical low, and every one left to a human for the same single reason:
+  the typical low's confidence was `medium` (past the maturity gate but under `high_days` daily
+  lows with CV ≤ `high_max_cv`, D44), while only four LIS-FNC deals had reached `high`. Miguel
+  chose to let the rules approve at medium ("Sim, muda review.auto_approve.min_confidence para
+  medium"): a config change only, as D46 intended ("looser rules are a config change"); the
+  other rules (new low, nonstop, found within 48 h, 3 a day, the live check as the gate) stay.
+  The D44 claim rule is unchanged: a post or page says "−x %" at medium or high, so every
+  automatically approved promotion may still claim its discount.
 
 ## D47: The airlines' own fares next to the cache: Ryanair's fare finder, the link goes to the seller, a comparison per source (2026-10-24)
 - **Miguel's decisions (2026-10-24), after the research in

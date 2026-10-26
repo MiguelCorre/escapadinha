@@ -110,11 +110,11 @@ def test_a_moved_price_refuses_the_approval_and_writes_nothing(ctx):
 def test_a_candidate_outside_the_rules_waits_for_miguel(ctx):
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn)
-    conn.execute("UPDATE deals SET confidence = 'medium' WHERE id = ?", (deal_id,))
+    conn.execute("UPDATE deals SET confidence = 'low' WHERE id = ?", (deal_id,))
     conn.commit()
     price_api(58)
     [result] = pipeline.run_auto_approve(ctx, conn, NOW)
-    assert (result.approved, result.reason) == (False, "confiança média (precisa de alta)")
+    assert (result.approved, result.reason) == (False, "confiança baixa (precisa de média)")
     assert db.get_deal(conn, deal_id)[0].status == "rendered"
 
 
