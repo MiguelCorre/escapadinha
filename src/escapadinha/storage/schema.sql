@@ -86,7 +86,20 @@ CREATE TABLE IF NOT EXISTS deals (
     -- D46: Aviasales' own "special offer" discount for this trip (their deviation from their
     -- average, a percentage, never a price), and when we last saw it. NULL: not on their list.
     partner_discount_pct NUMERIC,
-    partner_offer_at     TEXT
+    partner_offer_at     TEXT,
+    -- D53: the route's promotion this date belongs to (NULL: never grouped).
+    promotion_id    INTEGER REFERENCES promotions(id)
+);
+
+-- D53: one promotion per route at a time: the group of deals (dates) one page, one review card
+-- group and one post stand for. Status derived from its dates; closed once none is open.
+CREATE TABLE IF NOT EXISTS promotions (
+    id            INTEGER PRIMARY KEY,
+    origin        TEXT NOT NULL,
+    destination   TEXT NOT NULL,
+    opened_at     TEXT NOT NULL,
+    closed_at     TEXT,
+    closed_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS photos (
@@ -178,6 +191,7 @@ CREATE TABLE IF NOT EXISTS posting_queue (
     caption            TEXT,                 -- the caption of the first attempt, reused by retries
     -- Telegram publisher (D38, v12): the channel message's id (its link is result_url).
     message_id         TEXT,
+    promotion_id       INTEGER REFERENCES promotions(id),  -- D53: the promotion the post is for
     UNIQUE (deal_id, channel)
 );
 

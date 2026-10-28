@@ -80,6 +80,15 @@ detector:
   min_baseline_days_promo: 10  # promotion candidates need this many daily lows ...
   min_baseline_span_days: 9    # ... with the first and last this many days apart
   dedupe_days: 7             # do not re-flag the same trip (same dates) unless cheaper
+  # D53 (Miguel, 2026-10-28): a date stays valid while its latest price is at most
+  # recheck_tolerance_pct above the price it was detected at AND still a promotion against
+  # its stored typical low (threshold and min_saving_eur). Ryanair fares move by cents: with
+  # tolerance 0, 143 of 216 expiries on the copy of 28/10 were rises of 5 % or less. The same
+  # trip is flagged again (its last deal open or expired, within dedupe_days) only at least
+  # reflag_margin_pct and reflag_margin_eur below that deal's price: no 55 -> 61 -> 55 churn.
+  recheck_tolerance_pct: 0.05
+  reflag_margin_pct: 0.05
+  reflag_margin_eur: 2
   max_deals_per_route: 1     # per collection run, cheapest qualifying offers first
   max_offer_age_days: 3      # candidates: prices found in the last N days; older days = baseline
   # Confidence in a typical low (D44): low = below the maturity gate above; high = at least

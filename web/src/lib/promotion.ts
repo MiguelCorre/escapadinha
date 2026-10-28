@@ -96,6 +96,19 @@ export function routesLine(p: Place): string {
   return `${p.originName} – ${there} – ${p.originName}`;
 }
 
+/** The items that are pages (D53): ungrouped ones and the lead of every promotion. */
+export function pagePromotions(data: SiteData): Promotion[] {
+  return data.promotions.promotions.filter((p) => !p.promotion || p.promotion.lead);
+}
+
+/** The live dates of a promotion page, cheapest first, the lead among them (D53); an ungrouped
+ * item is its own only date. Each is an item of the contract with its own offer and `obs`. */
+export function promotionDates(data: SiteData, lead: Promotion): Promotion[] {
+  if (!lead.promotion) return [lead];
+  const byId = new Map(data.promotions.promotions.map((p) => [p.id, p]));
+  return lead.promotion.dates.map((id) => byId.get(id)).filter((p): p is Promotion => p !== undefined);
+}
+
 export function promotionView(data: SiteData, p: Promotion): PromotionView {
   const o = p.offer;
   const where = place(data, o);

@@ -45,9 +45,13 @@ def run(case: dict):
     # What pipeline.price_now does: parse the route-month with the route's nights range...
     latest = parse_response(payload, origin=deal["origin"], destination=deal["destination"],
                             fetched_at=now, min_nights=r["min_nights"], max_nights=r["max_nights"])
-    # ...and apply the recheck rule.
-    return recheck(deal_obs, latest, DetectorConfig(max_offer_age_days=r["max_offer_age_days"]),
-                   now, rules=rules)
+    # ...and apply the recheck rule (D53: the tolerance and the promotion rule when the case has
+    # them, else tolerance 0 as an older snapshot).
+    cfg = DetectorConfig(max_offer_age_days=r["max_offer_age_days"],
+                         recheck_tolerance_pct=deal.get("tolerance_pct", 0.0),
+                         threshold=deal.get("threshold", 0.3),
+                         min_saving_eur=deal.get("min_saving", 15))
+    return recheck(deal_obs, latest, cfg, now, rules=rules, typical_low=deal.get("typical_low_eur"))
 
 
 @pytest.mark.parametrize("case", CASES["cases"], ids=[c["name"] for c in CASES["cases"]])

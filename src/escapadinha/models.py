@@ -148,6 +148,28 @@ class Deal:
     # their measure, never a price) and when a run last saw it on their list. None: not listed.
     partner_discount_pct: float | None = None
     partner_offer_at: datetime | None = None
+    # D53: the route's promotion this date belongs to (None: detected before, or expired before
+    # anyone approved it and so never grouped).
+    promotion_id: int | None = None
+
+
+@dataclass(frozen=True)
+class Promotion:
+    """One promotion of a route (D53): the group of deals (dates) a page, a review card group
+    and a post stand for. Its status is derived from its dates (`pipeline.promotion_state`):
+    open while any date is open, public once any date was approved; `closed_at` once no date
+    is left open, with the last date's reason."""
+
+    id: int
+    origin: str
+    destination: str
+    opened_at: datetime
+    closed_at: datetime | None = None
+    closed_reason: str | None = None
+
+    @property
+    def route_key(self) -> str:
+        return f"{self.origin}-{self.destination}"
 
 
 @dataclass(frozen=True)
@@ -178,6 +200,7 @@ class Post:
     story_note: str | None = None      # last story error, why it waits or was skipped (pt-PT)
     caption: str | None = None         # the first attempt's caption: retries post and match it
     message_id: str | None = None      # Telegram (D38): the channel message (link in result_url)
+    promotion_id: int | None = None    # D53: the promotion the post is for (its dates may change)
 
 
 @dataclass(frozen=True)

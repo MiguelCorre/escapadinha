@@ -96,11 +96,12 @@ def all_captions(ctx: Context, conn) -> list[tuple[str, str, Refs]]:
     for row in conn.execute("SELECT id FROM deals ORDER BY id"):
         deal, obs = db.get_deal(conn, row["id"])
         view, _ = pipeline.deal_view(ctx, conn, deal, obs)
-        out.append((f"deal {deal.id} caption", pipeline.deal_caption_text(ctx, view),
-                    Refs(deals={deal.id})))
+        # D53: a caption lists the promotion's other live dates, each another deal's price.
+        refs = Refs(deals={deal.id, *(d.deal_id for d in view.other_dates)})
+        out.append((f"deal {deal.id} caption", pipeline.deal_caption_text(ctx, view), refs))
         whatsapp = pipeline.deal_whatsapp_text(ctx, conn, deal, obs)
         if whatsapp is not None:
-            out.append((f"deal {deal.id} WhatsApp text", whatsapp, Refs(deals={deal.id})))
+            out.append((f"deal {deal.id} WhatsApp text", whatsapp, refs))
     for path in sorted(ctx.guides_dir.glob("*.yaml")):
         guide = load_guide(ctx.guides_dir, path.stem)
         out.append((f"guide {path.stem} caption",

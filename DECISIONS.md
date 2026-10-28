@@ -2786,6 +2786,85 @@ so nothing has to be hosted.
   The D44 claim rule is unchanged: a post or page says "−x %" at medium or high, so every
   automatically approved promotion may still claim its discount.
 
+## D53: One promotion per route, listing all its cheap dates; a euro is not an expiry (2026-10-28)
+- **Miguel's decision (2026-10-28):** "repeated" deals merge into one promotion per route that
+  lists every cheap date, the way deferias.pt lists dates, and the 1 € churn stops. He accepted
+  the proposal in `docs/research/2026-10-28-one-promotion-per-route-proposal.md` as written
+  (eight points: 5 % tolerance, 5 % and 2 € re-flag margin, additive v1 contract, the opening
+  deal's id in the slug, approve/reject all, expired dates disappear, one post per promotion).
+  Measured on the bucket's copy of 28/10: 400 deals for 112 trips (up to 15 for one), 54 % of
+  expiries a price rise with a median of 1,83 € (143 of 216 within 5 %), 277 deals born on a trip
+  that already had an expired deal, a median lifetime of 7 h.
+- **Tolerance and margin** (config `detector`, pure): `recheck.recheck` holds a rise within
+  `recheck_tolerance_pct` (0,05) plus `tolerance_eur` while `still_promotion` against the
+  deal's stored typical low (`threshold`, `min_saving_eur`; the pipeline passes
+  `deals.baseline_median`); the reason reads "subiu para 59 €, dentro da tolerância de 5%", or
+  "o preço subiu para 62 € e já não é promoção face ao preço habitual (85 €)". The review
+  Function ports it (`live-check.ts`: `tolerance_pct`, `threshold`, `min_saving` and the deal's
+  `typical_low_eur` from the snapshot's `live_check`, optional within v1: an older snapshot
+  checks with tolerance 0), with five new shared cases in `live-check-cases.json`. The pages
+  show the latest verified price on its own observation (`last_seen_price` traces to a stored
+  observation, as before). `detector._already_flagged(candidate, recent, cfg)` re-flags a trip
+  only `reflag_margin_pct` (0,05) **and** `reflag_margin_eur` (2) below every earlier deal of
+  the trip, and `db.recently_flagged_offers` now includes expired deals: a fare bouncing
+  55 → 61 → 55 is one deal. Backtest preset `churn` over 14 days (14–27/10): 279 → 133
+  candidates with the margin (−52 %), held-today 96 % → 91 %; the tolerance barely registers
+  there because the replay's presence approximation (`run_id ≤ r ≤ last_run_id`, one row per
+  price) reads most price moves as "a viagem já não aparece", so the production expiry reasons
+  above are the evidence for it. Expiries within 24 h stay at 93–97 % either way: a promotion's
+  dates still turn over fast; the page just stops being replaced by a new one every bounce.
+- **Data model (schema v18):** `promotions (id, origin, destination, opened_at, closed_at,
+  closed_reason)`, `deals.promotion_id`, `posting_queue.promotion_id`; the migration's callable
+  `_backfill_promotions` groups what exists (open deals of a route into one open promotion;
+  an expired deal a human approved into a closed one of its own; expired-unreviewed and
+  rejected deals stay ungrouped; posts take their deal's promotion). A deal stays one trip on
+  one observation (D2). `pipeline.promotion_for` at detection (one open promotion per route:
+  Miguel chose per route, not per destination across origins), `promotion_dates` (cheapest
+  first), `promotion_lead`, `close_empty_promotions` (after `apply_review_events`, `run_recheck`,
+  `run_reevaluate`, the local `live_check`; reason `REJECTED_ALL` = "todas as datas foram
+  rejeitadas", else "todas as datas expiraram; última: …" / "a data expirou: …"). The
+  promotion's status is derived from its dates: review events stay per deal, so
+  `contract/review/v1/event.schema.json` is unchanged. Rejected: a parent deal with children
+  (states of a trip mixed with a group's).
+- **Site (contract v1, additive):** every item of `promotions.json` keeps its fields and gains
+  optional `promotion {id, path, lead, dates}` (`site_data._promotion_groups`: the lead is the
+  cheapest live date, else the cheapest exported one; `dates` the live ids, cheapest first;
+  `path` = `website.promotion_path`: today's slug with the id of the deal that opened the
+  promotion, so the URL holds while dates change; a member's `path` is the promotion's).
+  `src/lib/promotion.ts` `pagePromotions` builds one page per lead, `promotionDates` lists the
+  dates: the page's "Datas em promoção" section (each date: dates, nights, baggage, price on its
+  `data-obs`, its own booking link through `cta.ts`, the disclosure once), the home one card
+  per promotion ("2 datas a este preço ou perto"). Counts (`meta.counts`, routes, origins) count
+  promotions. Old URLs of member deals 301 to the promotion page through the path history
+  (`routing.current_pages` keys `deal:<id>` now map to the promotion's path); `tests/test_crawl.py`
+  still proves no old URL 404s. The fixtures are unchanged (no `promotion`: every item its own
+  page, as before); the configured test build adds a second live date to the live promotion
+  (`web/test/build-site.ts`), `web/test/promotion-group.test.ts` checks the page, the card and
+  the member's absence, and the traceability test counts the extra link. Rejected: a v2 with
+  one item per promotion (a second schema set and a fixtures regeneration that waits for #52).
+- **Review:** the snapshot's deal gains optional `promotion {id, path, dates}` (v1 under D40's
+  condition) and `page_url` is the promotion's page; both pages group the cards of a promotion,
+  cheapest first, under a header ("Lisboa → Paris · 3 datas", the page's link) with *Aprovar
+  todas* (queue only, every date rendered) and *Rejeitar todas*, each one decision per date in
+  turn (an approval checks each price; the Function's buttons click the cards' own buttons,
+  the local page awaits `act` per id). A lone deal, or an older snapshot, has no header.
+- **Posting queue:** one post per promotion. `_post_planner` queues nothing for a date whose
+  promotion already has queued or published posts; `run_publish` takes `post_subject` (the
+  promotion's lead at send time, else the date that queued it) for the verdict and the text,
+  which lists the other live dates (`DealView.other_dates`, `presentation.OtherDate`, the
+  caption's and WhatsApp text's "📆 Outras datas em promoção" lines; each price another
+  deal's observation, so `tests/test_traceability.py` references a caption by its deal and the
+  other dates' deals); `promotion_closed` cancels a post once the promotion closed ("A
+  promoção expirou: …" / "A promoção foi rejeitada."). The dry run settles posts and marks
+  nothing (D32); Instagram and Telegram stay paused (D46).
+- **Tests:** `tests/test_recheck.py` (tolerance, the promotion rule, no typical low),
+  `tests/test_detector.py` (the margin), `tests/test_live_check_cases.py` +
+  `web/test/review/live-check.test.ts` (the five cases), `tests/test_promotions.py` (grouping,
+  the lead, closing on expiry and on rejection, the backfill), `tests/test_site_data.py` (the
+  group export, counts), `tests/test_posting.py` (no second post, the lead's text, the close),
+  the schema upgrade tests (v18 columns, the backfilled promotion), `web/test/review/page.test.ts`
+  (the grouped page), `web/test/promotion-group.test.ts`.
+
 ## D52: The stay length that makes sense for each destination (2026-10-28)
 - **Miguel's decision (2026-10-28):** promotions respect the stay that makes sense for the
   destination. If Paris is 3–4 days, a 10-night Paris trip must not appear. Until now the nights

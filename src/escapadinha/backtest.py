@@ -189,7 +189,8 @@ def known_at(rows: list[Observation], run: Run) -> list[Observation]:
 
 
 def expiry_within(o: Observation, rows: list[Observation], route: Route, cfg: DetectorConfig,
-                  run: Run, all_runs: list[Run]) -> tuple[bool | None, str | None]:
+                  run: Run, all_runs: list[Run],
+                  typical_low: float | None = None) -> tuple[bool | None, str | None]:
     """Whether the price recheck (`recheck.recheck`, the pipeline's own) would have expired the
     candidate at a run within `EXPIRY_WINDOW` after `run`, and why. None when no run followed
     inside the window."""
@@ -197,7 +198,8 @@ def expiry_within(o: Observation, rows: list[Observation], route: Route, cfg: De
     if not later:
         return None, None
     for x in later:
-        result = recheck(o, present_at(rows, x), cfg, x.at, rules=route.rules)
+        result = recheck(o, present_at(rows, x), cfg, x.at, rules=route.rules,
+                         typical_low=typical_low)
         if not result.valid:
             return True, f"run {x.id}: {result.reason}"
     return False, None
@@ -260,7 +262,8 @@ def replay(conn: sqlite3.Connection, routes: list[Route], rule_sets: list[RuleSe
                     if o.id is not None:
                         state.taken.add(o.id)
                     state.flagged[route.key].append((o, run.at))
-                    expired, why = expiry_within(o, rows, route, rs.cfg, run, all_runs)
+                    expired, why = expiry_within(o, rows, route, rs.cfg, run, all_runs,
+                                                 typical_low=base.median)
                     out.candidates.append(Candidate(
                         rs.name, run.id, run.at, route.key, route.kind, o.id, o.price,
                         o.departure_date, o.return_date, flag.decision.rule or "median",
@@ -293,8 +296,17 @@ def rule_sets(base: DetectorConfig, preset: str, *, routes_cfg: RoutesConfig | N
     `docs/research/2026-10-15-data-reliability.md` §3 (runs 19–57); `d44` compares the shipped
     D40 gate with each of D44's rules and with `base` (the configured detector); `stays` (D52)
     keeps the detector and compares the kinds' nights ranges alone with the ranges
-    `routes_cfg`'s overrides give the `watched` routes."""
+    `routes_cfg`'s overrides give the `watched` routes; `churn` (D53) compares the recheck
+    tolerance and the re-flag margin with none."""
     v = lambda name, note="", **over: _variant(base, name, note, **over)   # noqa: E731
+    if preset == "churn":
+        return [v("no tolerance, no margin", "every rise expires, any cheaper price re-flags (before D53)",
+                  recheck_tolerance_pct=0.0, reflag_margin_pct=0.0, reflag_margin_eur=0.0),
+                v("tolerance only", f"rises up to {base.recheck_tolerance_pct:.0%} hold",
+                  reflag_margin_pct=0.0, reflag_margin_eur=0.0),
+                RuleSet("D53 (configured)", base,
+                        f"tolerance {base.recheck_tolerance_pct:.0%}, re-flag margin "
+                        f"{base.reflag_margin_pct:.0%} and {base.reflag_margin_eur:g} €")]
     if preset == "stays":
         if routes_cfg is None or watched is None:
             raise ValueError("the 'stays' preset needs the routes config and the routes")
@@ -341,7 +353,7 @@ def rule_sets(base: DetectorConfig, preset: str, *, routes_cfg: RoutesConfig | N
     raise ValueError(f"unknown preset {preset!r}")
 
 
-PRESETS = ("data-reliability", "d44", "stays")
+PRESETS = ("data-reliability", "d44", "stays", "churn")
 
 
 # --- the report ---------------------------------------------------------------------------

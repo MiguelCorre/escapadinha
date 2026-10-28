@@ -74,6 +74,21 @@ class PhotoCredit:
 
 
 @dataclass(frozen=True)
+class OtherDate:
+    """Another live date of the same promotion (D53), for captions and posts."""
+
+    deal_id: int
+    observation_id: int
+    line: str          # 'ida sex, 12 dez, volta seg, 15 dez (3 noites) · 58 €'
+
+
+def other_date(deal: Deal, o: Observation) -> OtherDate:
+    return OtherDate(deal.id, o.id, f"ida {pt.short_date(o.departure_date)}, volta "
+                                    f"{pt.short_date(o.return_date)} ({pt.nights(o.nights)}) "
+                                    f"· {pt.eur(o.price)}")
+
+
+@dataclass(frozen=True)
 class DealView:
     deal_id: int
     observation_id: int
@@ -107,6 +122,9 @@ class DealView:
     # Stored at detection (D44); None for deals detected before.
     confidence: str | None = None         # low | medium | high: trust in the typical low
     new_low: bool | None = None           # cheaper than everything seen for the route-month
+    # D53: the promotion's other live dates, cheapest first, as caption lines ("ida 12 dez,
+    # volta 15 dez · 58 €"); each price is another deal's observation (traced by the deal id).
+    other_dates: tuple[OtherDate, ...] = ()
 
     @property
     def destination_headline(self) -> str:
@@ -168,7 +186,7 @@ def _direct(o: Observation) -> bool | None:
 
 
 def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination_city: str,
-                    photo: PhotoCredit) -> DealView:
+                    photo: PhotoCredit, other_dates: tuple[OtherDate, ...] = ()) -> DealView:
     direct = _direct(o)
     return DealView(
         deal_id=deal.id, observation_id=o.id,
@@ -190,4 +208,5 @@ def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination
         photo=photo,
         baggage=o.with_baggage, baggage_line=pt.baggage_line(o.with_baggage), gate=o.gate,
         confidence=deal.confidence, new_low=deal.new_low,
+        other_dates=other_dates,
     )

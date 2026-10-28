@@ -83,6 +83,15 @@ def promo_slug(deal_id: int, origin_city: str, city_pt: str) -> str:
     return f"{deal_id}-{slugify(origin_city)}-{slugify(city_pt)}"
 
 
+def promotion_path(ctx: Context, conn: sqlite3.Connection, promotion_id: int,
+                   origin_city: str, city_pt: str) -> str:
+    """The page of a promotion (D53): today's slug with the id of the deal that opened it, so a
+    promotion's URL never changes while its dates come and go; every other date of the group
+    shows there (its own old URL redirects, `website/routing.py`)."""
+    opening = db.promotion_deals(conn, promotion_id)[0][0]
+    return f"/promos/{promo_slug(opening.id, origin_city, city_pt)}/"
+
+
 def is_public(deal: Deal) -> bool:
     """Approved/published deals, plus expired ones a human had approved before. A deal that
     expired before anyone approved it is never public (site, site data, review snapshot)."""

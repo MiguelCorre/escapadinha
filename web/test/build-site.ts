@@ -25,6 +25,11 @@ export const FAKE_POST_URL = "https://www.instagram.com/p/fake-test-only/";
 /** An insurance programme connected in the configured build (D37). */
 export const FAKE_INSURANCE_BRAND = "Seguradora de Teste";
 export const FAKE_INSURANCE_LINK = "https://example.com/parceiro/seguro-de-teste";
+/** The second live date of the live promotion in the configured build (D53). */
+export const GROUP_MEMBER_ID = 1008;
+export const GROUP_MEMBER_OBS = 999001;
+export const GROUP_MEMBER_PRICE = 71;
+export const GROUP_MEMBER_LINK = "https://example.com/parceiro/site-deal-1008";
 
 function build(dataDir: string, outDir: string): string {
   const result = spawnSync(
@@ -55,6 +60,18 @@ export default function setup(project: TestProject) {
   for (const p of promotions.promotions) {
     if (p.live) Object.assign(p, { status: "published", post_url: FAKE_POST_URL });
   }
+  // D53: the live promotion gets a second live date (a dearer trip a week later) in the same
+  // group: one page, two dates, the member's own old URL is no page.
+  const lead = promotions.promotions.find((p: any) => p.live);
+  const member = JSON.parse(JSON.stringify(lead));
+  Object.assign(member, { id: GROUP_MEMBER_ID, status: "approved", post_url: null, images: null,
+    booking_link: GROUP_MEMBER_LINK, also_seen: [] });
+  Object.assign(member.offer, { obs: GROUP_MEMBER_OBS, price: GROUP_MEMBER_PRICE,
+    departure: "2026-11-07", return: "2026-11-10", found_date: "2026-10-12" });
+  const group = { id: 1, path: lead.path, lead: false, dates: [lead.id, member.id] };
+  lead.promotion = { ...group, lead: true };
+  member.promotion = { ...group };
+  promotions.promotions.push(member);
   writeFileSync(join(configuredData, "promotions.json"), JSON.stringify(promotions));
   const affiliates = JSON.parse(readFileSync(join(configuredData, "affiliates.json"), "utf8"));
   affiliates.programmes.insurance = { brand: FAKE_INSURANCE_BRAND };

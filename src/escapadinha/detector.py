@@ -275,12 +275,18 @@ def low_discount(o: Observation, base: Baseline, cfg: DetectorConfig) -> float |
     return 1 - o.price / base.median
 
 
-def _already_flagged(candidate: Observation, recent: list[Observation]) -> bool:
-    """Same trip already posted at the same or a lower price."""
+def _already_flagged(candidate: Observation, recent: list[Observation],
+                     cfg: DetectorConfig | None = None) -> bool:
+    """Same trip already flagged (its deal open or expired, D53) unless the candidate is at least
+    `reflag_margin_pct` and `reflag_margin_eur` cheaper than every earlier deal of the trip: a
+    fare that bounces by a euro or two is one promotion, not a new deal every bounce."""
+    pct = cfg.reflag_margin_pct if cfg else 0.0
+    eur = cfg.reflag_margin_eur if cfg else 0.0
     return any(
         r.departure_date == candidate.departure_date
         and r.return_date == candidate.return_date
-        and r.price <= candidate.price
+        and (candidate.price >= r.price - EPS                       # the same price or dearer
+             or candidate.price > min(r.price * (1 - pct), r.price - eur) + EPS)
         for r in recent
     )
 
@@ -338,7 +344,7 @@ def detect_route(candidates: list[Observation], history: list[Observation],
 
     flags = []
     for candidate in eligible(candidates, rules):
-        if not is_fresh(candidate, cfg, now) or _already_flagged(candidate, recent):
+        if not is_fresh(candidate, cfg, now) or _already_flagged(candidate, recent, cfg):
             continue
         base = baselines.get(month_key(candidate), empty)
         decision = evaluate(candidate, base, cfg, price_cap)

@@ -13,10 +13,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `instagram token`,
   `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
-- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44|stays]
+- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44|stays|churn]
   [--runs 19-57 | --days 14] [--candidates --state --json out.json]`: the detector backtest (D44),
   read-only on a database copy (`escapadinha.backtest`); `store pull` first. `stays` (D52)
-  compares the kinds' nights ranges with the per-destination ones in config.
+  compares the kinds' nights ranges with the per-destination ones in config; `churn` (D53) the
+  recheck tolerance and the re-flag margin with none.
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 - Web package (`cd web`): `npm ci`, `npm run typecheck` (strict tsc: `tsconfig.functions.json`
   without Node types, `tsconfig.typecheck.json` for `src/lib` + tests), `npm test` (vitest builds from the fixtures), `npm run
@@ -309,6 +310,25 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   validates them), needs a v2. A new `*_eur` field is taught to
   `test_review_events.SNAPSHOT_PRICES`. Render (new → rendered), rechecks and the
   queue's re-evaluation (D40) stay pipeline-owned.
+- **One promotion per route (D53):** a deal stays one trip on one observation; `promotions`
+  (schema v18) groups a route's deals (dates): `pipeline.promotion_for` at detection (the
+  route's open promotion, else a new one), `promotion_dates` / `promotion_lead` (the cheapest
+  live date heads the page, the card and the post), `close_empty_promotions` (no date left open,
+  pipeline-owned, after applied events, the recheck and the re-evaluation; reason
+  `REJECTED_ALL` or the last date's). Review events stay per deal (no event version); the
+  snapshot and `promotions.json` carry an optional `promotion` (v1). The site builds one page
+  per promotion (`src/lib/promotion.ts` `pagePromotions` / `promotionDates`): the lead item is
+  the page at the slug of the deal that opened the promotion (`website.promotion_path`), member
+  items share that `path` (their old URLs 301 from the path history) and every date's price sits
+  on its own `data-obs`. Captions and posts list the other live dates (`DealView.other_dates`,
+  prices of other deals: `tests/test_traceability.py` references them by deal). Posts are per
+  promotion: `_post_planner` queues nothing when the promotion already has posts,
+  `post_subject` sends for the lead, `promotion_closed` cancels. **Tolerance** (D53, config
+  `detector`): `recheck.recheck` holds a rise within `recheck_tolerance_pct` while
+  `still_promotion` against the deal's typical low (ported in `live-check.ts`; cases shared), and
+  `detector._already_flagged` re-flags a trip only `reflag_margin_pct` and `reflag_margin_eur`
+  below its last deal (`db.recently_flagged_offers` includes expired deals). Measure changes with
+  the backtest's `churn` preset.
 - Posting queue (D32, `posting_queue`): only an applied approve event queues posts, in the
   applier's transaction (`plan_posts` passed into `apply_pending`). Slot rules stay pure in
   `posting.py` (`next_slot`, `verdict`; `now` passed in, Lisbon days). Channels are named only in

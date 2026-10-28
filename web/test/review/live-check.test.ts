@@ -14,7 +14,9 @@ function target(c: any) {
     price_eur: d.price_eur, departure_date: d.departure_date, return_date: d.return_date, direct: d.direct,
     // Only when the case has them: a deal without them is an older snapshot (`direct` only).
     ...("transfers" in d ? { transfers: d.transfers, return_transfers: d.return_transfers } : {}),
-    live_check: { query: {}, rules: d.rules },
+    ...("typical_low_eur" in d ? { typical_low_eur: d.typical_low_eur } : {}),
+    live_check: { query: {}, rules: d.rules,
+      ...("tolerance_pct" in d ? { tolerance_pct: d.tolerance_pct, threshold: d.threshold, min_saving: d.min_saving } : {}) },
   };
 }
 

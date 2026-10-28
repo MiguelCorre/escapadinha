@@ -149,6 +149,27 @@ describe("queue page", () => {
     expect(approved.querySelector('a[href="https://pontonomada.pt/promos/5-lisboa-londres/"]')).not.toBeNull();
   });
 
+  it("groups the dates of one promotion, cheapest first, with buttons for all of them (D53)", async () => {
+    const group = { id: 3, path: "/promos/7-lisboa-londres/", dates: [7, 9] };
+    const { doc } = await open(snapshot({ queue: [
+      deal(7, { promotion: group, page_url: "https://pontonomada.pt/promos/7-lisboa-londres/" }),
+      deal(9, { promotion: group, price_eur: 49, price: "49 €", departure_date: "2026-11-27", return_date: "2026-11-30",
+        dates: "27 a 30 de novembro", page_url: "https://pontonomada.pt/promos/7-lisboa-londres/" }),
+      deal(6, { status: "new", status_pt: "novo", slides: [] }),
+    ] }));
+    const header = doc.querySelector('[data-promotion="3"]')!;
+    expect(header).not.toBeNull();
+    expect(txt(header)).toContain("Lisboa → Londres (Gatwick) · 2 datas");
+    expect(txt(header)).toContain("Uma promoção, uma página: https://pontonomada.pt/promos/7-lisboa-londres/");
+    expect(header.querySelector('button[data-all="approve"]')!.getAttribute("data-ids")).toBe("9,7");
+    expect(header.querySelector('button[data-all="reject"]')!.getAttribute("data-ids")).toBe("9,7");
+    const order = doc.querySelectorAll("article[data-deal]").map((c) => c.getAttribute("data-deal"));
+    expect(order.slice(0, 3)).toEqual(["9", "7", "6"]);               // the group first, cheapest first
+    expect(doc.querySelectorAll("[data-promotion]")).toHaveLength(1);  // a lone deal has no header
+    // Each date still has its own buttons: an approval checks each price.
+    expect(doc.querySelector('[data-deal="9"] button[data-act="approve"]')).not.toBeNull();
+  });
+
   it("shows the WhatsApp text with a copy button only when the snapshot has it", async () => {
     const text = "✈️ Lisboa → Londres por 58 €\nhttps://pontonomada.pt/promos/7/";
     const { doc } = await open(snapshot({ queue: [deal(7, { whatsapp_text: text }), deal(8)] }));

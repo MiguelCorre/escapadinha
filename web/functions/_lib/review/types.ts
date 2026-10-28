@@ -138,11 +138,19 @@ export interface SnapshotDeal {
     source?: string;
     query: Record<string, string | number>;
     rules: Rules;
+    /** D53: a risen price holds within this share of the deal's price while still a promotion
+     * against `typical_low_eur` (`threshold`, `min_saving_eur`); absent in older snapshots: 0. */
+    tolerance_pct?: number;
+    threshold?: number;
+    min_saving?: number;
   };
   review_note: string | null;
   reviewed_at: string | null;
   published_at: string | null;
   post_url: string | null;
+  /** D53: the route's promotion this date belongs to (one page per promotion); absent or null
+   * in older snapshots: the card stands alone. */
+  promotion?: { id: number; path: string; dates: number[] } | null;
 }
 
 export interface Outcome {

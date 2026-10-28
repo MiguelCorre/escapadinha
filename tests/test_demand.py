@@ -302,12 +302,15 @@ def test_upgrade_from_a_v15_database_adds_the_demand_columns_and_keeps_the_route
     conn.execute("ALTER TABLE routes DROP COLUMN demand_period")
     conn.execute("ALTER TABLE deals DROP COLUMN partner_discount_pct")    # v17 (D46) too
     conn.execute("ALTER TABLE deals DROP COLUMN partner_offer_at")
+    conn.execute("ALTER TABLE deals DROP COLUMN promotion_id")            # v18 (D53) too
+    conn.execute("ALTER TABLE posting_queue DROP COLUMN promotion_id")
+    conn.execute("DROP TABLE promotions")
     conn.execute("PRAGMA user_version = 15")
     conn.commit()
     conn.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 17
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 18
     columns = {r[1] for r in conn.execute("PRAGMA table_info(routes)")}
     assert {"demand_pax_month", "demand_period"} <= columns
     fresh = db.connect(ctx.root / "fresh.db")

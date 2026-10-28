@@ -907,3 +907,36 @@ def test_analytics_token_is_a_plain_token():
     assert SiteConfig(analytics_token=FAKE_TOKEN).analytics_token == FAKE_TOKEN
     with pytest.raises(ValidationError, match="analytics_token"):
         SiteConfig(analytics_token='x"}; alert(1)')
+
+
+def test_a_second_live_date_of_the_same_route_joins_the_promotions_page(exported, tmp_path):
+    """D53: the export groups a route's dates under their promotion: the lead item (the
+    cheapest live date) is the page, the member shows there (its `path` is the promotion's,
+    its old URL redirects), the dates list both, and the counts count promotions, not dates."""
+    from test_reevaluation import NOV, deal as insert_deal
+    ctx, conn, s, _, _ = exported
+    live = db.get_deal(conn, s.live_deal)[0]
+    assert live.promotion_id is not None                     # detection grouped it (D53)
+    dearer = insert_deal(conn, "LIS-LON", NOV + timedelta(days=20), 65, status="approved",
+                         days=12, median=100)
+    cheaper = insert_deal(conn, "LIS-LON", NOV + timedelta(days=22), 55, status="approved",
+                          days=12, median=100)
+    for deal_id in (dearer, cheaper):
+        db.set_deal_promotion(conn, deal_id, live.promotion_id)
+        conn.execute("UPDATE deals SET affiliate_url = 'https://aviasales.tpo.lu/x', reviewed_at = ? "
+                     "WHERE id = ?", (db._ts(db.utcnow()), deal_id))
+    conn.commit()
+    out = tmp_path / "grouped"
+    site_data.export_site_data(ctx, conn, out, new_links=False)
+    promos = {p["id"]: p for p in read(out, "promotions.json")["promotions"]}
+    lead_path = f"/promos/{s.live_deal}-lisboa-londres/"     # the deal that opened it
+    assert promos[cheaper]["promotion"] == {"id": live.promotion_id, "path": lead_path,
+                                            "lead": True, "dates": [cheaper, s.live_deal, dearer]}
+    assert promos[s.live_deal]["promotion"]["lead"] is False
+    assert {promos[i]["path"] for i in (cheaper, s.live_deal, dearer)} == {lead_path}
+    assert promos[s.expired_deal]["promotion"] is None or promos[s.expired_deal]["promotion"]["lead"]
+    meta = read(out, "meta.json")
+    assert meta["counts"]["promotions_live"] == 1
+    route = next(r for r in read(out, "routes.json")["routes"] if r["key"] == "LIS-LON")
+    assert route["counts"]["promotions_live"] == 1
+    assert validation_errors(out) == []

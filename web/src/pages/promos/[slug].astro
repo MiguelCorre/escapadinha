@@ -12,12 +12,13 @@ import type { Promotion } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { bookingCta } from "../../lib/cta";
 import { eur } from "../../lib/format";
-import { airportLabel, promotionView } from "../../lib/promotion";
+import { airportLabel, pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { bestMonths } from "../../lib/routes";
 import { promotionLd } from "../../lib/structured-data";
 
 export const getStaticPaths = (() => {
-  return data.promotions.promotions.map((promotion) => {
+  // D53: one page per promotion: the lead item of a group, or an ungrouped item.
+  return pagePromotions(data).map((promotion) => {
     const match = /^\/promos\/([a-z0-9-]+)\/$/.exec(promotion.path);
     if (!match) throw new Error(`promotion ${promotion.id}: unexpected path ${promotion.path}`);
     return { params: { slug: match[1] }, props: { promotion } };
@@ -30,6 +31,12 @@ interface Props {
 
 const { promotion } = Astro.props;
 const view = promotionView(data, promotion);
+// D53: every live date of the promotion (the lead first), each with its own price, observation
+// and booking link; listed when there is more than one.
+const dates = promotion.live ? promotionDates(data, promotion).map((d) => ({
+  item: d, view: promotionView(data, d),
+  cta: bookingCta(d.booking_link, d.live, data.labels, d.link_kind ?? "partner", d.seller ?? null),
+})) : [];
 const linkKind = promotion.link_kind ?? "partner";
 const cta = bookingCta(promotion.booking_link, promotion.live, data.labels, linkKind, promotion.seller ?? null);
 // D47: the same trip's newest price at every other source, each on its observation.
@@ -161,6 +168,26 @@ const trip = promotionLd(data, promotion, view, description);
             <li>Confirma o preço final antes de pagar. Mala de porão, lugar marcado e seguro são extras.</li>
             <li>Os lugares a este preço são poucos: o preço foi encontrado a <span class="num">{view.foundOn ?? "—"}</span> e verificado por nós a <span class="num">{view.checkedAt}</span>; pode mudar a qualquer momento, e esta página expira quando mudar.</li>
           </ol>
+        </section>
+      )}
+
+      {dates.length > 1 && (
+        <section class="mt-lg" aria-labelledby="titulo-datas" data-dates>
+          <h2 id="titulo-datas" class="font-display text-title">Datas em promoção</h2>
+          <p class="mt-xs text-small text-muted">Todas as datas desta rota ainda a preço de promoção, cada uma verificada por nós. A mais barata está no topo.</p>
+          <ul class="mt-sm">
+            {dates.map(({ item, view: dv, cta: dc }) => (
+              <li class="flex flex-wrap items-baseline justify-between gap-x-md gap-y-2xs border-b-2 border-rule py-sm" data-deal={item.id}>
+                <span class="num font-semibold">{dv.dates} <span class="font-normal text-muted">· {dv.nights}</span></span>
+                <span class="flex flex-wrap items-baseline gap-x-md gap-y-2xs">
+                  {dv.baggage && <span class="text-small text-muted">{dv.baggage}</span>}
+                  <span class="num font-semibold" data-obs={dv.obs}>{dv.price.text}</span>
+                  {dc && <a href={dc.href} rel={dc.rel} target="_blank" class="font-semibold underline">{dc.text}</a>}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {dates[0].cta && <p class="notice mt-sm text-muted">{dates[0].cta.disclosure}</p>}
         </section>
       )}
 

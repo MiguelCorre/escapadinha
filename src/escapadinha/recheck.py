@@ -27,8 +27,15 @@ class Recheck:
 
 
 def recheck(deal_obs: Observation, latest: list[Observation], cfg: DetectorConfig,
-            now: datetime, tolerance_eur: float = 0.0, rules: RouteRules = DIRECT) -> Recheck:
-    """`latest`: the newest run's observations for the deal's route; `rules`: that route's."""
+            now: datetime, tolerance_eur: float = 0.0, rules: RouteRules = DIRECT,
+            typical_low: float | None = None) -> Recheck:
+    """`latest`: the newest run's observations for the deal's route; `rules`: that route's.
+
+    A risen price (D53) stays valid while it is at most `cfg.recheck_tolerance_pct` (plus
+    `tolerance_eur`) above the deal's price and, with `typical_low` (the deal's stored typical
+    low), still a promotion against it (`threshold` and `min_saving_eur`); the pages then show
+    the latest price on its own observation. The review Function ports this rule
+    (`live-check.ts`), the shared cases keep both sides equal."""
     if not rules.allows(deal_obs):
         return Recheck(False, None, _rule_broken(deal_obs, rules))
     same_trip = [o for o in eligible(latest, rules)
@@ -37,13 +44,28 @@ def recheck(deal_obs: Observation, latest: list[Observation], cfg: DetectorConfi
     if not same_trip:
         return Recheck(False, None, "a viagem já não aparece nos preços mais recentes")
     best = min(same_trip, key=lambda o: o.price)
-    if best.price > deal_obs.price + tolerance_eur:
+    rose = best.price > deal_obs.price + EPS
+    if best.price > deal_obs.price * (1 + cfg.recheck_tolerance_pct) + tolerance_eur + EPS:
         return Recheck(False, best.price, f"o preço subiu para {pt.eur(best.price)}")
+    if rose and typical_low is not None and not still_promotion(best.price, typical_low, cfg):
+        return Recheck(False, best.price,
+                       f"o preço subiu para {pt.eur(best.price)} e já não é promoção face ao "
+                       f"preço habitual ({pt.eur(typical_low)})")
     if not is_fresh(best, cfg, now):
         return Recheck(False, best.price,
                        f"o preço foi visto pela última vez a {best.found_date:%d/%m}, há mais "
                        f"de {cfg.max_offer_age_days} dias")
+    if rose:
+        return Recheck(True, best.price, f"subiu para {pt.eur(best.price)}, dentro da tolerância "
+                                         f"de {round(cfg.recheck_tolerance_pct * 100)}%")
     return Recheck(True, best.price, f"continua a {pt.eur(best.price)}")
+
+
+def still_promotion(price: float, typical_low: float, cfg: DetectorConfig) -> bool:
+    """`threshold` and `min_saving_eur` below `typical_low` (the detector's promotion rule on a
+    price that moved after detection, D53)."""
+    return (price <= typical_low * (1 - cfg.threshold) + EPS
+            and typical_low - price >= cfg.min_saving_eur - EPS)
 
 
 def _rule_broken(deal_obs: Observation, rules: RouteRules) -> str:
