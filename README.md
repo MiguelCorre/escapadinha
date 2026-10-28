@@ -305,8 +305,15 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
     offer per date pair, the cheapest, so a cheaper fare with a stop would otherwise hide the
     nonstop one (57 % of the rows on these routes were thrown away for a stop). Routes that
     allow a stop keep the plain call; the request count is the same.
-  - `overrides`: per-route exceptions, e.g. `"LIS-LON": { max_nights: 7 }`, plus an optional
-    `price_cap_eur`. Removing an override restores the kind default on the next command.
+  - `overrides`: exceptions keyed by route (`"LIS-LON": { max_nights: 7 }`) or by destination
+    (`"LON"`: every route to London; a route key beats its destination), plus an optional
+    `price_cap_eur`. Since 2026-10-28 (D52) every destination with active routes has an entry
+    with the stay length that makes sense for it, researched in
+    `docs/research/2026-10-28-stay-length.md` (official tourism boards and established guides;
+    each config line names its source): Paris 2–5 nights, Madeira 3–10, New York 4–8. Offers
+    outside the range are not collected, never deals and not part of the typical low, so a
+    10-night Paris trip is never a promotion. Removing an override restores the kind default
+    on the next command.
   - `exclusions`: route keys (`LIS-LON`) or destinations (`LON`) that are never discovered nor
     collected (now `MOW`, `LED`, `IEV`, `MSQ`: the old catalogue still lists them).
   - `long_haul`: 20 curated long-haul destinations (`destination`, `city_pt`, `origins`
@@ -455,7 +462,12 @@ confidence).
 uv run escapadinha store pull
 uv run python scripts/backtest_detector.py data/escapadinha.db --preset d44 --days 14 --candidates --state
 uv run python scripts/backtest_detector.py data/escapadinha.db --preset data-reliability --runs 19-57
+uv run python scripts/backtest_detector.py data/escapadinha.db --preset stays --days 14
 ```
+
+The `stays` preset (D52) keeps the detector and compares the kinds' nights ranges alone with the
+per-destination ranges of `routes.overrides`, so a change to a destination's stay length is
+measured like a threshold change.
 
 Read-only: the database file is opened read-only and copied into memory. The script replays every
 completed collection run of the window with one rule set per column, judges each candidate with

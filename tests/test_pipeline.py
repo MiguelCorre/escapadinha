@@ -45,6 +45,7 @@ def ctx(tmp_path, monkeypatch):
     # as every run, so a run here is routes × 3 requests (the far months: test_daily_pass.py).
     config = yaml.safe_load((REPO / "config.yaml").read_text("utf-8"))
     config["routes"]["long_haul"] = []
+    config["routes"]["overrides"] = {}       # the per-destination stays (D52): tests set their own
     config["collector"]["daily_months_ahead"] = config["collector"]["months_ahead"]
     config["affiliate"]["projects"]["website"] = None
     config["site"]["search_widget"] = None   # the real widget carries the real Project
@@ -334,6 +335,30 @@ def test_recheck_expires_deal_when_price_rises(ctx):
     assert not check.valid and deal.status == "expired" and deal.expired_reason == "o preço subiu para 75 €"
     assert "NÃO PUBLICAR" in (folder / "EXPIRADO.txt").read_text("utf-8")
     assert pipeline.run_recheck(ctx, conn) == []     # expired deals are not rechecked again
+
+
+@respx.mock
+def test_recheck_expires_an_approved_deal_that_no_longer_fits_its_destinations_stay(ctx):
+    """D52: a destination's nights range shrinks under an open deal (approved or not): the next
+    recheck expires it with the range in the reason, before any price is compared."""
+    conn = pipeline.open_db(ctx)
+    seed_history(conn, days=25, price=100)
+    mock_api()
+    pipeline.run_collect(ctx, conn)
+    _, results = pipeline.run_detect(ctx, conn)
+    deal_id = {r.route: r for r in results}["LIS-LON"].deal_ids[0]    # the 3-night trip, 58 €
+    db.set_deal_status(conn, deal_id, "approved")
+    conn.close()
+
+    from test_routes import configure
+    ctx = configure(ctx, overrides={"LON": {"min_nights": 4}})          # London: 4 nights or more
+    conn = pipeline.open_db(ctx)
+    pipeline.run_collect(ctx, conn)                                      # only the 7-night trip now
+    [(deal, obs, check)] = pipeline.run_recheck(ctx, conn)
+    assert (deal.id, obs.nights, check.valid) == (deal_id, 3, False)
+    assert deal.status == "expired"
+    assert deal.expired_reason == "fora do intervalo de 4–10 noites da rota"
+    assert pipeline.run_recheck(ctx, conn) == []
 
 
 @respx.mock

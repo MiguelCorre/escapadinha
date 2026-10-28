@@ -23,13 +23,13 @@ from __future__ import annotations
 import sqlite3
 import statistics
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from escapadinha import detector, i18n_pt
-from escapadinha.config import DetectorConfig
-from escapadinha.models import Observation, Route
+from escapadinha import detector, i18n_pt, routes
+from escapadinha.config import DetectorConfig, RoutesConfig
+from escapadinha.models import Observation, Route, RouteRules
 from escapadinha.recheck import recheck
 from escapadinha.storage import db
 
@@ -41,6 +41,13 @@ class RuleSet:
     name: str
     cfg: DetectorConfig
     note: str = ""
+    rules: dict[str, RouteRules] | None = None   # route key -> its rules under this set (D52)
+
+    def for_route(self, route: Route) -> Route:
+        """`route` with the rules this set gives it (its own when the set names none)."""
+        if self.rules and route.key in self.rules:
+            return replace(route, rules=self.rules[route.key])
+        return route
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,10 @@ class Candidate:
     discount_today: float | None = None
     holds_today: bool | None = None  # still `threshold` and `min_saving_eur` below it
 
+    @property
+    def nights(self) -> int:
+        return (self.return_date - self.departure_date).days
+
 
 @dataclass
 class Replay:
@@ -116,6 +127,8 @@ class Replay:
             "low_prices_per_run": (statistics.fmean(self.low_prices_per_run)
                                    if kind is None and self.low_prices_per_run else None),
             "distinct_low_prices": len(lows),
+            "nights_median": statistics.median(c.nights for c in cands) if cands else None,
+            "nights_max": max((c.nights for c in cands), default=None),
         }
 
 
@@ -225,14 +238,15 @@ def replay(conn: sqlite3.Connection, routes: list[Route], rule_sets: list[RuleSe
     states = {rs.name: _State() for rs in rule_sets}
     for run in sorted(runs, key=lambda r: r.id):
         lows_this_run = Counter()
-        for route in routes:
-            rows = by_route.get(route.key, [])
+        for base_route in routes:
+            rows = by_route.get(base_route.key, [])
             offers = present_at(rows, run)
             if not offers:
                 continue
             history = known_at(rows, run)
             for rs in rule_sets:
                 state, out = states[rs.name], replays[rs.name]
+                route = rs.for_route(base_route)
                 dedupe_start = run.at - timedelta(days=rs.cfg.dedupe_days)
                 recent = [o for o, at in state.flagged[route.key] if at >= dedupe_start]
                 found = detector.detect(offers, history, recent, rs.cfg, route.price_cap_eur,
@@ -273,11 +287,24 @@ BEFORE_D40 = dict(min_dates_per_day=1, min_baseline_days=4, min_baseline_days_pr
 D40 = dict(require_new_low=False, baseline_min_lead_days=0, low_confidence="medium")
 
 
-def rule_sets(base: DetectorConfig, preset: str) -> list[RuleSet]:
+def rule_sets(base: DetectorConfig, preset: str, *, routes_cfg: RoutesConfig | None = None,
+              watched: list[Route] | None = None) -> list[RuleSet]:
     """The rule sets a preset compares. `data-reliability` reproduces the replay table of
     `docs/research/2026-10-15-data-reliability.md` §3 (runs 19–57); `d44` compares the shipped
-    D40 gate with each of D44's rules and with `base` (the configured detector)."""
+    D40 gate with each of D44's rules and with `base` (the configured detector); `stays` (D52)
+    keeps the detector and compares the kinds' nights ranges alone with the ranges
+    `routes_cfg`'s overrides give the `watched` routes."""
     v = lambda name, note="", **over: _variant(base, name, note, **over)   # noqa: E731
+    if preset == "stays":
+        if routes_cfg is None or watched is None:
+            raise ValueError("the 'stays' preset needs the routes config and the routes")
+        kinds = {r.key: RouteRules(**routes_cfg.kinds[r.kind].model_dump()) for r in watched}
+        stays = {r.key: routes.resolve_rules(routes_cfg, r.kind, r.origin, r.destination)
+                 for r in watched}
+        changed = sum(1 for k in kinds if kinds[k] != stays[k])
+        return [RuleSet("kinds only", base, "the kind's nights range on every route", kinds),
+                RuleSet("destination stays (D52)", base,
+                        f"config overrides: {changed} of {len(watched)} routes differ", stays)]
     if preset == "data-reliability":
         return [
             v("before (D3/D24)", "4 days, every day counts", **BEFORE_D40),
@@ -314,10 +341,16 @@ def rule_sets(base: DetectorConfig, preset: str) -> list[RuleSet]:
     raise ValueError(f"unknown preset {preset!r}")
 
 
-PRESETS = ("data-reliability", "d44")
+PRESETS = ("data-reliability", "d44", "stays")
 
 
 # --- the report ---------------------------------------------------------------------------
+
+def _nights(s: dict) -> str:
+    if s["nights_median"] is None:
+        return "–"
+    return f"{s['nights_median']:g}, {s['nights_max']}"
+
 
 def _pct(part: int, whole: int) -> str:
     return "–" if not whole else f"{part}/{whole} ({part / whole:.0%})"
@@ -336,8 +369,8 @@ def markdown(replays: list[Replay], *, candidates: bool = False) -> str:
              f"still `threshold` and `min_saving_eur` below the route-month's typical low from "
              f"everything stored by the latest run, the candidate's own found day left out.", "",
              "| Rule set | Candidates (routes) | Per day | Expired <= 24 h | Holds today | "
-             "New lows | Confidence | Low prices / run | Distinct low prices |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             "New lows | Confidence | Low prices / run | Distinct low prices | Nights (median, max) |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
     for rp in replays:
         s = rp.summary()
         conf = ", ".join(f"{k} {n}" for k, n in sorted(s["confidence"].items())) or "–"
@@ -346,7 +379,8 @@ def markdown(replays: list[Replay], *, candidates: bool = False) -> str:
                      f"{s['candidates_per_day']:.2f} | {_pct(s['expired_24h'], s['judged'])} | "
                      f"{_pct(s['holds_today'], s['hindsight_known'])} | "
                      f"{_pct(s['new_lows'], s['new_low_known'])} | {conf} | "
-                     f"{s['low_prices_per_run']:.1f} | {s['distinct_low_prices']} |")
+                     f"{s['low_prices_per_run']:.1f} | {s['distinct_low_prices']} | "
+                     f"{_nights(s)} |")
     kinds = sorted({c.kind for rp in replays for c in rp.candidates}
                    | {k for rp in replays for k in rp.low_price_ids})
     if kinds:

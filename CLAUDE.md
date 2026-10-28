@@ -13,9 +13,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `instagram token`,
   `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
-- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44]
+- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44|stays]
   [--runs 19-57 | --days 14] [--candidates --state --json out.json]`: the detector backtest (D44),
-  read-only on a database copy (`escapadinha.backtest`); `store pull` first.
+  read-only on a database copy (`escapadinha.backtest`); `store pull` first. `stays` (D52)
+  compares the kinds' nights ranges with the per-destination ones in config.
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 - Web package (`cd web`): `npm ci`, `npm run typecheck` (strict tsc: `tsconfig.functions.json`
   without Node types, `tsconfig.typecheck.json` for `src/lib` + tests), `npm test` (vitest builds from the fixtures), `npm run
@@ -151,6 +152,16 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list, seed,
   discovery origins and `city_names`. Discovery (`discovery.py`) is pure; its downloads live in
   `collector/catalogue.py`. Routes are never deleted: they go `dormant` (D23).
+- **Stay length per destination (D52):** `routes.overrides` is keyed by route (`LIS-PAR`) or by
+  destination (`PAR`, every route there; `routes.override_for`: the route key wins), and every
+  destination with active routes has an entry with the min/max nights researched in
+  `docs/research/2026-10-28-stay-length.md` (high-trust sources, the source named on the config
+  line; `tests/test_stay_lengths.py` keeps the note and the config in step). It is one mechanism,
+  the route's `RouteRules`: the range shapes collection, the typical low, low prices and
+  promotions alike. Never add a second nights rule for promotions only. A deal outside its
+  route's range expires on the next recheck (`recheck.recheck` checks `rules.allows` first,
+  reason "fora do intervalo de x–y noites da rota"), approved ones too. Changing a range is a
+  detector rule change: measure it with the backtest's `stays` preset first and update the note.
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
   installs) and add the ALTER steps to `MIGRATIONS` (existing DBs; a step may be a Python
   callable). Test the upgrade from real old schemas (`tests/fixtures/schema_v5.sql`, `schema_v7.sql`).
