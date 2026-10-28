@@ -30,6 +30,9 @@ export const GROUP_MEMBER_ID = 1008;
 export const GROUP_MEMBER_OBS = 999001;
 export const GROUP_MEMBER_PRICE = 71;
 export const GROUP_MEMBER_LINK = "https://example.com/parceiro/site-deal-1008";
+/** The member's last recheck (D53): a euro up, within the tolerance, on its own observation. */
+export const GROUP_MEMBER_LATEST_OBS = 999002;
+export const GROUP_MEMBER_LATEST_PRICE = 72;
 
 function build(dataDir: string, outDir: string): string {
   const result = spawnSync(
@@ -68,6 +71,7 @@ export default function setup(project: TestProject) {
     booking_link: GROUP_MEMBER_LINK, also_seen: [] });
   Object.assign(member.offer, { obs: GROUP_MEMBER_OBS, price: GROUP_MEMBER_PRICE,
     departure: "2026-11-07", return: "2026-11-10", found_date: "2026-10-12" });
+  member.latest = { obs: GROUP_MEMBER_LATEST_OBS, price: GROUP_MEMBER_LATEST_PRICE };   // rose 1 € since
   const group = { id: 1, path: lead.path, lead: false, dates: [lead.id, member.id] };
   lead.promotion = { ...group, lead: true };
   member.promotion = { ...group };

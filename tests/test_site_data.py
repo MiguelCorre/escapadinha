@@ -120,6 +120,7 @@ CHECKED = {
                ("/routes/*/cheapest", "offer"), ("/routes/*/calendar/*/price", "eur")},
     "promotions": {("/promotions/*/offer", "offer"), ("/promotions/*/typical_low", "eur"),
                    ("/promotions/*/expired/latest/price", "eur"),
+                   ("/promotions/*/latest/price", "eur"),            # D53: the last recheck's price
                    ("/promotions/*/also_seen/*/eur", "eur")},
     "low-prices": {("/rows/*/2", "eur"), ("/rows/*/10", "eur")},
 }
@@ -173,6 +174,10 @@ def untraced_prices(ctx, conn, out: Path) -> list[str]:
                   obs.route_key)
         if p["typical_low"] is not None and cents(p["typical_low"]) != cents(deal.baseline_median):
             bad.append(f"promotion {p['id']} typical_low: {p['typical_low']}")
+        if p.get("latest"):                   # D53: the live page's price, the recheck's
+            offer(f"promotion {p['id']} latest", p["latest"], obs.route_key)
+            if cents(p["latest"]["price"]) != cents(deal.last_seen_price or -1):
+                bad.append(f"promotion {p['id']} latest is not the deal's recheck price")
         if p["expired"]:
             if p["expired"]["latest"]:
                 offer(f"promotion {p['id']} latest", p["expired"]["latest"], obs.route_key)
@@ -940,3 +945,34 @@ def test_a_second_live_date_of_the_same_route_joins_the_promotions_page(exported
     route = next(r for r in read(out, "routes.json")["routes"] if r["key"] == "LIS-LON")
     assert route["counts"]["promotions_live"] == 1
     assert validation_errors(out) == []
+
+
+def test_a_live_promotion_shows_the_latest_verified_price_on_its_own_observation(exported, tmp_path):
+    """D53: after a recheck within the tolerance the item carries `latest {obs, price}` (the
+    stored observation of the trip at that price); a trip two deals share is listed once."""
+    from test_reevaluation import NOV, deal as insert_deal
+    ctx, conn, s, _, _ = exported
+    live, obs = db.get_deal(conn, s.live_deal)
+    twin = insert_deal(conn, "LIS-LON", obs.departure_date, 62, status="approved", days=12,
+                       median=100)                                   # the same trip, dearer
+    conn.execute("UPDATE price_observations SET return_date = ? WHERE id = "
+                 "(SELECT observation_id FROM deals WHERE id = ?)", (obs.return_date.isoformat(), twin))
+    db.set_deal_promotion(conn, twin, live.promotion_id)
+    conn.execute("UPDATE deals SET affiliate_url = 'https://aviasales.tpo.lu/t', reviewed_at = ? "
+                 "WHERE id = ?", (db._ts(db.utcnow()), twin))
+    # A recheck saw the trip at 62 € (a stored observation has that price): within 5 % of 60.
+    db.record_recheck(conn, s.live_deal, valid=True, latest_price=62,
+                      reason="subiu para 62 €, dentro da tolerância de 5%", at=db.utcnow())
+    conn.commit()
+    out = tmp_path / "latest"
+    site_data.export_site_data(ctx, conn, out, new_links=False)
+    promos = {p["id"]: p for p in read(out, "promotions.json")["promotions"]}
+    item = promos[s.live_deal]
+    assert item["latest"]["price"] == 62
+    assert db.get_observation(conn, item["latest"]["obs"]).price == 62
+    assert item["offer"]["price"] == 60                                # the detected price stays
+    assert promos[s.expired_deal]["latest"] is None
+    assert item["promotion"]["dates"] == [s.live_deal]                 # the twin trip counts once
+    assert promos[twin]["promotion"]["lead"] is False
+    assert validation_errors(out) == []
+    assert untraced_prices(ctx, conn, out) == []

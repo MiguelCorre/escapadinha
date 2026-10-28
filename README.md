@@ -575,6 +575,10 @@ cheap date later opens a new promotion (the old page stays, D35).
   datas a este preço ou perto"). The contract stays v1: every item of `promotions.json` keeps its
   fields and gains an optional `promotion {id, path, lead, dates}`; a member item's `path` is
   the promotion's, so its old URL gets a 301 from the path history (`website/routing.py`).
+  A live item also carries `latest {obs, price}`, the last recheck's price on its own
+  observation: the page shows that price, not the detected one, with the discount
+  recomputed. A trip two deals share (both open, the dearer one outlives a bounce) is listed
+  once, by its cheapest deal, and dates are ordered by their current price.
 - **Review pages** (local and phone): the dates of one promotion grouped, cheapest first, under
   a header with *Aprovar todas* / *Rejeitar todas* (one decision per date, in turn: an approval
   checks each price); the snapshot carries `promotion {id, path, dates}` per deal (optional, v1).

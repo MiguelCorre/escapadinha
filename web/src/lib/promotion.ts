@@ -114,14 +114,20 @@ export function promotionView(data: SiteData, p: Promotion): PromotionView {
   const where = place(data, o);
   const airline = o.airline ? data.labels.airlines[o.airline] ?? o.airline : null;
   const baggage = baggageText(o.baggage);
+  // D53: a live promotion shows the price the last recheck saw, on that observation, and the
+  // discount that price makes against the typical low; before any recheck, the offer's.
+  const shown = p.live && p.latest ? p.latest : { obs: o.obs, price: o.price };
+  const discount = p.rule !== "median" ? null
+    : p.live && p.latest && p.typical_low != null ? discountParts(1 - shown.price / p.typical_low)
+    : p.discount_pct != null ? discountParts(p.discount_pct) : null;
   return {
     ...where,
     id: p.id,
-    obs: o.obs,
+    obs: shown.obs,
     path: p.path,
     live: p.live,
-    price: eurParts(o.price),
-    discount: p.rule === "median" && p.discount_pct != null ? discountParts(p.discount_pct) : null,
+    price: eurParts(shown.price),
+    discount,
     typicalLow: p.typical_low != null ? eur(p.typical_low) : null,
     month: monthName(o.departure),
     dates: `${shortDate(o.departure)} → ${shortDate(o.return)}`,
@@ -134,7 +140,7 @@ export function promotionView(data: SiteData, p: Promotion): PromotionView {
     checkedAt: lisbonTimestamp(p.checked_at),
     expiredReason: p.expired?.reason ?? null,
     expiredObs: p.expired?.latest?.obs ?? null,
-    summary: summaryParts(o, airline, baggage),
+    summary: summaryParts({ ...o, price: shown.price }, airline, baggage),
     routesLine: routesLine(where),
     publishedOn: p.approved_at ? lisbonTimestamp(p.approved_at) : null,
   };

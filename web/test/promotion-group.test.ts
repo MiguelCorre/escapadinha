@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, inject, it } from "vitest";
 import { parse } from "node-html-parser";
-import { GROUP_MEMBER_ID, GROUP_MEMBER_LINK, GROUP_MEMBER_OBS, GROUP_MEMBER_PRICE } from "./build-site";
+import { GROUP_MEMBER_ID, GROUP_MEMBER_LATEST_OBS, GROUP_MEMBER_LATEST_PRICE, GROUP_MEMBER_LINK } from "./build-site";
 import { builtPagesIn, pageSource, text } from "./html";
 
 const distDir = inject("configuredDistDir");
@@ -30,8 +30,10 @@ describe("a promotion with two live dates (D53)", () => {
     expect(rows.map((r) => r.getAttribute("data-deal"))).toEqual(["8", String(GROUP_MEMBER_ID)]);
     expect(text(rows[0].querySelector("[data-obs]")!)).toBe("69 €");
     expect(rows[0].querySelector("[data-obs]")!.getAttribute("data-obs")).toBe("7226");
-    expect(text(rows[1].querySelector("[data-obs]")!)).toBe(`${GROUP_MEMBER_PRICE} €`);
-    expect(rows[1].querySelector("[data-obs]")!.getAttribute("data-obs")).toBe(String(GROUP_MEMBER_OBS));
+    // The member rose a euro since detection: the page shows the latest verified price, on
+    // the recheck's observation (D53), not the detected one.
+    expect(text(rows[1].querySelector("[data-obs]")!)).toBe(`${GROUP_MEMBER_LATEST_PRICE} €`);
+    expect(rows[1].querySelector("[data-obs]")!.getAttribute("data-obs")).toBe(String(GROUP_MEMBER_LATEST_OBS));
     expect(text(rows[0])).toContain("sáb, 31 out → ter, 3 nov · 3 noites");
     expect(text(rows[1])).toContain("sáb, 7 nov → ter, 10 nov · 3 noites");
     expect(rows[1].querySelector("a")!.getAttribute("href")).toBe(GROUP_MEMBER_LINK);

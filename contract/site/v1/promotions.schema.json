@@ -53,6 +53,16 @@
               }
             }
           },
+          "latest": {
+            "type": ["object", "null"],
+            "description": "Added in v1 (D53): while live, the price the last recheck saw (at most the recheck tolerance above `offer.price`, still a promotion) with the stored observation it comes from; the page shows it as the price. Null before the first recheck, when not live, or in older exports.",
+            "additionalProperties": false,
+            "required": ["obs", "price"],
+            "properties": {
+              "obs": {"$ref": "defs.schema.json#/$defs/obs_id"},
+              "price": {"$ref": "defs.schema.json#/$defs/eur"}
+            }
+          },
           "promotion": {
             "type": ["object", "null"],
             "description": "Added in v1 (D53): the route's promotion this date belongs to. One page per promotion at `path` (the slug of the deal that opened it, kept while dates come and go): the `lead` item (the cheapest live date) is the page, `dates` the ids of its live dates, cheapest first, all in this file; a member item's own `path` is the promotion's. Null (or absent in older exports): the item is a page of its own.",

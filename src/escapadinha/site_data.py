@@ -514,8 +514,13 @@ def _promotion_groups(ctx: Context, conn: sqlite3.Connection,
             members[d.promotion_id].append((d, o))
     groups = {}
     for pid, pairs in members.items():
-        by_price = sorted(pairs, key=lambda pair: (pair[1].price, pair[0].id))
-        live = [pair for pair in by_price if pair[0].status in LIVE]
+        by_price = sorted(pairs, key=lambda pair: (pipeline.current_price(*pair), pair[0].id))
+        live, trips = [], set()
+        for pair in by_price:                 # one date per trip: its cheapest live deal
+            trip = (pair[1].departure_date, pair[1].return_date)
+            if pair[0].status in LIVE and trip not in trips:
+                trips.add(trip)
+                live.append(pair)
         lead, o = (live or by_price)[0]
         route = routes[o.route_key]
         groups[pid] = {"id": pid,
@@ -553,6 +558,9 @@ def _promotion(ctx: Context, conn: sqlite3.Connection, d: Deal, o: Observation, 
         "also_seen": [{"source": a.source, "label": seller_label(a), "obs": a.id, "eur": _eur(a.price)}
                       for a in pipeline.also_seen(conn, o)] if live else [],
         "post_url": d.post_url if d.post_url and INSTAGRAM_POST.match(d.post_url) else None,
+        # D53: the last recheck's price while live (within the tolerance of the detected one),
+        # on its own stored observation: the page shows it instead of the detected price.
+        "latest": _latest_seen(conn, d, o) if live else None,
         "expired": None if live else {"reason": d.expired_reason,
                                       "latest": _latest_seen(conn, d, o)},
         "images": None if images is None else dict(zip(("slides", "thumb", "og"), images)),

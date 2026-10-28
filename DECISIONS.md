@@ -2842,6 +2842,15 @@ so nothing has to be hosted.
   (`web/test/build-site.ts`), `web/test/promotion-group.test.ts` checks the page, the card and
   the member's absence, and the traceability test counts the extra link. Rejected: a v2 with
   one item per promotion (a second schema set and a fixtures regeneration that waits for #52).
+  **One date per trip, the latest price shown:** a trip two deals share (the dearer one
+  survives a bounce the cheaper one does not: a fall never expires a deal) counts once on the
+  site and in posts, by its cheapest deal (`pipeline.promotion_dates(one_per_trip=True)`; the
+  review pages pass False and see both), and dates are ordered by `pipeline.current_price`
+  (the last recheck's price, else the detected one). A live item carries optional `latest
+  {obs, price}` (the recheck's price on the stored observation of the trip that has it, as
+  `expired.latest` did); `promotionView` shows it as the price, on that `data-obs`, with the
+  discount recomputed against the typical low, so a page never shows a price the tolerance
+  let drift (`web/test/trace.ts` and `tests/test_site_data.py` `CHECKED` trace it).
 - **Review:** the snapshot's deal gains optional `promotion {id, path, dates}` (v1 under D40's
   condition) and `page_url` is the promotion's page; both pages group the cards of a promotion,
   cheapest first, under a header ("Lisboa → Paris · 3 datas", the page's link) with *Aprovar

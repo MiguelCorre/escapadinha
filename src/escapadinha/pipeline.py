@@ -613,12 +613,31 @@ def promotion_for(conn: sqlite3.Connection, origin: str, destination: str,
     return found.id if found else db.insert_promotion(conn, origin, destination, now)
 
 
+def current_price(deal: Deal, obs: Observation) -> float:
+    """What the trip costs as far as we know: the last recheck's price (a stored observation,
+    within the tolerance of D53) when there was one, else the price it was detected at."""
+    return obs.price if deal.last_seen_price is None else deal.last_seen_price
+
+
 def promotion_dates(conn: sqlite3.Connection, promotion_id: int,
-                    statuses: tuple[str, ...] = PROMOTION_LIVE) -> list[tuple[Deal, Observation]]:
-    """The promotion's dates in `statuses`, cheapest first (then the oldest): the first is the
-    lead, whose price heads the page, the card and the post."""
+                    statuses: tuple[str, ...] = PROMOTION_LIVE, *,
+                    one_per_trip: bool = True) -> list[tuple[Deal, Observation]]:
+    """The promotion's dates in `statuses`, cheapest first by their current price (then the
+    oldest): the first is the lead, whose price heads the page, the card and the post. With
+    `one_per_trip` (the site, the posts) a trip two deals share (the dearer one survives a
+    bounce the cheaper one does not, D53) counts once, by its cheapest deal; the review pages
+    pass False and see every deal."""
     dates = [(d, o) for d, o in db.promotion_deals(conn, promotion_id) if d.status in statuses]
-    return sorted(dates, key=lambda pair: (pair[1].price, pair[0].id))
+    dates.sort(key=lambda pair: (current_price(*pair), pair[0].id))
+    if not one_per_trip:
+        return dates
+    seen, out = set(), []
+    for d, o in dates:
+        trip = (o.departure_date, o.return_date)
+        if trip not in seen:
+            seen.add(trip)
+            out.append((d, o))
+    return out
 
 
 def promotion_lead(conn: sqlite3.Connection, deal: Deal) -> tuple[Deal, Observation] | None:

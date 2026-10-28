@@ -219,7 +219,8 @@ def _promotion_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, origin_c
                     city_pt: str) -> dict | None:
     if deal.promotion_id is None:
         return None
-    dates = pipeline.promotion_dates(conn, deal.promotion_id, pipeline.PROMOTION_OPEN)
+    dates = pipeline.promotion_dates(conn, deal.promotion_id, pipeline.PROMOTION_OPEN,
+                                     one_per_trip=False)
     return {"id": deal.promotion_id,
             "path": promotion_path(ctx, conn, deal.promotion_id, origin_city, city_pt),
             "dates": [d.id for d, _ in dates]}

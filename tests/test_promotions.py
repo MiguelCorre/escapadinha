@@ -50,7 +50,9 @@ def test_a_cheaper_price_for_the_same_trip_joins_the_routes_open_promotion(ctx):
     db.set_deal_status(conn, second, "approved")
     lead, lead_obs = pipeline.promotion_lead(conn, a)
     assert (lead.id, lead_obs.price) == (second, 50)
-    assert [o.price for _, o in pipeline.promotion_dates(conn, promotion.id)] == [50, 58]
+    # The same trip twice: the site and the posts see it once (the cheapest), the reviewer both.
+    assert [o.price for _, o in pipeline.promotion_dates(conn, promotion.id)] == [50]
+    assert [o.price for _, o in pipeline.promotion_dates(conn, promotion.id, one_per_trip=False)] == [50, 58]
 
 
 @respx.mock
