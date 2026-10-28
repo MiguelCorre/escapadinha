@@ -234,15 +234,14 @@ review:
   # Automatic approval for the website (DECISIONS D46, Miguel 2026-10-24): a rendered candidate
   # that passes all of these and a live price check is approved by the pipeline itself, in the
   # run that rendered it, and goes live on the site in that run's deploy. Reject it on the review
-  # page if it should not be there (the page expires). max_per_day: 0 only reports what would be
-  # approved.
+  # page if it should not be there (the page expires). No daily cap (D51, Miguel 2026-10-28):
+  # every candidate the rules and the live check accept goes live.
   auto_approve:
     enabled: true
     min_confidence: medium     # Miguel, 2026-10-26 (D46 addendum): the typical low past the maturity gate (D44); high = confidence.high_days daily lows with CV <= high_max_cv
     require_new_low: true      # below everything seen for the route-month (new_low_margin)
     direct_only: true          # nonstop both ways
     max_found_age_hours: 48    # when the exact found time is known (GraphQL, D43)
-    max_per_day: 3
 
 # Posting queue (DECISIONS D32): approving a promotion queues an Instagram post at the next free
 # daily slot (Lisbon time, at most max_per_day a day) and a Telegram post at once; every run

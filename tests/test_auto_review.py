@@ -1,6 +1,6 @@
 """Automatic approval for the website (D46): the pure rules, the run step that writes and applies
-an approve event for a qualifying rendered candidate (live price check as the gate), the daily
-cap, and the paused publishers that keep every post waiting meanwhile. HTTP mocked with respx."""
+an approve event for a qualifying rendered candidate (live price check as the gate), no daily
+cap (D51), and the paused publishers that keep every post waiting meanwhile. HTTP mocked with respx."""
 
 from __future__ import annotations
 
@@ -41,28 +41,26 @@ def offer(**over) -> Observation:
 # --- the rules (pure) -----------------------------------------------------------------------
 
 def test_a_high_confidence_new_low_nonstop_fresh_candidate_qualifies():
-    assert auto_review.disqualified(deal(), offer(), CFG, now=NOW, approved_today=0) is None
+    assert auto_review.disqualified(deal(), offer(), CFG, now=NOW) is None
     fresh = offer(found_at=NOW - timedelta(hours=47))
-    assert auto_review.disqualified(deal(), fresh, CFG, now=NOW, approved_today=0) is None
+    assert auto_review.disqualified(deal(), fresh, CFG, now=NOW) is None
     assert auto_review.summary(deal(), offer()) == "confiança alta, novo mínimo, voos diretos"
 
 
-@pytest.mark.parametrize("d, o, cfg, today, why", [
-    (deal(), offer(), AutoApproveConfig(enabled=False), 0, "aprovação automática desligada"),
-    (deal(status="new"), offer(), CFG, 0, "estado 'new' (só 'por rever')"),
-    (deal(rule="price_cap", confidence=None), offer(), CFG, 0, "regra 'price_cap' (só o mínimo habitual)"),
-    (deal(), offer(), CFG, 3, "limite diário atingido (3)"),
-    (deal(), offer(), AutoApproveConfig(enabled=True, max_per_day=0), 0, "limite diário atingido (0)"),
-    (deal(confidence="medium"), offer(), CFG, 0, "confiança média (precisa de alta)"),
-    (deal(confidence=None), offer(), CFG, 0, "confiança desconhecida (precisa de alta)"),
-    (deal(new_low=False), offer(), CFG, 0, "não é um novo mínimo"),
-    (deal(new_low=None), offer(), CFG, 0, "não é um novo mínimo"),
-    (deal(), offer(return_transfers=1), CFG, 0, "não é ida e volta com voos diretos"),
-    (deal(), offer(transfers=None), CFG, 0, "não é ida e volta com voos diretos"),
-    (deal(), offer(found_at=NOW - timedelta(hours=49)), CFG, 0, "visto há 49 h (máximo 48 h)"),
+@pytest.mark.parametrize("d, o, cfg, why", [
+    (deal(), offer(), AutoApproveConfig(enabled=False), "aprovação automática desligada"),
+    (deal(status="new"), offer(), CFG, "estado 'new' (só 'por rever')"),
+    (deal(rule="price_cap", confidence=None), offer(), CFG, "regra 'price_cap' (só o mínimo habitual)"),
+    (deal(confidence="medium"), offer(), CFG, "confiança média (precisa de alta)"),
+    (deal(confidence=None), offer(), CFG, "confiança desconhecida (precisa de alta)"),
+    (deal(new_low=False), offer(), CFG, "não é um novo mínimo"),
+    (deal(new_low=None), offer(), CFG, "não é um novo mínimo"),
+    (deal(), offer(return_transfers=1), CFG, "não é ida e volta com voos diretos"),
+    (deal(), offer(transfers=None), CFG, "não é ida e volta com voos diretos"),
+    (deal(), offer(found_at=NOW - timedelta(hours=49)), CFG, "visto há 49 h (máximo 48 h)"),
 ])
-def test_everything_else_is_left_to_a_human_with_the_reason(d, o, cfg, today, why):
-    assert auto_review.disqualified(d, o, cfg, now=NOW, approved_today=today) == why
+def test_everything_else_is_left_to_a_human_with_the_reason(d, o, cfg, why):
+    assert auto_review.disqualified(d, o, cfg, now=NOW) == why
 
 
 def test_looser_rules_are_a_config_change():
@@ -70,10 +68,34 @@ def test_looser_rules_are_a_config_change():
                               direct_only=False)
     assert auto_review.disqualified(deal(confidence="medium", new_low=False),
                                     offer(transfers=1, return_transfers=1), loose,
-                                    now=NOW, approved_today=0) is None
+                                    now=NOW) is None
 
 
 # --- the run step -----------------------------------------------------------------------------
+
+def clone_candidate(conn, deal_id: int, n: int) -> int:
+    """Another rendered candidate for the same trip (its own observation row, since a deal's
+    observation is unique), so the run step has several to approve."""
+    def row(table, key):
+        cur = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (key,))
+        return dict(zip([c[0] for c in cur.description], cur.fetchone()))
+
+    def insert(table, values):
+        cols = ", ".join(values)
+        marks = ", ".join("?" for _ in values)
+        return conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks})",
+                            list(values.values())).lastrowid
+
+    deal = row("deals", deal_id)
+    obs = row("price_observations", deal.pop("observation_id"))
+    obs.pop("id")
+    obs["dedup_key"] = f"{obs['dedup_key']}-clone-{n}"
+    deal.pop("id")
+    deal["observation_id"] = insert("price_observations", obs)
+    new_id = insert("deals", deal)
+    conn.commit()
+    return new_id
+
 
 @respx.mock
 def test_a_qualifying_candidate_goes_live_by_itself_after_a_passing_live_check(ctx):
@@ -87,7 +109,6 @@ def test_a_qualifying_candidate_goes_live_by_itself_after_a_passing_live_check(c
     assert d.status == "approved" and is_public(d) and d.review_note == auto_review.NOTE
     [outcome] = review_events.recent_outcomes(conn)
     assert (outcome.actor, outcome.type, outcome.applied) == (auto_review.ACTOR, "approve", True)
-    assert pipeline.auto_approvals_today(conn, NOW) == 1
     # Posts are queued as for any approval (D32), and wait: both publishers are paused (D46).
     assert {p.channel for p in db.posts(conn, "queued")} == {"instagram", "telegram"}
     # A second pass has nothing left to decide.
@@ -119,13 +140,22 @@ def test_a_candidate_outside_the_rules_waits_for_miguel(ctx):
 
 
 @respx.mock
-def test_the_daily_cap_and_the_switch(ctx):
+def test_no_daily_cap_every_qualifying_candidate_goes_live(ctx):
+    conn = pipeline.open_db(ctx)
+    ids = [rendered_deal(ctx, conn)]
+    ids += [clone_candidate(conn, ids[0], n) for n in (1, 2, 3)]   # one more than the old cap
+    price_api(58)
+    results = pipeline.run_auto_approve(ctx, conn, NOW)
+    assert sorted((r.deal_id, r.approved) for r in results) == [(i, True) for i in ids]
+    assert all(db.get_deal(conn, i)[0].status == "approved" for i in ids)
+    assert not hasattr(ctx.config.review.auto_approve, "max_per_day")
+
+
+@respx.mock
+def test_the_switch(ctx):
     conn = pipeline.open_db(ctx)
     deal_id = rendered_deal(ctx, conn)
     price_api(58)
-    ctx.config.review.auto_approve.max_per_day = 0
-    [result] = pipeline.run_auto_approve(ctx, conn, NOW)
-    assert (result.approved, result.reason) == (False, "limite diário atingido (0)")
     ctx.config.review.auto_approve.enabled = False
     assert pipeline.run_auto_approve(ctx, conn, NOW) == []
     assert db.get_deal(conn, deal_id)[0].status == "rendered"

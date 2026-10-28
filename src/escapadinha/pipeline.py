@@ -1120,15 +1120,6 @@ class AutoReview:
     reason: str                  # pt-PT: what passed, or why it was left to a human
 
 
-def auto_approvals_today(conn: sqlite3.Connection, now: datetime) -> int:
-    """Applied automatic approvals settled on `now`'s Lisbon day (the daily cap)."""
-    today = now.astimezone(i18n_pt.LISBON).date()
-    return sum(1 for o in db.review_event_outcomes(conn)
-               if o.get("actor") == auto_review.ACTOR and o.get("type") == "approve"
-               and o.get("outcome") == "applied"
-               and datetime.fromisoformat(o["settled_at"]).astimezone(i18n_pt.LISBON).date() == today)
-
-
 def run_auto_approve(ctx: Context, conn: sqlite3.Connection,
                      now: datetime | None = None) -> list[AutoReview]:
     """Automatic approval for the website (D46), in the full path right after rendering: every
@@ -1136,16 +1127,15 @@ def run_auto_approve(ctx: Context, conn: sqlite3.Connection,
     live price check is the gate, as for a human; a moved price writes nothing and the next
     recheck expires the deal), then the pending events are applied, so the export that follows
     publishes it. Never raises for one deal: a failed check or a refused decision is reported.
-    With `max_per_day` 0 it only reports what would be approved."""
+    No daily cap (D51): every candidate the rules and the live check accept is approved."""
     now = now or db.utcnow()
     cfg = ctx.config.review.auto_approve
     results: list[AutoReview] = []
     if not cfg.enabled:
         return results
-    approved_today = auto_approvals_today(conn, now)
     written = False
     for deal, obs in db.deals_with_status(conn, "rendered"):
-        why = auto_review.disqualified(deal, obs, cfg, now=now, approved_today=approved_today)
+        why = auto_review.disqualified(deal, obs, cfg, now=now)
         if why is not None:
             results.append(AutoReview(deal.id, obs.route_key, False, why))
             continue
@@ -1154,7 +1144,6 @@ def run_auto_approve(ctx: Context, conn: sqlite3.Connection,
         except (ReviewError, TravelpayoutsError) as exc:
             results.append(AutoReview(deal.id, obs.route_key, False, str(exc)))
             continue
-        approved_today += 1
         written = True
         results.append(AutoReview(deal.id, obs.route_key, True, auto_review.summary(deal, obs)))
     if written and ctx.remote_store:          # a local database applied it in `_decide` already

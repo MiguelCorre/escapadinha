@@ -522,15 +522,15 @@ without waiting for a tap. In the full path, right after rendering, `escapadinha
 (the run does it) takes every `rendered` candidate that passes the rules in `review.auto_approve`
 (`config.yaml`): rule `median`, at least `medium` confidence in the typical low (D44; `high`
 until 2026-10-26, when every one of the 43 waiting candidates was a direct Ryanair new low at
-medium confidence), a new low, nonstop both ways, a known found time at most 48 h old, and at
-most 3 automatic approvals a Lisbon day. It then
+medium confidence), a new low, nonstop both ways and a known found time at most 48 h old (no
+cap on how many a day since 2026-10-28, D51). It then
 approves it exactly as you would: the **live price check is the gate** (a moved price writes
 nothing; the next recheck expires the deal), the approval is an ordinary review event (actor
 `auto:regras`, note *aprovação automática (D46)*), applied in the same run, so the deploy that
 follows publishes the promotion page. Both review pages list it under **Aprovados** with that
 note; **Rejeitar** there takes it down (the page expires, as always). Everything else waits for
 you under **Por rever** with the reason it was left (*confiança média (precisa de alta)*, *não é um
-novo mínimo*, …) in the run log. `max_per_day: 0` only reports; `enabled: false` turns it off.
+novo mínimo*, …) in the run log. `enabled: false` turns it off.
 
 ### Review decisions are events (D26)
 
