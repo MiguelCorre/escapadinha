@@ -429,7 +429,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
 - `src/escapadinha/auto_review.py`: the automatic approval's pure rules (D46: `disqualified`, `ACTOR`,
-  `NOTE`, `summary`); wired by `pipeline.run_auto_approve` / `auto_approvals_today`
+  `NOTE`, `summary`; no daily cap, D51); wired by `pipeline.run_auto_approve`
 - `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,
   `pending`, `apply_pending`); `review_snapshot.py`: `review/snapshot.json` + `review/slides/`;
   `web.py` + `templates/review.html.j2`: the local review page

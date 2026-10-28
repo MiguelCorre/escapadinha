@@ -2786,6 +2786,24 @@ so nothing has to be hosted.
   The D44 claim rule is unchanged: a post or page says "−x %" at medium or high, so every
   automatically approved promotion may still claim its discount.
 
+## D51: The automatic approval has no daily cap (2026-10-28)
+- **Miguel's decision (2026-10-28):** remove the limit of 3 automatic approvals a Lisbon day
+  (`review.auto_approve.max_per_day`, D46). The other rules are unchanged: rule `median`,
+  confidence at least `min_confidence` (`medium`, the D46 addendum), a new low when
+  `require_new_low`, nonstop both ways when `direct_only`, a known found time at most
+  `max_found_age_hours` old, and the live price check through `pipeline.approve` as the gate.
+  `posting.max_per_day` (D32, the Instagram slot rule) is a different thing and stays.
+- **What went:** the config field, `auto_review.disqualified`'s `approved_today` argument and
+  its "limite diário atingido" reason, and `pipeline.auto_approvals_today` (the count of applied
+  `auto:regras` approvals on the Lisbon day). With it goes the report-only mode `max_per_day: 0`
+  gave: `enabled: false` is the switch; a candidate the rules refuse is still listed with its
+  reason by `escapadinha auto-approve` and in the run log, as before.
+- **Context:** this is the first of three changes to the promotions (the others: a researched
+  stay length per destination, and one promotion per trip listing all its cheap dates instead
+  of a new deal on every drop), each its own decision.
+- **Tests:** `tests/test_auto_review.py`: four qualifying candidates (one more than the old cap)
+  are all approved in one pass; the config has no `max_per_day`; the switch still turns it off.
+
 ## D50: The probe in a container: Chrome for Linux on a virtual display, off Miguel's desktop (2026-10-26)
 - **Miguel's decision (2026-10-26):** the visible Chrome every half hour got in the way of his
   work on the PC ("para não me estorvar enquanto tou a fazer outras coisas neste PC"); asked

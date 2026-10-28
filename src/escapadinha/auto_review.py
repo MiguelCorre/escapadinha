@@ -1,6 +1,7 @@
 """Automatic approval for the website (D46): the rules a rendered promotion candidate must pass
-for the pipeline to approve it itself. Pure: the deal, its offer, the config, `now` and today's
-count are passed in; nothing is read or written here.
+for the pipeline to approve it itself. Pure: the deal, its offer, the config and `now` are
+passed in; nothing is read or written here. No daily cap (D51): every candidate that passes
+the rules and the live price check goes live.
 
 An automatic approval is an ordinary review decision (D26): `pipeline.run_auto_approve` writes an
 approve event with actor `ACTOR` through `pipeline.approve` (so the live price check is the gate,
@@ -22,8 +23,8 @@ ACTOR = "auto:regras"                  # the event's actor; `auto:` marks it in 
 NOTE = "aprovação automática (D46)"    # the event's note, shown by both review pages
 
 
-def disqualified(deal: Deal, obs: Observation, cfg: AutoApproveConfig, *, now: datetime,
-                 approved_today: int) -> str | None:
+def disqualified(deal: Deal, obs: Observation, cfg: AutoApproveConfig, *,
+                 now: datetime) -> str | None:
     """Why this candidate is left for a human (pt-PT), or None when every rule passes.
 
     The status transition and the affiliate link are checked by `review.check_decision` when
@@ -34,8 +35,6 @@ def disqualified(deal: Deal, obs: Observation, cfg: AutoApproveConfig, *, now: d
         return f"estado '{deal.status}' (só 'por rever')"
     if deal.rule != "median":
         return f"regra '{deal.rule}' (só o mínimo habitual)"
-    if approved_today >= cfg.max_per_day:
-        return f"limite diário atingido ({cfg.max_per_day})"
     if deal.confidence is None or not detector.at_least(deal.confidence, cfg.min_confidence):
         have = "desconhecida" if deal.confidence is None else CONFIDENCE_PT[deal.confidence]
         return f"confiança {have} (precisa de {CONFIDENCE_PT[cfg.min_confidence]})"

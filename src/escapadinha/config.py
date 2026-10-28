@@ -525,7 +525,8 @@ class AutoApproveConfig(BaseModel):
     approve event (actor `auto_review.ACTOR`) for a rendered candidate that passes every rule
     here and a live price check, and applies it in the same run, so the promotion goes live on
     the site without waiting for a human. Miguel can still reject it afterwards (the page then
-    expires: `noindex`, no button). Off by default; config.yaml turns it on."""
+    expires: `noindex`, no button). Off by default; config.yaml turns it on. No cap on how
+    many a day (D51): the rules and the live check are the only gates."""
     enabled: bool = False
     min_confidence: Confidence = "high"      # trust in the typical low at detection (D44)
     require_new_low: bool = True             # cheaper than everything seen for the route-month
@@ -533,7 +534,6 @@ class AutoApproveConfig(BaseModel):
     # A fare whose exact found time is known (GraphQL, D43) must be at most this old; without
     # it the detector's own freshness window (max_offer_age_days) is the only age rule.
     max_found_age_hours: float = Field(48, gt=0)
-    max_per_day: int = Field(3, ge=0)        # auto-approvals per Lisbon day; 0 = report only
 
 
 class ReviewConfig(BaseModel):
