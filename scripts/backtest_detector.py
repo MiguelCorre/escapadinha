@@ -3,6 +3,7 @@
     uv run python scripts/backtest_detector.py data/escapadinha.db
     uv run python scripts/backtest_detector.py data/escapadinha.db --preset data-reliability --runs 19-57
     uv run python scripts/backtest_detector.py data/escapadinha.db --days 14 --candidates --json out.json
+    uv run python scripts/backtest_detector.py data/escapadinha.db --preset stays --days 14
 
 Read-only: the file is opened read-only and copied into memory (`escapadinha.backtest`). Routes
 and the configured detector come from the repository's config.yaml and the copy's `routes`
@@ -47,8 +48,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     cfg = ctx.config.routes
     watched = [r for r in routes.all_routes(conn, cfg) if not cfg.excluded(r.origin, r.destination)]
-    replays = backtest.replay(conn, watched, backtest.rule_sets(ctx.config.detector, args.preset),
-                              runs, all_runs=all_runs)
+    sets = backtest.rule_sets(ctx.config.detector, args.preset, routes_cfg=cfg, watched=watched)
+    replays = backtest.replay(conn, watched, sets, runs, all_runs=all_runs)
     sys.stdout.write(backtest.markdown(replays, candidates=args.candidates))
     figures = backtest.to_json(replays)
     if args.state:

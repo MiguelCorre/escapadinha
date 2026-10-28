@@ -17,7 +17,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 
-from escapadinha.config import RoutesConfig
+from escapadinha.config import RoutesConfig, RuleOverride
 from escapadinha.discovery import Found, LongHaul
 from escapadinha.models import Route, RouteRules
 from escapadinha.storage import db
@@ -38,11 +38,28 @@ def sync(conn: sqlite3.Connection, cfg: RoutesConfig, now: datetime) -> None:
                 db.insert_route(conn, origin=origin, destination=dest.destination,
                                 city_pt=dest.city_pt, kind="long_haul", discovered_at=now)
     for row in db.route_rows(conn):
-        override = cfg.overrides.get(f"{row['origin']}-{row['destination']}")
+        override = override_for(cfg, row["origin"], row["destination"])
         db.set_route_overrides(conn, row["origin"], row["destination"],
                                override.model_dump(exclude_none=True) if override else {})
     for destination, name in cfg.city_names.items():
         db.set_city_name(conn, destination, name)
+
+
+def override_for(cfg: RoutesConfig, origin: str, destination: str) -> RuleOverride | None:
+    """The config override a route gets: its own key ("LIS-PAR") beats its destination's
+    ("PAR", D52: the stay length that makes sense for the destination, whatever the origin)."""
+    return cfg.overrides.get(f"{origin}-{destination}") or cfg.overrides.get(destination)
+
+
+def resolve_rules(cfg: RoutesConfig, kind: str, origin: str, destination: str) -> RouteRules:
+    """The rules a route gets from config alone (kind defaults + `override_for`), as `sync`
+    mirrors them into the table; pure, for the backtest's what-if rule sets."""
+    rules = cfg.kinds[kind].model_dump()
+    override = override_for(cfg, origin, destination)
+    if override:
+        rules.update({k: v for k, v in override.model_dump(exclude_none=True).items()
+                      if k in RULE_FIELDS})
+    return RouteRules(**rules)
 
 
 def _route(row: sqlite3.Row, cfg: RoutesConfig) -> Route:

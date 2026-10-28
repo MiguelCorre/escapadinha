@@ -100,6 +100,27 @@ def test_override_widens_one_routes_nights_range(ctx):
 
 
 @respx.mock
+def test_a_destination_override_shapes_every_route_there_and_a_route_key_beats_it(ctx):
+    """D52: the stay length is per destination ("LON": every route to London); a route's own
+    key still wins, and a destination without an entry keeps its kind's range."""
+    ctx = configure(ctx, overrides={"LON": {"max_nights": 5}, "OPO-LON": {"max_nights": 3}})
+    conn = pipeline.open_db(ctx)
+    cfg = ctx.config.routes
+    assert pipeline.route_for(ctx, conn, "LIS-LON").rules.max_nights == 5
+    assert pipeline.route_for(ctx, conn, "OPO-LON").rules.max_nights == 3     # the route key wins
+    assert pipeline.route_for(ctx, conn, "LIS-PAR").rules.max_nights == 10    # no entry: the kind
+    assert routes.override_for(cfg, "LIS", "LON").max_nights == 5
+    assert routes.override_for(cfg, "LIS", "PAR") is None
+    assert routes.resolve_rules(cfg, "europe", "LIS", "LON").max_nights == 5
+    assert routes.resolve_rules(cfg, "europe", "OPO", "LON").max_nights == 3
+    assert routes.resolve_rules(cfg, "europe", "LIS", "PAR").max_nights == 10
+    # The 7-night LIS-LON trip of the fixture is no longer collected, only the 3-night one.
+    mock_api()
+    assert pipeline.run_collect(ctx, conn).n_observations == 3
+    assert conn.execute("SELECT MAX(nights) FROM price_observations").fetchone()[0] == 3
+
+
+@respx.mock
 def test_excluded_and_dormant_routes_are_not_collected(ctx):
     ctx = configure(ctx, exclusions=["PAR", "OPO-BER"])
     conn = pipeline.open_db(ctx)

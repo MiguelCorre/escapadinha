@@ -248,7 +248,9 @@ class RoutesConfig(BaseModel):
     """Routes live in the database; config only shapes them (see routes.py)."""
 
     kinds: dict[RouteKind, RuleSet] = DEFAULT_KINDS
-    overrides: dict[str, RuleOverride] = {}   # "LIS-LON": {max_nights: 7}
+    # Keyed by route ("LIS-LON") or by destination ("LON", every route there; D52: the stay
+    # length researched per destination). A route key beats its destination.
+    overrides: dict[str, RuleOverride] = {}
     exclusions: list[str] = []                # route keys ("LIS-LON") or destinations ("LON")
     long_haul: list[LongHaulDestination] = []
     seed: list[SeedRoute] = []                # inserted once into an empty routes table

@@ -2786,6 +2786,60 @@ so nothing has to be hosted.
   The D44 claim rule is unchanged: a post or page says "−x %" at medium or high, so every
   automatically approved promotion may still claim its discount.
 
+## D52: The stay length that makes sense for each destination (2026-10-28)
+- **Miguel's decision (2026-10-28):** promotions respect the stay that makes sense for the
+  destination. If Paris is 3–4 days, a 10-night Paris trip must not appear. Until now the nights
+  range came only from the route's kind (`routes.kinds`: europe and domestic 2–10, long_haul
+  7–21), the same for Paris and Madeira, and nothing had been researched. His two answers that
+  decide the shape: the range applies to **everything the route's rules already shape**
+  (collection, typical low, low prices, promotions), not to promotions only; and promotions
+  stay per route (Lisbon → Paris and Porto → Paris apart), a traveller books from one origin.
+- **One mechanism, extended:** `routes.overrides` accepts a destination as key (`PAR`: every
+  route to Paris), the way `exclusions` already did; a route key (`LIS-PAR`) beats its
+  destination (`routes.override_for`, used by `routes.sync`, which mirrors the override into
+  the route's columns as before; `routes.resolve_rules` is the pure config-only resolution the
+  backtest uses). Nothing changes in the detector, the collector, the recheck or the site: they
+  read `RouteRules` as before. Rejected: a second nights rule that only filters candidates
+  (two mechanisms to explain, and a typical low computed on trips the destination doesn't make
+  sense for, which the backtest shows inflates it).
+- **The research** (`docs/research/2026-10-28-stay-length.md`): one search per destination for
+  the 158 with active routes (the bucket's database at generation 305), limited to established
+  guides (Lonely Planet, Rough Guides, Rick Steves, Fodor's, Frommer's) and the official tourism
+  board where one answers; where no guide gives a number (regional airports such as Doncaster,
+  Brive, Memmingen), the forum consensus of those houses, marked as such. Days become nights by
+  one rule per destination type, written in the note: cities `[days_min − 1, days_max]` (never
+  under 2, max never under 3); beach and islands `[days_min − 1, 10]`; long-haul cities
+  `[max(4, days_min), days_max + 3]`; long-haul beach `[max(5, days_min), 14]`. Examples: Paris
+  2–5, Milan 2–4, Madeira 3–10, Lanzarote 3–10, New York 4–8, Maldives 5–14. Every entry in
+  `config.yaml` names its source; `tests/test_stay_lengths.py` checks that the config and the
+  note list the same destinations, that every range is sane, and that a 10-night Paris trip is
+  refused while a 3-night one passes.
+- **Backtest** (`scripts/backtest_detector.py --preset stays --days 14`, the new preset:
+  `backtest.RuleSet` gains `rules` (route key → `RouteRules`), so two sets can replay the same
+  detector under different ranges; the report gains a "Nights (median, max)" column): over 266
+  runs (14–27/10) candidates fall from 220 to 108, low prices per run from 60 to 34, mature
+  route-months from 54 to 43. Of the 142 candidates lost, 97 % would still be promotions today;
+  95 are trips of 5 nights or more that the destination's range now refuses, 47 are short trips
+  that stop being −30 % once the dearer long trips leave the typical low (comparing like with
+  like, the intended effect). The 30 new candidates (Madeira, Paris) hold today at 67 %: the
+  cost, accepted, is about half of the last fortnight's candidates and low prices.
+- **Open deals outside the new range expire on the next recheck**, approved ones too:
+  `recheck.recheck` already checks the route's rules before the price, with the reason "fora do
+  intervalo de 2–5 noites da rota" (pipeline-owned, D26: never an approve or reject event; the
+  page goes `noindex` like any expired promotion, D35). Tested end to end in
+  `tests/test_pipeline.py` (an approved 3-night London deal after London moves to 4+ nights).
+  On the copy: LIS-PAR 9 nights and OPO-FNC 9 nights (approved) go; LIS-FNC 5 and 7, LIS-PAR
+  2 and OPO-MIL 3 nights stay.
+- **Site:** nothing new. Route pages already print the range from the contract
+  (`routes.ts`: "estadias de 2 a 5 noites"); the fixtures are unchanged (their routes keep the
+  kinds' ranges, test data). The first run with the new config takes the full path (config.yaml
+  is code in `run_path.fingerprint`) and rebuilds every route page.
+- **Tests:** `tests/test_routes.py` (a destination override shapes every route there, a route key
+  beats it, the 7-night fixture trip is no longer collected), `tests/test_pipeline.py` (the
+  expiry), `tests/test_backtest.py` (the `stays` preset, its rules and report, the script),
+  `tests/test_stay_lengths.py` (config ⇔ note). The test context clears `routes.overrides`
+  like it clears `long_haul`: tests set their own.
+
 ## D51: The automatic approval has no daily cap (2026-10-28)
 - **Miguel's decision (2026-10-28):** remove the limit of 3 automatic approvals a Lisbon day
   (`review.auto_approve.max_per_day`, D46). The other rules are unchanged: rule `median`,

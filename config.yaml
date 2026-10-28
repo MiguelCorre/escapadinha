@@ -109,9 +109,177 @@ routes:
     europe:    { direct_only: true,  min_nights: 2, max_nights: 10, max_transfers: 0 }
     domestic:  { direct_only: true,  min_nights: 2, max_nights: 10, max_transfers: 0 }   # "Portugal": islands, inter-island and mainland
     long_haul: { direct_only: false, min_nights: 7, max_nights: 21, max_transfers: 1 }
-  # Per-route exceptions, e.g. "LIS-LON": { max_nights: 7 }. price_cap_eur (optional) is an
-  # absolute ceiling used ONLY while the route's history is insufficient.
-  overrides: {}
+  # Exceptions keyed by route ("LIS-LON": { max_nights: 7 }) or by destination ("LON": every
+  # route there); a route key beats its destination. price_cap_eur (optional) is an absolute
+  # ceiling used ONLY while the route's history is insufficient.
+  # The stay length per destination (DECISIONS D52, Miguel 2026-10-28): the min/max nights a
+  # trip to each destination makes sense for, from docs/research/2026-10-28-stay-length.md
+  # (official tourism boards and established guides; each line names its source, the note has
+  # the URL and the rule that turns days into nights). Offers outside the range are not
+  # collected, never deals and not part of the typical low. A 10-night Paris trip is no deal.
+  overrides:
+    # Cities (europe / domestic): nights = [days_min - 1, days_max], never under 2-3.
+    ALG: { min_nights: 2, max_nights: 3 } # Argel: 2-3 days, Lonely Planet, first-time guide to Algiers
+    AMS: { min_nights: 2, max_nights: 5 } # Amesterdão: 3-5 days, Rough Guides
+    ANK: { min_nights: 2, max_nights: 3 } # Ancara: 2-3 days, Rough Guides, Ankara
+    ATH: { min_nights: 2, max_nights: 4 } # Atenas: 2-4 days, Rough Guides, how many days in Athens
+    BCN: { min_nights: 2, max_nights: 5 } # Barcelona: 3-5 days, Rick Steves Barcelona
+    BEG: { min_nights: 2, max_nights: 4 } # Belgrado: 2-4 days, Lonely Planet, the ultimate weekend in Belgrade
+    BER: { min_nights: 2, max_nights: 5 } # Berlim: 3-5 days, Rick Steves, Berlin itinerary
+    BFS: { min_nights: 2, max_nights: 3 } # Belfast: 1-3 days, Rick Steves, Ireland itinerary
+    BHX: { min_nights: 2, max_nights: 4 } # Birmingham: 2-4 days, Rough Guides, a weekend in Birmingham
+    BIO: { min_nights: 2, max_nights: 4 } # Bilbau: 2-4 days, Lonely Planet, guide to Bilbao
+    BLK: { min_nights: 2, max_nights: 3 } # Blackpool: 1-2 days, Lonely Planet, Blackpool Pleasure Beach
+    BLL: { min_nights: 2, max_nights: 3 } # Billund: 2-3 days, Lonely Planet, the original Legoland
+    BLQ: { min_nights: 2, max_nights: 4 } # Bolonha: 2-4 days, Lonely Planet, first-time guide to Bologna
+    BOD: { min_nights: 2, max_nights: 4 } # Bordéus: 2-4 days, Rough Guides, 10 days in France
+    BRE: { min_nights: 2, max_nights: 3 } # Bremen: 1-2 days, Rick Steves / Fodor's forums
+    BRI: { min_nights: 2, max_nights: 5 } # Bari: 3-5 days, Lonely Planet, guide to Bari
+    BRQ: { min_nights: 2, max_nights: 3 } # Brno: 1-3 days, Lonely Planet, 24 hours in Brno
+    BRS: { min_nights: 2, max_nights: 3 } # Bristol: 2-3 days, Rough Guides, Bristol
+    BRU: { min_nights: 2, max_nights: 3 } # Bruxelas: 2-3 days, Rick Steves, where to go in Belgium
+    BUD: { min_nights: 2, max_nights: 5 } # Budapeste: 3-5 days, Rick Steves, Budapest itinerary
+    BUH: { min_nights: 2, max_nights: 4 } # Bucareste: 2-4 days, Lonely Planet, Bucharest
+    BVE: { min_nights: 2, max_nights: 3 } # Brive: 1-2 days, Fodor's / Rick Steves forums
+    CCF: { min_nights: 2, max_nights: 3 } # Carcassonne: 1-2 days, Rick Steves, France itinerary
+    CGN: { min_nights: 2, max_nights: 3 } # Colónia: 2-3 days, Rick Steves Germany itinerary
+    CMN: { min_nights: 2, max_nights: 3 } # Casablanca: 2-3 days, Lonely Planet, first-time guide to Casablanca
+    CPH: { min_nights: 2, max_nights: 5 } # Copenhaga: 3-5 days, Lonely Planet, things to know before Copenhagen
+    CTA: { min_nights: 2, max_nights: 3 } # Catânia: 1-2 days, Frommer's, Catania
+    CWL: { min_nights: 2, max_nights: 3 } # Cardiff: 2-3 days, Rick Steves forum consensus
+    DLE: { min_nights: 2, max_nights: 3 } # Dole: 1-2 days, Fodor's forum
+    DRS: { min_nights: 2, max_nights: 4 } # Dresden: 2-4 days, Lonely Planet, 4 days to learn about Dresden
+    DSA: { min_nights: 2, max_nights: 3 } # Doncaster: 1-2 days, Rough Guides, Yorkshire
+    DUB: { min_nights: 2, max_nights: 4 } # Dublin: 2-4 days, Rough Guides
+    DUS: { min_nights: 2, max_nights: 3 } # Düsseldorf: 1-3 days, Fodor's, what to do in Düsseldorf
+    EAP: { min_nights: 2, max_nights: 3 } # Basileia-Mulhouse: 2-3 days, Rough Guides, Basel travel guide
+    EBU: { min_nights: 2, max_nights: 3 } # Saint-Étienne: 1-1 days, Rough Guides, Rhône Valley
+    EDI: { min_nights: 2, max_nights: 4 } # Edimburgo: 2-4 days, Rough Guides, how many days in Edinburgh
+    EIN: { min_nights: 2, max_nights: 3 } # Eindhoven: 2-3 days, Rough Guides, Netherlands itineraries
+    EXT: { min_nights: 2, max_nights: 4 } # Exeter: 1-4 days, Frommer's, two weeks in England
+    FKB: { min_nights: 2, max_nights: 3 } # Karlsruhe/Baden-Baden: 1-3 days, Rick Steves Germany itinerary
+    FLR: { min_nights: 2, max_nights: 5 } # Florença: 3-5 days, Rough Guides, how many days in Florence
+    FMM: { min_nights: 2, max_nights: 3 } # Memmingen: 1-3 days, Rick Steves forum
+    FRA: { min_nights: 2, max_nights: 3 } # Frankfurt: 1-3 days, Rick Steves Germany itinerary
+    GDN: { min_nights: 2, max_nights: 4 } # Gdansk: 2-4 days, Rick Steves forum consensus
+    GLA: { min_nights: 2, max_nights: 3 } # Glasgow: 2-3 days, Frommer's, Glasgow in three days
+    GRQ: { min_nights: 2, max_nights: 3 } # Groninga: 1-3 days, Rough Guides
+    GVA: { min_nights: 2, max_nights: 3 } # Genebra: 2-3 days, Lonely Planet, first-time guide to Lake Geneva
+    HAJ: { min_nights: 2, max_nights: 3 } # Hanôver: 2-3 days, Rick Steves forum
+    HAM: { min_nights: 2, max_nights: 4 } # Hamburgo: 2-4 days, Rick Steves forum consensus
+    HEL: { min_nights: 2, max_nights: 3 } # Helsínquia: 2-3 days, Lonely Planet, Finland in a week
+    IST: { min_nights: 2, max_nights: 5 } # Istambul: 3-5 days, Rough Guides, how many days in Istanbul
+    IZM: { min_nights: 2, max_nights: 4 } # Esmirna: 2-4 days, Lonely Planet, 10 days in Türkiye
+    KIR: { min_nights: 2, max_nights: 3 } # Kerry: 2-3 days, Lonely Planet, one-week Ireland itinerary
+    KRK: { min_nights: 2, max_nights: 5 } # Cracóvia: 2-5 days, Lonely Planet, first-time guide to Poland
+    KTW: { min_nights: 2, max_nights: 3 } # Katowice: 1-2 days, Frommer's, Katowice planning a trip
+    LBA: { min_nights: 2, max_nights: 3 } # Leeds: 1-2 days, Rick Steves forum
+    LCG: { min_nights: 2, max_nights: 3 } # Corunha: 1-3 days, Rough Guides
+    LDY: { min_nights: 2, max_nights: 3 } # Derry: 1-3 days, Rick Steves, Ireland itinerary
+    LEJ: { min_nights: 2, max_nights: 3 } # Leipzig: 2-3 days, Rick Steves forum consensus
+    LIL: { min_nights: 2, max_nights: 3 } # Lille: 2-3 days, Lonely Planet, guide to Lille
+    LIS: { min_nights: 2, max_nights: 4 } # Lisboa: 2-4 days, Rough Guides
+    LON: { min_nights: 2, max_nights: 6 } # Londres: 3-6 days, Tourlane / Rick Steves London
+    LPL: { min_nights: 2, max_nights: 4 } # Liverpool: 2-4 days, Lonely Planet, things to know before Liverpool
+    LRH: { min_nights: 2, max_nights: 4 } # La Rochelle: 2-4 days, Fodor's forum consensus
+    LUX: { min_nights: 2, max_nights: 4 } # Luxemburgo: 2-4 days, Lonely Planet, first-time guide to Luxembourg
+    LYS: { min_nights: 2, max_nights: 4 } # Lyon: 2-4 days, Rick Steves forum consensus
+    MAD: { min_nights: 2, max_nights: 4 } # Madrid: 2-4 days, Rough Guides
+    MAN: { min_nights: 2, max_nights: 4 } # Manchester: 2-4 days, Lonely Planet, 4 days in Manchester
+    MIL: { min_nights: 2, max_nights: 4 } # Milão: 2-4 days, Rough Guides
+    MRS: { min_nights: 2, max_nights: 4 } # Marselha: 2-4 days, Lonely Planet, things to know before Marseille
+    MST: { min_nights: 2, max_nights: 3 } # Maastricht: 1-2 days, Frommer's, two weeks in the Netherlands
+    MUC: { min_nights: 2, max_nights: 4 } # Munique: 2-4 days, Rough Guides, how many days in Munich
+    NAP: { min_nights: 2, max_nights: 4 } # Nápoles: 3-4 days, Rough Guides, Naples
+    NCL: { min_nights: 2, max_nights: 3 } # Newcastle: 2-3 days, Rough Guides, Newcastle
+    NOC: { min_nights: 2, max_nights: 3 } # Knock: 2-3 days, Rick Steves forum
+    NQT: { min_nights: 2, max_nights: 3 } # Nottingham: 1-3 days, Frommer's, visiting Robin Hood's Nottingham
+    NTE: { min_nights: 2, max_nights: 3 } # Nantes: 1-3 days, Lonely Planet, France itineraries
+    NUE: { min_nights: 2, max_nights: 3 } # Nuremberga: 2-3 days, Rick Steves forum consensus
+    OPO: { min_nights: 2, max_nights: 4 } # Porto: 2-4 days, Rough Guides
+    ORK: { min_nights: 2, max_nights: 3 } # Cork: 2-3 days, Rough Guides, Cork travel guide
+    OSL: { min_nights: 2, max_nights: 4 } # Oslo: 2-4 days, Lonely Planet, first-time guide to Oslo
+    OVD: { min_nights: 2, max_nights: 4 } # Astúrias: 2-4 days, Rough Guides, 10 days in Northern Spain
+    PAR: { min_nights: 2, max_nights: 5 } # Paris: 3-5 days, Rough Guides
+    PMO: { min_nights: 2, max_nights: 4 } # Palermo: 3-4 days, Frommer's, Palermo
+    POZ: { min_nights: 2, max_nights: 3 } # Poznań: 2-3 days, Lonely Planet forum / Rick Steves forum
+    PRG: { min_nights: 2, max_nights: 5 } # Praga: 3-5 days, Lonely Planet, perfect long weekend in Prague
+    PSA: { min_nights: 2, max_nights: 3 } # Pisa: 1-2 days, Rough Guides, Pisa
+    RAK: { min_nights: 2, max_nights: 4 } # Marraquexe: 2-4 days, Rough Guides, how many days in Marrakesh
+    RBA: { min_nights: 2, max_nights: 4 } # Rabat: 2-4 days, Lonely Planet, guide to Rabat
+    RDZ: { min_nights: 2, max_nights: 3 } # Rodez: 1-3 days, Rough Guides, Massif Central
+    REK: { min_nights: 2, max_nights: 5 } # Reiquiavique: 2-5 days, Lonely Planet, guide to Reykjavík
+    RIX: { min_nights: 2, max_nights: 4 } # Riga: 2-4 days, Lonely Planet, first-time guide to Latvia
+    RMO: { min_nights: 2, max_nights: 4 } # Chisinau: 2-4 days, Lonely Planet, first-time guide to Moldova
+    ROM: { min_nights: 2, max_nights: 5 } # Roma: 3-5 days, Rick Steves, Planning your time in Rome
+    RTM: { min_nights: 2, max_nights: 3 } # Roterdão: 2-3 days, Rick Steves, where to go in the Netherlands
+    SOF: { min_nights: 2, max_nights: 4 } # Sófia: 2-4 days, Frommer's, Bulgaria suggested itineraries
+    SOU: { min_nights: 2, max_nights: 3 } # Southampton: 1-2 days, Rick Steves forum
+    STO: { min_nights: 2, max_nights: 5 } # Estocolmo: 3-5 days, Frommer's, one week in Sweden
+    STR: { min_nights: 2, max_nights: 3 } # Estugarda: 1-2 days, Lonely Planet, 9-day Black Forest itinerary
+    SVQ: { min_nights: 2, max_nights: 4 } # Sevilha: 3-4 days, Lonely Planet, things to know before Seville
+    SXB: { min_nights: 2, max_nights: 4 } # Estrasburgo: 2-4 days, Frommer's, two days in Strasbourg
+    TLL: { min_nights: 2, max_nights: 4 } # Tallinn: 2-4 days, Lonely Planet, guide to Tallinn
+    TLS: { min_nights: 2, max_nights: 3 } # Toulouse: 2-3 days, Lonely Planet, first-time guide to Toulouse
+    TNG: { min_nights: 2, max_nights: 3 } # Tânger: 1-3 days, Lonely Planet, best Morocco itineraries
+    TRN: { min_nights: 2, max_nights: 3 } # Turim: 2-3 days, Lonely Planet, things to know before Turin
+    TUF: { min_nights: 2, max_nights: 4 } # Tours: 2-4 days, Rick Steves forum
+    TUN: { min_nights: 2, max_nights: 3 } # Tunes: 2-3 days, Lonely Planet, guide to Tunisia
+    VCE: { min_nights: 2, max_nights: 5 } # Veneza: 2-5 days, Rough Guides, how many days in Venice
+    VIE: { min_nights: 2, max_nights: 5 } # Viena: 3-5 days, Rick Steves Austria itinerary
+    VLC: { min_nights: 2, max_nights: 4 } # Valência: 2-4 days, Rough Guides, a weekend in Valencia
+    VNO: { min_nights: 2, max_nights: 4 } # Vilnius: 2-4 days, Lonely Planet, first-time guide to Vilnius
+    WAW: { min_nights: 2, max_nights: 4 } # Varsóvia: 2-4 days, Lonely Planet, first-time guide to Poland
+    WRO: { min_nights: 2, max_nights: 3 } # Breslávia: 2-3 days, Rick Steves forum consensus
+    XCR: { min_nights: 2, max_nights: 3 } # Châlons-en-Champagne: 1-2 days, Rick Steves, Reims: a bubbly day trip from Paris
+    ZRH: { min_nights: 2, max_nights: 3 } # Zurique: 2-3 days, Lonely Planet, things to know before Zürich
+    # Beach and island destinations: nights = [days_min - 1, 10] (the collection's cap).
+    ACE: { min_nights: 3, max_nights: 10 } # Lanzarote: 4-7 days, Turismo Lanzarote
+    AGA: { min_nights: 2, max_nights: 10 } # Agadir: 3-5 days, Lonely Planet, guide to Agadir
+    AGP: { min_nights: 2, max_nights: 10 } # Málaga: 2-5 days, Lonely Planet, guide to Málaga
+    ALC: { min_nights: 2, max_nights: 10 } # Alicante: 2-5 days, Lonely Planet, guide to Alicante
+    BOH: { min_nights: 2, max_nights: 10 } # Bournemouth: 2-4 days, Lonely Planet England itineraries / Fodor's forum
+    CVU: { min_nights: 2, max_nights: 10 } # Ilha do Corvo: 1-2 days, Lonely Planet, a guide to the Azores islands
+    FAO: { min_nights: 2, max_nights: 10 } # Faro: 2-7 days, Lonely Planet, guide to Faro
+    FLW: { min_nights: 2, max_nights: 10 } # Ilha das Flores: 3-4 days, Lonely Planet, a guide to the Azores islands
+    FNC: { min_nights: 3, max_nights: 10 } # Madeira: 4-7 days, Lonely Planet, first-time guide to Madeira
+    GRW: { min_nights: 2, max_nights: 10 } # Ilha Graciosa: 2-2 days, Lonely Planet, a guide to the Azores islands
+    HOR: { min_nights: 2, max_nights: 10 } # Horta: 2-4 days, Lonely Planet, a guide to the Azores islands
+    IBZ: { min_nights: 3, max_nights: 10 } # Ibiza: 4-10 days, Lonely Planet, first-time guide to Ibiza
+    LPA: { min_nights: 2, max_nights: 10 } # Gran Canária: 3-7 days, Lonely Planet, guide to Gran Canaria
+    MAH: { min_nights: 3, max_nights: 10 } # Menorca: 4-7 days, Lonely Planet, first-time guide to Menorca
+    MLA: { min_nights: 2, max_nights: 10 } # Malta: 3-7 days, Lonely Planet, things to know before Malta
+    NCE: { min_nights: 2, max_nights: 10 } # Nice: 3-5 days, Rough Guides, how many days in Nice
+    PDL: { min_nights: 3, max_nights: 10 } # Ponta Delgada: 4-7 days, Lonely Planet, the ultimate week in the Azores
+    PIX: { min_nights: 2, max_nights: 10 } # Ilha do Pico: 2-4 days, Lonely Planet, a guide to the Azores islands
+    PMI: { min_nights: 4, max_nights: 10 } # Palma de Maiorca: 5-7 days, Lonely Planet, guide to Palma
+    PXO: { min_nights: 2, max_nights: 10 } # Porto Santo: 2-7 days, Lonely Planet
+    SJZ: { min_nights: 2, max_nights: 10 } # Ilha de São Jorge: 2-3 days, Lonely Planet, a guide to the Azores islands
+    SMA: { min_nights: 2, max_nights: 10 } # Santa Maria: 2-4 days, Lonely Planet
+    TCI: { min_nights: 2, max_nights: 10 } # Tenerife: 3-7 days, Lonely Planet, things to know before Tenerife
+    TER: { min_nights: 2, max_nights: 10 } # Terceira: 2-4 days, Lonely Planet, 8 days Terceira to São Miguel
+    # Long-haul cities: nights = [max(4, days_min), days_max + 3].
+    BOS: { min_nights: 4, max_nights: 7 } # Boston: 3-4 days, Lonely Planet, things to know before Boston
+    DXB: { min_nights: 4, max_nights: 10 } # Dubai: 3-7 days, Lonely Planet, first-time guide to Dubai
+    MIA: { min_nights: 4, max_nights: 8 } # Miami: 3-5 days, Lonely Planet, things to know before Miami
+    NYC: { min_nights: 4, max_nights: 8 } # Nova Iorque: 3-5 days, Fodor's, NYC in a day or 5
+    SAO: { min_nights: 4, max_nights: 6 } # São Paulo: 2-3 days, Lonely Planet, guide to São Paulo
+    WAS: { min_nights: 4, max_nights: 7 } # Washington: 3-4 days, Fodor's forum consensus
+    YMQ: { min_nights: 4, max_nights: 7 } # Montreal: 3-4 days, Frommer's, Montreal in three days
+    YTO: { min_nights: 4, max_nights: 7 } # Toronto: 3-4 days, Fodor's, 7 days in Toronto and Niagara
+    # Long-haul beach and far trips: nights = [max(5, days_min), 14].
+    BKK: { min_nights: 5, max_nights: 14 } # Banguecoque: 3-5 days, Rough Guides, 10 days in Thailand
+    BVC: { min_nights: 5, max_nights: 14 } # Boa Vista: 5-10 days, Lonely Planet, guide to Cabo Verde
+    CPT: { min_nights: 5, max_nights: 14 } # Cidade do Cabo: 4-7 days, Lonely Planet, things to know before Cape Town
+    CUN: { min_nights: 5, max_nights: 14 } # Cancún: 3-7 days, Rough Guides, how many days in Cancún
+    FOR: { min_nights: 5, max_nights: 14 } # Fortaleza: 3-7 days, Frommer's, Fortaleza
+    MLE: { min_nights: 5, max_nights: 14 } # Maldivas: 5-7 days, Lonely Planet
+    PUJ: { min_nights: 5, max_nights: 14 } # Punta Cana: 4-7 days, Lonely Planet, best things to do in Punta Cana
+    REC: { min_nights: 5, max_nights: 14 } # Recife: 3-5 days, Frommer's
+    RIO: { min_nights: 5, max_nights: 14 } # Rio de Janeiro: 4-5 days, Rough Guides, how many days in Rio
+    SID: { min_nights: 7, max_nights: 14 } # Ilha do Sal: 7-10 days, Lonely Planet, guide to Cabo Verde
+    SSA: { min_nights: 5, max_nights: 14 } # Salvador: 2-4 days, Frommer's, suggested itineraries in Salvador
+    TYO: { min_nights: 5, max_nights: 14 } # Tóquio: 3-7 days, Rough Guides, how many days in Tokyo
   # Route keys ("LIS-LON") or destinations ("LON") never discovered nor collected. The static
   # route catalogue is old: it still lists Lisbon-Moscow and Lisbon-Kyiv, closed since 2022.
   exclusions: [MOW, LED, IEV, MSQ]

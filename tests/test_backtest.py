@@ -157,6 +157,33 @@ def test_rule_set_presets_and_the_report(copy):
     assert backtest.markdown([]) == "No runs to replay.\n"
 
 
+def test_the_stays_preset_replays_the_detector_under_each_routes_own_nights_range(copy):
+    """D52: the same detector, the kinds' ranges against the config's per-destination ranges.
+    London capped at 3 nights loses the 4-night 60 € candidate; OPO-PAR keeps its."""
+    conn, ctx = copy
+    from test_routes import configure
+    ctx = configure(ctx, overrides={"LON": {"max_nights": 3}})
+    watched = routes.all_routes(conn, ctx.config.routes)
+    sets = backtest.rule_sets(DetectorConfig(require_new_low=False), "stays",
+                              routes_cfg=ctx.config.routes, watched=watched)
+    assert [rs.name for rs in sets] == ["kinds only", "destination stays (D52)"]
+    assert sets[1].note == "config overrides: 2 of 10 routes differ"          # LIS-LON, OPO-LON
+    assert sets[0].rules["LIS-LON"].max_nights == 10 and sets[1].rules["LIS-LON"].max_nights == 3
+    assert sets[1].for_route(watched[0]).rules.max_nights == 3 and watched[0].key == "LIS-LON"
+    with pytest.raises(ValueError):
+        backtest.rule_sets(DetectorConfig(), "stays")
+    runs = backtest.select_runs(backtest.completed_runs(conn), ids=(2, 4))
+    kinds, stays = backtest.replay(conn, watched, sets, runs)
+    assert {c.route for c in kinds.candidates} == {"LIS-LON", "OPO-PAR"}
+    assert {c.route for c in stays.candidates} == {"OPO-PAR"}
+    assert kinds.summary()["nights_median"] == 4 and kinds.summary()["nights_max"] == 4
+    text = backtest.markdown([kinds, stays])
+    assert "| Nights (median, max) |" in text
+    assert "| kinds only (the kind's nights range on every route) | 2 (2) |" in text
+    assert text.count("| 4, 4 |") == 2          # both sets' candidates are 4-night trips
+    assert "| destination stays (D52) (config overrides: 2 of 10 routes differ) | 1 (1) |" in text
+
+
 def test_the_state_of_every_route_month(copy):
     conn, ctx = copy
     watched = routes.all_routes(conn, ctx.config.routes)
@@ -183,3 +210,5 @@ def test_the_script_runs_on_a_copy(copy, capsys):
     assert "| D44 (configured) (new low + lead time, as config.yaml) | 1 (1) |" in out
     assert "Route-months at" in out
     assert module.main([str(ctx.db_path), "--runs", "9-9"]) == 1
+    assert module.main([str(ctx.db_path), "--runs", "2-4", "--preset", "stays"]) == 0
+    assert "| kinds only (the kind's nights range on every route) |" in capsys.readouterr().out
