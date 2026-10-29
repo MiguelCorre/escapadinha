@@ -29,6 +29,10 @@ export function traceableAmounts(data: SiteData): Amounts {
       add(a.obs, p.expired.latest.obs, p.expired.latest.price);
       add(a.deal, p.id, p.expired.latest.price);
     }
+    if (p.latest) {                         // D53: the latest verified price, on its observation
+      add(a.obs, p.latest.obs, p.latest.price);
+      add(a.deal, p.id, p.latest.price);
+    }
   }
   for (const r of data.routes.routes) {
     add(a.route, r.key, null);

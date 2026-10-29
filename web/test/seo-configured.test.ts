@@ -89,7 +89,9 @@ describe("a promotion published on Instagram (D36)", () => {
     const links = page.querySelectorAll("[data-post-link] a");
     expect(links.map((a) => a.getAttribute("href"))).toEqual([FAKE_POST_URL]);
     expect(text(links[0])).toBe("Ver no Instagram");
-    expect(page.querySelectorAll('a[rel~="sponsored"]')).toHaveLength(1);
+    // The booking button, plus one link per date of the promotion's dates list (D53: this
+    // build's live promotion has two dates; the member's link is build-site.ts's GROUP_MEMBER_LINK).
+    expect(page.querySelectorAll('a[rel~="sponsored"]')).toHaveLength(3);
   });
 
   it("an unpublished or expired promotion has no post link", () => {

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timezone, timedelta
 
 import pytest
 import respx
@@ -15,7 +15,7 @@ import yaml
 from escapadinha import pipeline, posting
 from escapadinha.presentation import DISCLOSURE
 from escapadinha.storage import db
-from test_pipeline import ctx, mock_links  # noqa: F401
+from test_pipeline import ctx, mock_links, set_publishers  # noqa: F401
 from test_review import rendered_deal
 from test_web_build import npm  # noqa: F401
 
@@ -139,7 +139,7 @@ def test_upgrade_from_real_old_schemas_adds_the_posting_queue(ctx, fixture, vers
     old.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 17
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 18
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     assert _queue_shape(conn) == _queue_shape(fresh)
@@ -147,9 +147,9 @@ def test_upgrade_from_real_old_schemas_adds_the_posting_queue(ctx, fixture, vers
     columns = [c[0] for c in _queue_shape(conn)[0]]
     assert "checked_at" in columns
     # v11 (D36): the Instagram publisher's progress per row; v12 (D38): the Telegram message.
-    assert columns[-9:] == ["container_id", "media_id", "story_status", "story_container_id",
-                            "story_media_id", "story_attempts", "story_note", "caption",
-                            "message_id"]
+    assert columns[-10:] == ["container_id", "media_id", "story_status", "story_container_id",
+                             "story_media_id", "story_attempts", "story_note", "caption",
+                             "message_id", "promotion_id"]            # v18 (D53): the promotion
     for c in (conn, fresh):
         c.execute("PRAGMA foreign_keys = OFF")          # only the channel CHECK can refuse it
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
@@ -599,3 +599,76 @@ def test_a_backlog_of_instagram_posts_goes_out_one_per_run(ctx):
     assert done == [(first, "instagram", "published")]
     done, _ = publish(ctx, conn, utc(2026, 12, 1, 15, 30))
     assert done == [(second, "instagram", "published")]
+
+
+# --- one post per promotion (D53) -----------------------------------------------------------
+
+def _second_date(ctx, conn, first_id: int, price: float, *, status: str = "approved") -> int:
+    """Another approved date of the same route, in the first deal's promotion, cheaper or not."""
+    from test_reevaluation import NOV, deal as insert_deal
+    first = db.get_deal(conn, first_id)[0]
+    second = insert_deal(conn, "LIS-LON", NOV + timedelta(days=20), price, status=status,
+                         days=12, median=100)
+    db.set_deal_promotion(conn, second, first.promotion_id)
+    conn.execute("UPDATE deals SET affiliate_url = 'https://aviasales.tpo.lu/second', "
+                 "reviewed_at = ?, last_checked_at = ? WHERE id = ?",
+                 (db._ts(APPLIED), db._ts(APPLIED), second))
+    conn.commit()
+    return second
+
+
+@respx.mock
+def test_a_second_date_of_a_promotion_with_posts_queues_nothing(ctx):
+    conn = pipeline.open_db(ctx)
+    first = approved(ctx, conn)
+    assert {p.deal_id for p in db.posts(conn)} == {first}
+    assert {p.promotion_id for p in db.posts(conn)} == {db.get_deal(conn, first)[0].promotion_id}
+    second = _second_date(ctx, conn, first, 50, status="rendered")
+    approve_event(ctx.object_store, second)
+    pipeline.apply_review_events(ctx, conn, now=APPLIED + timedelta(hours=1))
+    assert db.get_deal(conn, second)[0].status == "approved"
+    assert {p.deal_id for p in db.posts(conn)} == {first}            # the promotion already posts
+
+
+@respx.mock
+def test_a_post_goes_out_for_the_promotions_cheapest_live_date_and_lists_the_others(ctx):
+    conn = pipeline.open_db(ctx)
+    first = approved(ctx, conn)                                       # 58 €, 6-9 Nov
+    second = _second_date(ctx, conn, first, 50)                       # 50 €, 21-26 Nov
+    set_publishers(ctx, instagram="dry-run", telegram="dry-run")
+    done, lines = publish(ctx, conn, APPLIED + timedelta(hours=3))
+    assert sorted(done) == [(first, "instagram", "published"), (first, "telegram", "published")]
+    text = "\n".join(lines)
+    assert "desde 50 €" in text                                       # the lead's price heads it
+    assert "📆 Outras datas em promoção:" in text
+    assert "· ida sex, 6 nov, volta seg, 9 nov (3 noites) · 58 €" in text
+    # The dry run settles the posts (it marks nothing published, D32); both rows are the
+    # promotion's, queued by the first date, sent for the second.
+    posts = db.posts(conn)
+    assert {(p.deal_id, p.promotion_id, p.status, p.publisher) for p in posts} == {
+        (first, db.get_deal(conn, first)[0].promotion_id, "published", "dry-run")}
+    assert db.get_deal(conn, second)[0].status == "approved"
+
+
+@respx.mock
+def test_a_post_is_cancelled_only_when_its_promotion_has_no_live_date_left(ctx):
+    conn = pipeline.open_db(ctx)
+    first = approved(ctx, conn)
+    second = _second_date(ctx, conn, first, 50)
+    conn.execute("UPDATE deals SET status = 'expired', expired_reason = 'o preço subiu para 80 €' "
+                 "WHERE id = ?", (first,))
+    conn.commit()
+    set_publishers(ctx, instagram="dry-run", telegram="dry-run")
+    done, lines = publish(ctx, conn, APPLIED + timedelta(hours=3))    # the first date expired...
+    assert sorted(done) == [(first, "instagram", "published"), (first, "telegram", "published")]
+    assert "desde 50 €" in "\n".join(lines)                           # ...the second carries the post
+    conn.execute("UPDATE posting_queue SET status = 'queued', settled_at = NULL, publisher = NULL")
+    conn.execute("UPDATE deals SET status = 'expired', expired_reason = 'o preço subiu para 90 €' "
+                 "WHERE id = ?", (second,))
+    conn.commit()
+    pipeline.close_empty_promotions(conn, APPLIED + timedelta(hours=4))
+    done, _ = publish(ctx, conn, APPLIED + timedelta(hours=4))
+    assert {a for _, _, a in done} == {"cancelled"}
+    reasons = [p.reason for p in db.posts(conn)]
+    assert all(r == "A promoção expirou: todas as datas expiraram; última: o preço subiu para 90 €."
+               for r in reasons), reasons

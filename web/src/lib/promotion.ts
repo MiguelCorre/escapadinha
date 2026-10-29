@@ -96,19 +96,38 @@ export function routesLine(p: Place): string {
   return `${p.originName} – ${there} – ${p.originName}`;
 }
 
+/** The items that are pages (D53): ungrouped ones and the lead of every promotion. */
+export function pagePromotions(data: SiteData): Promotion[] {
+  return data.promotions.promotions.filter((p) => !p.promotion || p.promotion.lead);
+}
+
+/** The live dates of a promotion page, cheapest first, the lead among them (D53); an ungrouped
+ * item is its own only date. Each is an item of the contract with its own offer and `obs`. */
+export function promotionDates(data: SiteData, lead: Promotion): Promotion[] {
+  if (!lead.promotion) return [lead];
+  const byId = new Map(data.promotions.promotions.map((p) => [p.id, p]));
+  return lead.promotion.dates.map((id) => byId.get(id)).filter((p): p is Promotion => p !== undefined);
+}
+
 export function promotionView(data: SiteData, p: Promotion): PromotionView {
   const o = p.offer;
   const where = place(data, o);
   const airline = o.airline ? data.labels.airlines[o.airline] ?? o.airline : null;
   const baggage = baggageText(o.baggage);
+  // D53: a live promotion shows the price the last recheck saw, on that observation, and the
+  // discount that price makes against the typical low; before any recheck, the offer's.
+  const shown = p.live && p.latest ? p.latest : { obs: o.obs, price: o.price };
+  const discount = p.rule !== "median" ? null
+    : p.live && p.latest && p.typical_low != null ? discountParts(1 - shown.price / p.typical_low)
+    : p.discount_pct != null ? discountParts(p.discount_pct) : null;
   return {
     ...where,
     id: p.id,
-    obs: o.obs,
+    obs: shown.obs,
     path: p.path,
     live: p.live,
-    price: eurParts(o.price),
-    discount: p.rule === "median" && p.discount_pct != null ? discountParts(p.discount_pct) : null,
+    price: eurParts(shown.price),
+    discount,
     typicalLow: p.typical_low != null ? eur(p.typical_low) : null,
     month: monthName(o.departure),
     dates: `${shortDate(o.departure)} → ${shortDate(o.return)}`,
@@ -121,7 +140,7 @@ export function promotionView(data: SiteData, p: Promotion): PromotionView {
     checkedAt: lisbonTimestamp(p.checked_at),
     expiredReason: p.expired?.reason ?? null,
     expiredObs: p.expired?.latest?.obs ?? null,
-    summary: summaryParts(o, airline, baggage),
+    summary: summaryParts({ ...o, price: shown.price }, airline, baggage),
     routesLine: routesLine(where),
     publishedOn: p.approved_at ? lisbonTimestamp(p.approved_at) : null,
   };

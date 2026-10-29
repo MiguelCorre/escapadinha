@@ -415,6 +415,19 @@ to the price recheck (a human approved them on the figures the review showed). T
 waiting on 2026-10-16 were detected on 4–6-day typical lows; on the database of run 58 this rule
 expires all of them (none of their months had 10 counted days; D40 has the replay).
 
+### A rise of a euro is not an expiry; a bounce is not a new deal (DECISIONS D53)
+
+Since 2026-10-28 a deal (one trip, one observation) stays valid while its latest price is at
+most `detector.recheck_tolerance_pct` (5 %) above the price it was detected at **and** still a
+promotion against its stored typical low (`threshold` and `min_saving_eur`): the recheck's
+reason reads *subiu para 59 €, dentro da tolerância de 5%*, the pages show the latest price on
+its own observation, and the review Function applies the same rule (shared cases). Beyond the
+tolerance, or no longer a promotion, it expires as before. The same trip is flagged again only
+when at least `reflag_margin_pct` (5 %) and `reflag_margin_eur` (2 €) cheaper than its last
+deal, open or expired within `dedupe_days` (before: any cheaper price, and expired deals were
+ignored, so a fare bouncing 55 → 61 → 55 made three deals). Measured on the copy of 28/10 with
+`scripts/backtest_detector.py --preset churn` (`docs/research/2026-10-28-one-promotion-per-route-proposal.md`).
+
 ### What counts as a deal: two tiers (DECISIONS D24)
 Every price is measured against the route's **typical lowest price for the same departure
 month**: the median of daily lows, where each day's low is the cheapest price travellers found
@@ -543,6 +556,36 @@ follows publishes the promotion page. Both review pages list it under **Aprovado
 note; **Rejeitar** there takes it down (the page expires, as always). Everything else waits for
 you under **Por rever** with the reason it was left (*confiança média (precisa de alta)*, *não é um
 novo mínimo*, …) in the run log. `enabled: false` turns it off.
+
+### One promotion per route, all its dates on one page (DECISIONS D53)
+
+A **promotion** groups a route's deals (dates): every candidate detection makes joins the
+route's open promotion, or opens one (`promotions` table, `deals.promotion_id`, schema v18; the
+upgrade grouped the deals that existed). Review decisions stay per date (one event per deal,
+D26): the first approved date puts the promotion on the site, each further date that passes
+the rules (automatic approval, D46) or Miguel joins the page on the next full path, and a
+rejected date leaves it. The promotion **closes** when no date is left open (`pipeline.close_empty_promotions`,
+after applied events, the recheck and the re-evaluation), with the last date's reason; a new
+cheap date later opens a new promotion (the old page stays, D35).
+
+- **Site:** one page per promotion at `/promos/<id of the deal that opened it>-<origem>-<destino>/`
+  (a URL that never changes while dates come and go); the **lead** is the cheapest live date
+  (headline price, card, JSON-LD), the page lists every live date with its own price (`data-obs`),
+  baggage and booking link ("Datas em promoção"); the home shows one card per promotion ("2
+  datas a este preço ou perto"). The contract stays v1: every item of `promotions.json` keeps its
+  fields and gains an optional `promotion {id, path, lead, dates}`; a member item's `path` is
+  the promotion's, so its old URL gets a 301 from the path history (`website/routing.py`).
+  A live item also carries `latest {obs, price}`, the last recheck's price on its own
+  observation: the page shows that price, not the detected one, with the discount
+  recomputed. A trip two deals share (both open, the dearer one outlives a bounce) is listed
+  once, by its cheapest deal, and dates are ordered by their current price.
+- **Review pages** (local and phone): the dates of one promotion grouped, cheapest first, under
+  a header with *Aprovar todas* / *Rejeitar todas* (one decision per date, in turn: an approval
+  checks each price); the snapshot carries `promotion {id, path, dates}` per deal (optional, v1).
+- **Posting queue** (paused, D46, but correct): one post per promotion. Only the first approved
+  date queues posts; a post goes out for the promotion's cheapest live date at send time, with
+  the other dates in its text ("📆 Outras datas em promoção"); when the promotion closes its
+  posts are cancelled with the promotion's reason. `posting_queue.promotion_id` (v18).
 
 ### Review decisions are events (D26)
 

@@ -175,6 +175,20 @@ def test_dedupes_recently_flagged_same_trip_unless_cheaper():
     assert len(detect_route([obs(55, oid=1)], history, already, CFG, None, NOW, 1)) == 1
 
 
+def test_the_same_trip_is_flagged_again_only_clearly_cheaper_than_its_last_deal():
+    """D53: at least `reflag_margin_pct` and `reflag_margin_eur` below the last deal's price
+    (open or expired: the caller passes both). 60 -> 58 is 2 € but 3.3 %: no; 57 is 5 %: yes."""
+    cfg = CFG.model_copy(update={"reflag_margin_pct": 0.05, "reflag_margin_eur": 2})
+    history = lows([100] * 5)
+    already = [obs(60, fetched_ago=2)]
+    assert detect_route([obs(59, oid=1)], history, already, cfg, None, NOW, 1) == []
+    assert detect_route([obs(58, oid=1)], history, already, cfg, None, NOW, 1) == []
+    assert len(detect_route([obs(57, oid=1)], history, already, cfg, None, NOW, 1)) == 1
+    small = cfg.model_copy(update={"reflag_margin_pct": 0.01, "reflag_margin_eur": 2})
+    assert detect_route([obs(58.5, oid=1)], history, already, small, None, NOW, 1) == []  # 1.5 €
+    assert len(detect_route([obs(58, oid=1)], history, already, small, None, NOW, 1)) == 1
+
+
 def test_dedupe_window_expires():
     history = lows([100] * 5)
     already = [obs(60, fetched_ago=8)]

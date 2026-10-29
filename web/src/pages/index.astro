@@ -9,10 +9,11 @@ import PromotionCard from "../components/PromotionCard.astro";
 import { itineraries, tips } from "../collections";
 import { BRAND } from "../lib/brand";
 import { contentPath } from "../lib/content";
-import { promotionView } from "../lib/promotion";
+import { pagePromotions, promotionDates, promotionView } from "../lib/promotion";
 import { organizationLd, websiteLd } from "../lib/structured-data";
 
-const all = data.promotions.promotions.map((p) => ({ promotion: p, view: promotionView(data, p) }));
+// D53: one card per promotion (its lead date); a grouped date has no card of its own.
+const all = pagePromotions(data).map((p) => ({ promotion: p, view: promotionView(data, p), dates: promotionDates(data, p).length }));
 const live = all.filter((x) => x.promotion.live);
 const expired = all.filter((x) => !x.promotion.live);
 const LATEST = 3;
@@ -38,7 +39,7 @@ const reading = [
     <h2 id="titulo-promocoes" class="font-display text-headline">Promoções</h2>
     {live.length ? (
       <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
-        {live.map(({ promotion, view }, i) => <PromotionCard promotion={promotion} view={view} eager={i === 0} />)}
+        {live.map(({ promotion, view, dates }, i) => <PromotionCard promotion={promotion} view={view} dates={dates} eager={i === 0} />)}
       </div>
     ) : (
       <p class="notice mt-lg max-w-measure">Neste momento não há promoções ativas. Os preços são verificados várias vezes por dia e as novas promoções aparecem aqui.</p>

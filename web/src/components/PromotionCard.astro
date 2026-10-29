@@ -9,10 +9,12 @@ import PriceBlock from "./PriceBlock.astro";
 interface Props {
   promotion: Promotion;
   view: PromotionView;
+  /** D53: how many live dates the promotion lists (1: nothing said). */
+  dates?: number;
   eager?: boolean;
 }
 
-const { promotion, view, eager = false } = Astro.props;
+const { promotion, view, dates = 1, eager = false } = Astro.props;
 const thumb = promotion.images?.thumb ?? null;
 const arrival = airportLabel(view);
 ---
@@ -28,6 +30,9 @@ const arrival = airportLabel(view);
       <a href={view.path} class="text-ink no-underline after:absolute after:inset-0 hover:underline">{view.headline}</a>
     </h3>
     <PriceBlock view={view} />
+    {dates > 1 && (
+      <p class="text-small text-muted" data-dates>{dates} datas a este preço ou perto</p>
+    )}
     {(view.airline || view.baggage) && (
       <p class="text-small text-muted" data-flight>{[view.airline, view.baggage].filter(Boolean).join(" · ")}</p>
     )}

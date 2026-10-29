@@ -10,12 +10,12 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from escapadinha.models import Deal, Observation, Photo, Post
+from escapadinha.models import Deal, Observation, Photo, Post, Promotion
 
 if TYPE_CHECKING:
     from escapadinha.demand import Demand
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -155,6 +155,16 @@ MIGRATIONS = {
     # price, and when we saw it. Both NULL until a run finds the trip on their list.
     17: ["ALTER TABLE deals ADD COLUMN partner_discount_pct NUMERIC",
          "ALTER TABLE deals ADD COLUMN partner_offer_at TEXT"],
+    # D53: promotions group a route's deals (dates); the backfill below groups today's.
+    18: ["""CREATE TABLE IF NOT EXISTS promotions (
+                id            INTEGER PRIMARY KEY,
+                origin        TEXT NOT NULL,
+                destination   TEXT NOT NULL,
+                opened_at     TEXT NOT NULL,
+                closed_at     TEXT,
+                closed_reason TEXT)""",
+         "ALTER TABLE deals ADD COLUMN promotion_id INTEGER REFERENCES promotions(id)",
+         "ALTER TABLE posting_queue ADD COLUMN promotion_id INTEGER REFERENCES promotions(id)"],
 }
 
 
@@ -431,10 +441,12 @@ def get_observation(conn: sqlite3.Connection, observation_id: int) -> Observatio
 
 def recently_flagged_offers(conn: sqlite3.Connection, origin: str, destination: str,
                             since: datetime) -> list[Observation]:
+    """The offers behind the route's deals detected since `since`, whatever their status: an
+    expired deal counts too (D53), so a bouncing fare is flagged again only when clearly cheaper
+    (`detector._already_flagged`)."""
     rows = conn.execute(
         """SELECT o.* FROM deals d JOIN price_observations o ON o.id = d.observation_id
-           WHERE o.origin = ? AND o.destination = ? AND d.detected_at >= ?
-             AND d.status != 'expired'""",
+           WHERE o.origin = ? AND o.destination = ? AND d.detected_at >= ?""",
         (origin, destination, _ts(since)),
     )
     return [_row_to_observation(r) for r in rows]
@@ -445,19 +457,74 @@ def insert_deal(conn: sqlite3.Connection, *, observation_id: int, rule: str,
                 threshold: float, baseline_span_days: int | None = None,
                 baseline_lowest_obs_id: int | None = None,
                 baseline_highest_obs_id: int | None = None, confidence: str | None = None,
-                new_low: bool | None = None) -> int:
+                new_low: bool | None = None, promotion_id: int | None = None) -> int:
     cur = conn.execute(
         """INSERT INTO deals (observation_id, rule, baseline_median, sample_size,
                               discount_pct, threshold, detected_at, baseline_span_days,
                               baseline_lowest_obs_id, baseline_highest_obs_id, confidence,
-                              new_low)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              new_low, promotion_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (observation_id, rule, baseline_median, sample_size, discount_pct, threshold,
          _ts(utcnow()), baseline_span_days, baseline_lowest_obs_id, baseline_highest_obs_id,
-         confidence, None if new_low is None else int(new_low)),
+         confidence, None if new_low is None else int(new_low), promotion_id),
     )
     conn.commit()
     return cur.lastrowid
+
+
+# --- promotions (D53) -------------------------------------------------------------------
+
+def _row_to_promotion(row: sqlite3.Row) -> Promotion:
+    return Promotion(id=row["id"], origin=row["origin"], destination=row["destination"],
+                     opened_at=_dt(row["opened_at"]), closed_at=_dt(row["closed_at"]),
+                     closed_reason=row["closed_reason"])
+
+
+def insert_promotion(conn: sqlite3.Connection, origin: str, destination: str,
+                     opened_at: datetime) -> int:
+    cur = conn.execute("INSERT INTO promotions (origin, destination, opened_at) VALUES (?, ?, ?)",
+                       (origin, destination, _ts(opened_at)))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_promotion(conn: sqlite3.Connection, promotion_id: int) -> Promotion:
+    row = conn.execute("SELECT * FROM promotions WHERE id = ?", (promotion_id,)).fetchone()
+    if row is None:
+        raise KeyError(promotion_id)
+    return _row_to_promotion(row)
+
+
+def open_promotion(conn: sqlite3.Connection, origin: str, destination: str) -> Promotion | None:
+    """The route's one open promotion (closed_at NULL), or None."""
+    row = conn.execute("SELECT * FROM promotions WHERE origin = ? AND destination = ? "
+                       "AND closed_at IS NULL ORDER BY id DESC LIMIT 1",
+                       (origin, destination)).fetchone()
+    return None if row is None else _row_to_promotion(row)
+
+
+def open_promotions(conn: sqlite3.Connection) -> list[Promotion]:
+    return [_row_to_promotion(r) for r in
+            conn.execute("SELECT * FROM promotions WHERE closed_at IS NULL ORDER BY id")]
+
+
+def promotion_deals(conn: sqlite3.Connection, promotion_id: int) -> list[tuple[Deal, Observation]]:
+    """Every deal (date) of the promotion, oldest first."""
+    rows = conn.execute("SELECT * FROM deals WHERE promotion_id = ? ORDER BY id",
+                        (promotion_id,)).fetchall()
+    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+
+
+def close_promotion(conn: sqlite3.Connection, promotion_id: int, *, at: datetime,
+                    reason: str) -> None:
+    conn.execute("UPDATE promotions SET closed_at = ?, closed_reason = ? "
+                 "WHERE id = ? AND closed_at IS NULL", (_ts(at), reason, promotion_id))
+    conn.commit()
+
+
+def set_deal_promotion(conn: sqlite3.Connection, deal_id: int, promotion_id: int) -> None:
+    conn.execute("UPDATE deals SET promotion_id = ? WHERE id = ?", (promotion_id, deal_id))
+    conn.commit()
 
 
 def _row_to_deal(row: sqlite3.Row) -> Deal:
@@ -484,6 +551,7 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
         partner_discount_pct=(None if row["partner_discount_pct"] is None
                               else float(row["partner_discount_pct"])),
         partner_offer_at=_dt(row["partner_offer_at"]),
+        promotion_id=row["promotion_id"],
     )
 
 
@@ -574,10 +642,11 @@ def settle_review_event(conn: sqlite3.Connection, event_id: str, outcome: dict, 
             _review_update(conn, deal_id, status, note=note, post_url=post_url, at=at or utcnow())
             conn.executemany(
                 """INSERT INTO posting_queue (deal_id, channel, due_at, created_at, event_id,
-                                             checked_at)
-                   VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (deal_id, channel) DO NOTHING""",
+                                             checked_at, promotion_id)
+                   VALUES (?, ?, ?, ?, ?, ?, (SELECT promotion_id FROM deals WHERE id = ?))
+                   ON CONFLICT (deal_id, channel) DO NOTHING""",
                 [(deal_id, channel, _ts(due), _ts(utcnow()), event_id,
-                  _ts(checked_at) if checked_at else None)
+                  _ts(checked_at) if checked_at else None, deal_id)
                  for channel, due in posts])
         conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
                      (REVIEW_EVENT_KEY + event_id, json.dumps(outcome, ensure_ascii=False)))
@@ -660,7 +729,8 @@ def _row_to_post(row: sqlite3.Row) -> Post:
         media_id=row["media_id"], story_status=row["story_status"],
         story_container_id=row["story_container_id"], story_media_id=row["story_media_id"],
         story_attempts=row["story_attempts"], story_note=row["story_note"],
-        caption=row["caption"], message_id=row["message_id"])
+        caption=row["caption"], message_id=row["message_id"],
+        promotion_id=row["promotion_id"])
 
 
 def posts(conn: sqlite3.Connection, *statuses: str) -> list[Post]:
@@ -673,6 +743,13 @@ def posts(conn: sqlite3.Connection, *statuses: str) -> list[Post]:
 def get_post(conn: sqlite3.Connection, post_id: int) -> Post:
     return _row_to_post(conn.execute("SELECT * FROM posting_queue WHERE id = ?",
                                      (post_id,)).fetchone())
+
+
+def promotion_posts(conn: sqlite3.Connection, promotion_id: int) -> list[Post]:
+    """The posts of a promotion (D53), any status."""
+    rows = conn.execute("SELECT * FROM posting_queue WHERE promotion_id = ? ORDER BY id",
+                        (promotion_id,))
+    return [_row_to_post(r) for r in rows]
 
 
 def post_due_times(conn: sqlite3.Connection, channel: str) -> list[datetime]:
@@ -1036,6 +1113,45 @@ def _dedupe_observations(conn: sqlite3.Connection) -> None:
 
 
 MIGRATIONS[7] = [_dedupe_observations]
+
+
+def _backfill_promotions(conn: sqlite3.Connection) -> None:
+    """D53, once: today's deals grouped the way detection groups them from now on. In id order,
+    an open deal (new, rendered, approved, published) joins its route's open promotion or opens
+    one; an expired deal a human had approved (public: its page exists) gets a closed promotion
+    of its own; expired deals nobody approved, and rejected ones, stay ungrouped. Queued posts
+    take their deal's promotion."""
+    rows = conn.execute(
+        """SELECT d.id, d.status, d.detected_at, d.reviewed_at, d.last_checked_at,
+                  d.expired_reason, o.origin, o.destination
+           FROM deals d JOIN price_observations o ON o.id = d.observation_id
+           WHERE d.promotion_id IS NULL ORDER BY d.id""").fetchall()
+    open_by_route: dict[tuple[str, str], int] = {}
+    for r in rows:
+        route = (r["origin"], r["destination"])
+        if r["status"] in OPEN_STATUSES or r["status"] == "published":
+            pid = open_by_route.get(route)
+            if pid is None:
+                pid = conn.execute(
+                    "INSERT INTO promotions (origin, destination, opened_at) VALUES (?, ?, ?)",
+                    (*route, r["detected_at"])).lastrowid
+                open_by_route[route] = pid
+        elif r["status"] == "expired" and r["reviewed_at"]:
+            pid = conn.execute(
+                """INSERT INTO promotions (origin, destination, opened_at, closed_at, closed_reason)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (*route, r["detected_at"], r["last_checked_at"] or r["detected_at"],
+                 r["expired_reason"])).lastrowid
+        else:
+            continue
+        conn.execute("UPDATE deals SET promotion_id = ? WHERE id = ?", (pid, r["id"]))
+    conn.execute("""UPDATE posting_queue SET promotion_id =
+                        (SELECT promotion_id FROM deals WHERE deals.id = posting_queue.deal_id)
+                    WHERE promotion_id IS NULL""")
+    conn.commit()
+
+
+MIGRATIONS[18].append(_backfill_promotions)
 
 
 def raw_pending_exists(conn: sqlite3.Connection) -> bool:

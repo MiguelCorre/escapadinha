@@ -46,6 +46,27 @@ def test_tolerance():
     assert recheck(DEAL, [obs(61)], CFG, NOW, tolerance_eur=1).valid
 
 
+def test_a_rise_within_the_tolerance_holds_while_still_a_promotion():
+    """D53: a bouncing fare is one promotion. 60 -> 62 (3 %) holds; 60 -> 64 (6.7 %) expires;
+    a rise within the tolerance that is no longer 30 % and 15 € below the typical low expires
+    too, with the typical low in the reason."""
+    cfg = DetectorConfig(recheck_tolerance_pct=0.05)
+    held = recheck(DEAL, [obs(62)], cfg, NOW, typical_low=100)
+    assert held.valid and held.latest_price == 62
+    assert held.reason == "subiu para 62 €, dentro da tolerância de 5%"
+    gone = recheck(DEAL, [obs(64)], cfg, NOW, typical_low=100)
+    assert not gone.valid and gone.reason == "o preço subiu para 64 €"
+    edge = recheck(DEAL, [obs(63)], cfg, NOW, typical_low=100)          # exactly 5 %
+    assert edge.valid
+    not_promo = recheck(DEAL, [obs(62)], cfg, NOW, typical_low=85)     # 62 > 85 × 0.7
+    assert not not_promo.valid
+    assert not_promo.reason == "o preço subiu para 62 € e já não é promoção face ao preço habitual (85 €)"
+    # Without a typical low (price-cap deals, older deals) only the tolerance applies.
+    assert recheck(DEAL, [obs(62)], cfg, NOW).valid
+    # A fall is never a rise: the old reason.
+    assert recheck(DEAL, [obs(55)], cfg, NOW, typical_low=85).reason == "continua a 55 €"
+
+
 def test_direct_only_expires_deals_with_connections():
     from dataclasses import replace
     connection = replace(DEAL, return_transfers=1)

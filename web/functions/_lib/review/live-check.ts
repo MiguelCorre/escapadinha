@@ -58,7 +58,16 @@ export interface CheckTarget {
   direct: boolean | null;
   transfers?: number | null;            // absent in snapshots made before they were exported
   return_transfers?: number | null;
-  live_check: { query: Record<string, string | number>; rules: Rules };
+  typical_low_eur?: number | null;      // the deal's stored typical low (D53's promotion rule)
+  live_check: { query: Record<string, string | number>; rules: Rules;
+    tolerance_pct?: number; threshold?: number; min_saving?: number };
+}
+
+const EPS = 0.005;
+
+/** recheck.still_promotion: `threshold` and `min_saving_eur` below the typical low. */
+function stillPromotion(price: number, typicalLow: number, threshold: number, minSaving: number): boolean {
+  return price <= typicalLow * (1 - threshold) + EPS && typicalLow - price >= minSaving - EPS;
 }
 
 interface Offer {
@@ -198,8 +207,18 @@ export function recheckPayload(deal: CheckTarget, payload: unknown, now: Date): 
   }
   // min(): the first of the cheapest, like Python's.
   const best = sameTrip.reduce((a, b) => (b.price < a.price ? b : a));
-  if (best.price > deal.price_eur) {
+  // D53: a rise within the tolerance holds while the price is still a promotion against the
+  // deal's typical low (recheck.recheck; a snapshot without the fields: tolerance 0).
+  const tolerance = deal.live_check.tolerance_pct ?? 0;
+  const rose = best.price > deal.price_eur + EPS;
+  if (best.price > deal.price_eur * (1 + tolerance) + EPS) {
     return { valid: false, price_eur: best.price, reason: `o preço subiu para ${eurPlain(best.price)}` };
+  }
+  const typicalLow = deal.typical_low_eur ?? null;
+  if (rose && typicalLow !== null && deal.live_check.threshold !== undefined && deal.live_check.min_saving !== undefined
+    && !stillPromotion(best.price, typicalLow, deal.live_check.threshold, deal.live_check.min_saving)) {
+    return { valid: false, price_eur: best.price,
+      reason: `o preço subiu para ${eurPlain(best.price)} e já não é promoção face ao preço habitual (${eurPlain(typicalLow)})` };
   }
   // detector.is_fresh: the day it was found (else the day we fetched it) within the window.
   const today = iso(now.getTime());
@@ -208,6 +227,10 @@ export function recheckPayload(deal: CheckTarget, payload: unknown, now: Date): 
   if (seen < since) {
     return { valid: false, price_eur: best.price,
       reason: `o preço foi visto pela última vez a ${numericDayMonth(seen)}, há mais de ${rules.max_offer_age_days} dias` };
+  }
+  if (rose) {
+    return { valid: true, price_eur: best.price,
+      reason: `subiu para ${eurPlain(best.price)}, dentro da tolerância de ${Math.round(tolerance * 100)}%` };
   }
   return { valid: true, price_eur: best.price, reason: `continua a ${eurPlain(best.price)}` };
 }

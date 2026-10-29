@@ -179,6 +179,12 @@ class DetectorConfig(BaseModel):
     low_confidence: Literal["medium", "high"] = "medium"   # `low` is below the maturity gate
     require_new_low: bool = True
     new_low_margin: float = Field(0.05, ge=0, lt=1)
+    # D53: a date stays valid while its latest price is at most this much above the price it
+    # was detected at (and still a promotion against its stored typical low); the same trip
+    # is flagged again only at least this much (and this many euros) below its last deal.
+    recheck_tolerance_pct: float = Field(0.05, ge=0, lt=1)
+    reflag_margin_pct: float = Field(0.05, ge=0, lt=1)
+    reflag_margin_eur: float = Field(2, ge=0)
     baseline_min_lead_days: int = Field(7, ge=0)
 
     @model_validator(mode="after")

@@ -3,6 +3,12 @@
 {% for line in detail_lines %}
 {{ line }}
 {% endfor %}
+{% if v.other_dates %}
+📆 Outras datas em promoção:
+{% for d in v.other_dates %}
+· {{ d.line }}
+{% endfor %}
+{% endif %}
 
 {% if v.found_on %}Preço por pessoa encontrado a {{ v.found_on }} e verificado a {{ v.checked_at }} (hora de Lisboa).{% else %}Preço por pessoa verificado a {{ v.checked_at }} (hora de Lisboa).{% endif %} Os preços mudam depressa.
 

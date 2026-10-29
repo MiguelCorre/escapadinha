@@ -274,12 +274,14 @@ def test_upgrade_from_real_old_schemas_gives_deals_the_baseline_columns(tmp_path
 
     conn = db.connect(path)
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 17
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 18
     fresh = db.connect(tmp_path / "fresh.db")
     db.init(fresh)
     assert _deal_columns(conn) == _deal_columns(fresh)
     deal, obs = db.get_deal(conn, 4)
     assert (deal.status, deal.baseline_median, deal.sample_size, obs.price) == ("rendered", 76, 6, 51)
+    # D53: the open deal was grouped into its route's promotion by the v18 backfill.
+    assert deal.promotion_id == db.open_promotion(conn, "LIS", "BCN").id
     assert (deal.baseline_span_days, deal.baseline_lowest_obs_id,
             deal.baseline_highest_obs_id) == (None, None, None)
     assert pipeline.baseline_range(conn, deal) is None      # the review shows the days only

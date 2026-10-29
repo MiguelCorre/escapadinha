@@ -76,6 +76,36 @@ function partnerLine(d: SnapshotDeal): string {
   return esc(`oferta especial do Aviasales: ${discountPercent(Math.round(p.discount_pct))} face à média deles (visto a ${lisbonTimestamp(p.seen_at)})`);
 }
 
+/** D53: the cards of one promotion (the route's open dates) together, cheapest first, under a
+ * header with "all" buttons when more than one date can take the same decision. A deal without
+ * `promotion` (an older snapshot) is its own group. */
+export function grouped(deals: SnapshotDeal[], render: (d: SnapshotDeal) => string): string {
+  const groups = new Map<string, SnapshotDeal[]>();
+  for (const d of deals) {
+    const key = d.promotion ? `p${d.promotion.id}` : `d${d.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), d]);
+  }
+  const out: string[] = [];
+  for (const ds of groups.values()) {
+    ds.sort((a, b) => a.price_eur - b.price_eur || a.id - b.id);
+    const group = ds[0].promotion;
+    if (ds.length > 1 && group) {
+      const d = ds[0];
+      const ids = ds.map((x) => x.id).join(",");
+      const open = ds.filter((x) => x.status === "rendered" || x.status === "approved");
+      const acts = [
+        ds.every((x) => x.status === "rendered") ? `<button type="button" class="btn primary" data-all="approve" data-ids="${ids}">Aprovar todas</button>` : "",
+        open.length ? `<button type="button" class="btn danger" data-all="reject" data-ids="${open.map((x) => x.id).join(",")}">Rejeitar todas</button>` : "",
+      ].filter(Boolean).join(" ");
+      out.push(`<div class="group" data-promotion="${esc(String(group.id))}"><h3>${esc(d.headline)} · ${ds.length} datas</h3>`
+        + `<p class="meta">Uma promoção, uma página: ${d.page_url ? link(d.page_url, d.page_url) : ""}. A data mais barata está no topo.</p>`
+        + (acts ? `<div class="actions">${acts}</div>` : "") + `</div>`);
+    }
+    out.push(...ds.map(render));
+  }
+  return out.join("");
+}
+
 function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number, now: Date): string {
   const mine = pending.filter((e) => e.deal_id === d.id);
   const flights = [d.airline, d.direct === true ? "voos diretos" : d.direct === false ? "com escala" : ""]
@@ -221,6 +251,9 @@ details summary { cursor: pointer; color: var(--pn-muted); font-size: 14px; padd
 pre.copy { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 ${stack(TOKENS.fontFamily.text)}; background: var(--pn-bg);
   border-radius: ${radius.none}; padding: 10px 12px; margin: 6px 0 8px; max-height: 260px; overflow: auto; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.group { margin: 24px 0 8px; padding: 12px 14px; border-left: 3px solid var(--pn-accent); }
+.group h3 { margin: 0; font-size: 18px; }
+.group .meta { margin: 4px 0 8px; }
 .actions input { flex: 1 1 100%; min-width: 0; padding: 11px 12px; border-radius: ${radius.md}; border: 1px solid var(--pn-ink);
   background: var(--pn-surface); color: var(--pn-ink); font: inherit; }
 .btn { flex: 1 1 auto; min-height: 44px; border: 1px solid var(--pn-ink); background: var(--pn-surface); color: var(--pn-ink);
@@ -249,13 +282,24 @@ async function copy(card, text, done) {
   try { await navigator.clipboard.writeText(text); say(card, "ok", done); }
   catch (e) { say(card, "bad", "Não foi possível copiar: seleciona o texto à mão."); }
 }
+async function decideAll(button) {
+  const act = button.dataset.all; const ids = button.dataset.ids.split(",");
+  if (act === "reject" && !confirm("Rejeitar as " + ids.length + " datas desta promoção?")) return;
+  button.disabled = true;
+  for (const id of ids) {
+    const b = document.querySelector('[data-deal="' + id + '"] .actions button[data-act="' + act + '"]');
+    if (b) { b.dataset.confirmed = "1"; b.click(); await new Promise((r) => setTimeout(r, 400)); }
+  }
+  button.disabled = false;
+}
 document.addEventListener("click", async (ev) => {
+  const all = ev.target.closest("button[data-all]"); if (all) return decideAll(all);
   const b = ev.target.closest("button[data-act]"); if (!b) return;
   const card = b.closest("[data-deal]"); const id = Number(card.dataset.deal); const act = b.dataset.act;
   if (act === "copy-whatsapp") return copy(card, card.querySelector("[data-whatsapp]").textContent, "Texto do WhatsApp copiado.");
   if (act === "copy-caption") return copy(card, card.querySelector("[data-caption]").textContent, "Legenda copiada.");
   if (act === "copy-link") return copy(card, card.dataset.link, "Link copiado.");
-  if (act === "reject" && !confirm("Rejeitar este deal?")) return;
+  if (act === "reject" && !b.dataset.confirmed && !confirm("Rejeitar este deal?")) return;
   const buttons = card.querySelectorAll(".actions button"); buttons.forEach((x) => x.disabled = true);
   const label = b.textContent; b.textContent = act === "check" || act === "approve" ? "A verificar preço…" : "A registar…";
   try {
@@ -288,7 +332,7 @@ export function renderPage(snapshot: Snapshot | null, { actor, pending, now }: {
     const age = (now.getTime() - Date.parse(snapshot.generated_at)) / 3_600_000;
     header = `<p class="meta">Fila de ${esc(lisbonTimestamp(snapshot.generated_at))} · entraste como ${esc(actor)}.</p>`
       + (age > STALE_HOURS ? `<p class="notice warn">A fila tem mais de ${STALE_HOURS} h: o pipeline pode estar parado. Vê o separador Actions no GitHub.</p>` : "");
-    const cards = (deals: SnapshotDeal[]) => deals.map((d) => card(d, pending, hours, now)).join("");
+    const cards = (deals: SnapshotDeal[]) => grouped(deals, (d) => card(d, pending, hours, now));
     const list = (deals: SnapshotDeal[]) => `<ul class="list">${deals.map(compact).join("")}</ul>`;
     main = [
       section("fila", "Por rever", snapshot.queue, cards(snapshot.queue),

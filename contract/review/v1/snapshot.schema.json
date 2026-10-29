@@ -168,6 +168,9 @@
                                 "description": "Last recheck by the pipeline (collection or `deal check`)."},
             "last_seen_price_eur": {"type": ["number", "null"]},
             "expired_reason": {"type": ["string", "null"]},
+            "tolerance_pct": {"type": "number", "minimum": 0, "maximum": 1, "description": "Optional (D53): a risen price holds while at most this share above `price_eur` and still a promotion against `typical_low_eur` (`threshold`, `min_saving`). Absent in older snapshots: 0 (any rise expires)."},
+            "threshold": {"type": "number", "minimum": 0, "maximum": 1, "description": "Optional (D53): the detector's promotion threshold the deal is still judged by."},
+            "min_saving": {"type": "number", "minimum": 0, "description": "Optional (D53): the detector's minimum saving in euros below the typical low (a setting, not a price)."},
             "source": {"type": "string", "description": "Optional (D47): the source `query` is for. The review Function prices Aviasales deals (travelpayouts) only; a deal from an airline's own site is left to the pipeline (automatic approval, or `deal approve` on the PC)."},
             "query": {
               "type": "object",
@@ -191,6 +194,17 @@
               },
               "description": "Same recheck rule as the pipeline: valid while the same departure and return dates are offered at the deal price or lower, within the route rules, found within max_offer_age_days."
             }
+          }
+        },
+        "promotion": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["id", "path", "dates"],
+          "description": "Optional (D53): the route's promotion this date belongs to (one page per promotion at `path`; `dates`: the ids of its open dates, cheapest first, this deal included). Both review pages group the cards by it. Null: a deal never grouped (detected before D53).",
+          "properties": {
+            "id": {"type": "integer", "minimum": 1},
+            "path": {"type": "string", "pattern": "^/promos/"},
+            "dates": {"type": "array", "items": {"type": "integer", "minimum": 1}}
           }
         },
         "review_note": {"type": ["string", "null"]},

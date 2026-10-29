@@ -32,12 +32,13 @@ from escapadinha.collector.travelpayouts import (
 )
 from escapadinha.config import Context, DetectorConfig
 from escapadinha.guides import load_guide
-from escapadinha.models import Deal, Observation, Post, Route, RouteRules
+from escapadinha.models import Deal, Observation, Post, Route, RouteRules, Promotion
 from escapadinha.photos import PhotoSourceError, PixabayClient, fetch_photo
 from escapadinha import probe
 from escapadinha.probe import results as probe_results
 from escapadinha.probe import wanted as probe_wanted
-from escapadinha.presentation import DealView, PhotoCredit, booking_url, build_deal_view
+from escapadinha.presentation import (DealView, OtherDate, PhotoCredit, booking_url,
+                                      build_deal_view, other_date)
 from escapadinha.recheck import Recheck, promotion_expiry, recheck
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, UnknownDeal, check_decision
 from escapadinha.renderer import SlideRenderer
@@ -583,16 +584,95 @@ def run_detect(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None
                                             since=now - timedelta(days=cfg.dedupe_days))
         found = detector.detect(offers, history, recent, cfg, route.price_cap_eur, now,
                                 cfg.max_deals_per_route, route.rules, taken=taken)
+        # D53: every candidate joins the route's open promotion (one per route), else opens it.
+        promotion_id = (promotion_for(conn, route.origin, route.destination, now)
+                        if found.candidates else None)
         deal_ids = [
             db.insert_deal(conn, observation_id=f.observation.id, rule=f.decision.rule,
                            baseline_median=f.baseline.median, sample_size=f.baseline.sample_size,
                            discount_pct=f.decision.discount_pct, threshold=cfg.threshold,
-                           **_deal_columns(f, cfg))
+                           promotion_id=promotion_id, **_deal_columns(f, cfg))
             for f in found.candidates
         ]
         open_offers = [o for o in offers if o.id not in taken]
         results.append(_summarise(route, open_offers, history, found, deal_ids, cfg, now))
     return run_id, results
+
+
+# --- promotions: one per route, the group of its dates (D53) ---------------------------
+
+PROMOTION_LIVE = ("approved", "published")       # a date the site shows (website.LIVE)
+REJECTED_ALL = "todas as datas foram rejeitadas"   # a promotion's closed_reason after rejections
+PROMOTION_OPEN = (*db.OPEN_STATUSES, "published")  # a date that keeps the promotion open
+
+
+def promotion_for(conn: sqlite3.Connection, origin: str, destination: str,
+                  now: datetime) -> int:
+    """The route's open promotion, opened now when there is none."""
+    found = db.open_promotion(conn, origin, destination)
+    return found.id if found else db.insert_promotion(conn, origin, destination, now)
+
+
+def current_price(deal: Deal, obs: Observation) -> float:
+    """What the trip costs as far as we know: the last recheck's price (a stored observation,
+    within the tolerance of D53) when there was one, else the price it was detected at."""
+    return obs.price if deal.last_seen_price is None else deal.last_seen_price
+
+
+def promotion_dates(conn: sqlite3.Connection, promotion_id: int,
+                    statuses: tuple[str, ...] = PROMOTION_LIVE, *,
+                    one_per_trip: bool = True) -> list[tuple[Deal, Observation]]:
+    """The promotion's dates in `statuses`, cheapest first by their current price (then the
+    oldest): the first is the lead, whose price heads the page, the card and the post. With
+    `one_per_trip` (the site, the posts) a trip two deals share (the dearer one survives a
+    bounce the cheaper one does not, D53) counts once, by its cheapest deal; the review pages
+    pass False and see every deal."""
+    dates = [(d, o) for d, o in db.promotion_deals(conn, promotion_id) if d.status in statuses]
+    dates.sort(key=lambda pair: (current_price(*pair), pair[0].id))
+    if not one_per_trip:
+        return dates
+    seen, out = set(), []
+    for d, o in dates:
+        trip = (o.departure_date, o.return_date)
+        if trip not in seen:
+            seen.add(trip)
+            out.append((d, o))
+    return out
+
+
+def promotion_lead(conn: sqlite3.Connection, deal: Deal) -> tuple[Deal, Observation] | None:
+    """The live date that heads `deal`'s promotion (None: the deal has no promotion, or none
+    of its dates is live)."""
+    if deal.promotion_id is None:
+        return None
+    dates = promotion_dates(conn, deal.promotion_id)
+    return dates[0] if dates else None
+
+
+def close_empty_promotions(conn: sqlite3.Connection, now: datetime) -> list[Promotion]:
+    """Every open promotion with no open date left closes now (D53), with the reason of the date
+    that closed last: pipeline-owned, like a recheck's expiry (D26). Run after anything that
+    changes a date's status (applied events, the recheck, the re-evaluation)."""
+    closed = []
+    for promotion in db.open_promotions(conn):
+        dates = db.promotion_deals(conn, promotion.id)
+        if any(d.status in PROMOTION_OPEN for d, _ in dates):
+            continue
+        if not dates:
+            continue                  # just opened, its deals not inserted yet
+        last = max(dates, key=lambda pair: (pair[0].last_checked_at or pair[0].reviewed_at
+                                            or pair[0].detected_at, pair[0].id))[0]
+        if all(d.status == "rejected" for d, _ in dates):
+            reason = REJECTED_ALL
+        elif last.status == "expired":
+            why = f": {last.expired_reason}" if last.expired_reason else ""
+            reason = f"todas as datas expiraram; última{why}" if len(dates) > 1 else \
+                f"a data expirou{why}"
+        else:
+            reason = "nenhuma data em aberto"
+        db.close_promotion(conn, promotion.id, at=now, reason=reason)
+        closed.append(db.get_promotion(conn, promotion.id))
+    return closed
 
 
 @dataclass(frozen=True)
@@ -863,12 +943,14 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
         if obs.run_id >= run_id or not route_latest:
             continue
         rules = route_for(ctx, conn, obs.route_key).rules
-        result = recheck(obs, route_latest, ctx.config.detector, now, rules=rules)
+        result = recheck(obs, route_latest, ctx.config.detector, now, rules=rules,
+                         typical_low=deal.baseline_median)
         db.record_recheck(conn, deal.id, valid=result.valid, latest_price=result.latest_price,
                           reason=result.reason, at=now)
         if not result.valid:
             _mark_expired_outputs(ctx, deal.id, result.reason, now)
         results.append((db.get_deal(conn, deal.id)[0], obs, result))
+    close_empty_promotions(conn, now)
     return results
 
 
@@ -899,6 +981,7 @@ def run_reevaluate(ctx: Context, conn: sqlite3.Connection,
         db.expire_deal(conn, deal.id, reason)
         _mark_expired_outputs(ctx, deal.id, reason, now)
         expired.append((db.get_deal(conn, deal.id)[0], obs, reason))
+    close_empty_promotions(conn, now)
     return expired
 
 
@@ -992,11 +1075,13 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     db.finish_run(conn, run_id, status="ok", n_requests=1, n_observations=len(fresh),
                   n_new=stored.new, error=None)
     now = now or db.utcnow()
-    result = recheck(obs, fresh, ctx.config.detector, now, rules=rules)
+    result = recheck(obs, fresh, ctx.config.detector, now, rules=rules,
+                     typical_low=deal.baseline_median)
     db.record_recheck(conn, deal_id, valid=result.valid, latest_price=result.latest_price,
                       reason=result.reason, at=now)
     if not result.valid:
         _mark_expired_outputs(ctx, deal_id, result.reason, now)
+        close_empty_promotions(conn, now)
     return db.get_deal(conn, deal_id)[0], result
 
 
@@ -1007,12 +1092,13 @@ def price_now(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     Stores nothing and changes no status, like the review Function (which has no database):
     a moved price refuses the approval, and the run's own recheck expires the deal (D26).
     """
-    _, obs = db.get_deal(conn, deal_id)
+    deal, obs = db.get_deal(conn, deal_id)
     try:
         fetched, rules = _fetch_trip_month(ctx, conn, obs)
     except Exception as exc:
         raise ReviewError(check_failure(exc)) from exc
-    return recheck(obs, fetched.observations, ctx.config.detector, now or db.utcnow(), rules=rules)
+    return recheck(obs, fetched.observations, ctx.config.detector, now or db.utcnow(), rules=rules,
+                   typical_low=deal.baseline_median)
 
 
 @dataclass(frozen=True)
@@ -1156,9 +1242,12 @@ def apply_review_events(ctx: Context, conn: sqlite3.Connection,
     """First step of every run: apply pending review events (D26). Never raises for a bad event.
     Approve events older than `review.approve_max_age_hours` are refused."""
     max_age = timedelta(hours=ctx.config.review.approve_max_age_hours)
-    return review_events.apply_pending(ctx.object_store, conn, now=now or db.utcnow(),
-                                       durable=not ctx.remote_store, approve_max_age=max_age,
-                                       plan_posts=_post_planner(ctx))
+    now = now or db.utcnow()
+    outcomes = review_events.apply_pending(ctx.object_store, conn, now=now,
+                                           durable=not ctx.remote_store, approve_max_age=max_age,
+                                           plan_posts=_post_planner(ctx))
+    close_empty_promotions(conn, now)       # D53: a rejected last date closes the promotion
+    return outcomes
 
 
 # --- posting queue (D32) --------------------------------------------------------
@@ -1168,6 +1257,12 @@ def _post_planner(ctx: Context) -> review_events.PlanPosts:
     cfg = ctx.config.posting
 
     def plan(conn: sqlite3.Connection, deal_id: int, now: datetime) -> list[tuple[str, datetime]]:
+        # D53: one post per promotion: a date joining a promotion that already has posts
+        # (queued or published) queues nothing; a cancelled post leaves the next date to try.
+        deal = db.get_deal(conn, deal_id)[0]
+        if deal.promotion_id is not None and any(
+                p.status in ("queued", "published") for p in db.promotion_posts(conn, deal.promotion_id)):
+            return []
         due = {"instagram": posting.next_slot(now, db.post_due_times(conn, "instagram"),
                                               slots=cfg.slots, max_per_day=cfg.max_per_day),
                "telegram": now}
@@ -1385,8 +1480,11 @@ def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
         max_check_age = timedelta(hours=cfg.max_check_age_hours)
         results, instagram_done = [], False
         for post in db.posts(conn, "queued"):
-            deal, obs = db.get_deal(conn, post.deal_id)
+            deal, obs = post_subject(conn, post)
             verdict = posting.verdict(post, deal, now=now, max_check_age=max_check_age)
+            closed = promotion_closed(conn, post)           # D53: the whole promotion is over
+            if closed is not None:
+                verdict = posting.Verdict(posting.VerdictAction.CANCEL, closed)
             if verdict.action is posting.VerdictAction.CANCEL:
                 db.settle_post(conn, post.id, "cancelled", at=now, reason=verdict.reason)
                 action, reason = posting.PostAction.CANCELLED, verdict.reason
@@ -1404,6 +1502,29 @@ def run_publish(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
             results.append(PostResult(db.get_post(conn, post.id), action, reason))
         _run_stories(ctx, conn, publishers, now, log)
     return results
+
+
+def promotion_closed(conn: sqlite3.Connection, post: Post) -> str | None:
+    """Why the post's promotion is closed (D53: no date left open), as the cancel reason the
+    queue shows; None while it is open or the post has no promotion."""
+    if post.promotion_id is None:
+        return None
+    promotion = db.get_promotion(conn, post.promotion_id)
+    if promotion.closed_at is None:
+        return None
+    if promotion.closed_reason == REJECTED_ALL:
+        return "A promoção foi rejeitada."
+    why = f": {promotion.closed_reason}" if promotion.closed_reason else ""
+    return f"A promoção expirou{why}."
+
+
+def post_subject(conn: sqlite3.Connection, post: Post) -> tuple[Deal, Observation]:
+    """What a post is about now (D53): the lead of its promotion (the cheapest live date, with
+    the other dates in its text) while the promotion has one; else the date that queued it,
+    whose status then decides the verdict (expired or rejected: cancelled)."""
+    deal, obs = db.get_deal(conn, post.deal_id)
+    lead = promotion_lead(conn, deal) if post.promotion_id is not None else None
+    return lead or (deal, obs)
 
 
 def _publish_one(ctx: Context, conn: sqlite3.Connection, publisher: posting.Publisher,
@@ -1855,13 +1976,23 @@ def low_price_links(ctx: Context, conn: sqlite3.Connection, lows: list[detector.
                     sum(1 for lp in lows if lp.observation.id not in urls))
 
 
+def other_dates(conn: sqlite3.Connection, deal: Deal) -> tuple[OtherDate, ...]:
+    """The other live dates of the deal's promotion (D53), cheapest first, for its caption and
+    post; nothing for an ungrouped deal."""
+    if deal.promotion_id is None:
+        return ()
+    return tuple(other_date(d, o) for d, o in promotion_dates(conn, deal.promotion_id)
+                 if d.id != deal.id)
+
+
 def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal,
               obs: Observation) -> tuple[DealView, Path | None]:
     """What a deal's slides and caption show (with its destination photo, if cached)."""
     route = route_for(ctx, conn, obs.route_key)
     credit, photo_path = _photo(ctx, conn, obs.destination)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
-                           destination_city=route.city_pt, photo=credit)
+                           destination_city=route.city_pt, photo=credit,
+                           other_dates=other_dates(conn, deal))
     return view, photo_path
 
 
@@ -1871,7 +2002,8 @@ def text_view(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
     route = route_for(ctx, conn, obs.route_key)
     return build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt,
-                           photo=PhotoCredit.from_photo(db.get_photo(conn, obs.destination), None))
+                           photo=PhotoCredit.from_photo(db.get_photo(conn, obs.destination), None),
+                           other_dates=other_dates(conn, deal))
 
 
 def deal_caption_text(ctx: Context, view: DealView) -> str:

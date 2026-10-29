@@ -26,7 +26,7 @@ from escapadinha.models import Deal, Observation
 from escapadinha.presentation import PhotoCredit, build_deal_view, seller_label, source_label
 from escapadinha.review import STATUS_PT, TABS
 from escapadinha.storage import db
-from escapadinha.website import is_public, promo_image_dir, promo_slug
+from escapadinha.website import is_public, promo_image_dir, promo_slug, promotion_path
 
 VERSION = 1
 KEY = "review/snapshot.json"
@@ -120,6 +120,14 @@ def baseline_json(r: pipeline.BaselineRange | None) -> dict | None:
             "highest_eur": r.highest.price, "highest_observation_id": r.highest.id}
 
 
+def _page_path(ctx: Context, conn: sqlite3.Connection, deal: Deal, origin_city: str,
+               city_pt: str) -> str:
+    """The deal's page: its promotion's (D53) when it has one, else its own."""
+    if deal.promotion_id is not None:
+        return promotion_path(ctx, conn, deal.promotion_id, origin_city, city_pt)
+    return f"/promos/{promo_slug(deal.id, origin_city, city_pt)}/"
+
+
 def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Deal,
           obs: Observation, store_keys: list[str]) -> dict:
     route = pipeline.route_for(ctx, conn, obs.route_key)
@@ -179,8 +187,8 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "affiliate_error": deal.affiliate_error,
         "caption": rendered.caption(deal),
         "whatsapp_text": pipeline.whatsapp_for(deal, view),     # approved / published (D32)
-        "page_url": (f"{ctx.config.site.base_url}/promos/"
-                     f"{promo_slug(deal.id, view.origin_city, view.destination_city)}/"
+        "page_url": (f"{ctx.config.site.base_url}"
+                     f"{_page_path(ctx, conn, deal, view.origin_city, view.destination_city)}"
                      if is_public(deal) else None),
         "slides": _slides(ctx, rendered, deal, store_keys),
         "live_check": {
@@ -191,12 +199,31 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
             "query": pipeline.live_check_query(ctx, obs, route.rules),
             "rules": {**route.rules.to_json(),
                       "max_offer_age_days": ctx.config.detector.max_offer_age_days},
+            # D53: a risen price holds within the tolerance while still a promotion against the
+            # deal's typical low (`typical_low_eur` above); optional, added within v1.
+            "tolerance_pct": ctx.config.detector.recheck_tolerance_pct,
+            "threshold": ctx.config.detector.threshold,
+            "min_saving": ctx.config.detector.min_saving_eur,
         },
         "review_note": deal.review_note,
         "reviewed_at": db.utc_iso(deal.reviewed_at),
         "published_at": db.utc_iso(deal.published_at),
         "post_url": deal.post_url,
+        # D53: the route's promotion this date belongs to, and its other open dates (cheapest
+        # first): both pages group the cards by it. Optional, added within v1; null: ungrouped.
+        "promotion": _promotion_json(ctx, conn, deal, view.origin_city, view.destination_city),
     }
+
+
+def _promotion_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, origin_city: str,
+                    city_pt: str) -> dict | None:
+    if deal.promotion_id is None:
+        return None
+    dates = pipeline.promotion_dates(conn, deal.promotion_id, pipeline.PROMOTION_OPEN,
+                                     one_per_trip=False)
+    return {"id": deal.promotion_id,
+            "path": promotion_path(ctx, conn, deal.promotion_id, origin_city, city_pt),
+            "dates": [d.id for d, _ in dates]}
 
 
 def build(ctx: Context, conn: sqlite3.Connection, now: datetime) -> dict:

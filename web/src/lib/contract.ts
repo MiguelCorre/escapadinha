@@ -161,6 +161,14 @@ export interface AlsoSeen {
   eur: number;
 }
 
+/** One page per promotion (D53): the lead item is the page, `dates` its live dates. */
+export interface PromotionGroup {
+  id: number;
+  path: string;
+  lead: boolean;
+  dates: number[];
+}
+
 export interface Promotion {
   id: number;
   route: string;
@@ -191,6 +199,12 @@ export interface Promotion {
   /** Its Instagram post once published (D36); absent in exports before the field existed. */
   post_url?: string | null;
   expired: { reason: string | null; latest: { obs: number; price: number } | null } | null;
+  /** D53: while live, the price the last recheck saw (within the tolerance of `offer.price`)
+   * on its own observation: shown as the price. Absent or null: the offer's price. */
+  latest?: { obs: number; price: number } | null;
+  /** D53: the route's promotion this date belongs to; absent or null in older exports and in
+   * the fixtures: the item is a page of its own. */
+  promotion?: PromotionGroup | null;
   images: { slides: string[]; thumb: string | null; og: string | null } | null;
 }
 

@@ -46,7 +46,7 @@ from escapadinha.presentation import (
 from escapadinha.storage import db
 from escapadinha.website import (
     DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, node,
-    origin_slug, ponte_path, promo_slug, public_deal_rows, redirects, route_slug,
+    origin_slug, ponte_path, promo_slug, promotion_path, public_deal_rows, redirects, route_slug,
 )
 
 VERSION = 1
@@ -244,17 +244,22 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
 
     deals = [(d, o) for d, o in public_deal_rows(conn)
              if o.route_key in keys and _in_window(d, now, cfg.site.expired_promotions_days)]
+    route_by_key = {r.key: r for r in all_routes}
     live = [(d, o) for d, o in deals if d.status in LIVE]
     deal_links = pipeline.website_links(ctx, conn, live, create=new_links) if live else {}
 
-    route_by_key = {r.key: r for r in all_routes}
     low_count = defaultdict(int)
     for items in kept.values():
         for lp in items:
             low_count[lp.observation.route_key] += 1
-    promo_count = defaultdict(lambda: [0, 0])
+    # Promotions per route (D53): a group of dates counts once, an ungrouped deal counts itself.
+    promo_sets: dict[str, tuple[set, set]] = defaultdict(lambda: (set(), set()))
     for d, o in deals:
-        promo_count[o.route_key][0 if d.status in LIVE else 1] += 1
+        promo_sets[o.route_key][0 if d.status in LIVE else 1].add(d.promotion_id or f"deal:{d.id}")
+    promo_count = defaultdict(lambda: [0, 0])
+    for key, (live_set, expired_set) in promo_sets.items():
+        promo_count[key] = [len(live_set), len(expired_set - live_set)]
+    groups = _promotion_groups(ctx, conn, deals, route_by_key)
 
     origin_codes = list(dict.fromkeys(
         [o for o in cfg.routes.origins if any(r.origin == o for r in all_routes)]
@@ -271,7 +276,8 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
         conn, all_routes, published_destination_slugs(ctx, conn))}
     promotions = sorted(deals, key=lambda p: (p[0].detected_at, p[0].id), reverse=True)
     files["promotions.json"] = {"version": VERSION, "promotions": [
-        _promotion(ctx, conn, d, o, route_by_key[o.route_key], deal_links.get(d.id))
+        _promotion(ctx, conn, d, o, route_by_key[o.route_key], deal_links.get(d.id),
+                   group=groups.get(d.promotion_id))
         for d, o in promotions]}
     for code in origin_codes:
         files[f"low-prices/{code}.json"] = {
@@ -498,13 +504,44 @@ def _latest_seen(conn: sqlite3.Connection, deal: Deal, o: Observation) -> dict |
     return {"obs": seen.id, "price": _eur(seen.price)} if seen else None
 
 
+def _promotion_groups(ctx: Context, conn: sqlite3.Connection,
+                      deals: list[tuple[Deal, Observation]], routes: dict[str, Route]) -> dict:
+    """D53: promotion id -> its page path, its lead (the cheapest live date, else the cheapest
+    exported date) and the ids of its live dates, cheapest first, among the exported deals."""
+    members: dict[int, list[tuple[Deal, Observation]]] = defaultdict(list)
+    for d, o in deals:
+        if d.promotion_id is not None:
+            members[d.promotion_id].append((d, o))
+    groups = {}
+    for pid, pairs in members.items():
+        by_price = sorted(pairs, key=lambda pair: (pipeline.current_price(*pair), pair[0].id))
+        live, trips = [], set()
+        for pair in by_price:                 # one date per trip: its cheapest live deal
+            trip = (pair[1].departure_date, pair[1].return_date)
+            if pair[0].status in LIVE and trip not in trips:
+                trips.add(trip)
+                live.append(pair)
+        lead, o = (live or by_price)[0]
+        route = routes[o.route_key]
+        groups[pid] = {"id": pid,
+                       "path": promotion_path(ctx, conn, pid, ctx.config.origin_name(o.origin),
+                                              route.city_pt),
+                       "lead": lead.id, "dates": [d.id for d, _ in live]}
+    return groups
+
+
 def _promotion(ctx: Context, conn: sqlite3.Connection, d: Deal, o: Observation, route: Route,
-               link: str | None) -> dict:
+               link: str | None, group: dict | None = None) -> dict:
     live = d.status in LIVE
     images = deal_image_paths(ctx, d)
+    own_path = f"/promos/{promo_slug(d.id, ctx.config.origin_name(o.origin), route.city_pt)}/"
     return {
         "id": d.id, "route": o.route_key, "status": d.status, "live": live,
-        "path": f"/promos/{promo_slug(d.id, ctx.config.origin_name(o.origin), route.city_pt)}/",
+        # D53: a grouped date shows on its promotion's page (its own old URL redirects there).
+        "path": group["path"] if group else own_path,
+        "promotion": None if group is None else {
+            "id": group["id"], "path": group["path"], "lead": d.id == group["lead"],
+            "dates": list(group["dates"])},
         "offer": _offer(o),
         "typical_low": None if d.baseline_median is None else _eur(d.baseline_median),
         "baseline_days": d.sample_size, "rule": d.rule,
@@ -521,10 +558,18 @@ def _promotion(ctx: Context, conn: sqlite3.Connection, d: Deal, o: Observation, 
         "also_seen": [{"source": a.source, "label": seller_label(a), "obs": a.id, "eur": _eur(a.price)}
                       for a in pipeline.also_seen(conn, o)] if live else [],
         "post_url": d.post_url if d.post_url and INSTAGRAM_POST.match(d.post_url) else None,
+        # D53: the last recheck's price while live (within the tolerance of the detected one),
+        # on its own stored observation: the page shows it instead of the detected price.
+        "latest": _latest_seen(conn, d, o) if live else None,
         "expired": None if live else {"reason": d.expired_reason,
                                       "latest": _latest_seen(conn, d, o)},
         "images": None if images is None else dict(zip(("slides", "thumb", "og"), images)),
     }
+
+
+def _is_lead(p: dict) -> bool:
+    """An item that is a page of its own: ungrouped, or the lead of its promotion (D53)."""
+    return p.get("promotion") is None or p["promotion"]["lead"]
 
 
 def _row_order(lp: detector.LowPrice):
@@ -629,8 +674,8 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
         "counts": {"origins": len(origin_codes),
                    "routes": len(files["routes.json"]["routes"]),
                    "destinations": len(files["destinations.json"]["destinations"]),
-                   "promotions_live": sum(p["live"] for p in promotions),
-                   "promotions_expired": sum(not p["live"] for p in promotions),
+                   "promotions_live": sum(p["live"] for p in promotions if _is_lead(p)),
+                   "promotions_expired": sum(not p["live"] for p in promotions if _is_lead(p)),
                    "low_prices": sum(len(files[f"low-prices/{c}.json"]["rows"])
                                      for c in origin_codes)},
     }
