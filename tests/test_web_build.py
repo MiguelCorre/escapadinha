@@ -551,9 +551,8 @@ def test_a_full_path_records_the_export_it_deployed_not_a_later_state(ctx):
     data and its day), not the database re-read later: an offer that went stale between the
     export and the record must still take the next run's full path, or the site would keep
     showing it."""
-    from datetime import date
     conn = pipeline.open_db(ctx)
-    store_offer(conn, 99, date.today() + timedelta(days=50))
+    store_offer(conn, 99, db.utcnow().date() + timedelta(days=50))
     exported_at = db.utcnow()
     export = site_data.build_export(ctx, conn, exported_at, new_links=False)
     [route] = [r for r in export.files["routes.json"]["routes"] if r["key"] == "LIS-LON"]

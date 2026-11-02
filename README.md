@@ -1378,6 +1378,10 @@ spacing, components (price block, card, tag, notice, …), photo treatment and t
 uv run pytest               # all tests (the 'browser' test renders real PNGs, ~3 s)
 uv run pytest -m "not browser"
 ```
+- The suite runs on a pinned clock (D54, `tests/clock.py`): `db.utcnow()` reads
+  2026-10-24 12:00 UTC at the start of the session plus the real time elapsed, so the tests'
+  fixed trip dates (November 2026) never age, whatever the real date. `test_clock.py` fails on
+  any other read of today's date in `src/` or `tests/`.
 - `tests/fixtures/prices_for_dates_LIS_LON.json` is **synthetic** and covers the edge cases.
 - `recorded_prices_for_dates_LIS_LON_2026-11.json` is a real response recorded on 2026-10-12.
 - The object store contract (`test_objects.py`) and the database sync (`test_sync.py`) run against

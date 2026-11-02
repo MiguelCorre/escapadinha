@@ -131,6 +131,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   Rule changes are measured first with `scripts/backtest_detector.py` (`backtest.py`: replay
   on a read-only copy, never the live file) and written up in `docs/research/`.
 - Every deal caption and CTA slide carries `presentation.DISCLOSURE`. Tests assert this.
+- Tests run on a pinned clock (D54): `tests/conftest.py` pins `db.utcnow()` through
+  `tests/clock.py` to `clock.ANCHOR` (2026-10-24 12:00 UTC) plus the time elapsed since the
+  session started, before collection, so the fixed trip dates in tests and fixtures (LIS-LON in
+  November 2026) never age. Code and tests read the wall clock only through `db.utcnow` (or a
+  `now` passed in), never `datetime.now()` or `date.today()` (`tests/test_clock.py`); write a
+  test's dates for the anchor.
 - `detector.py` stays pure (no I/O, no clock). Pass `now` in. Route rules (`RouteRules`) are
   passed in too; never read a global `direct_only` or nights range. The same for the collector
   (`PriceSource.fetch(…, rules=)`): the provider query comes only from

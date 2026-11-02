@@ -2,7 +2,18 @@ import boto3
 import pytest
 from moto import mock_aws
 
+import clock
 from escapadinha.storage.s3 import S3ObjectStore
+
+
+def pytest_configure(config):
+    """Pin the clock before collection, so module-level dates (`FIXTURE`'s found date, `NOW`)
+    read the same clock as the tests (D54, `clock.py`)."""
+    clock.pin()
+
+
+def pytest_unconfigure(config):
+    clock.unpin()
 
 
 @pytest.fixture
