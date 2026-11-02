@@ -3276,3 +3276,42 @@ so nothing has to be hosted.
   `comparable`, a two-engine run where Kayak walls on the first trip and Google Flights finishes
   the list, the per-engine pause kept on the next run, every engine paused → no browser, the
   pre-D49 state and file shapes, `ProbeConfig.engines` validation).
+
+## D54: The tests run on a pinned clock (2026-11-02)
+- **Problem:** on 2026-11-02 six tests failed on a clean `master` with no code change
+  (`test_collect_and_detect`, the reevaluation of young typical lows, `test_page_and_queue`, the
+  snapshot from queue to published, the long-haul route end to end, the site export's typical
+  lows). They mixed fixed trip dates (the departures of `seed_history` and `_seed_tyo` from
+  2026-11-01, the synthetic API fixture's from 11-06 to 11-27, `NOV`/`DEC` in
+  `test_reevaluation.py`) with the real clock (`fetched_at` = `db.utcnow()` minus n days,
+  `FIXTURE`'s found date = yesterday). As November went on, the oldest seeded days' lead fell
+  under `baseline_min_lead_days` (7, D44) and left the baseline (22 days → 21, "6 de 10 dias" →
+  "4"); by December the departures would be in the past and most LIS-LON tests would fail.
+- **Decision:** `tests/conftest.py` pins the clock in `pytest_configure`, before collection, so
+  module-level dates (`FIXTURE`'s found date, the `NOW`s) read it too: `db.utcnow()` returns
+  `clock.ANCHOR`, 2026-10-24 12:00 UTC, plus the real (monotonic) time elapsed since the session
+  started, so time still moves and events keep their real order. `tests/clock.py` swaps the
+  function in every `escapadinha` module that took `utcnow` by name (the collectors, the object
+  stores, `photos`). No code changed: every clock in `src/` already went through `db.utcnow` (or
+  a `now` passed in).
+- **The anchor:** measured by running the whole suite with the anchor at noon UTC on each of
+  several days: 2026-10-22 to 10-28 pass. 10-20 fails `test_auto_review.py`'s run-step tests
+  (their fixed `NOW`, 10-24 12:00, sees the collected offer as older than `max_offer_age_days`);
+  10-30 fails the reevaluation and long-haul tests (the seeded leads again). 10-24 12:00 is that
+  `NOW`, two days inside either end.
+- **Alternative not taken:** shifting the seeded and fixture dates relative to today. The API
+  fixture would have to be rewritten on the fly (departures, returns, links) as well as the
+  three seeds, and the tests rely on all of a route's dates sitting in one month (November's
+  typical low): dates that move with today would cross a month boundary on some days only.
+- **Rule:** code and tests read the wall clock only through `db.utcnow` (or a `now` passed in);
+  `tests/test_clock.py` fails on any `datetime.now()`, `datetime.utcnow()`, `datetime.today()`
+  or `date.today()` in `src/` or `tests/` other than `db.utcnow`'s own (`test_web_build.py` had
+  one `date.today()`, now `db.utcnow().date()`). A test that needs another instant passes `now=`
+  as before; new test dates are written for the anchor. Moving the anchor is measured the same
+  way, over the whole suite.
+- **Checked:** with time-machine faking every Python clock read (a scratch plugin; not a
+  dependency), the whole suite passes with the real date at 2026-12-20, and the six plus
+  `test_auto_review.py` at 2026-11-30 and 2027-03-01. Without the pin, the same subset passes
+  at 2026-10-24 and 14 tests fail at 2026-11-30.
+- **Tests:** `tests/test_clock.py`: every module reads the pinned clock; the only wall-clock read
+  in `src/` and `tests/` is `db.utcnow`'s.
