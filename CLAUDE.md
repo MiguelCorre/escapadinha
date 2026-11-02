@@ -99,10 +99,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   committed fixtures with `escapadinha export fixtures` (read-only DB copy, anonymous links and
   credits). Fixtures are test data (`meta.fixture: true`), never deployed. Hand-edit a committed
   fixture only to add an additive field, with the value a regeneration would write, when
-  regenerating would drop states the web tests build from (D34's meta fields, D37's
-  `affiliates.json`, D40's `meta.detector.min_dates_per_day` + `min_baseline_days: 7`); say so
-  in the DECISIONS entry. Until baselines mature the export has no low prices, so the full
-  regeneration waits for #52 (the months inside are still the pre-D40 export).
+  regenerating would drop states the web tests build from (as D34 and D37 did); say so in the
+  DECISIONS entry. Today's fixtures are an untouched export of run 1711 (#52, D40), real
+  promotion groups (D53) and "Também visto" prices (D47) included; `tests/test_site_data.py`
+  refuses a typical low on fewer than `min_baseline_days` days. The web tests read their
+  expected values off the fixture JSON by hand: a regeneration repins them.
 - Two tiers (D24): **low prices** (`low_threshold`, automatic on route pages, mature baseline
   only) and **promotion candidates** (`threshold` AND `min_saving_eur`, become deals for review).
   Only candidates create deals; the home page shows promotions only.

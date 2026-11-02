@@ -8,7 +8,7 @@ export function distDir(): string {
   return inject("distDir");
 }
 
-/** Site paths ("/", "/promos/3-lisboa-paris/") of every built HTML page. */
+/** Site paths ("/", "/promos/397-lisboa-paris/") of every built HTML page. */
 export function builtPages(): string[] {
   return builtPagesIn(distDir());
 }

@@ -2,11 +2,12 @@
 // and attribute values, e.g. <title> and og:description) must sit in or under an element that
 // references what it comes from, and equal one of that reference's amounts in the contract:
 // - data-obs="<id>": the price of that stored observation (offers, expiry rechecks, low prices,
-//   calendar days);
+//   calendar days, other sources' prices of the same trip, D47);
 // - data-deal="<id>": the promotion's offer price, its typical low, or its expiry recheck price;
 // - data-route="<KEY>": a month's typical low or average on that route, or its cheapest offer.
 // The nearest element carrying any of these attributes decides. Mirrors tests/test_traceability.py.
 import { describe, expect, it } from "vitest";
+import { pagePromotions } from "../src/lib/promotion";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import { builtPages, pageSource } from "./html";
 import { traceableAmounts, untraceable } from "./trace";
@@ -24,12 +25,17 @@ describe("traceability of prices", () => {
       problems.push(...result.problems.map((p) => `${path}: ${p}`));
     }
     expect(problems).toEqual([]);
-    // The checker saw the prices it guards: 2 on the home page, 11 on the live promotion (title,
-    // OpenGraph and Twitter title and descriptions, the one-line summary (D46), price, typical
-    // low, the JSON-LD offer price and description), 3 on the expired one (old price, recheck
-    // price, typical low).
+    // The checker saw the prices it guards: one per card on the home page; on a live promotion 11
+    // (title, OpenGraph and Twitter title and descriptions, the one-line summary (D46), price,
+    // typical low, the JSON-LD offer price and description) and one per other source (D47); on an
+    // expired one its old price, its typical low and the recheck's price when the reason names it.
+    const pages = pagePromotions(data);
+    const expected = pages.length + pages.reduce((n, p) => n + (p.live
+      ? 11 + (p.also_seen?.length ?? 0)
+      : 2 + (p.expired?.reason?.includes("€") ? 1 : 0)), 0);
     const promos = ["/", ...[...checked.keys()].filter((p) => p.startsWith("/promos/"))];
-    expect(promos.reduce((n, p) => n + checked.get(p)!, 0)).toBe(16);
+    expect(promos.reduce((n, p) => n + checked.get(p)!, 0)).toBe(expected);
+    expect(expected).toBeGreaterThan(100);              // the fixtures' 29 promotion pages (#52)
     // Route pages: at least every calendar day, typical low and low price (two prices each).
     const routes = data.routes.routes;
     const lows = Object.values(data.lowPrices).reduce((n, f) => n + f.rows.length, 0);
@@ -40,16 +46,16 @@ describe("traceability of prices", () => {
     // Origin pages show every route's cheapest price.
     const onOriginPages = data.origins.origins.reduce((n, o) => n + checked.get(o.path)!, 0);
     expect(onOriginPages).toBe(routes.filter((r) => r.cheapest && r.status === "active").length);
-    // The explorer shows Lisboa's destinations: price and typical low each (D31).
-    expect(checked.get("/explorar/")).toBe(4);
+    // The explorer shows Lisboa's destinations (Madeira only): price and typical low each (D31).
+    expect(checked.get("/explorar/")).toBe(2);
   });
 
   it("the checker rejects a price without a reference, with a wrong one, or an unknown id", () => {
     const bad = `<html><body>
       <p>Desde 86 €</p>
-      <p data-obs="2792">Desde 87 €</p>
+      <p data-obs="37258">Desde 87 €</p>
       <p data-deal="999">Desde 86 €</p>
-      <p data-deal="3"><span>Habitual: 153,50&nbsp;€</span></p>
+      <p data-deal="397"><span>Habitual: 111,50&nbsp;€</span></p>
       <p>Por <b>99<span>&nbsp;€</span></b></p>
     </body></html>`;
     const { checked, problems } = untraceable(bad, amounts);
@@ -61,12 +67,12 @@ describe("traceability of prices", () => {
     const ld = (attrs: string, offer: object) =>
       `<script type="application/ld+json" ${attrs}>${JSON.stringify({ "@type": "Trip", offers: { "@type": "Offer", ...offer } })}</script>`;
     const html = `<html><head>
-      ${ld('data-obs="7226"', { price: 69 })}
-      ${ld("", { price: 69 })}
-      ${ld('data-obs="7226"', { price: 70 })}
-      ${ld('data-obs="7226"', { price: "69" })}
-      ${ld('data-obs="999999"', { price: 69 })}
-      ${ld('data-obs="7226"', { description: "Por 70 € ida e volta" })}
+      ${ld('data-obs="71428"', { price: 58 })}
+      ${ld("", { price: 58 })}
+      ${ld('data-obs="71428"', { price: 59 })}
+      ${ld('data-obs="71428"', { price: "58" })}
+      ${ld('data-obs="999999"', { price: 58 })}
+      ${ld('data-obs="71428"', { description: "Por 59 € ida e volta" })}
     </head><body></body></html>`;
     const { checked, problems } = untraceable(html, amounts);
     expect(checked).toBe(6);

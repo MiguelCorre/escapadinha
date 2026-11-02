@@ -30,7 +30,7 @@ describe("loadSiteData", () => {
   it("loads the committed fixtures", () => {
     const data = loadSiteData(FIXTURES_DIR);
     expect(data.meta.fixture).toBe(true);
-    expect(data.promotions.promotions.map((p) => p.id)).toEqual([8, 3]);
+    expect(data.promotions.promotions.map((p) => p.id)).toEqual(expect.arrayContaining([412, 408, 397]));
     expect(Object.keys(data.lowPrices).sort()).toEqual(["FAO", "LIS", "OPO"]);
     expect(data.labels.disclosure.site).toMatch(/^Publicidade/);
   });

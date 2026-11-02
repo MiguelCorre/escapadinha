@@ -544,6 +544,18 @@ def test_committed_fixtures_validate_and_are_anonymous():
     assert sum(p.stat().st_size for p in FIXTURES.rglob("*.json")) < 100_000
 
 
+def test_committed_fixtures_have_only_mature_typical_lows():
+    """The fixtures are a real export under D40's rules (#52), never hand-edited months: every
+    typical low rests on at least `min_baseline_days` counted days, and a month with too few
+    days next to one with a typical low is still there for the web tests."""
+    min_days = read(FIXTURES, "meta.json")["detector"]["min_baseline_days"]
+    months = [m for r in read(FIXTURES, "routes.json")["routes"] for m in r["months"]]
+    young = [m for m in months if m["typical_low"] is not None and m["days"] < min_days]
+    assert young == []
+    assert any(m["typical_low"] is not None for m in months)
+    assert any(m["typical_low"] is None and m["days"] > 0 for m in months)
+
+
 @respx.mock
 def test_fixtures_come_from_a_read_only_database_and_are_anonymous(ctx, tmp_path):  # noqa: F811
     mock_links()

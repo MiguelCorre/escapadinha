@@ -33,6 +33,7 @@ export function traceableAmounts(data: SiteData): Amounts {
       add(a.obs, p.latest.obs, p.latest.price);
       add(a.deal, p.id, p.latest.price);
     }
+    for (const seen of p.also_seen ?? []) add(a.obs, seen.obs, seen.eur);   // D47: "Também visto"
   }
   for (const r of data.routes.routes) {
     add(a.route, r.key, null);

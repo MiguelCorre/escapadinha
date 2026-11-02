@@ -2250,6 +2250,23 @@ so nothing has to be hosted.
   on 4–6 days under a meta that asks for 7 (test data, never deployed). The full regeneration
   waits for mature baselines: #52, which also adds a check that every fixture typical low has
   `min_baseline_days` days.
+- **Fixtures regenerated (#52, 2026-11-02):** `contract/site/v1/fixtures/` is now exactly what
+  `escapadinha export fixtures` writes from a read-only copy of the bucket's database (generation
+  549, export of run 1711, 2026-11-02 16:49 UTC); no hand edit is left (`meta.detector` from
+  config, `demand` the real Eurostat figures, D45). Ten routes on three origins: 11 low prices
+  (Lisboa 5, all Madeira; Porto 6, Paris and Milão; Faro none), every typical low on 7 to 24
+  counted days next to months "ainda sem dados" (`test_committed_fixtures_have_only_mature_typical_lows`
+  refuses a younger one), 2 live promotions (412 Porto → Milão, 408 Porto → Paris heading a D53
+  group whose five other dates expired) and 27 expired pages, "Também visto" prices (D47) and a
+  priced ponte (Carnaval 2027 from Porto). The web tests read their values off the new JSON
+  (live 412, expired 397 Lisboa → Paris (Beauvais), LIS-PAR's months, OPO-MIL's low prices,
+  the Paris hub ordered OPO then LIS), counts that grew with the data are computed from it, and
+  each test keeps what it covered; a priced ponte page, D47's comparison prices and a real D53
+  group on a route page are new. Lisboa now has one explorer destination, so the order by price
+  is left to `web/test/explorer.test.ts`. The real data showed two gaps: the web traceability
+  checker did not know `also_seen` prices (`web/test/trace.ts` now does, as the export guard
+  already did) and route pages and destination hubs still drew one card per date (D53 addendum).
+  Lighthouse measures `/promos/412-porto-milao/` and `/promos/397-lisboa-paris/`.
 - **Tests:** detector (the dates rule, 10 days, the span, 7 days for low prices and the price-cap
   path, the extreme daily lows, the config's nesting); `run_detect` stores the range; the schema
   upgrade; the snapshot, the local page's JSON and card, the Function's card; the export (6
@@ -2664,7 +2681,7 @@ so nothing has to be hosted.
 - **Fixtures:** the committed `routes.json` and `meta.json` were hand-edited (CLAUDE.md's
   additive-field rule) to the value a regeneration writes: `demand: null` on every route (the
   fixture database has no Eurostat data) and `meta.demand.thin_pax_month: 5000`; the full
-  regeneration still waits for #52. `web/test/synthetic-data.ts` gives three routes in four a
+  regeneration (#52, D40) since brought the real figures. `web/test/synthetic-data.ts` gives three routes in four a
   figure (thin and seasonal ones among them), so the scale build exercises the notes and the
   order.
 - **Rejected:** the ticket's "6 or 3 months read per route by the collector" (the plan stays the
@@ -2873,6 +2890,14 @@ so nothing has to be hosted.
   group export, counts), `tests/test_posting.py` (no second post, the lead's text, the close),
   the schema upgrade tests (v18 columns, the backfilled promotion), `web/test/review/page.test.ts`
   (the grouped page), `web/test/promotion-group.test.ts`.
+- **Addendum (#52, 2026-11-02): one card per promotion on route pages and destination hubs too.**
+  Only the home page used `pagePromotions`; `/voos/<rota>/` and `/destinos/<destino>/` still
+  drew every item, so a promotion's expired dates showed as "Expirada" cards linking to its live
+  page (Porto → Paris: five of them) and a live member would have had a card of its own. Both
+  pages now take the leads from `pagePromotions` and pass `promotionDates` ("2 datas a este
+  preço ou perto"); a route page still leaves every live date's offer out of its low prices.
+  Found by the regenerated fixtures, which carry a real group; `web/test/route-pages.test.ts`
+  checks the Porto → Paris page.
 
 ## D52: The stay length that makes sense for each destination (2026-10-28)
 - **Miguel's decision (2026-10-28):** promotions respect the stay that makes sense for the
