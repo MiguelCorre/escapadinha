@@ -904,7 +904,10 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
   database, opened read-only and copied into memory. Booking links become
   `https://example.com/parceiro/<sub_id>`, photographers' names a placeholder. When no deal was
   approved yet, the copy marks the newest deal live and an expired one as approved before it
-  expired, so both promotion states exist (`meta.fixture: true`: never deploy them).
+  expired, so both promotion states exist (`meta.fixture: true`: never deploy them). The
+  committed set is an untouched export of run 1711 (2026-11-02, #52): `store pull` (or a copy
+  of the bucket's database) first, then the command above, then repin the web tests that read
+  values off the fixture JSON.
 
 ### The Astro package `web/` (DECISIONS D28)
 

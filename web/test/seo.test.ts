@@ -14,8 +14,8 @@ import { jsonLd, jsonLdErrors } from "./jsonld";
 import { traceableAmounts } from "./trace";
 
 const BASE = "https://pontonomada.pt";
-const LIVE = "/promos/8-lisboa-madeira/";
-const EXPIRED = "/promos/3-lisboa-paris/";
+const LIVE = "/promos/412-porto-milao/";
+const EXPIRED = "/promos/397-lisboa-paris/";
 const ITINERARY = "/roteiros/paris-em-3-dias/";
 const TIP = "/dicas/dica-de-teste/";
 const WEB = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -73,7 +73,8 @@ describe("sitemap and robots", () => {
     const urls = sitemapUrls();
     expect(urls).toContain(BASE + LIVE);
     expect(urls).not.toContain(BASE + EXPIRED);
-    expect(urls.filter((u) => u.includes("/pontes/"))).toEqual([]);   // no fixture trip fits a ponte (D31)
+    // One fixture trip fits an upcoming ponte (Porto to Milão in Carnaval 2027, D31): only that page.
+    expect(urls.filter((u) => u.includes("/pontes/"))).toEqual([`${BASE}/pontes/carnaval-2027/porto/`]);
     expect(urls.some((u) => u.includes("404"))).toBe(false);
     expect(urls.some((u) => u.includes("rascunho"))).toBe(false);
     for (const p of ["/", "/explorar/", "/destinos/paris/", "/voos/lisboa-paris/", "/partidas/lisboa/",
@@ -118,7 +119,7 @@ describe("structured data (JSON-LD)", () => {
     expect(jsonLdErrors({ type: "BreadcrumbList", data: crumbs })).toEqual([]);
     expect(jsonLdErrors({ type: "BreadcrumbList", data: { ...crumbs, numberOfItems: 2 } })).not.toEqual([]);
     const trip = jsonLd(page(LIVE)).find((b) => b.type === "Trip")!.data;
-    expect(jsonLdErrors({ type: "Trip", data: { ...trip, offers: { ...trip.offers, price: "69" } } })).not.toEqual([]);
+    expect(jsonLdErrors({ type: "Trip", data: { ...trip, offers: { ...trip.offers, price: "58" } } })).not.toEqual([]);
   });
 
   it("the home page says who we are: WebSite and Organization", () => {
@@ -132,19 +133,19 @@ describe("structured data (JSON-LD)", () => {
     expect(jsonLd(doc).map((b) => b.type).sort()).toEqual(["BreadcrumbList", "Trip"]);
     const block = jsonLd(doc).find((b) => b.type === "Trip")!;
     const promotion = data.promotions.promotions.find((p) => p.path === LIVE)!;
-    // Read off the fixture by hand: obs 7226, 69 €, LIS → FNC, 31 Oct to 3 Nov 2026.
-    expect(block.data.offers.price).toBe(69);
-    expect(block.el.getAttribute("data-obs")).toBe("7226");
+    // Read off the fixture by hand: obs 71428, 58 €, OPO → MIL (Malpensa), 12 to 15 Feb 2027.
+    expect(block.data.offers.price).toBe(58);
+    expect(block.el.getAttribute("data-obs")).toBe("71428");
     expect(block.el.getAttribute("data-deal")).toBe(String(promotion.id));
     expect(block.data.offers.url).toBe(BASE + LIVE);
-    expect(block.data.tripOrigin).toEqual({ "@type": "Airport", iataCode: "LIS", name: "Lisboa" });
-    expect(block.data.itinerary.iataCode).toBe("FNC");
+    expect(block.data.tripOrigin).toEqual({ "@type": "Airport", iataCode: "OPO", name: "Porto" });
+    expect(block.data.itinerary.iataCode).toBe("MXP");
     expect(block.data.subTrip.map((t: any) => [t.name, t.departureTime, t.tripOrigin.iataCode, t.itinerary.iataCode]))
-      .toEqual([["Ida", "2026-10-31", "LIS", "FNC"], ["Regresso", "2026-11-03", "FNC", "LIS"]]);
+      .toEqual([["Ida", "2027-02-12", "OPO", "MXP"], ["Regresso", "2027-02-15", "MXP", "OPO"]]);
     // The same amount is what the page shows under the same observation.
     const amounts = traceableAmounts(data);
-    expect(amounts.obs.get(7226)!.has(6900)).toBe(true);
-    expect(text(doc.querySelector(`[data-deal="${promotion.id}"]`)!)).toContain(eur(69));
+    expect(amounts.obs.get(71428)!.has(5800)).toBe(true);
+    expect(text(doc.querySelector(`[data-deal="${promotion.id}"]`)!)).toContain(eur(58));
   });
 
   it("an expired promotion has no Trip or Offer", () => {
@@ -172,7 +173,7 @@ describe("structured data (JSON-LD)", () => {
       [2, "Paris", "/destinos/paris/"], [3, "Lisboa → Paris", "/voos/lisboa-paris/"]]);
     expect(trail(ITINERARY)).toEqual([[1, "Roteiros", "/roteiros/"], [2, "Paris em 3 dias (roteiro de teste)", ITINERARY]]);
     expect(trail(TIP)).toEqual([[1, "Dicas", "/dicas/"], [2, "Dica de teste para as páginas do site", TIP]]);
-    expect(trail(LIVE)).toEqual([[1, "Promoções", "/"], [2, "Lisboa → Madeira", LIVE]]);
+    expect(trail(LIVE)).toEqual([[1, "Promoções", "/"], [2, "Porto → Milão", LIVE]]);
     const pages = new Set(builtPages());
     for (const path of htmlPages()) {
       for (const b of jsonLd(page(path)).filter((x) => x.type === "BreadcrumbList")) {

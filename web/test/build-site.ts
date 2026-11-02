@@ -70,7 +70,7 @@ export default function setup(project: TestProject) {
   Object.assign(member, { id: GROUP_MEMBER_ID, status: "approved", post_url: null, images: null,
     booking_link: GROUP_MEMBER_LINK, also_seen: [] });
   Object.assign(member.offer, { obs: GROUP_MEMBER_OBS, price: GROUP_MEMBER_PRICE,
-    departure: "2026-11-07", return: "2026-11-10", found_date: "2026-10-12" });
+    departure: "2027-02-19", return: "2027-02-22", found_date: "2026-11-01" });
   member.latest = { obs: GROUP_MEMBER_LATEST_OBS, price: GROUP_MEMBER_LATEST_PRICE };   // rose 1 € since
   const group = { id: 1, path: lead.path, lead: false, dates: [lead.id, member.id] };
   lead.promotion = { ...group, lead: true };

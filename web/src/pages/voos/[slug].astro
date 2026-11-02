@@ -19,7 +19,7 @@ import PromotionCard from "../../components/PromotionCard.astro";
 import type { Route } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { eur, nights, numericDate, shortDate } from "../../lib/format";
-import { promotionView } from "../../lib/promotion";
+import { pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { demandView, routeLowPrices, rulesText, typicalLowRule } from "../../lib/routes";
 
 export const getStaticPaths = (() => {
@@ -37,10 +37,13 @@ interface Props {
 const { route } = Astro.props;
 const origin = data.origins.origins.find((o) => o.iata === route.origin)!;
 const destination = data.destinations.destinations.find((d) => d.code === route.destination)!;
-const promotions = data.promotions.promotions.filter((p) => p.route === route.key);
+// D53: one card per promotion (its lead date), as on the home page; every live date's offer is
+// left out of the low prices, since its promotion page lists it.
+const promotions = pagePromotions(data).filter((p) => p.route === route.key);
 const live = promotions.filter((p) => p.live);
 const expired = promotions.filter((p) => !p.live);
-const lows = routeLowPrices(data, route, new Set(live.map((p) => p.offer.obs)));
+const liveDates = data.promotions.promotions.filter((p) => p.live && p.route === route.key);
+const lows = routeLowPrices(data, route, new Set(liveDates.map((p) => p.offer.obs)));
 const det = data.meta.detector;
 const cheapest = route.cheapest;
 const dormant = route.status === "dormant";
@@ -96,7 +99,7 @@ const demand = demandView(route, data.meta.demand);
     <section class="mt-2xl" aria-labelledby="titulo-promocoes">
       <h2 id="titulo-promocoes" class="font-display text-headline">Promoções ativas</h2>
       <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
-        {live.map((p) => <PromotionCard promotion={p} view={promotionView(data, p)} />)}
+        {live.map((p) => <PromotionCard promotion={p} view={promotionView(data, p)} dates={promotionDates(data, p).length} />)}
       </div>
     </section>
   )}

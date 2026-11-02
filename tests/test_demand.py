@@ -341,8 +341,9 @@ def test_the_export_carries_each_routes_demand_and_the_thin_threshold(ctx, tmp_p
         "months": [{"month": m, "pax": pax} for m, pax in months]}
     assert by_key["LIS-PAR"]["demand"] is None
     assert read(out, "meta.json")["demand"] == {"thin_pax_month": ctx.config.demand.thin_pax_month == 5000 and 5000}
-    # The committed fixtures were hand-edited to the value a regeneration writes (D45).
+    # The committed fixtures come from the real database (#52): its routes carry Eurostat figures.
     fixtures = Path(__file__).resolve().parents[1] / "contract" / "site" / "v1" / "fixtures"
-    assert all("demand" in r and r["demand"] is None
-               for r in json.loads((fixtures / "routes.json").read_text("utf-8"))["routes"])
+    fixture_routes = json.loads((fixtures / "routes.json").read_text("utf-8"))["routes"]
+    assert all("demand" in r for r in fixture_routes)
+    assert any(r["demand"] and r["demand"]["pax_month"] > 0 for r in fixture_routes)
     assert json.loads((fixtures / "meta.json").read_text("utf-8"))["demand"] == {"thin_pax_month": 5000}

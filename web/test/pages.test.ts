@@ -1,23 +1,29 @@
 // The site built from the committed fixtures: what a visitor sees on the home page and on a live
 // and an expired promotion page. Expected values are read off the fixture JSON by hand
-// (promotion 8 = live LIS-FNC, promotion 3 = expired LIS-PAR; base_url pontonomada.pt).
+// (promotion 412 = live OPO-MIL, promotion 397 = expired LIS-PAR; base_url pontonomada.pt; the
+// data's times are in November, when Lisbon time is UTC).
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fixtureImages, placeholderSvg } from "../src/lib/fixture-images";
+import { pagePromotions } from "../src/lib/promotion";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import { brokenLinks, builtPages, distDir, page, text } from "./html";
 
 const BASE = "https://pontonomada.pt";
-const LIVE = "/promos/8-lisboa-madeira/";
-const EXPIRED = "/promos/3-lisboa-paris/";
+const LIVE = "/promos/412-porto-milao/";
+const EXPIRED = "/promos/397-lisboa-paris/";
 const SITE_DISCLOSURE = "Publicidade: os botões de reserva são links de afiliado.";
 
 describe("built pages", () => {
   it("are the home page, one page per promotion, the explorer and the ponte pages", () => {
+    const data = loadSiteData(FIXTURES_DIR);
     const promos = builtPages().filter((p) => p.startsWith("/promos/"));
-    expect(promos.sort()).toEqual([EXPIRED, LIVE].sort());
-    const pontes = loadSiteData(FIXTURES_DIR).pontes.pontes.flatMap((p) => p.origins.map((o) => o.path));
+    // One page per promotion (D53): the dates grouped under another item's page have none.
+    expect(promos.sort()).toEqual(pagePromotions(data).map((p) => p.path).sort());
+    expect(promos).toEqual(expect.arrayContaining([LIVE, EXPIRED]));
+    expect(promos.length).toBeLessThan(data.promotions.promotions.length);
+    const pontes = data.pontes.pontes.flatMap((p) => p.origins.map((o) => o.path));
     expect(builtPages().filter((p) => p.startsWith("/pontes/")).sort()).toEqual(pontes.sort());
     expect(builtPages()).toEqual(expect.arrayContaining(["/", "/404.html", "/explorar/"]));
   });
@@ -62,22 +68,23 @@ describe("home page", () => {
   const home = () => page("/");
 
   it("features the live promotion with its price block", () => {
-    const card = home().querySelector(`[data-deal="8"]`)!;
+    const card = home().querySelector(`[data-deal="412"]`)!;
     expect(card.querySelector(`a[href="${LIVE}"]`)).not.toBeNull();
-    expect(text(card)).toContain("Lisboa → Madeira");
-    expect(text(card.querySelector('[data-obs="7226"]')!)).toBe("69 €");
-    expect(text(card)).toContain("−32%");
-    expect(text(card)).toContain("sáb, 31 out → ter, 3 nov · 3 noites");
-    expect(text(card)).toContain("11/10/2026");
-    expect(text(card.querySelector("[data-flight]")!)).toBe("Ryanair");       // baggage unknown: no line (D43)
+    expect(text(card)).toContain("Porto → Milão");
+    expect(text(card.querySelector('[data-obs="71428"]')!)).toBe("58 €");
+    expect(text(card)).toContain("−43%");
+    expect(text(card)).toContain("sex, 12 fev → seg, 15 fev · 3 noites");
+    expect(text(card)).toContain("01/11/2026");
+    expect(text(card.querySelector("[data-flight]")!)).toBe("Wizz Air · só bagagem de mão");   // known (D43)
   });
 
   it("lists the recently expired promotion as expired, without its booking link", () => {
-    const card = home().querySelector(`[data-deal="3"]`)!;
+    const card = home().querySelector(`[data-deal="397"]`)!;
     expect(card.querySelector(`a[href="${EXPIRED}"]`)).not.toBeNull();
     expect(text(card)).toContain("Lisboa → Paris (Beauvais)");
     expect(text(card)).toContain("Expirada");
-    expect(home().querySelector('a[href^="https://example.com/parceiro/site-deal-3"]')).toBeNull();
+    expect(text(card.querySelector("[data-flight]")!)).toBe("Ryanair");       // baggage unknown: no line (D43)
+    expect(home().querySelector('a[href^="https://example.com/parceiro/site-deal-397"]')).toBeNull();
   });
 
   it("is indexable", () => {
@@ -89,43 +96,49 @@ describe("live promotion page", () => {
   const doc = () => page(LIVE);
 
   it("names the arrival city in the headline (no remote airport here)", () => {
-    expect(text(doc().querySelector("h1")!)).toBe("Lisboa → Madeira");
+    expect(text(doc().querySelector("h1")!)).toBe("Porto → Milão");
   });
 
   it("shows price, discount, dates and who found the price when", () => {
     const body = text(doc().querySelector("main")!);
-    expect(text(doc().querySelector('main [data-obs="7226"]')!)).toBe("69 €");
-    expect(text(doc().querySelector('main [data-obs="7226"] .price-sign')!)).toBe("€");   // raised sign
-    expect(body).toContain("−32%");
+    expect(text(doc().querySelector('main [data-obs="71428"]')!)).toBe("58 €");
+    expect(text(doc().querySelector('main [data-obs="71428"] .price-sign')!)).toBe("€");   // raised sign
+    expect(body).toContain("−43%");
     expect(doc().querySelector('meta[name="description"]')!.getAttribute("content"))
-      .toMatch(/ida e volta, 32% abaixo do habitual em outubro/);
+      .toMatch(/ida e volta, 43% abaixo do habitual em fevereiro/);
     expect(body).toContain("abaixo do habitual");
-    expect(body).toContain("sáb, 31 out → ter, 3 nov · 3 noites");
-    expect(body).toContain("Encontrado por um viajante a 11/10/2026");
-    expect(body).toContain("14/10/2026 às 10:01"); // checked_at 09:01Z in Lisbon time
-    expect(body).toContain("102 €"); // the typical low it was measured against
-    expect(body).toContain("Ryanair");
+    expect(body).toContain("sex, 12 fev → seg, 15 fev · 3 noites");
+    expect(body).toContain("Encontrado por um viajante a 01/11/2026");
+    expect(body).toContain("02/11/2026 às 16:49"); // checked_at 16:49Z: Lisbon time is UTC in November
+    expect(body).toContain("101 €"); // the typical low it was measured against
+    expect(body).toContain("Wizz Air");
+  });
+
+  it("lists what other sources saw for the same trip (D47), each price on its observation", () => {
+    const seen = ["74238", "74237"].map((obs) => doc().querySelector(`main [data-obs="${obs}"]`)!);
+    expect(seen.map((e) => text(e))).toEqual(["74 €", "80 €"]);
+    expect(seen.map((e) => text(e.parentNode!))).toEqual(["Kayak · 74 €", "Google Flights via Ryanair · 80 €"]);
   });
 
   it("leads with the one-line summary and lists routes, best months, publication and how to book (D46)", () => {
     const d = doc();
     const summary = d.querySelector("main [data-summary]")!;
-    expect(text(summary)).toBe("Voos diretos por 69 € ida e volta, com a Ryanair.");   // baggage unknown: not said
-    expect(text(summary.querySelector('[data-obs="7226"]')!)).toBe("69\u00a0€");
+    expect(text(summary)).toBe("Voos diretos por 58 € ida e volta, com a Wizz Air, só bagagem de mão.");
+    expect(text(summary.querySelector('[data-obs="71428"]')!)).toBe("58\u00a0€");
     const body = text(d.querySelector("main")!);
-    expect(body).toContain("Lisboa – Madeira (FNC) – Lisboa");
-    expect(body).toContain("novembro de 2026, dezembro de 2026 e outubro de 2026");   // cheapest typical low first
-    expect(d.querySelector('main a[href="/voos/lisboa-madeira/"]')).not.toBeNull();
-    expect(body).toContain("14/10/2026 às 04:01");                                    // approved_at, Lisbon
+    expect(body).toContain("Porto – Milão (MXP) – Porto");
+    expect(body).toContain("dezembro de 2026, novembro de 2026 e fevereiro de 2027");   // cheapest typical low first
+    expect(d.querySelector('main a[href="/voos/porto-milao/"]')).not.toBeNull();
+    expect(body).toContain("02/11/2026 às 06:20");                                    // approved_at, Lisbon
     const steps = d.querySelectorAll("main #como-reservar ~ ol li");
     expect(steps.length).toBe(3);
     expect(text(steps[0])).toContain("abre a pesquisa do parceiro já com estas datas");
-    expect(text(steps[2])).toContain("encontrado a 11/10/2026 e verificado por nós a 14/10/2026 às 10:01");
+    expect(text(steps[2])).toContain("encontrado a 01/11/2026 e verificado por nós a 02/11/2026 às 16:49");
   });
 
   it("has one tracked booking button with the disclosure next to it", () => {
     const links = doc().querySelectorAll('a[rel~="sponsored"]');
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/parceiro/site-deal-8"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/parceiro/site-deal-412"]);
     expect(links[0].getAttribute("rel")).toContain("nofollow");
     expect(text(links[0].closest("[data-cta]")!)).toContain(SITE_DISCLOSURE);
   });
@@ -133,7 +146,7 @@ describe("live promotion page", () => {
   it("is indexable and shares the promotion's own OG image", () => {
     expect(doc().querySelector('meta[name="robots"]')).toBeNull();
     expect(doc().querySelector('meta[property="og:image"]')!.getAttribute("content"))
-      .toBe(`${BASE}/img/promos/8/og.jpg`);
+      .toBe(`${BASE}/img/promos/412/og.jpg`);
   });
 });
 
@@ -161,13 +174,13 @@ describe("expired promotion page", () => {
   it("says it expired and why, with the price the recheck saw traced to its observation", () => {
     const notice = doc().querySelector("[data-expired]")!;
     expect(text(notice)).toContain("Expirada");
-    expect(text(notice)).toContain("o preço subiu para 91 €");
-    expect(notice.getAttribute("data-obs")).toBe("2347");
+    expect(text(notice)).toContain("o preço subiu para 67,98 €");
+    expect(notice.getAttribute("data-obs")).toBe("52940");
   });
 
   it("keeps the old price, struck through", () => {
-    const price = doc().querySelector("main [data-obs='2792']")!;
-    expect(text(price)).toBe("86 €");
-    expect(text(price.querySelector("s")!)).toBe("86");
+    const price = doc().querySelector("main [data-obs='37258']")!;
+    expect(text(price)).toBe("66,98 €");
+    expect(text(price.querySelector("s")!)).toBe("66,98");
   });
 });

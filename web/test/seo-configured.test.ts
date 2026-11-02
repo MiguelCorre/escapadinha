@@ -74,7 +74,7 @@ describe("with a search widget", () => {
 
   it("is nowhere else: not on the home page, promotions or any other page", () => {
     const others = pages().filter((p) => !WIDGET_PAGES.test(p));
-    expect(others).toEqual(expect.arrayContaining(["/", "/promos/8-lisboa-madeira/", "/promos/3-lisboa-paris/", "/explorar/"]));
+    expect(others).toEqual(expect.arrayContaining(["/", "/promos/412-porto-milao/", "/promos/397-lisboa-paris/", "/explorar/"]));
     for (const path of others) {
       const source = pageSource(path, distDir);
       expect(source.includes("tp.media"), path).toBe(false);
@@ -85,7 +85,7 @@ describe("with a search widget", () => {
 
 describe("a promotion published on Instagram (D36)", () => {
   it("links its post, once, next to its booking button", () => {
-    const page = doc("/promos/8-lisboa-madeira/");
+    const page = doc("/promos/412-porto-milao/");
     const links = page.querySelectorAll("[data-post-link] a");
     expect(links.map((a) => a.getAttribute("href"))).toEqual([FAKE_POST_URL]);
     expect(text(links[0])).toBe("Ver no Instagram");
@@ -95,8 +95,8 @@ describe("a promotion published on Instagram (D36)", () => {
   });
 
   it("an unpublished or expired promotion has no post link", () => {
-    const plain = parse(pageSource("/promos/8-lisboa-madeira/", inject("distDir")), { comment: false });
+    const plain = parse(pageSource("/promos/412-porto-milao/", inject("distDir")), { comment: false });
     expect(plain.querySelectorAll("[data-post-link]")).toHaveLength(0);
-    expect(doc("/promos/3-lisboa-paris/").querySelectorAll("[data-post-link]")).toHaveLength(0);
+    expect(doc("/promos/397-lisboa-paris/").querySelectorAll("[data-post-link]")).toHaveLength(0);
   });
 });

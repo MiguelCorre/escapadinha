@@ -1,8 +1,9 @@
 // The explorer (/explorar/) and the ponte pages (/pontes/<ponte>/<origem>/) built from the
 // committed fixtures (D31). Expected values read off the fixture JSON by hand: Lisboa has five
-// low prices (Madeira 69/63/60 €, Barcelona 53/51 €), Porto one (Paris 70 €), Faro none; the
-// fixtures list every ponte of 2026-2027, the upcoming ones (from the data's day, 14 October
-// 2026) start with 1 December 2026, and no fixture trip fits any of them.
+// low prices, all to Madeira (40 € the cheapest), Porto six (Paris 49/55/65/67 €, Milão
+// 58/85 €), Faro none; the fixtures list every ponte of 2026-2027, the upcoming ones (from the
+// data's day, 2 November 2026) start with 1 December 2026, and one fixture trip fits one of them
+// (Porto to Milão, 7 to 10 February 2027, in Carnaval 2027).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,27 +13,27 @@ import { builtPages, distDir, page, pageSource, text } from "./html";
 const SITE_DISCLOSURE = "Publicidade: os botões de reserva são links de afiliado.";
 const PONTE = "/pontes/1-dezembro-2026/porto/";
 const PAST = "/pontes/ano-novo-2026/lisboa/";
+const PRICED = "/pontes/carnaval-2027/porto/";
 const data = loadSiteData(FIXTURES_DIR);
-const upcoming = data.pontes.pontes.filter((p) => p.window.end >= "2026-10-14");
+const upcoming = data.pontes.pontes.filter((p) => p.window.end >= "2026-11-02");
 
 describe("explorer page", () => {
   const doc = () => page("/explorar/");
 
+  // The order by price, with several destinations, is tested on explorer.ts (explorer.test.ts).
   it("server-renders Lisboa's destinations at their cheapest, by price, without JavaScript", () => {
     const items = doc().querySelectorAll("#explorer-results > li");
-    expect(items.map((li) => li.getAttribute("data-route"))).toEqual(["LIS-BCN", "LIS-FNC"]);
-    expect(text(items[0].querySelector('[data-obs="4667"]')!)).toBe("51 €");
-    expect(text(items[1].querySelector('[data-obs="7222"]')!)).toBe("60 €");
-    expect(text(items[1])).toContain("Mais 2 datas com preço baixo");
-    expect(text(items[0])).toContain("Encontrado por um viajante a 13/10/2026");
+    expect(items.map((li) => li.getAttribute("data-route"))).toEqual(["LIS-FNC"]);
+    expect(text(items[0].querySelector('[data-obs="65457"]')!)).toBe("40 €");
+    expect(text(items[0])).toContain("Mais 4 datas com preço baixo");
+    expect(text(items[0])).toContain("Encontrado por um viajante a 01/11/2026");
     expect(text(doc().querySelector("#explorer-status")!))
-      .toBe("Partida: Lisboa · 2 destinos, do mais barato para o mais caro.");
+      .toBe("Partida: Lisboa · 1 destino, do mais barato para o mais caro.");
   });
 
   it("links every result to its tracked partner link, with the disclosure", () => {
     const links = doc().querySelectorAll('#explorer-results a[rel~="sponsored"]');
-    expect(links.map((a) => a.getAttribute("href"))).toEqual([
-      "https://example.com/parceiro/site-low-4667", "https://example.com/parceiro/site-low-7222"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/parceiro/site-low-65457"]);
     expect(text(links[0].closest("[data-cta]")!)).toContain(SITE_DISCLOSURE);
   });
 
@@ -51,33 +52,35 @@ describe("explorer page", () => {
     expect(text(form.querySelector("[name=fim_de_semana]")!.parentNode!))
       .toBe("Só fins de semana (partida sexta ou sábado, regresso domingo ou segunda, até 3 noites)");
     const months = form.querySelectorAll("select[name=mes] option").map((o) => text(o));
-    expect(months).toEqual(["Qualquer mês", "outubro de 2026", "novembro de 2026"]);
+    expect(months).toEqual(["Qualquer mês", "novembro de 2026", "dezembro de 2026", "janeiro de 2027",
+      "fevereiro de 2027"]);
   });
 
   it("loads each origin's low prices lazily, from its own JSON file", () => {
     const html = pageSource("/explorar/");
-    expect(html).not.toContain("site-low-3040");               // Porto's row: not in the page
+    expect(html).not.toContain("site-low-52734");              // Porto's row: not in the page
     for (const [origin, file] of Object.entries(data.lowPrices)) {
       const json = JSON.parse(readFileSync(join(distDir(), "explorar", "dados", `${origin}.json`), "utf8"));
       expect(json.rows).toEqual(file.rows);
       expect(json.places.origin).toBe(origin);
     }
     const porto = JSON.parse(readFileSync(join(distDir(), "explorar", "dados", "OPO.json"), "utf8"));
-    expect(porto.places.cities).toEqual({ PAR: "Paris" });
-    expect(porto.places.airports).toEqual({ BVA: { name: "Beauvais", remote: true } });
+    expect(porto.places.cities).toEqual({ PAR: "Paris", MIL: "Milão" });
+    expect(porto.places.airports).toEqual({ BVA: { name: "Beauvais", remote: true },
+      MXP: { name: "Malpensa", remote: false } });
     // Each result links to its route page (D30), at the path the contract gives.
-    const opoPar = data.routes.routes.find((r) => r.key === "OPO-PAR")!;
-    expect(porto.places.paths).toEqual({ PAR: opoPar.path });
+    const path = (key: string) => data.routes.routes.find((r) => r.key === key)!.path;
+    expect(porto.places.paths).toEqual({ PAR: path("OPO-PAR"), MIL: path("OPO-MIL") });
   });
 
   it("draws a low price exactly like the route page does (one shared row, low-prices.ts)", () => {
-    const explorer = doc().querySelector('#explorer-results li[data-obs="7222"]')!;
-    const route = page("/voos/lisboa-madeira/").querySelector('[data-low-prices] li[data-obs="7222"]')!;
+    const explorer = doc().querySelector('#explorer-results li[data-obs="65457"]')!;
+    const route = page("/voos/lisboa-madeira/").querySelector('[data-low-prices] li[data-obs="65457"]')!;
     const body = (li: typeof explorer) => li.childNodes
       .filter((n) => !["h3"].includes((n as typeof li).rawTagName) && !text(n as typeof li).startsWith("Mais "))
       .map((n) => text(n as typeof li)).join(" | ");
     expect(body(explorer)).toBe(body(route));
-    expect(body(route)).toContain("Encontrado por um viajante a 13/10/2026 · visto por nós a");
+    expect(body(route)).toContain("Encontrado por um viajante a 01/11/2026 · visto por nós a");
     expect(body(route)).toContain("Ver voo e reservar →");
   });
 
@@ -143,6 +146,16 @@ describe("ponte pages", () => {
     expect(doc.querySelector('meta[name="robots"]')!.getAttribute("content")).toBe("noindex");
     expect(doc.querySelectorAll("#explorer-results > li")).toHaveLength(0);
     expect(doc.querySelector('a[href="/explorar/"]')).not.toBeNull();
+  });
+
+  it("list the low prices whose trip fits the window, and are indexable then", () => {
+    const doc = page(PRICED);
+    expect(text(doc.querySelector("h1")!)).toBe("Ponte de Carnaval desde o Porto");
+    const items = doc.querySelectorAll("#explorer-results > li");
+    expect(items.map((li) => li.getAttribute("data-obs"))).toEqual(["73602"]);
+    expect(text(items[0].querySelector('[data-obs="73602"]')!)).toBe("85 €");
+    expect(text(items[0])).toContain("dom, 7 fev → qua, 10 fev · 3 noites");
+    expect(doc.querySelector('meta[name="robots"]')).toBeNull();
   });
 
   it("link the same ponte from the other origins", () => {
