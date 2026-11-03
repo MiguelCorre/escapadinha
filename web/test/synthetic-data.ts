@@ -57,6 +57,8 @@ export interface Synthetic {
   origins: Origin[];
   destinations: Destination[];
   dormant: Route[];
+  /** Active routes never seen with a price (#76): no calendar, no typical low, no last_observed_at. */
+  neverSeen: Route[];
 }
 
 /** Write the dataset into `dir` (created) and return what it holds. */
@@ -75,16 +77,17 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
       const d = (start + k * 7) % DESTINATIONS;
       const key = `${origin}-${destCode(d)}`;
       const dormant = (start + k) % 23 === 5;
+      const neverSeen = !dormant && (start + k) % 29 === 11;
       const base = 40 + Math.round(rand() * 400);
       const months: RouteMonth[] = MONTHS.map((month, m) => {
-        const days = dormant ? 0 : Math.floor(rand() * 9);       // 0..8: some below the minimum (4)
+        const days = dormant || neverSeen ? 0 : Math.floor(rand() * 9);   // 0..8: some below the minimum (4)
         const low = Math.round(base * (0.8 + rand() * 0.5) * 2) / 2;
         return days >= 4
           ? { month, typical_low: low, average: Math.round((low * 1.12) * 100) / 100, days }
           : { month, typical_low: null, average: null, days: m === 0 && dormant ? 0 : days };
       });
       const calendar: CalendarDay[] = [];
-      if (!dormant) {
+      if (!dormant && !neverSeen) {
         for (let day = 0; day < 150; day += 1 + Math.floor(rand() * 5)) {
           const dep = addDays("2026-11-01", day);
           calendar.push({ dep, ret: addDays(dep, 2 + Math.floor(rand() * 8)), obs: obs++, price: Math.round(base * (0.6 + rand() * 0.9)) });
@@ -114,7 +117,7 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
         calendar,
         counts: { observations: calendar.length * 3, low_prices: 0, promotions_live: 0, promotions_expired: 0 },
         discovered_at: "2026-10-13T17:14:28Z",
-        last_observed_at: dormant ? "2026-09-01T10:00:00Z" : "2026-10-14T08:00:00Z",
+        last_observed_at: neverSeen ? null : dormant ? "2026-09-01T10:00:00Z" : "2026-10-14T08:00:00Z",
         demand: syntheticDemand(start + k, rand),
       });
     }
@@ -192,5 +195,6 @@ export function writeSyntheticData(dir: string, seed = 14): Synthetic {
       rows, truncated: 0,
     });
   }
-  return { routes, origins, destinations, dormant: routes.filter((r) => r.status === "dormant") };
+  return { routes, origins, destinations, dormant: routes.filter((r) => r.status === "dormant"),
+    neverSeen: routes.filter((r) => r.last_observed_at === null) };
 }

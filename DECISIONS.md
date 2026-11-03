@@ -3315,3 +3315,42 @@ so nothing has to be hosted.
   at 2026-10-24 and 14 tests fail at 2026-11-30.
 - **Tests:** `tests/test_clock.py`: every module reads the pinned clock; the only wall-clock read
   in `src/` and `tests/` is `db.utcnow`'s.
+
+## D55: Only route pages and hubs with data of their own are indexed (2026-11-03, #76, #83, #84)
+- **Problem:** the research of 2026-11-03 (`docs/research/2026-11-03-site-and-algorithm-improvements.md`,
+  finding 7) found 560 URLs in the live sitemap, among them 108 of the 375 route pages that had
+  never had a price (`routes.last_observed_at` null; e.g. `/voos/faro-katowice/`, "Não há preços
+  recentes" in every section) and the hubs of 35 of 158 destinations with no route that ever had
+  one (e.g. `/destinos/katowice/`). Route pages and hubs never set `noindex` (D34 lets each page
+  decide; these never did). Google's spam policies count "substantially similar pages that are
+  closer to search results than a clearly defined, browseable hierarchy" as doorways and pages
+  made "without adding value for users" as scaled content abuse, however they were made: a fifth
+  of the indexed site had nothing of its own.
+- **Decision (Miguel, 2026-11-03: "começa pelo #76"):** one pure rule, `web/src/lib/indexable.ts`.
+  `routeIndexable(route)`: the page shows a price found now (`cheapest`), a calendar day, a
+  typical low (a month whose `typical_low` is not null, which the export already limits to
+  `min_baseline_days`, D40), or a promotion live or still kept (`counts`). `hubIndexable(routes,
+  hasItinerary)`: one of its routes is indexable, or the city has a reviewed itinerary
+  (`itineraryFor` over the review-gated collection, D33). Everything else stays online (200,
+  same URL, D35) with `noindex`, and `sitemap.ts` leaves it out by itself. Origin pages stay
+  indexed: they are the hierarchy. No contract change, no list of slugs: a route's first price
+  makes its page indexable at the next build (the export changes, so the full path runs).
+- **The pages:** a route page never seen with a price (`last_observed_at` null) says "Ainda não
+  vimos preços nesta rota: aparece aqui assim que um viajante encontrar um." (`data-never-seen`),
+  except where D45's thin-route note already says it. An origin page lists, per kind, the routes
+  with data as today, then the others as plain links under "Sem preços para mostrar, por agora"
+  (`data-unpriced`; a dormant one says so). A hub keeps a card per origin with data, then "Sem
+  preços para mostrar, por agora, desde Faro e Porto." (or "Por agora não temos preços para
+  mostrar para <cidade> desde …" when no card is left).
+- **Kept:** a dormant route with an old typical low keeps its page indexed (that history is
+  data of its own). No page is deleted or redirected (D23, D35).
+- **Measured afterwards:** Miguel notes Search Console's indexed and "Rastreada, atualmente não
+  indexada" counts now and four weeks after the deploy, in #83.
+- **Tests:** `web/test/indexable.test.ts` (each condition alone, none, demand and a dormant past
+  do not count, every committed fixture route indexable, hubs); `web/test/scale.test.ts` on the
+  synthetic full-size build, which now also has active routes never seen with a price
+  (`synthetic.neverSeen`): every page the rule refuses is `noindex` and absent from the sitemap,
+  indexable ones are present, an all-empty hub has no card and links every route, a mixed hub
+  has cards only for routes with data, the never-seen sentence shows once and only there, and
+  every route of an origin is listed exactly once, as a row or a plain link. The committed
+  fixtures are unchanged: all their routes have data.

@@ -1,7 +1,8 @@
 ---
 // One page per Portuguese origin (/partidas/<origem>/, D30): every destination watched from there,
 // by kind and city name, each linking to its route page with the cheapest price found now
-// (routes.json `cheapest`, data-obs) or why there is none.
+// (routes.json `cheapest`, data-obs) or why there is none. Routes with nothing to show yet (#76,
+// src/lib/indexable.ts: their pages are noindex) follow as a compact list of plain links.
 import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
@@ -9,6 +10,7 @@ import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import type { Origin } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { count, eur, shortDate } from "../../lib/format";
+import { routeIndexable } from "../../lib/indexable";
 import { originGroups } from "../../lib/routes";
 
 export const getStaticPaths = (() => {
@@ -24,7 +26,8 @@ interface Props {
 }
 
 const { origin } = Astro.props;
-const groups = originGroups(data, origin.iata);
+const groups = originGroups(data, origin.iata).map((g) => ({ ...g,
+  shown: g.routes.filter(routeIndexable), unpriced: g.routes.filter((r) => !routeIndexable(r)) }));
 const total = groups.reduce((n, g) => n + g.routes.length, 0);
 ---
 <Base
@@ -42,23 +45,35 @@ const total = groups.reduce((n, g) => n + g.routes.length, 0);
   {groups.map((g) => (
     <section class="mt-2xl" aria-labelledby={`grupo-${g.kind}`}>
       <h2 id={`grupo-${g.kind}`} class="font-display text-headline">{g.label}</h2>
-      <ul class="mt-md grid max-w-measure">
-        {g.routes.map((r) => (
-          <li data-route={r.key} class="flex flex-wrap items-baseline justify-between gap-x-md gap-y-2xs border-b-2 border-rule py-sm">
-            <a href={r.path} class="font-semibold">{r.city}</a>
-            {r.status === "dormant" ? (
-              <span class="tag tag-expired">rota {data.labels.route_status.dormant}</span>
-            ) : r.cheapest ? (
-              <span data-obs={r.cheapest.obs} class="text-right">
-                <span class="text-small text-muted">desde </span><span class="num font-display text-title">{eur(r.cheapest.price)}</span>
-                <span class="block num text-small text-muted">{shortDate(r.cheapest.departure)} → {shortDate(r.cheapest.return)}</span>
-              </span>
-            ) : (
-              <span class="text-small text-muted">sem preços recentes</span>
-            )}
-          </li>
-        ))}
-      </ul>
+      {g.shown.length > 0 && (
+        <ul class="mt-md grid max-w-measure">
+          {g.shown.map((r) => (
+            <li data-route={r.key} class="flex flex-wrap items-baseline justify-between gap-x-md gap-y-2xs border-b-2 border-rule py-sm">
+              <a href={r.path} class="font-semibold">{r.city}</a>
+              {r.status === "dormant" ? (
+                <span class="tag tag-expired">rota {data.labels.route_status.dormant}</span>
+              ) : r.cheapest ? (
+                <span data-obs={r.cheapest.obs} class="text-right">
+                  <span class="text-small text-muted">desde </span><span class="num font-display text-title">{eur(r.cheapest.price)}</span>
+                  <span class="block num text-small text-muted">{shortDate(r.cheapest.departure)} → {shortDate(r.cheapest.return)}</span>
+                </span>
+              ) : (
+                <span class="text-small text-muted">sem preços recentes</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {g.unpriced.length > 0 && (
+        <div data-unpriced class="mt-md max-w-measure">
+          <p class="label text-muted">Sem preços para mostrar, por agora</p>
+          <ul class="mt-2xs flex flex-wrap gap-x-md gap-y-2xs">
+            {g.unpriced.map((r) => (
+              <li data-route={r.key}><a href={r.path}>{r.city}</a>{r.status === "dormant" && <span class="text-small text-muted"> (rota {data.labels.route_status.dormant})</span>}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   ))}
 </Base>

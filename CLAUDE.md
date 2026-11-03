@@ -68,7 +68,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   prices come from the contract with their `data-obs`. Test-only entries (`fixture: true`) live
   in `web/test/fixtures/content/` and are built from fixture data only.
 - SEO on the Astro site (D34): a page decides its own `noindex`; `sitemap.xml` is generated from
-  the built pages (`src/lib/sitemap.ts`), never from a list. JSON-LD only through
+  the built pages (`src/lib/sitemap.ts`), never from a list. Route pages and destination hubs are
+  indexed only with data of their own, decided only by `src/lib/indexable.ts` (D55:
+  `routeIndexable`, `hubIndexable`, contract fields and the reviewed itinerary); the others stay
+  online, `noindex`, and origin pages and hubs list them as plain links. JSON-LD only through
   `src/lib/structured-data.ts` (schema-dts types; add the type's JSON Schema to
   `web/test/jsonld.ts`) and `JsonLd.astro`/`Breadcrumbs.astro`; a block with a price carries its
   `data-obs`/`data-deal` (the traceability test checks JSON-LD too); no Offer on an expired
@@ -520,6 +523,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   (`promotion.ts`, `routes.ts`, `low-prices.ts`, `format.ts` + `dates.ts`, `cta.ts`, `content.ts` +
   `itinerary.ts` + `related.ts`, `affiliates.ts` (blocks D37, components in
   `src/components/mdx-components.ts`); SEO D34: `structured-data.ts`, `sitemap.ts` (Astro integration),
+  `indexable.ts` (D55),
   `search-widget.ts`),
   `src/content.config.ts` + `src/collections.ts` (MDX collections + review gate), tests in
   `web/test/` (fixture build + a configured build with fake analytics/widget values in

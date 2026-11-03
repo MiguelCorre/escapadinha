@@ -797,8 +797,8 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
 |---|---|
 | `/` | Live promotions, then recently expired ones, latest itineraries and tips |
 | `/promos/<id>-<origem>-<destino>/` | A promotion: slides, details, booking button (live only), expiry notice (expired: `noindex`) |
-| `/voos/<origem>-<destino>/` | A route: promotions, recent low prices, calendar, typical low per month (D30) |
-| `/partidas/<origem>/`, `/destinos/<destino>/` | Origin pages and destination hubs (+ index pages) |
+| `/voos/<origem>-<destino>/` | A route: promotions, recent low prices, calendar, typical low per month (D30); with none of these, `noindex` (D55) |
+| `/partidas/<origem>/`, `/destinos/<destino>/` | Origin pages and destination hubs (+ index pages); routes with nothing to show are plain links after the others, and a hub with no such route and no itinerary is `noindex` (D55) |
 | `/explorar/`, `/pontes/<feriado>-<ano>/<origem>/` | Explorer and long weekends (D31) |
 | `/roteiros/<slug>/`, `/dicas/<slug>/` | Reviewed itineraries and tips (D33) |
 | `/sobre/`, `/privacidade/`, `404.html`, `sitemap.xml`, `robots.txt` | (D34) |
@@ -951,8 +951,9 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
 - **SEO (D34):** every page has its canonical URL (contract `base_url` + path), OpenGraph and
   Twitter tags (`og:type` `article` on itineraries and tips). `sitemap.xml` is written after the
   build from the built pages themselves (`src/lib/sitemap.ts`): every page with a canonical URL
-  and without `noindex`, so expired promotions, empty or past pontes, empty listings and drafts
-  leave it by themselves (fixture build: 31 of 81 pages). `robots.txt` points at it. JSON-LD
+  and without `noindex`, so expired promotions, empty or past pontes, empty listings, drafts, and
+  route pages and hubs with no data of their own (`src/lib/indexable.ts`, D55) leave it by
+  themselves (fixture build: 31 of 81 pages; every fixture route has data). `robots.txt` points at it. JSON-LD
   (`src/lib/structured-data.ts`): `WebSite` + `Organization` on the home page, `Trip` with an
   `Offer` on live promotions (the offer's own price, `data-obs`/`data-deal` on the block, never
   on an expired one), `Article` on itineraries and tips (`dateModified` = `last_checked`), and a

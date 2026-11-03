@@ -4,14 +4,15 @@
 // into a temporary folder; the build time is measured and printed, and the pages are checked like
 // the fixture build: counts, dormant notice, months without enough data, internal links, prices.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "node-html-parser";
+import { routeIndexable } from "../src/lib/indexable";
 import { loadSiteData } from "../src/lib/site-data";
-import { brokenLinks, builtPagesIn, pageSource } from "./html";
+import { brokenLinks, builtPagesIn, pageSource, text } from "./html";
 import { writeSyntheticData, type Synthetic } from "./synthetic-data";
 import { traceableAmounts, untraceable } from "./trace";
 
@@ -44,6 +45,8 @@ afterAll(() => {
 });
 
 const doc = (path: string) => parse(pageSource(path, distDir), { comment: false });
+const noindex = (path: string) =>
+  doc(path).querySelector('meta[name="robots"]')?.getAttribute("content")?.includes("noindex") ?? false;
 
 describe("full-size build (synthetic data)", () => {
   it("is valid contract data of the real data's size", () => {
@@ -72,6 +75,56 @@ describe("full-size build (synthetic data)", () => {
     expect(doc(active.path).querySelector("[data-dormant]")).toBeNull();
     const origin = synthetic.origins.find((o) => o.iata === dormant.origin)!;
     expect(doc(origin.path).querySelector(`li[data-route="${dormant.key}"]`)!.textContent).toContain("adormecida");
+  });
+
+  it("keeps route pages and hubs with nothing to show out of the index and the sitemap (#76)", () => {
+    const sitemap = readFileSync(join(distDir, "sitemap.xml"), "utf8");
+    const listed = (path: string) => sitemap.includes(`<loc>https://pontonomada.pt${path}</loc>`);
+    const byKey = new Map(synthetic.routes.map((r) => [r.key, r]));
+    const empty = synthetic.routes.filter((r) => !routeIndexable(r));
+    expect(empty.length).toBeGreaterThan(synthetic.neverSeen.length);   // dormant ones too
+    for (const r of empty) {
+      expect(noindex(r.path), r.key).toBe(true);
+      expect(listed(r.path), r.key).toBe(false);
+    }
+    for (const r of synthetic.routes.filter(routeIndexable).slice(0, 20)) {
+      expect(noindex(r.path), r.key).toBe(false);
+      expect(listed(r.path), r.key).toBe(true);
+    }
+    const emptyHub = synthetic.destinations.find((d) => d.routes.every((k) => !routeIndexable(byKey.get(k)!)))!;
+    expect(emptyHub).toBeDefined();
+    expect(noindex(emptyHub.path)).toBe(true);
+    expect(listed(emptyHub.path)).toBe(false);
+    expect(doc(emptyHub.path).querySelectorAll("[data-origin]")).toHaveLength(0);
+    const links = doc(emptyHub.path).querySelectorAll("[data-unpriced] a").map((a) => a.getAttribute("href"));
+    expect(links.sort()).toEqual(emptyHub.routes.map((k) => byKey.get(k)!.path).sort());
+    const mixed = synthetic.destinations.find((d) => d.routes.some((k) => routeIndexable(byKey.get(k)!))
+      && d.routes.some((k) => !routeIndexable(byKey.get(k)!)))!;
+    expect(noindex(mixed.path)).toBe(false);
+    const cards = doc(mixed.path).querySelectorAll("[data-origin]").map((e) => e.getAttribute("data-origin"));
+    expect(cards.sort()).toEqual(mixed.routes.map((k) => byKey.get(k)!).filter(routeIndexable).map((r) => r.origin).sort());
+    expect(text(doc(mixed.path).querySelector("[data-unpriced]")!)).toMatch(/^Sem preços para mostrar, por agora, desde /);
+  });
+
+  it("says a route was never seen with a price, once, and only there (#76)", () => {
+    const quiet = synthetic.neverSeen.find((r) => !r.demand || r.demand.pax_month >= 5000)!;
+    expect(text(doc(quiet.path).querySelector("[data-never-seen]")!))
+      .toBe("Ainda não vimos preços nesta rota: aparece aqui assim que um viajante encontrar um.");
+    const thin = synthetic.neverSeen.find((r) => r.demand && r.demand.pax_month < 5000);
+    if (thin) expect(doc(thin.path).querySelector("[data-never-seen]")).toBeNull();   // the thin note says it
+    expect(doc(synthetic.dormant[0].path).querySelector("[data-never-seen]")).toBeNull();
+    expect(doc(synthetic.routes.find((r) => r.cheapest)!.path).querySelector("[data-never-seen]")).toBeNull();
+  });
+
+  it("lists an origin's routes with nothing to show as plain links after the others (#76)", () => {
+    for (const origin of synthetic.origins) {
+      const page = doc(origin.path);
+      for (const r of synthetic.routes.filter((x) => x.origin === origin.iata)) {
+        const item = page.querySelectorAll(`li[data-route="${r.key}"]`);
+        expect(item, r.key).toHaveLength(1);
+        expect(item[0].closest("[data-unpriced]") !== null, r.key).toBe(!routeIndexable(r));
+      }
+    }
   });
 
   it("says when a month has too few days instead of showing a number", () => {
@@ -105,8 +158,11 @@ describe("full-size build (synthetic data)", () => {
     const note = doc(seasonal.path).querySelector("[data-demand-seasonal]")!.textContent;
     expect(note).toContain("Rota sazonal");
     expect(note).toContain("janeiro, fevereiro, março e dezembro de 2024");
-    const hub = synthetic.destinations.find((d) => d.code === seasonal.destination)!;
-    expect(doc(hub.path).querySelector(`[data-origin="${seasonal.origin}"] [data-demand-seasonal]`)).not.toBeNull();
+    // On the hub the tag sits on the origin's card, which only routes with something to show get (#76).
+    const seasonalShown = synthetic.routes.find((r) => r.demand && r.demand.months.some((m) => m.pax === 0)
+      && routeIndexable(r))!;
+    const hub = synthetic.destinations.find((d) => d.code === seasonalShown.destination)!;
+    expect(doc(hub.path).querySelector(`[data-origin="${seasonalShown.origin}"] [data-demand-seasonal]`)).not.toBeNull();
     const without = synthetic.routes.find((r) => r.demand === null)!;
     expect(doc(without.path).querySelector("[data-demand]")).toBeNull();
   });

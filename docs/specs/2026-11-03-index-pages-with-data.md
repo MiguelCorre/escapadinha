@@ -66,9 +66,9 @@ page decides from the contract's data at build time.
 
 ## Implementation Decisions
 
-- **One pure rule** in `web/src/lib/indexable.ts`: `routeIndexable(route, det)` and
-  `hubIndexable(destination, routes, itineraries)`, both from contract fields only
-  (`cheapest`, `calendar`, `months[].days` against `meta.detector.min_baseline_days`,
+- **One pure rule** in `web/src/lib/indexable.ts`: `routeIndexable(route)` and
+  `hubIndexable(routes, hasItinerary)`, both from contract fields only (`cheapest`, `calendar`,
+  `months[].typical_low`, which the export leaves null below `min_baseline_days`,
   `counts.promotions_live` / `promotions_expired`), and for hubs the reviewed itinerary read
   through `src/collections.ts` (`itineraryFor`, the review gate, D33). Pages pass the result to
   `Base.astro`'s `noindex`. No list of slugs anywhere; the sitemap is unchanged (it already
