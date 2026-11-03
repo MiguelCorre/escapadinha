@@ -13,8 +13,8 @@ from pathlib import Path, PureWindowsPath
 
 import httpx
 
-from escapadinha import (archive, auto_review, demand, detector, discovery, i18n_pt, instagram, posting, review_events,
-                         routes, telegram)
+from escapadinha import (archive, auto_review, demand, detector, discovery, i18n_pt, instagram, outcomes, posting,
+                         review_events, routes, telegram)
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.articles import Article
 from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
@@ -1043,6 +1043,20 @@ def check_failure(exc: Exception) -> str:
     else:
         why = "resposta inesperada do Travelpayouts"
     return f"{CHECK_FAILED}: {why}."
+
+
+def deal_outcomes(ctx: Context, conn: sqlite3.Connection,
+                  since: datetime) -> list[outcomes.Outcome]:
+    """Every deal detected since `since` as the survival report reads it (D56): its expiry, who
+    approved it, its route's kind and the cheap dates around it at detection."""
+    kinds = {r.key: r.kind for r in routes.all_routes(conn, ctx.config.routes)}
+    backfilled = db.expiries_backfilled_before(conn)
+    return [outcomes.outcome(
+                deal, obs, route_kind=kinds.get(obs.route_key, outcomes.UNKNOWN),
+                seen=db.month_observations(conn, obs, until=deal.detected_at,
+                                           seen_since=deal.detected_at - outcomes.BREADTH_WINDOW),
+                backfilled_before=backfilled)
+            for deal, obs in db.deals_detected_since(conn, since)]
 
 
 def find_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]:

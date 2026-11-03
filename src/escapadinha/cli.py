@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -16,7 +16,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from escapadinha import i18n_pt as pt
-from escapadinha import detector, outcomes, pipeline, posting, review_events, routes, run_path
+from escapadinha import backtest, detector, outcomes, pipeline, posting, review_events, routes, run_path
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
@@ -411,6 +411,26 @@ def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
                   if base.lowest and base.highest else "")
         console.print(f"  {year}-{month:02d}: {low} from {base.sample_size} days "
                       f"(span {base.span_days}){spread}")
+
+
+@app.command("outcomes")
+def outcomes_report(
+        days: Annotated[int, typer.Option(min=1, help="Deals detected in the last N days")] = 14,
+        json_out: Annotated[Path | None, typer.Option("--json", help="Also write it as JSON")] = None,
+        db_path: Annotated[Path | None, typer.Option(
+            "--db", help="A database copy (default: the local database)")] = None) -> None:
+    """How long promotions stayed bookable (D56): share gone within 2/6/24/48 h of detection and
+    of approval, by source, confidence, approver, lead time, found age, route kind and date
+    breadth. Read-only: the database is copied into memory (and upgraded there)."""
+    ctx = Context()
+    conn = backtest.open_copy(db_path or ctx.db_path)
+    now = db.utcnow()
+    since = now - timedelta(days=days)
+    report = outcomes.report(pipeline.deal_outcomes(ctx, conn, since), since=since, now=now)
+    console.print(outcomes.markdown(report), markup=False, highlight=False, soft_wrap=True)
+    if json_out:
+        json_out.write_text(json.dumps(outcomes.to_json(report), ensure_ascii=False, indent=2),
+                            "utf-8")
 
 
 @routes_app.command("list")

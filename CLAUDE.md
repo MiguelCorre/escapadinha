@@ -7,7 +7,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
-- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `routes list|discover`, `photos fetch`,
+- `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `outcomes`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `auto-approve`,
   `special-offers`, `airlines`, `probe setup|run|status` (the PC, D48, D49), `queue list|retry`,
   `instagram token`,
@@ -18,6 +18,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   read-only on a database copy (`escapadinha.backtest`); `store pull` first. `stays` (D52)
   compares the kinds' nights ranges with the per-destination ones in config; `churn` (D53) the
   recheck tolerance and the re-flag margin with none.
+- `uv run escapadinha outcomes [--days 14] [--json out.json] [--db copy.db]`: the promotion
+  outcomes report (D56), read-only on an in-memory copy (`backtest.open_copy`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
 - Web package (`cd web`): `npm ci`, `npm run typecheck` (strict tsc: `tsconfig.functions.json`
   without Node types, `tsconfig.typecheck.json` for `src/lib` + tests), `npm test` (vitest builds from the fixtures), `npm run
@@ -179,7 +181,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   through `db.record_recheck`; the re-evaluation's `db.expire_deal`, always `superseded`, at its
   own run's time), never parsed from the pt-PT reason at run time (only the v19 backfill reads
   the old reasons' prefixes). Backfilled times are approximate (`outcomes.approximate` against
-  meta `outcomes.backfilled_before`).
+  meta `outcomes.backfilled_before`). The survival report (`outcomes.py`, pure: `survival`,
+  `report`, `markdown`, `to_json`; rows from `pipeline.deal_outcomes`) counts only `gone` as
+  gone: open deals and `superseded`/`rules` expiries are censored at their last check. Bands,
+  horizons and the breadth rule are constants there; never a second copy.
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
   installs) and add the ALTER steps to `MIGRATIONS` (existing DBs; a step may be a Python
   callable). Test the upgrade from real old schemas (`tests/fixtures/schema_v5.sql`, `schema_v7.sql`).
@@ -471,6 +476,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   dates, cheapest/dearest daily low, `cv`, `min_low`, `median_lead_days`), `is_mature` /
   `is_mature_for_promotions` (D40), `confidence` / `at_least` / `is_new_low` (D44), `evaluate`
   (candidates), `low_prices`, `detect_route`, `detect` (→ `Detection(low_prices, candidates)`)
+- `src/escapadinha/outcomes.py`: promotion outcomes (D56): `EXPIRY_KINDS`, `EXPIRY_KIND_PT`,
+  `approximate`, `Outcome` + `outcome` (from a deal, its observation and `db.month_observations`),
+  `breadth`, `Slice`/`SLICES`, `survival` → `Group` (`Clock` per start, `Horizon` per hour mark),
+  `report`, `markdown`, `to_json`; CLI `outcomes`
 - `src/escapadinha/backtest.py` + `scripts/backtest_detector.py`: the detector backtest (D44):
   `open_copy` (read-only → memory), `replay` (rule sets × runs → `Replay`, candidates judged by
   the recheck within 24 h and in hindsight), `rule_sets` presets, `state`, `markdown`/`to_json`

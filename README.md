@@ -51,6 +51,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `run_path.py` | Fast or full path for a run: fingerprint of what the site shows, stored after each full path (D25) |
 | `detector.py` | Pure functions: `baseline`, `confidence`, `evaluate` (threshold, euro floor, new low, D44), `low_prices`, `detect_route`, `detect` (both tiers) |
 | `backtest.py` | The detector backtest (D44): replay of the stored runs on a read-only copy with several rule sets; `scripts/backtest_detector.py` runs it |
+| `outcomes.py` | Pure: promotion outcomes (D56): the expiry kinds, and the survival report (share gone within 2/6/24/48 h of detection and of approval, censored, by source, confidence, approver, lead time, found age, route kind and date breadth); `escapadinha outcomes` runs it |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
 | `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) and the WhatsApp text |
@@ -481,6 +482,23 @@ uv run python scripts/backtest_detector.py data/escapadinha.db --preset stays --
 The `stays` preset (D52) keeps the detector and compares the kinds' nights ranges alone with the
 per-destination ranges of `routes.overrides`, so a change to a destination's stay length is
 measured like a threshold change.
+
+**Promotion outcomes (D56).** The backtest measures rules before they ship; the outcomes report
+measures what happened to the promotions afterwards:
+
+```bash
+uv run escapadinha store pull
+uv run escapadinha outcomes --days 14 --json out.json    # --db <file> reads another copy
+```
+
+Of the deals detected in the last N days, the share the recheck found **gone** within 2, 6, 24
+and 48 hours of detection (and of approval, for the approved ones), with the median life, overall
+and by source, confidence, approver (the rules, a human, nobody), lead time, found age, route
+kind and date breadth (other cheap dates on the route-month at detection). A deal still open, or
+that expired as *superseded* or *rules*, counts as surviving until its last check, never as gone.
+The Travelpayouts source's row carries its caveat (a cache keeps prices that may be gone). The
+database is copied into memory, read-only, and upgraded there. The first report, which
+reproduces the research of 2026-11-03: `docs/research/2026-11-03-promotion-outcomes.md`.
 
 Read-only: the database file is opened read-only and copied into memory. The script replays every
 completed collection run of the window with one rule set per column, judges each candidate with
@@ -1413,6 +1431,11 @@ uv run pytest -m "not browser"
   city, the twelve-month window and the zero months, the rank, the client, the discovery that
   stores the figures and archives the answer (a failed fetch reported, the old figures kept), the
   day's pass narrowed by rank (plan and `run_collect`), the v15 → v16 upgrade and the export.
+- `test_outcomes.py` (D56): the expiry kind of every recheck verdict and the time each expiry
+  stores, the SQL CHECK against `EXPIRY_KINDS`, the v18 → v19 backfill per known reason, `deal
+  check` on an expired deal, survival with censoring on hand-made deals, slices and bands with
+  empty groups, the Markdown (dashes, the cache caveat) and JSON, breadth, the database seam, and
+  the `outcomes` command, which leaves the file untouched.
 - `test_backtest.py` (D44): the detector backtest on a synthetic database: the copy is
   read-only, run selection by id or by day, one flag per candidate, the 24 h recheck and the
   hindsight check, the new-low rule, the presets, the Markdown and JSON, `--state` and the script.

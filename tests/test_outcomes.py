@@ -4,7 +4,8 @@ and the survival report built on it (#78, below)."""
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from escapadinha import outcomes, pipeline
@@ -171,3 +172,140 @@ def test_deal_check_marks_a_backfilled_expiry_time_approximate(ctx, monkeypatch)
     conn.close()
     out = _cli(ctx, monkeypatch, "deal", "check", str(deal_id))
     assert "expirou a 20/10/2026 às 09:00 (ultrapassada, hora aproximada)" in out
+
+
+# --- #78: the survival report ----------------------------------------------------------------
+
+T0 = datetime(2026, 10, 20, 8, 0, tzinfo=timezone.utc)
+
+
+def h(hours: float) -> datetime:
+    return T0 + timedelta(hours=hours)
+
+
+def row(deal_id: int, **kw) -> outcomes.Outcome:
+    base = dict(deal_id=deal_id, detected_at=T0, last_checked_at=None, expired_at=None,
+                expired_kind=None, approximate=False, approved_at=None, approver="none",
+                source="ryanair", confidence="medium", lead_days=40, found_age_h=1.0,
+                route_kind="europe", breadth=3)
+    return outcomes.Outcome(**{**base, **kw})
+
+
+ROWS = [
+    row(1, last_checked_at=h(30)),                                            # open, watched 30 h
+    row(2, last_checked_at=h(2), expired_at=h(3), expired_kind="superseded"),  # censored at 2 h
+    row(3, last_checked_at=h(3), expired_at=h(3), expired_kind="gone",         # gone at 3 h,
+        approved_at=h(1), approver="rules", source="travelpayouts"),            # 2 h after approval
+    row(4, last_checked_at=h(30), expired_at=h(30), expired_kind="gone",       # gone at 30 h
+        approved_at=h(0.5), approver="human", found_age_h=None, approximate=True),
+]
+
+
+def shares(clock: outcomes.Clock) -> list[tuple[int, int]]:
+    return [(x.gone, x.judged) for x in clock.horizons]
+
+
+def test_survival_counts_open_and_superseded_deals_as_surviving_until_their_last_check():
+    [everyone] = outcomes.survival(ROWS, by=outcomes.ALL)
+    assert (everyone.deals, everyone.approximate) == (4, 1)
+    #                                  2 h     6 h     24 h    48 h
+    assert shares(everyone.detection) == [(0, 4), (1, 3), (1, 3), (2, 2)]
+    assert everyone.detection.median_life_h == 16.5          # 30, 3 (its expiry), 3, 30
+    assert everyone.approval.deals == 2                      # approved ones, from approval
+    assert shares(everyone.approval) == [(1, 2), (1, 2), (1, 2), (2, 2)]
+    assert everyone.approval.median_life_h == 15.75          # 2 and 29.5
+
+
+def test_survival_groups_by_a_slice_in_its_order_and_keeps_empty_groups():
+    by = {g.name: g for g in outcomes.survival(ROWS, by=outcomes.slice_named("approved by"))}
+    assert list(by) == ["rules", "human", "none"]
+    assert shares(by["rules"].detection) == [(0, 1), (1, 1), (1, 1), (1, 1)]
+    assert by["none"].approval.deals == 0 and by["none"].approval.horizons[0].share is None
+    lead = outcomes.survival(ROWS, by=outcomes.slice_named("lead time (days)"))
+    assert [(g.name, g.deals) for g in lead] == [("< 14", 0), ("14–29", 0), ("30–59", 4), ("60+", 0)]
+    assert lead[0].detection.horizons[2].share is None and lead[0].detection.median_life_h is None
+    found = {g.name: g.deals for g in outcomes.survival(ROWS, by=outcomes.slice_named("found age (h)"))}
+    assert found == {"< 2": 3, "2–12": 0, "12+": 0, "unknown": 1}
+
+
+def test_bands():
+    assert [outcomes.band(n, outcomes.LEAD_DAYS) for n in (0, 13, 14, 29, 30, 59, 60, 400)] == [
+        "< 14", "< 14", "14–29", "14–29", "30–59", "30–59", "60+", "60+"]
+    assert [outcomes.band(n, outcomes.BREADTH) for n in (0, 1, 2, 3, 4, 7, 8)] == [
+        "0–1", "0–1", "2–3", "2–3", "4–7", "4–7", "8+"]
+    assert [outcomes.band(x, outcomes.FOUND_AGE_H) for x in (0.5, 2.0, 11.9, 12.0)] == [
+        "< 2", "2–12", "2–12", "12+"]
+
+
+def test_the_markdown_prints_dashes_for_empty_groups_and_the_cache_caveat_by_its_source():
+    report = outcomes.report(ROWS, since=T0 - timedelta(days=14), now=h(50))
+    text = outcomes.markdown(report)
+    assert "| All | 4 | 0% of 4 | 33% of 3 | 33% of 3 | 100% of 2 | 16.5 |" in text
+    assert "| 60+ | 0 | — | — | — | — | — |" in text
+    tp = next(line for line in text.splitlines() if line.startswith("| travelpayouts"))
+    assert tp.startswith("| travelpayouts ¹ |")
+    assert "¹ The Travelpayouts source is a cache" in text
+    assert "1 of 4 expiry times are approximate" in text
+    data = outcomes.to_json(report)
+    assert data["all"]["detection"]["horizons"][1] == {"hours": 6, "judged": 3, "gone": 1,
+                                                       "share": 1 / 3}
+    assert [g["name"] for g in data["slices"]["source"]] == ["ryanair", "travelpayouts"]
+
+
+def test_breadth_counts_the_other_cheap_dates_of_the_route_month_and_source_seen_before():
+    at = datetime(2026, 10, 12, 20, 0, tzinfo=timezone.utc)
+    deal_obs = obs(60, dep=date(2026, 11, 25))
+    near = [obs(60, dep=date(2026, 11, 25)),                     # the deal's own date
+            obs(66, dep=date(2026, 11, 3)),                      # +10 %: counts
+            obs(66, dep=date(2026, 11, 3)),                      # the same date again
+            obs(64, dep=date(2026, 11, 4)),
+            obs(67, dep=date(2026, 11, 5)),                      # dearer than +10 %
+            obs(55, dep=date(2026, 12, 1)),                      # another month
+            replace(obs(55, dep=date(2026, 11, 6)), source="ryanair"),   # another source
+            replace(obs(55, dep=date(2026, 11, 7)), last_seen_at=at - timedelta(hours=7)),
+            replace(obs(55, dep=date(2026, 11, 8)), fetched_at=at + timedelta(minutes=1))]
+    assert outcomes.breadth(deal_obs, near, at) == 3             # 25, 3 and 4 November
+
+
+def test_deal_outcomes_reads_each_deal_with_its_approver_lead_time_and_breadth(ctx):  # noqa: F811
+    from escapadinha import auto_review
+    conn = pipeline.open_db(ctx)
+    since = db.utcnow() - timedelta(minutes=1)
+    auto = insert_deal(conn, "LIS-LON", NOV + timedelta(days=10), 50, status="rendered",
+                       days=12, median=100)
+    db.record_review(conn, auto, status="approved", note=auto_review.NOTE)
+    human = insert_deal(conn, "LIS-LON", NOV + timedelta(days=12), 54, status="rendered",
+                        days=12, median=100)
+    db.record_review(conn, human, status="approved", note="bom deal")
+    rejected = insert_deal(conn, "LIS-LON", NOV + timedelta(days=14), 56, status="rendered",
+                           days=12, median=100)
+    db.record_review(conn, rejected, status="rejected", note="datas fracas")
+    rows = {o.deal_id: o for o in pipeline.deal_outcomes(ctx, conn, since=since)}
+    assert [rows[i].approver for i in (auto, human, rejected)] == ["rules", "human", "none"]
+    assert rows[auto].approved_at is not None and rows[rejected].approved_at is None
+    assert (rows[auto].route_kind, rows[auto].source, rows[auto].found_age_h) == ("europe", "test", None)
+    assert rows[auto].lead_days == (NOV + timedelta(days=10) - db.utcnow().date()).days
+    # 50 €: its own date and 54 € (within +10 %), not 56 €; 54 €: all three (59,40 € limit)
+    assert (rows[auto].breadth, rows[human].breadth) == (2, 3)
+    assert pipeline.deal_outcomes(ctx, conn, since=db.utcnow() + timedelta(minutes=1)) == []
+
+
+def test_the_outcomes_command_reads_a_copy_in_memory_and_never_writes_the_file(ctx, monkeypatch, tmp_path):  # noqa: F811
+    import hashlib
+    import json
+    conn = pipeline.open_db(ctx)
+    deal_id = insert_deal(conn, "LIS-LON", NOV + timedelta(days=10), 50, status="approved",
+                          days=12, median=100)
+    db.record_recheck(conn, deal_id, valid=False, latest_price=70,
+                      reason="o preço subiu para 70 €", kind="gone", at=db.utcnow())
+    conn.execute("ALTER TABLE deals DROP COLUMN expired_at")       # a v18 file: the upgrade
+    conn.execute("ALTER TABLE deals DROP COLUMN expired_kind")     # happens in memory only
+    conn.execute("PRAGMA user_version = 18")
+    conn.commit()
+    conn.close()
+    before = hashlib.sha256(ctx.db_path.read_bytes()).hexdigest()
+    out = tmp_path / "outcomes.json"
+    text = _cli(ctx, monkeypatch, "outcomes", "--days", "14", "--json", str(out))
+    assert hashlib.sha256(ctx.db_path.read_bytes()).hexdigest() == before
+    assert "| All | 1 |" in text and "1 of 1 expiry times are approximate" in text
+    assert json.loads(out.read_text("utf-8"))["all"]["deals"] == 1

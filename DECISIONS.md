@@ -3355,7 +3355,7 @@ so nothing has to be hosted.
   every route of an origin is listed exactly once, as a row or a plain link. The committed
   fixtures are unchanged: all their routes have data.
 
-## D56: Every expiry records when and why (2026-11-03, #74, #77)
+## D56: Every expiry records when and why, and a report measures how long promotions last (2026-11-03, #74, #77, #78)
 - **Problem:** the backtest (D44) measures rules before they ship; nothing measured promotions
   after. The research of 2026-11-03 (`docs/research/2026-11-03-site-and-algorithm-improvements.md`,
   section 2) found 80 % of deals gone within 24 h of detection, but had to read it off
@@ -3380,7 +3380,31 @@ so nothing has to be hosted.
   exact); a time at or before it is approximate (`outcomes.approximate`).
 - **`deal check`** on an expired deal no longer refuses: it fetches nothing and prints the reason
   and "expirou a 24/10/2026 às 14:05 (desaparecida)" (", hora aproximada" for a backfilled time).
+- **The survival report (#78):** `outcomes.py`, pure like the detector. Of the deals detected
+  in the window, per start (detection; approval for the approved ones): at 2, 6, 24 and 48 h,
+  the deals **judged** (gone by then, or watched at least that long) and the share **gone**
+  (`expired_kind = gone` within the mark); the median life (start to expiry, or to the last
+  check while open). Open deals and `superseded`/`rules` expiries are censored at their last
+  check: they count as surviving that long and never as gone, so the numbers never overstate how
+  fast fares vanish. Groups: source (the Travelpayouts row with the cache caveat), confidence,
+  approver (`rules` = the automatic approval's note, `human`, `none`; a deal rejected after an
+  approval counts as never approved, since its review time is the rejection's), lead time
+  (`< 14`, `14–29`, `30–59`, `60+` days), found age (`< 2`, `2–12`, `12+` h, or unknown),
+  route kind, and breadth (`0–1`, `2–3`, `4–7`, `8+`: distinct departure dates on the deal's
+  route, departure month and source at most 10 % above its price, first seen by detection and
+  last seen after the 6 h before it, its own date included). Rows come from
+  `pipeline.deal_outcomes` (`db.deals_detected_since`, `db.month_observations`). CLI
+  `escapadinha outcomes [--days 14] [--json] [--db]` on `backtest.open_copy`: the file is never
+  written, and an older file is upgraded in memory only.
+- **The first report** (`docs/research/2026-11-03-promotion-outcomes.md`, generation 604)
+  reproduces the research's §2.2 exactly (80 % of 361 gone within 24 h; Ryanair 83 % of 342;
+  Travelpayouts 21 % of 19; approved a median 9.2 h). §2.3's breadth counts are not reproduced
+  (the note did not record its query; eight variants tried), but every variant agrees with its
+  conclusion: deals with more cheap dates around them did not last longer.
 - **Tests:** `tests/test_outcomes.py` (the kind of every recheck verdict, the recheck and the
   re-evaluation storing their own time, a valid recheck storing neither, the CHECK against
   `EXPIRY_KINDS`, the upgrade from v18 with one deal per known reason and an unknown one, the
-  backfill marker, `deal check`); the v5 and v7 upgrade tests run through v19.
+  backfill marker, `deal check`; survival on hand-made deals: open, superseded at 2 h, gone at
+  3 h and at 30 h, approved by the rules and by a human; slices in order with empty groups,
+  bands, the Markdown's dashes and caveat, the JSON, breadth, the database seam, and the command
+  on a v18 file whose bytes stay the same); the v5 and v7 upgrade tests run through v19.

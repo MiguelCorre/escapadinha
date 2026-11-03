@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -513,11 +513,16 @@ def open_promotions(conn: sqlite3.Connection) -> list[Promotion]:
             conn.execute("SELECT * FROM promotions WHERE closed_at IS NULL ORDER BY id")]
 
 
+def _deal_pairs(conn: sqlite3.Connection, where: str,
+                params: tuple | list) -> list[tuple[Deal, Observation]]:
+    """`SELECT * FROM deals <where>`, each deal with its observation."""
+    rows = conn.execute(f"SELECT * FROM deals {where}", params).fetchall()
+    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+
+
 def promotion_deals(conn: sqlite3.Connection, promotion_id: int) -> list[tuple[Deal, Observation]]:
     """Every deal (date) of the promotion, oldest first."""
-    rows = conn.execute("SELECT * FROM deals WHERE promotion_id = ? ORDER BY id",
-                        (promotion_id,)).fetchall()
-    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+    return _deal_pairs(conn, "WHERE promotion_id = ? ORDER BY id", (promotion_id,))
 
 
 def close_promotion(conn: sqlite3.Connection, promotion_id: int, *, at: datetime,
@@ -575,10 +580,28 @@ def _dt(value: str | None) -> datetime | None:
 
 
 def deals_with_status(conn: sqlite3.Connection, *statuses: str) -> list[tuple[Deal, Observation]]:
+    return _deal_pairs(conn, f"WHERE status IN ({','.join('?' * len(statuses))}) ORDER BY id DESC",
+                       statuses)
+
+
+def deals_detected_since(conn: sqlite3.Connection,
+                         since: datetime) -> list[tuple[Deal, Observation]]:
+    """Every deal detected at or after `since`, oldest first (the survival report, D56)."""
+    return _deal_pairs(conn, "WHERE detected_at >= ? ORDER BY id", (_ts(since),))
+
+
+def month_observations(conn: sqlite3.Connection, o: Observation, *, seen_since: datetime,
+                       until: datetime) -> list[Observation]:
+    """`o`'s route, source and departure month, first seen by `until` and last seen at or after
+    `seen_since`: the dates around a deal at its detection (`outcomes.breadth`, D56)."""
+    first = o.departure_date.replace(day=1)
     rows = conn.execute(
-        f"SELECT * FROM deals WHERE status IN ({','.join('?' * len(statuses))}) ORDER BY id DESC",
-        statuses).fetchall()
-    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+        """SELECT * FROM price_observations
+           WHERE origin = ? AND destination = ? AND source = ? AND departure_date >= ?
+             AND departure_date < ? AND fetched_at <= ? AND last_seen_at >= ?""",
+        (o.origin, o.destination, o.source, first.isoformat(),
+         (first + timedelta(days=32)).replace(day=1).isoformat(), _ts(until), _ts(seen_since)))
+    return [_row_to_observation(r) for r in rows]
 
 
 def deal_states(conn: sqlite3.Connection) -> list[tuple[int, str, bool]]:
@@ -690,10 +713,8 @@ AWAITING_REVIEW = ("new", "rendered")     # open, and no human has approved them
 
 def open_deals(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
     """Deals that could still be published, so they must be rechecked."""
-    rows = conn.execute(
-        f"SELECT * FROM deals WHERE status IN ({','.join('?' * len(OPEN_STATUSES))}) ORDER BY id",
-        OPEN_STATUSES).fetchall()
-    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+    return _deal_pairs(conn, f"WHERE status IN ({','.join('?' * len(OPEN_STATUSES))}) ORDER BY id",
+                       OPEN_STATUSES)
 
 
 def record_recheck(conn: sqlite3.Connection, deal_id: int, *, valid: bool,
