@@ -3354,3 +3354,33 @@ so nothing has to be hosted.
   has cards only for routes with data, the never-seen sentence shows once and only there, and
   every route of an origin is listed exactly once, as a row or a plain link. The committed
   fixtures are unchanged: all their routes have data.
+
+## D56: Every expiry records when and why (2026-11-03, #74, #77)
+- **Problem:** the backtest (D44) measures rules before they ship; nothing measured promotions
+  after. The research of 2026-11-03 (`docs/research/2026-11-03-site-and-algorithm-improvements.md`,
+  section 2) found 80 % of deals gone within 24 h of detection, but had to read it off
+  `last_checked_at` and pt-PT sentences: `db.expire_deal` (the queue's re-evaluation, D40) kept
+  the previous recheck's time, and a reason like "o preço subiu para 39,98 €" carries a price.
+- **Decision (spec #74, `docs/specs/2026-11-03-promotion-outcomes.md`):** schema v19 adds
+  `deals.expired_at` (UTC) and `deals.expired_kind`, one of `outcomes.EXPIRY_KINDS` (the only
+  list; the SQL CHECK is tested against it): **gone** (the fare is no longer there at its
+  source: the price rose beyond D53's tolerance, or rose and is no longer a promotion against the
+  deal's typical low, the trip vanished, the price went stale), **superseded** (still there,
+  but no longer a promotion by our rules because of other data: a cheaper date is now the new
+  low, the typical low moved or is not mature for promotions), **rules** (the deal breaks a
+  route rule: nights range, D52; nonstop or stop limit). The code path sets the kind:
+  `recheck.Recheck.kind` on every invalid verdict, written by `db.record_recheck(…, kind=)`; the
+  re-evaluation is always `superseded`, written by `db.expire_deal(…, kind=, at=)` at its own
+  run's time (the last recheck's time and price stay). The reason text is unchanged, and is
+  never parsed at run time.
+- **Old rows:** the v19 migration's callable backfills every expired deal: `expired_at` from
+  `last_checked_at` (else `detected_at`), the kind from the reason's known v18 prefixes (unknown:
+  null). Meta `outcomes.backfilled_before` keeps the newest backfilled time (not the migration's
+  clock: the first run after the upgrade expires deals at its own, earlier `now`, and those are
+  exact); a time at or before it is approximate (`outcomes.approximate`).
+- **`deal check`** on an expired deal no longer refuses: it fetches nothing and prints the reason
+  and "expirou a 24/10/2026 às 14:05 (desaparecida)" (", hora aproximada" for a backfilled time).
+- **Tests:** `tests/test_outcomes.py` (the kind of every recheck verdict, the recheck and the
+  re-evaluation storing their own time, a valid recheck storing neither, the CHECK against
+  `EXPIRY_KINDS`, the upgrade from v18 with one deal per known reason and an unknown one, the
+  backfill marker, `deal check`); the v5 and v7 upgrade tests run through v19.

@@ -4,7 +4,7 @@ and the survival report built on it (#78, below)."""
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from escapadinha import outcomes, pipeline
@@ -115,3 +115,59 @@ def test_upgrading_a_v18_database_backfills_time_and_kind_from_the_old_reasons(c
     assert (deal.expired_kind, deal.expired_at) == ("gone", deal.detected_at)
     assert db.get_deal(conn, open_id)[0].expired_at is None
     assert db.expiries_backfilled_before(conn) is not None   # the report marks these approximate
+
+
+def test_the_backfill_marks_its_newest_expiry_so_a_later_one_is_never_approximate(ctx):  # noqa: F811
+    """The marker is the newest backfilled expiry, not the migration's clock: a deal expired by
+    the first run after the upgrade (at that run's `now`, which may precede the migration's own
+    time) is exact."""
+    conn = pipeline.open_db(ctx)
+    old = insert_deal(conn, "LIS-LON", NOV, 50, status="expired", days=12, median=100)
+    conn.execute("UPDATE deals SET expired_reason = 'o preço subiu para 70 €', "
+                 "last_checked_at = '2026-10-20T08:00:00+00:00' WHERE id = ?", (old,))
+    conn.execute("ALTER TABLE deals DROP COLUMN expired_at")
+    conn.execute("ALTER TABLE deals DROP COLUMN expired_kind")
+    conn.execute("PRAGMA user_version = 18")
+    conn.commit()
+    conn.close()
+    conn = pipeline.open_db(ctx)
+    assert db._ts(db.expiries_backfilled_before(conn)) == "2026-10-20T08:00:00+00:00"
+
+
+def test_a_fresh_database_has_no_backfilled_expiries(ctx):  # noqa: F811
+    assert db.expiries_backfilled_before(pipeline.open_db(ctx)) is None
+
+
+def _cli(ctx, monkeypatch, *args) -> str:
+    from typer.testing import CliRunner
+    from escapadinha import cli
+    monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
+    result = CliRunner().invoke(cli.app, list(args))
+    assert result.exit_code == 0, result.output
+    return " ".join(result.output.split())
+
+
+def test_deal_check_on_an_expired_deal_says_when_and_why_without_fetching(ctx, monkeypatch):  # noqa: F811
+    conn = pipeline.open_db(ctx)
+    deal_id = insert_deal(conn, "LIS-LON", NOV + timedelta(days=10), 50, status="approved",
+                          days=12, median=100)
+    at = datetime(2026, 10, 24, 13, 5, tzinfo=timezone.utc)
+    db.record_recheck(conn, deal_id, valid=False, latest_price=70,
+                      reason="o preço subiu para 70 €", kind="gone", at=at)
+    out = _cli(ctx, monkeypatch, "deal", "check", str(deal_id))      # no HTTP mock: no fetch
+    assert f"deal {deal_id}: ✗ expirado (o preço subiu para 70 €)" in out
+    assert "expirou a 24/10/2026 às 14:05 (desaparecida)" in out
+
+
+def test_deal_check_marks_a_backfilled_expiry_time_approximate(ctx, monkeypatch):  # noqa: F811
+    conn = pipeline.open_db(ctx)
+    deal_id = insert_deal(conn, "LIS-LON", NOV, 50, status="expired", days=12, median=100)
+    conn.execute("UPDATE deals SET expired_reason = 'já não é um novo mínimo: …', "
+                 "last_checked_at = '2026-10-20T08:00:00+00:00' WHERE id = ?", (deal_id,))
+    conn.execute("ALTER TABLE deals DROP COLUMN expired_at")
+    conn.execute("ALTER TABLE deals DROP COLUMN expired_kind")
+    conn.execute("PRAGMA user_version = 18")
+    conn.commit()
+    conn.close()
+    out = _cli(ctx, monkeypatch, "deal", "check", str(deal_id))
+    assert "expirou a 20/10/2026 às 09:00 (ultrapassada, hora aproximada)" in out

@@ -173,6 +173,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   route's range expires on the next recheck (`recheck.recheck` checks `rules.allows` first,
   reason "fora do intervalo de x–y noites da rota"), approved ones too. Changing a range is a
   detector rule change: measure it with the backtest's `stays` preset first and update the note.
+- **Expiry time and kind (D56):** every expiry writes `deals.expired_at` and `expired_kind`
+  (schema v19), one of `outcomes.EXPIRY_KINDS` (`gone` / `superseded` / `rules`; the SQL CHECK
+  is tested against it), set by the code path that expires the deal (`recheck.Recheck.kind`
+  through `db.record_recheck`; the re-evaluation's `db.expire_deal`, always `superseded`, at its
+  own run's time), never parsed from the pt-PT reason at run time (only the v19 backfill reads
+  the old reasons' prefixes). Backfilled times are approximate (`outcomes.approximate` against
+  meta `outcomes.backfilled_before`).
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
   installs) and add the ALTER steps to `MIGRATIONS` (existing DBs; a step may be a Python
   callable). Test the upgrade from real old schemas (`tests/fixtures/schema_v5.sql`, `schema_v7.sql`).

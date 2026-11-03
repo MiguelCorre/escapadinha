@@ -16,7 +16,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from escapadinha import i18n_pt as pt
-from escapadinha import detector, pipeline, posting, review_events, routes, run_path
+from escapadinha import detector, outcomes, pipeline, posting, review_events, routes, run_path
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
@@ -545,25 +545,42 @@ def review(
     uvicorn.run(create_app(Context()), host="127.0.0.1", port=port, log_level="warning")
 
 
-def _print_check(deal, check) -> None:
-    if check.valid:
+def _print_check(deal, valid: bool, reason: str) -> None:
+    if valid:
         mark = "[green]✓ preço confirmado[/]"
     elif deal.status == "expired":
         mark = "[red]✗ expirado[/]"
     else:                                   # R2: report only, the run's recheck expires it (D26)
         mark = "[red]✗ o preço mudou[/]"
-    console.print(f"  deal {deal.id}: {mark} ({check.reason}) → status {deal.status}")
-    if not check.valid and deal.status != "expired":
+    console.print(f"  deal {deal.id}: {mark} ({reason}) → status {deal.status}")
+    if not valid and deal.status != "expired":
         console.print("  Não guardado: a próxima recolha expira o deal (`escapadinha run`).")
+
+
+def _print_expiry(conn, deal) -> None:
+    """When and why the deal expired (#77); a time the v19 backfill wrote is approximate."""
+    if deal.expired_at is None:
+        return
+    notes = [outcomes.EXPIRY_KIND_PT[deal.expired_kind]] if deal.expired_kind else []
+    if outcomes.approximate(deal.expired_at, db.expiries_backfilled_before(conn)):
+        notes.append("hora aproximada")
+    console.print(f"  expirou a {pt.lisbon_timestamp(deal.expired_at)}"
+                  + (f" ({', '.join(notes)})" if notes else ""))
 
 
 @deal_app.command("check")
 def deal_check(deal_id: int) -> None:
     """Fetch this deal's prices now and recheck it (with R2 keys: report only, the next run's
-    recheck expires a deal whose price moved)."""
+    recheck expires a deal whose price moved). An expired deal is not fetched again: it says
+    when and why it expired (#77)."""
     ctx, conn = _ctx()
-    deal, check = pipeline.live_check(ctx, conn, deal_id)
-    _print_check(deal, check)
+    deal, _ = pipeline.find_deal(conn, deal_id)
+    if deal.status == "expired":
+        _print_check(deal, False, deal.expired_reason)
+    else:
+        deal, check = pipeline.live_check(ctx, conn, deal_id)
+        _print_check(deal, check.valid, check.reason)
+    _print_expiry(conn, deal)
     _print_baseline(deal)
     _print_posts(conn, deal_id)
 

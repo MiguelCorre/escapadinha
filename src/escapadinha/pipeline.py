@@ -1045,6 +1045,14 @@ def check_failure(exc: Exception) -> str:
     return f"{CHECK_FAILED}: {why}."
 
 
+def find_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]:
+    """The deal and its observation, or `UnknownDeal` in pt-PT for the reviewer."""
+    try:
+        return db.get_deal(conn, deal_id)
+    except KeyError:
+        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
+
+
 def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
                now: datetime | None = None) -> tuple[Deal, Recheck]:
     """Fetch this deal's route and departure month right now and recheck the price.
@@ -1055,10 +1063,7 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     pull sets aside, so the check only reports (`price_now`: nothing stored, no status change)
     and the next run's recheck expires the deal (D26).
     """
-    try:
-        deal, obs = db.get_deal(conn, deal_id)
-    except KeyError:
-        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
+    deal, obs = find_deal(conn, deal_id)
     if deal.status not in db.OPEN_STATUSES:
         raise ReviewError(f"O deal {deal_id} está '{STATUS_PT[deal.status]}' e já não é verificado.")
     if ctx.remote_store:
@@ -1138,10 +1143,7 @@ def _decidable(ctx: Context, conn: sqlite3.Connection, deal_id: int, kind: str,
     """Refuse up front what the applier would refuse now (same rules), so the reviewer hears
     it at once; the applier still re-checks against the status at application time."""
     ensure_current_copy(ctx)
-    try:
-        deal, _ = db.get_deal(conn, deal_id)
-    except KeyError:
-        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
+    deal, _ = find_deal(conn, deal_id)
     waiting = [e for e in pending_decisions(ctx, conn) if e.deal_id == deal_id]
     if waiting:
         e = waiting[-1]

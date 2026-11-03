@@ -538,7 +538,12 @@ uv run escapadinha deal published 12 --url https://www.instagram.com/p/...
 ```
 
 Status flow: `new → rendered → approved → published`. `rejected` and `expired` are final;
-`expired` is only set by price checks.
+`expired` is only set by price checks (and, before approval, the queue's re-evaluation, D40).
+Every expiry records when and why (D56, schema v19): `expired_at` and `expired_kind`, **gone**
+(the fare went away at its source), **superseded** (a cheaper date or a new typical low took its
+place) or **rules** (it breaks a route rule). `deal check` on an expired deal fetches nothing and
+prints the reason and *expirou a 24/10/2026 às 14:05 (desaparecida)*; deals that expired before
+v19 were backfilled from their last check and say *hora aproximada*.
 
 ### Automatic approval for the website (DECISIONS D46)
 

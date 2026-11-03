@@ -1183,16 +1183,19 @@ EXPIRIES_BACKFILLED_KEY = "outcomes.backfilled_before"
 def _backfill_expiries(conn: sqlite3.Connection) -> None:
     """#77, once: deals that expired before v19 get `expired_at` from their last check (else
     their detection: the closest the database has) and a kind from their reason's prefix
-    (unknown: NULL). The meta key marks them, so the survival report calls them approximate."""
-    rows = conn.execute("SELECT id, expired_reason FROM deals "
-                        "WHERE status = 'expired' AND expired_at IS NULL").fetchall()
+    (unknown: NULL). The meta key keeps the newest of those times, so the survival report calls
+    them approximate; not this clock's time: the first run after the upgrade expires deals at
+    its own, earlier `now`, and those are exact."""
+    rows = conn.execute("SELECT id, expired_reason, COALESCE(last_checked_at, detected_at) AS at "
+                        "FROM deals WHERE status = 'expired' AND expired_at IS NULL").fetchall()
     for r in rows:
         kind = next((k for prefix, k in _V18_REASON_KINDS
                      if (r["expired_reason"] or "").startswith(prefix)), None)
-        conn.execute("UPDATE deals SET expired_at = COALESCE(last_checked_at, detected_at), "
-                     "expired_kind = ? WHERE id = ?", (kind, r["id"]))
-    conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
-                 (EXPIRIES_BACKFILLED_KEY, _ts(utcnow())))
+        conn.execute("UPDATE deals SET expired_at = ?, expired_kind = ? WHERE id = ?",
+                     (r["at"], kind, r["id"]))
+    if rows:
+        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
+                     (EXPIRIES_BACKFILLED_KEY, max(r["at"] for r in rows)))
     conn.commit()
 
 
@@ -1200,7 +1203,8 @@ MIGRATIONS[19].append(_backfill_expiries)
 
 
 def expiries_backfilled_before(conn: sqlite3.Connection) -> datetime | None:
-    """When the v19 backfill ran: expiry times at or before it are approximate (#78)."""
+    """The newest expiry the v19 backfill wrote: expiry times at or before it are approximate
+    (#78); None when it had nothing to fill (a fresh database)."""
     value = get_meta(conn, EXPIRIES_BACKFILLED_KEY)
     return datetime.fromisoformat(value) if value else None
 
