@@ -408,6 +408,12 @@ site:
 # is refused when a run applies it (check the price again); reject/published never expire.
 review:
   approve_max_age_hours: 24
+  # The review pages' line (D56, #79): "Destas promoções (Ryanair, confiança média), 83%
+  # desapareceram em 24 h (últimos 14 dias, 342)", from the outcomes report over the last
+  # outcomes_days days, for the queue item's source and confidence; nothing below outcomes_min_n
+  # judged deals.
+  outcomes_days: 14
+  outcomes_min_n: 20
   # Automatic approval for the website (DECISIONS D46, Miguel 2026-10-24): a rendered candidate
   # that passes all of these and a live price check is approved by the pipeline itself, in the
   # run that rendered it, and goes live on the site in that run's deploy. Reject it on the review

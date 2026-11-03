@@ -549,6 +549,11 @@ class ReviewConfig(BaseModel):
     # when the pipeline applies them (D26). Reject and published events never expire.
     approve_max_age_hours: float = Field(24, gt=0)
     auto_approve: AutoApproveConfig = AutoApproveConfig()
+    # The review pages' line (#79, D56): how often promotions of a queue item's source and
+    # confidence were gone within 24 h, over this many days, printed only when at least
+    # `outcomes_min_n` such deals were judged.
+    outcomes_days: int = Field(14, gt=0)
+    outcomes_min_n: int = Field(20, gt=0)
 
 
 # `paused` (D46): a channel kept quiet on purpose (Miguel's decision, 2026-10-24: only the

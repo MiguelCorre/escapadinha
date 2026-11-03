@@ -1059,6 +1059,17 @@ def deal_outcomes(ctx: Context, conn: sqlite3.Connection,
             for deal, obs in db.deals_detected_since(conn, since)]
 
 
+def review_survival(ctx: Context, conn: sqlite3.Connection,
+                    now: datetime) -> dict[tuple[str, str | None], outcomes.Horizon]:
+    """How often deals of each source and confidence were gone within 24 h of detection over
+    the last `review.outcomes_days` days, where at least `review.outcomes_min_n` were judged:
+    what both review pages print next to a queue item (#79, D56)."""
+    cfg = ctx.config.review
+    rows = deal_outcomes(ctx, conn, now - timedelta(days=cfg.outcomes_days))
+    return {k: mark for k, mark in outcomes.by_source_and_confidence(rows, 24).items()
+            if mark.judged >= cfg.outcomes_min_n}
+
+
 def find_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]:
     """The deal and its observation, or `UnknownDeal` in pt-PT for the reviewer."""
     try:

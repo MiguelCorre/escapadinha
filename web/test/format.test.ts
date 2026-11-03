@@ -27,6 +27,7 @@ import {
   numericDate,
   numericDayMonth,
   shortDate,
+  survivalText,
 } from "../src/lib/format";
 
 const NBSP = " ";
@@ -103,6 +104,13 @@ describe("pt-PT formats", () => {
     expect(baggageText(false)).toBe("só bagagem de mão");
     expect(baggageText(null)).toBeNull();
     expect(baggageText(undefined)).toBeNull();
+  });
+
+  it("prints the review pages' survival line like the pipeline, a rate and a count (D56)", () => {
+    expect(survivalText("Ryanair", "média", 83, 14, 342))
+      .toBe("Destas promoções (Ryanair, confiança média), 83% desapareceram em 24 h (últimos 14 dias, 342)");
+    expect(survivalText("Aviasales", null, 5, 7, 1200))
+      .toBe(`Destas promoções (Aviasales), 5% desapareceram em 24 h (últimos 7 dias, 1${NBSP}200)`);
   });
 
   it("prints a discount with a true minus sign", () => {

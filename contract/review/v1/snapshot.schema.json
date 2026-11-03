@@ -149,6 +149,19 @@
             "seen_at": {"$ref": "#/$defs/timestamp"}
           }
         },
+        "survival": {
+          "description": "Optional (added within v1, D56, #79): how often promotions like this queue item (its source and confidence) were gone within 24 h of detection, from the outcomes report over the last `days` days: `gone_24h_pct` of the `n` deals judged at 24 h. A rate and a count, never a price. Null for items no longer awaiting review and when fewer than review.outcomes_min_n were judged; absent from older snapshots.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["gone_24h_pct", "n", "days", "source", "confidence"],
+          "properties": {
+            "gone_24h_pct": {"type": "integer", "minimum": 0, "maximum": 100},
+            "n": {"type": "integer", "minimum": 1},
+            "days": {"type": "integer", "minimum": 1},
+            "source": {"type": "string"},
+            "confidence": {"enum": ["low", "medium", "high", null]}
+          }
+        },
         "fetched_at": {"$ref": "#/$defs/timestamp", "description": "When our collection first saw it."},
         "checked_at": {"type": "string"},
         "detected_at": {"$ref": "#/$defs/timestamp"},

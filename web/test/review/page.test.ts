@@ -98,6 +98,23 @@ describe("queue page", () => {
     expect(legacy).toContain("encontrado a 14/10/2026 · verificado a");
   });
 
+  it("says how often promotions like this one vanished within 24 h, when measured (D56)", async () => {
+    const survival = { gone_24h_pct: 83, n: 342, days: 14, source: "travelpayouts", confidence: "medium" };
+    const snap = snapshot({ queue: [deal(7, { source_label: "Aviasales", survival })] });
+    expect(schemaErrors("snapshot", snap)).toEqual([]);
+    const card = (await open(snap)).doc.querySelector('[data-deal="7"]')!;
+    const rows = card.querySelectorAll("dt").map((dt) => [txt(dt), txt(dt.nextElementSibling)]);
+    expect(rows).toContainEqual(["Histórico",       // a rate and a count: no price in it
+      "Destas promoções (Aviasales, confiança média), 83% desapareceram em 24 h (últimos 14 dias, 342)"]);
+    // Below the minimum (null) or from an older snapshot (absent): no row.
+    const none = snapshot({ queue: [deal(7, { survival: null })] });
+    expect(schemaErrors("snapshot", none)).toEqual([]);
+    const { survival: _s, ...before } = deal(7);
+    for (const s of [none, snapshot({ queue: [before] })]) {
+      expect(txt((await open(s)).doc.querySelector('[data-deal="7"]'))).not.toContain("Histórico");
+    }
+  });
+
   it("says how much the typical low was trusted and whether the price is a new low (D44)", async () => {
     const line = "−44% vs. mínimo habitual 104 € (21 dias em 24, de 89 € a 131 €)";
     const cases: [Record<string, unknown>, string][] = [

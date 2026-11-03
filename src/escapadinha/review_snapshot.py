@@ -20,7 +20,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from escapadinha import pipeline, review_events
+from escapadinha import outcomes, pipeline, review_events
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation
 from escapadinha.presentation import PhotoCredit, build_deal_view, seller_label, source_label
@@ -120,6 +120,19 @@ def baseline_json(r: pipeline.BaselineRange | None) -> dict | None:
             "highest_eur": r.highest.price, "highest_observation_id": r.highest.id}
 
 
+def survival_json(ctx: Context, marks: dict[tuple[str, str | None], outcomes.Horizon],
+                  deal: Deal, obs: Observation) -> dict | None:
+    """#79 (D56): how often promotions like this queue item (its source and confidence) were
+    gone within 24 h (`pipeline.review_survival`); null for items no longer awaiting review and
+    below `review.outcomes_min_n`. A rate and a count, never a price. Optional within v1."""
+    mark = marks.get((obs.source, deal.confidence)) if deal.status in db.AWAITING_REVIEW else None
+    if mark is None:
+        return None
+    return {"gone_24h_pct": round(100 * mark.share), "n": mark.judged,
+            "days": ctx.config.review.outcomes_days, "source": obs.source,
+            "confidence": deal.confidence}
+
+
 def _page_path(ctx: Context, conn: sqlite3.Connection, deal: Deal, origin_city: str,
                city_pt: str) -> str:
     """The deal's page: its promotion's (D53) when it has one, else its own."""
@@ -129,7 +142,8 @@ def _page_path(ctx: Context, conn: sqlite3.Connection, deal: Deal, origin_city: 
 
 
 def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Deal,
-          obs: Observation, store_keys: list[str]) -> dict:
+          obs: Observation, store_keys: list[str],
+          marks: dict[tuple[str, str | None], outcomes.Horizon]) -> dict:
     route = pipeline.route_for(ctx, conn, obs.route_key)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=PhotoCredit.from_photo(None, None))
@@ -180,6 +194,7 @@ def _deal(ctx: Context, conn: sqlite3.Connection, rendered: _Rendered, deal: Dea
         "partner_offer": (None if deal.partner_discount_pct is None else
                           {"discount_pct": deal.partner_discount_pct,
                            "seen_at": db.utc_iso(deal.partner_offer_at)}),
+        "survival": survival_json(ctx, marks, deal, obs),
         "fetched_at": db.utc_iso(obs.fetched_at),
         "checked_at": view.checked_at,
         "detected_at": db.utc_iso(deal.detected_at),
@@ -233,12 +248,14 @@ def build(ctx: Context, conn: sqlite3.Connection, now: datetime) -> dict:
     tabs["closed"] = tabs["closed"][:RECENT]
     rendered = _Rendered(ctx)
     store_keys = _sync_slides(ctx, rendered, [d for pairs in tabs.values() for d, _ in pairs])
+    marks = pipeline.review_survival(ctx, conn, now)
     return {
         "version": VERSION,
         "generated_at": db.utc_iso(now),
         "site_base_url": ctx.config.site.base_url,
         "review_rules": {"approve_max_age_hours": ctx.config.review.approve_max_age_hours},
-        **{tab: [_deal(ctx, conn, rendered, d, o, store_keys.get(d.id, [])) for d, o in pairs]
+        **{tab: [_deal(ctx, conn, rendered, d, o, store_keys.get(d.id, []), marks)
+                 for d, o in pairs]
            for tab, pairs in tabs.items()},
         "pending_events": [e.to_json() for e in review_events.pending(ctx.object_store, conn)],
         "recent_outcomes": [o.to_json() for o in review_events.recent_outcomes(conn, RECENT)],

@@ -8,6 +8,8 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import respx
+
 from escapadinha import outcomes, pipeline
 from escapadinha.config import DetectorConfig
 from escapadinha.models import RouteRules
@@ -309,3 +311,67 @@ def test_the_outcomes_command_reads_a_copy_in_memory_and_never_writes_the_file(c
     assert hashlib.sha256(ctx.db_path.read_bytes()).hexdigest() == before
     assert "| All | 1 |" in text and "1 of 1 expiry times are approximate" in text
     assert json.loads(out.read_text("utf-8"))["all"]["deals"] == 1
+
+
+# --- #79: the line on the review pages ------------------------------------------------------
+
+def test_the_24_h_mark_per_source_and_confidence():
+    marks = outcomes.by_source_and_confidence(ROWS, 24)
+    assert {k: (x.gone, x.judged) for k, x in marks.items()} == {
+        ("ryanair", "medium"): (0, 2), ("travelpayouts", "medium"): (1, 1)}
+
+
+def test_the_survival_line_in_pt_pt():
+    from escapadinha import i18n_pt
+    assert i18n_pt.survival_line("Ryanair", "média", 83, 14, 342) == (
+        "Destas promoções (Ryanair, confiança média), 83% desapareceram em 24 h "
+        "(últimos 14 dias, 342)")
+    assert i18n_pt.survival_line("Aviasales", None, 5, 7, 1200) == (
+        "Destas promoções (Aviasales), 5% desapareceram em 24 h (últimos 7 dias, 1 200)")
+
+
+def _past_deals(conn, like, fates):
+    """Deals detected two days before `like`'s, of its source and confidence, each gone at 3 h
+    (True) or superseded at 30 h (False)."""
+    deal, obs = like
+    at = deal.detected_at - timedelta(days=2)
+    for i, gone in enumerate(fates):
+        past = insert_deal(conn, "LIS-LON", NOV + timedelta(days=i), 40 + i, status="expired",
+                           days=12, median=100)
+        end = at + timedelta(hours=3 if gone else 30)
+        conn.execute("UPDATE deals SET detected_at = ?, confidence = ?, last_checked_at = ?, "
+                     "expired_at = ?, expired_kind = ? WHERE id = ?",
+                     (db._ts(at), deal.confidence, db._ts(end), db._ts(end),
+                      "gone" if gone else "superseded", past))
+        conn.execute("UPDATE price_observations SET source = ? WHERE id = "
+                     "(SELECT observation_id FROM deals WHERE id = ?)", (obs.source, past))
+    conn.commit()
+
+
+@respx.mock
+def test_queue_items_carry_how_often_promotions_like_them_vanished_on_both_pages(ctx):  # noqa: F811
+    from fastapi.testclient import TestClient
+    from escapadinha import review_snapshot
+    from escapadinha.web import create_app
+    from test_review import rendered_deal
+    from test_review_events import validate
+    conn = pipeline.open_db(ctx)
+    deal_id = rendered_deal(ctx, conn)
+    deal, obs = db.get_deal(conn, deal_id)
+    _past_deals(conn, (deal, obs), [True, True, True, False])
+    now = db.utcnow()
+    ctx.config.review.outcomes_min_n = 4
+    snap = review_snapshot.build(ctx, conn, now)
+    validate("snapshot", snap)
+    [d] = snap["queue"]
+    assert d["survival"] == {"gone_24h_pct": 75, "n": 4, "days": 14, "source": obs.source,
+                             "confidence": deal.confidence}
+    assert all(x["survival"] is None for x in snap["closed"])        # queue items only
+    [d] = TestClient(create_app(ctx)).get("/api/deals", params={"tab": "queue"}).json()["deals"]
+    confidence = {"high": ", confiança alta", "medium": ", confiança média"}.get(deal.confidence, "")
+    assert d["survival_pt"] == (f"Destas promoções (Aviasales{confidence}), 75% desapareceram "
+                                "em 24 h (últimos 14 dias, 4)")
+    ctx.config.review.outcomes_min_n = 5                          # too few judged: nothing
+    assert review_snapshot.build(ctx, conn, now)["queue"][0]["survival"] is None
+    [d] = TestClient(create_app(ctx)).get("/api/deals", params={"tab": "queue"}).json()["deals"]
+    assert d["survival_pt"] is None

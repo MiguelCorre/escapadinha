@@ -184,7 +184,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   meta `outcomes.backfilled_before`). The survival report (`outcomes.py`, pure: `survival`,
   `report`, `markdown`, `to_json`; rows from `pipeline.deal_outcomes`) counts only `gone` as
   gone: open deals and `superseded`/`rules` expiries are censored at their last check. Bands,
-  horizons and the breadth rule are constants there; never a second copy.
+  horizons and the breadth rule are constants there; never a second copy. The review pages'
+  line (#79) comes only from `pipeline.review_survival` (config `review.outcomes_days`,
+  `outcomes_min_n`) through `review_snapshot.survival_json` (snapshot `survival`, queue items
+  only) and `i18n_pt.survival_line` / `format.survivalText` (one rule, both sides): a rate and a
+  count, never a price. Nothing of it is on the public site (the visitor sentence waits for
+  Miguel, #79).
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
   installs) and add the ALTER steps to `MIGRATIONS` (existing DBs; a step may be a Python
   callable). Test the upgrade from real old schemas (`tests/fixtures/schema_v5.sql`, `schema_v7.sql`).
@@ -324,7 +329,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   approvals whose check is older than `review.approve_max_age_hours` (passed in as
   `approve_max_age`), and archives refused ones with a reason, never raising. Shapes: `contract/review/v1/*.schema.json`; change
   them only with a new version. One exception: an optional **snapshot** field the Function can do
-  without (D29's `transfers`, D40's `baseline`) joins v1, though the schema before it refuses a
+  without (D29's `transfers`, D40's `baseline`, D56's `survival`) joins v1, though the schema before it refuses a
   snapshot that has it (`additionalProperties: false`). That is allowed only because the review
   Function never validates the snapshot at run time (it reads the JSON as is; keep it so:
   `web/test/review/page.test.ts` serves a snapshot with unknown keys) and handles the field's

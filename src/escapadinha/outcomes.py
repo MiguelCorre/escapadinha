@@ -209,6 +209,17 @@ def survival(rows: Iterable[Outcome], *, by: Slice) -> list[Group]:
                   _clock(groups[n], lambda o: o.approved_at)) for n in names]
 
 
+def by_source_and_confidence(rows: Iterable[Outcome],
+                             hours: int) -> dict[tuple[str, str | None], Horizon]:
+    """The detection clock's `hours` mark per (source, confidence): how often promotions like a
+    queue item were gone (the review pages' line, #79)."""
+    groups: dict[tuple[str, str | None], list[Outcome]] = {}
+    for o in rows:
+        groups.setdefault((o.source, o.confidence), []).append(o)
+    mark = HORIZONS_H.index(hours)
+    return {k: _clock(g, lambda o: o.detected_at).horizons[mark] for k, g in groups.items()}
+
+
 @dataclass(frozen=True)
 class Report:
     since: datetime

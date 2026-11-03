@@ -483,6 +483,13 @@ The `stays` preset (D52) keeps the detector and compares the kinds' nights range
 per-destination ranges of `routes.overrides`, so a change to a destination's stay length is
 measured like a threshold change.
 
+Read-only: the database file is opened read-only and copied into memory. The script replays every
+completed collection run of the window with one rule set per column, judges each candidate with
+the pipeline's own recheck over the next 24 h and against today's typical low, counts low prices
+and new lows per route kind, and (`--state`) lists every route-month's typical low with and
+without the lead-time filter. `--json out.json` writes the same figures as data. The first preset
+reproduces the replay table of `docs/research/2026-10-15-data-reliability.md`.
+
 **Promotion outcomes (D56).** The backtest measures rules before they ship; the outcomes report
 measures what happened to the promotions afterwards:
 
@@ -498,14 +505,8 @@ kind and date breadth (other cheap dates on the route-month at detection). A dea
 that expired as *superseded* or *rules*, counts as surviving until its last check, never as gone.
 The Travelpayouts source's row carries its caveat (a cache keeps prices that may be gone). The
 database is copied into memory, read-only, and upgraded there. The first report, which
-reproduces the research of 2026-11-03: `docs/research/2026-11-03-promotion-outcomes.md`.
-
-Read-only: the database file is opened read-only and copied into memory. The script replays every
-completed collection run of the window with one rule set per column, judges each candidate with
-the pipeline's own recheck over the next 24 h and against today's typical low, counts low prices
-and new lows per route kind, and (`--state`) lists every route-month's typical low with and
-without the lead-time filter. `--json out.json` writes the same figures as data. The first preset
-reproduces the replay table of `docs/research/2026-10-15-data-reliability.md`.
+reproduces the research of 2026-11-03: `docs/research/2026-11-03-promotion-outcomes.md`. Both
+review pages print the 24 h figure next to each queue item (below).
 
 Comparing against all fares would be wrong. A route's cheapest dates are always far below the
 median of all fares, so that rule flags almost every route on every run. On the first real data
@@ -543,6 +544,11 @@ recheck.
   decision for you ([Instagram](#instagram-decisions-d36)); mark by hand only what you posted
   yourself.
 - Approved deals show the **WhatsApp text** with a copy button (also on the phone page).
+- Each item awaiting review says how often promotions like it vanished (D56): *Histórico:
+  Destas promoções (Ryanair, confiança média), 85% desapareceram em 24 h (últimos 14 dias,
+  313)*, from the outcomes report for its source and confidence over `review.outcomes_days`
+  (14) days, only when at least `review.outcomes_min_n` (20) such deals were judged (both pages;
+  the snapshot's optional `survival`, v1). A rate and a count, never a price.
 - Approved deals keep being rechecked every 30 min. If the price moves before you post, the deal
   expires and the page tells you.
 
