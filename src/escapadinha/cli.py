@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -16,7 +16,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from escapadinha import i18n_pt as pt
-from escapadinha import detector, pipeline, posting, review_events, routes, run_path
+from escapadinha import backtest, detector, outcomes, pipeline, posting, review_events, routes, run_path
 from escapadinha.affiliate import AffiliateError
 from escapadinha.collector.travelpayouts import TravelpayoutsError
 from escapadinha.photos import PhotoSourceError
@@ -413,6 +413,30 @@ def stats(route: Annotated[str, typer.Argument(help="e.g. LIS-LON")]) -> None:
                       f"(span {base.span_days}){spread}")
 
 
+@app.command("outcomes")
+def outcomes_report(
+        days: Annotated[int, typer.Option(min=1, help="Deals detected in the last N days")] = 14,
+        json_out: Annotated[Path | None, typer.Option("--json", help="Also write it as JSON")] = None,
+        db_path: Annotated[Path | None, typer.Option(
+            "--db", help="A database copy (default: the local database)")] = None) -> None:
+    """How long promotions stayed bookable (D56): share gone within 2/6/24/48 h of detection and
+    of approval, by source, confidence, approver, lead time, found age, route kind and date
+    breadth. Read-only: the database is copied into memory (and upgraded there)."""
+    ctx = Context()
+    path = db_path or ctx.db_path
+    if not path.is_file():
+        console.print(f"[red]✗[/] {escape(str(path))}: not a database file (`store pull` first?)")
+        raise typer.Exit(1)
+    conn = backtest.open_copy(path)
+    now = db.utcnow()
+    since = now - timedelta(days=days)
+    report = outcomes.report(pipeline.deal_outcomes(ctx, conn, since), since=since, now=now)
+    console.print(outcomes.markdown(report), markup=False, highlight=False, soft_wrap=True)
+    if json_out:
+        json_out.write_text(json.dumps(outcomes.to_json(report), ensure_ascii=False, indent=2),
+                            "utf-8")
+
+
 @routes_app.command("list")
 def routes_list() -> None:
     """Every route with its kind, effective rules, status and last observation (pt-PT)."""
@@ -545,25 +569,42 @@ def review(
     uvicorn.run(create_app(Context()), host="127.0.0.1", port=port, log_level="warning")
 
 
-def _print_check(deal, check) -> None:
-    if check.valid:
+def _print_check(deal, valid: bool, reason: str) -> None:
+    if valid:
         mark = "[green]✓ preço confirmado[/]"
     elif deal.status == "expired":
         mark = "[red]✗ expirado[/]"
     else:                                   # R2: report only, the run's recheck expires it (D26)
         mark = "[red]✗ o preço mudou[/]"
-    console.print(f"  deal {deal.id}: {mark} ({check.reason}) → status {deal.status}")
-    if not check.valid and deal.status != "expired":
+    console.print(f"  deal {deal.id}: {mark} ({reason}) → status {deal.status}")
+    if not valid and deal.status != "expired":
         console.print("  Não guardado: a próxima recolha expira o deal (`escapadinha run`).")
+
+
+def _print_expiry(conn, deal) -> None:
+    """When and why the deal expired (#77); a time the v19 backfill wrote is approximate."""
+    if deal.expired_at is None:
+        return
+    notes = [outcomes.EXPIRY_KIND_PT[deal.expired_kind]] if deal.expired_kind else []
+    if outcomes.approximate(deal.expired_at, db.expiries_backfilled_before(conn)):
+        notes.append("hora aproximada")
+    console.print(f"  expirou a {pt.lisbon_timestamp(deal.expired_at)}"
+                  + (f" ({', '.join(notes)})" if notes else ""))
 
 
 @deal_app.command("check")
 def deal_check(deal_id: int) -> None:
     """Fetch this deal's prices now and recheck it (with R2 keys: report only, the next run's
-    recheck expires a deal whose price moved)."""
+    recheck expires a deal whose price moved). An expired deal is not fetched again: it says
+    when and why it expired (#77)."""
     ctx, conn = _ctx()
-    deal, check = pipeline.live_check(ctx, conn, deal_id)
-    _print_check(deal, check)
+    deal, _ = pipeline.find_deal(conn, deal_id)
+    if deal.status == "expired":
+        _print_check(deal, False, deal.expired_reason)
+    else:
+        deal, check = pipeline.live_check(ctx, conn, deal_id)
+        _print_check(deal, check.valid, check.reason)
+    _print_expiry(conn, deal)
     _print_baseline(deal)
     _print_posts(conn, deal_id)
 

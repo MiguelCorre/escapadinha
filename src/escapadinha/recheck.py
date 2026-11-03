@@ -24,6 +24,7 @@ class Recheck:
     valid: bool
     latest_price: float | None
     reason: str
+    kind: str | None = None     # an invalid verdict's `outcomes.EXPIRY_KINDS` (#77); None: valid
 
 
 def recheck(deal_obs: Observation, latest: list[Observation], cfg: DetectorConfig,
@@ -37,24 +38,24 @@ def recheck(deal_obs: Observation, latest: list[Observation], cfg: DetectorConfi
     the latest price on its own observation. The review Function ports this rule
     (`live-check.ts`), the shared cases keep both sides equal."""
     if not rules.allows(deal_obs):
-        return Recheck(False, None, _rule_broken(deal_obs, rules))
+        return Recheck(False, None, _rule_broken(deal_obs, rules), "rules")
     same_trip = [o for o in eligible(latest, rules)
                  if o.departure_date == deal_obs.departure_date
                  and o.return_date == deal_obs.return_date]
     if not same_trip:
-        return Recheck(False, None, "a viagem já não aparece nos preços mais recentes")
+        return Recheck(False, None, "a viagem já não aparece nos preços mais recentes", "gone")
     best = min(same_trip, key=lambda o: o.price)
     rose = best.price > deal_obs.price + EPS
     if best.price > deal_obs.price * (1 + cfg.recheck_tolerance_pct) + tolerance_eur + EPS:
-        return Recheck(False, best.price, f"o preço subiu para {pt.eur(best.price)}")
+        return Recheck(False, best.price, f"o preço subiu para {pt.eur(best.price)}", "gone")
     if rose and typical_low is not None and not still_promotion(best.price, typical_low, cfg):
         return Recheck(False, best.price,
                        f"o preço subiu para {pt.eur(best.price)} e já não é promoção face ao "
-                       f"preço habitual ({pt.eur(typical_low)})")
+                       f"preço habitual ({pt.eur(typical_low)})", "gone")
     if not is_fresh(best, cfg, now):
         return Recheck(False, best.price,
                        f"o preço foi visto pela última vez a {best.found_date:%d/%m}, há mais "
-                       f"de {cfg.max_offer_age_days} dias")
+                       f"de {cfg.max_offer_age_days} dias", "gone")
     if rose:
         return Recheck(True, best.price, f"subiu para {pt.eur(best.price)}, dentro da tolerância "
                                          f"de {round(cfg.recheck_tolerance_pct * 100)}%")

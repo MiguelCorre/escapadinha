@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,7 +15,7 @@ from escapadinha.models import Deal, Observation, Photo, Post, Promotion
 if TYPE_CHECKING:
     from escapadinha.demand import Demand
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -165,6 +165,11 @@ MIGRATIONS = {
                 closed_reason TEXT)""",
          "ALTER TABLE deals ADD COLUMN promotion_id INTEGER REFERENCES promotions(id)",
          "ALTER TABLE posting_queue ADD COLUMN promotion_id INTEGER REFERENCES promotions(id)"],
+    # #77: when a deal expired and why (outcomes.EXPIRY_KINDS); the backfill below fills the
+    # deals that expired before.
+    19: ["ALTER TABLE deals ADD COLUMN expired_at TEXT",
+         "ALTER TABLE deals ADD COLUMN expired_kind TEXT "
+         "CHECK (expired_kind IN ('gone', 'superseded', 'rules'))"],
 }
 
 
@@ -508,11 +513,16 @@ def open_promotions(conn: sqlite3.Connection) -> list[Promotion]:
             conn.execute("SELECT * FROM promotions WHERE closed_at IS NULL ORDER BY id")]
 
 
+def _deal_pairs(conn: sqlite3.Connection, where: str,
+                params: tuple | list) -> list[tuple[Deal, Observation]]:
+    """`SELECT * FROM deals <where>`, each deal with its observation."""
+    rows = conn.execute(f"SELECT * FROM deals {where}", params).fetchall()
+    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+
+
 def promotion_deals(conn: sqlite3.Connection, promotion_id: int) -> list[tuple[Deal, Observation]]:
     """Every deal (date) of the promotion, oldest first."""
-    rows = conn.execute("SELECT * FROM deals WHERE promotion_id = ? ORDER BY id",
-                        (promotion_id,)).fetchall()
-    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+    return _deal_pairs(conn, "WHERE promotion_id = ? ORDER BY id", (promotion_id,))
 
 
 def close_promotion(conn: sqlite3.Connection, promotion_id: int, *, at: datetime,
@@ -552,6 +562,7 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
                               else float(row["partner_discount_pct"])),
         partner_offer_at=_dt(row["partner_offer_at"]),
         promotion_id=row["promotion_id"],
+        expired_at=_dt(row["expired_at"]), expired_kind=row["expired_kind"],
     )
 
 
@@ -569,10 +580,28 @@ def _dt(value: str | None) -> datetime | None:
 
 
 def deals_with_status(conn: sqlite3.Connection, *statuses: str) -> list[tuple[Deal, Observation]]:
+    return _deal_pairs(conn, f"WHERE status IN ({','.join('?' * len(statuses))}) ORDER BY id DESC",
+                       statuses)
+
+
+def deals_detected_since(conn: sqlite3.Connection,
+                         since: datetime) -> list[tuple[Deal, Observation]]:
+    """Every deal detected at or after `since`, oldest first (the survival report, D56)."""
+    return _deal_pairs(conn, "WHERE detected_at >= ? ORDER BY id", (_ts(since),))
+
+
+def month_observations(conn: sqlite3.Connection, o: Observation, *, seen_since: datetime,
+                       until: datetime) -> list[Observation]:
+    """`o`'s route, source and departure month, first seen by `until` and last seen at or after
+    `seen_since`: the dates around a deal at its detection (`outcomes.breadth`, D56)."""
+    first = o.departure_date.replace(day=1)
     rows = conn.execute(
-        f"SELECT * FROM deals WHERE status IN ({','.join('?' * len(statuses))}) ORDER BY id DESC",
-        statuses).fetchall()
-    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+        """SELECT * FROM price_observations
+           WHERE origin = ? AND destination = ? AND source = ? AND departure_date >= ?
+             AND departure_date < ? AND fetched_at <= ? AND last_seen_at >= ?""",
+        (o.origin, o.destination, o.source, first.isoformat(),
+         (first + timedelta(days=32)).replace(day=1).isoformat(), _ts(until), _ts(seen_since)))
+    return [_row_to_observation(r) for r in rows]
 
 
 def deal_states(conn: sqlite3.Connection) -> list[tuple[int, str, bool]]:
@@ -684,30 +713,35 @@ AWAITING_REVIEW = ("new", "rendered")     # open, and no human has approved them
 
 def open_deals(conn: sqlite3.Connection) -> list[tuple[Deal, Observation]]:
     """Deals that could still be published, so they must be rechecked."""
-    rows = conn.execute(
-        f"SELECT * FROM deals WHERE status IN ({','.join('?' * len(OPEN_STATUSES))}) ORDER BY id",
-        OPEN_STATUSES).fetchall()
-    return [(_row_to_deal(r), get_observation(conn, r["observation_id"])) for r in rows]
+    return _deal_pairs(conn, f"WHERE status IN ({','.join('?' * len(OPEN_STATUSES))}) ORDER BY id",
+                       OPEN_STATUSES)
 
 
 def record_recheck(conn: sqlite3.Connection, deal_id: int, *, valid: bool,
-                   latest_price: float | None, reason: str,
+                   latest_price: float | None, reason: str, kind: str | None = None,
                    at: datetime | None = None) -> None:
+    """An invalid verdict expires the deal at `at` with its `kind` (`Recheck.kind`, #77)."""
+    at_ts = _ts(at or utcnow())
     conn.execute(
         """UPDATE deals SET last_checked_at = ?, last_seen_price = ?,
                status = CASE WHEN ? THEN status ELSE 'expired' END,
-               expired_reason = CASE WHEN ? THEN NULL ELSE ? END
+               expired_reason = CASE WHEN ? THEN NULL ELSE ? END,
+               expired_at = CASE WHEN ? THEN NULL ELSE ? END,
+               expired_kind = CASE WHEN ? THEN NULL ELSE ? END
            WHERE id = ?""",
-        (_ts(at or utcnow()), latest_price, valid, valid, reason, deal_id))
+        (at_ts, latest_price, valid, valid, reason, valid, at_ts, valid, kind, deal_id))
     conn.commit()
 
 
-def expire_deal(conn: sqlite3.Connection, deal_id: int, reason: str) -> None:
+def expire_deal(conn: sqlite3.Connection, deal_id: int, reason: str, *, kind: str,
+                at: datetime | None = None) -> None:
     """A deal awaiting review that is no longer a promotion against its month's current typical
-    low (D40). Pipeline-owned like a recheck's expiry; the last recheck's time and price stay."""
-    conn.execute(f"""UPDATE deals SET status = 'expired', expired_reason = ?
+    low (D40). Pipeline-owned like a recheck's expiry; the last recheck's time and price stay,
+    the expiry gets its own time and kind (#77)."""
+    conn.execute(f"""UPDATE deals SET status = 'expired', expired_reason = ?, expired_at = ?,
+                         expired_kind = ?
                      WHERE id = ? AND status IN ({','.join('?' * len(AWAITING_REVIEW))})""",
-                 (reason, deal_id, *AWAITING_REVIEW))
+                 (reason, _ts(at or utcnow()), kind, deal_id, *AWAITING_REVIEW))
     conn.commit()
 
 
@@ -1152,6 +1186,48 @@ def _backfill_promotions(conn: sqlite3.Connection) -> None:
 
 
 MIGRATIONS[18].append(_backfill_promotions)
+
+# The reasons the expiring code paths wrote up to v18 (`recheck.recheck`,
+# `recheck.promotion_expiry`), by kind. Only the v19 backfill reads them: from v19 on the code
+# path stores the kind itself.
+_V18_REASON_KINDS = (
+    ("o preço subiu", "gone"), ("a viagem já não aparece", "gone"),
+    ("o preço foi visto pela última vez", "gone"),
+    ("já não é um novo mínimo", "superseded"), ("já não é promoção face ao preço habitual", "superseded"),
+    ("preço habitual ainda sem dados suficientes", "superseded"),
+    ("fora do intervalo de", "rules"), ("não é ida e volta com voos diretos", "rules"),
+    ("tem mais de", "rules"),
+)
+EXPIRIES_BACKFILLED_KEY = "outcomes.backfilled_before"
+
+
+def _backfill_expiries(conn: sqlite3.Connection) -> None:
+    """#77, once: deals that expired before v19 get `expired_at` from their last check (else
+    their detection: the closest the database has) and a kind from their reason's prefix
+    (unknown: NULL). The meta key keeps the newest of those times, so the survival report calls
+    them approximate; not this clock's time: the first run after the upgrade expires deals at
+    its own, earlier `now`, and those are exact."""
+    rows = conn.execute("SELECT id, expired_reason, COALESCE(last_checked_at, detected_at) AS at "
+                        "FROM deals WHERE status = 'expired' AND expired_at IS NULL").fetchall()
+    for r in rows:
+        kind = next((k for prefix, k in _V18_REASON_KINDS
+                     if (r["expired_reason"] or "").startswith(prefix)), None)
+        conn.execute("UPDATE deals SET expired_at = ?, expired_kind = ? WHERE id = ?",
+                     (r["at"], kind, r["id"]))
+    if rows:
+        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
+                     (EXPIRIES_BACKFILLED_KEY, max(r["at"] for r in rows)))
+    conn.commit()
+
+
+MIGRATIONS[19].append(_backfill_expiries)
+
+
+def expiries_backfilled_before(conn: sqlite3.Connection) -> datetime | None:
+    """The newest expiry the v19 backfill wrote: expiry times at or before it are approximate
+    (#78); None when it had nothing to fill (a fresh database)."""
+    value = get_meta(conn, EXPIRIES_BACKFILLED_KEY)
+    return datetime.fromisoformat(value) if value else None
 
 
 def raw_pending_exists(conn: sqlite3.Connection) -> bool:

@@ -3,7 +3,7 @@
 // one column, slides in a swipeable strip, big buttons. A small script posts the decisions as
 // JSON to /review/decision and /review/check and shows the answer in the card.
 import { BRAND } from "../../../src/lib/brand";
-import { discountPercent, eur, lisbonTimestamp, timeAgo } from "../../../src/lib/format";
+import { discountPercent, eur, lisbonTimestamp, survivalText, timeAgo } from "../../../src/lib/format";
 import { TOKENS } from "../../../src/lib/tokens";
 import { CONFIDENCE_PT, DECISION_PT } from "./rules";
 import type { Outcome, ReviewEvent, Snapshot, SnapshotDeal } from "./types";
@@ -74,6 +74,15 @@ function partnerLine(d: SnapshotDeal): string {
   const p = d.partner_offer;
   if (!p) return "";
   return esc(`oferta especial do Aviasales: ${discountPercent(Math.round(p.discount_pct))} face à média deles (visto a ${lisbonTimestamp(p.seen_at)})`);
+}
+
+/** D56 (#79): how often promotions like this one were gone within 24 h; nothing below the
+ * minimum, for items no longer awaiting review, or from an older snapshot. */
+function survivalLine(d: SnapshotDeal): string {
+  const s = d.survival;
+  if (!s) return "";
+  return esc(survivalText(d.source_label ?? s.source, s.confidence ? CONFIDENCE_PT[s.confidence] : null,
+    s.gone_24h_pct, s.days, s.n));
 }
 
 /** D53: the cards of one promotion (the route's open dates) together, cheapest first, under a
@@ -173,6 +182,7 @@ function card(d: SnapshotDeal, pending: ReviewEvent[], approveHours: number, now
       ${row("Desconto", dealLine(d))}
       ${row("Preço visto", [foundLine(d, now), `verificado a ${esc(d.checked_at)}`].filter(Boolean).join(" · "))}
       ${row("Aviasales", partnerLine(d))}
+      ${row("Histórico", survivalLine(d))}
       ${row("Última verificação", esc(lastCheck))}
       ${row("Link", affiliate)}
       ${row("Página", d.page_url ? link(d.page_url, d.page_url) : "")}

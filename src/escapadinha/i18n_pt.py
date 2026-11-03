@@ -113,6 +113,16 @@ def count(n: int, singular: str, plural: str) -> str:
     return f"{n} {singular if n == 1 else plural}"
 
 
+def survival_line(source_label: str, confidence_pt: str | None, gone_pct: int, days: int,
+                  n: int) -> str:
+    """The review pages' line (#79, D56): 'Destas promoções (Ryanair, confiança média), 83%
+    desapareceram em 24 h (últimos 14 dias, 342)'; the Function's `format.survivalText` is the
+    same rule. A rate and a count, never a price."""
+    group = f"{source_label}, confiança {confidence_pt}" if confidence_pt else source_label
+    return (f"Destas promoções ({group}), {gone_pct}% desapareceram em 24 h "
+            f"(últimos {days} dias, {integer(n)})")
+
+
 def nights(n: int) -> str:
     return count(n, "noite", "noites")
 

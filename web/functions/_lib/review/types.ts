@@ -121,6 +121,11 @@ export interface SnapshotDeal {
   /** D46: Aviasales' own special-offer discount for the trip (percent below their average,
    * their measure, never a price) and when a run last saw it; null when not listed now. */
   partner_offer?: { discount_pct: number; seen_at: string } | null;
+  /** D56 (#79): how often promotions of this queue item's source and confidence were gone
+   * within 24 h, over the last `days` days (`n` judged); null below the minimum or for items
+   * no longer awaiting review, absent from older snapshots. A rate, never a price. */
+  survival?: { gone_24h_pct: number; n: number; days: number; source: string;
+    confidence: Confidence | null } | null;
   fetched_at: string;
   checked_at: string;
   detected_at: string;

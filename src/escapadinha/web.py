@@ -18,7 +18,7 @@ from jinja2 import Environment, PackageLoader
 from pydantic import BaseModel
 
 from escapadinha import i18n_pt as pt
-from escapadinha import pipeline, review_events, review_snapshot
+from escapadinha import outcomes, pipeline, review_events, review_snapshot
 from escapadinha.presentation import seller_label
 from escapadinha.config import Context
 from escapadinha.models import Deal, Observation
@@ -43,16 +43,46 @@ def pending_json(event: review_events.Event) -> dict:
             "created_at": pt.lisbon_timestamp(event.created_at)}
 
 
+def _rendered(ctx: Context, deal: Deal) -> tuple[str | None, list[str]]:
+    """The caption and slide names of the deal's rendered folder (downloaded when a runner
+    rendered it, D25)."""
+    folder = pipeline.deal_folder(ctx, deal)
+    if not folder or not folder.exists():
+        return None, []
+    caption = folder / "caption.txt"
+    return (caption.read_text("utf-8") if caption.exists() else None,
+            sorted(p.name for p in folder.glob("slide_*.png")))
+
+
+def _seen_pt(deal: Deal, obs: Observation, source_label: str, survival: dict | None) -> dict:
+    """The "Preço visto", "Aviasales" and "Histórico" rows in pt-PT: the exact found time
+    (GraphQL, D43) with its age, Aviasales' second opinion (D46) and how often promotions like
+    this queue item were gone within 24 h (D56)."""
+    now = db.utcnow()
+    found = obs.found_at
+    return {
+        "found_at_pt": pt.lisbon_timestamp(found) if found else None,
+        "found_ago": pt.time_ago(found, now) if found else None,
+        "found_fresh": bool(found) and now - found < timedelta(hours=2),
+        "partner_offer_pt": (None if deal.partner_discount_pct is None else
+                             f"oferta especial do Aviasales: −{round(deal.partner_discount_pct)}% "
+                             f"face à média deles (visto a "
+                             f"{pt.lisbon_timestamp(deal.partner_offer_at)})"),
+        "survival_pt": survival and pt.survival_line(
+            source_label, CONFIDENCE_PT.get(deal.confidence), survival["gone_24h_pct"],
+            survival["days"], survival["n"]),
+    }
+
+
 def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observation,
-              pending: list[review_events.Event] = ()) -> dict:
+              pending: list[review_events.Event] = (),
+              marks: dict[tuple[str, str | None], outcomes.Horizon] | None = None) -> dict:
     route = pipeline.route_for(ctx, conn, obs.route_key)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=PhotoCredit.from_photo(None, None))
-    folder = pipeline.deal_folder(ctx, deal)     # downloaded when a runner rendered it (D25)
-    caption_file = folder / "caption.txt" if folder else None
-    slides = sorted(p.name for p in folder.glob("slide_*.png")) if folder and folder.exists() else []
+    caption, slides = _rendered(ctx, deal)
     baseline = review_snapshot.baseline_json(pipeline.baseline_range(conn, deal))
-    now = db.utcnow()
+    survival = review_snapshot.survival_json(ctx, marks or {}, deal, obs)
     return {
         "id": deal.id,
         "status": deal.status,
@@ -82,14 +112,7 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "confidence_pt": CONFIDENCE_PT.get(deal.confidence),
         "new_low": deal.new_low,
         "found_on": view.found_on,
-        # D46: the exact found time (GraphQL, D43) with its age, and Aviasales' second opinion.
-        "found_at_pt": pt.lisbon_timestamp(obs.found_at) if obs.found_at else None,
-        "found_ago": pt.time_ago(obs.found_at, now) if obs.found_at else None,
-        "found_fresh": bool(obs.found_at) and now - obs.found_at < timedelta(hours=2),
-        "partner_offer_pt": (None if deal.partner_discount_pct is None else
-                             f"oferta especial do Aviasales: −{round(deal.partner_discount_pct)}% "
-                             f"face à média deles (visto a "
-                             f"{pt.lisbon_timestamp(deal.partner_offer_at)})"),
+        **_seen_pt(deal, obs, view.source_label, survival),
         "checked_at": view.checked_at,
         "last_checked_at": pt.lisbon_timestamp(deal.last_checked_at) if deal.last_checked_at else None,
         "last_seen_price": None if deal.last_seen_price is None else pt.eur(deal.last_seen_price),
@@ -97,7 +120,7 @@ def deal_json(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
         "review_note": deal.review_note,
         "affiliate_url": deal.affiliate_url,
         "affiliate_error": deal.affiliate_error,
-        "caption": caption_file.read_text("utf-8") if caption_file and caption_file.exists() else None,
+        "caption": caption,
         "whatsapp_text": pipeline.whatsapp_for(deal, view),      # approved / published (D32)
         "slides": [f"/deals/{deal.id}/slides/{name}" for name in slides],
         "output_path": deal.output_path,
@@ -138,7 +161,8 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
         def run(conn):
             counts = {t: len(db.deals_with_status(conn, *s)) for t, s in TABS.items()}
             pending = pipeline.pending_decisions(ctx, conn)
-            deals = [deal_json(ctx, conn, d, o, pending)
+            marks = pipeline.review_survival(ctx, conn, db.utcnow())
+            deals = [deal_json(ctx, conn, d, o, pending, marks)
                      for d, o in db.deals_with_status(conn, *TABS[tab])]
             return {"tab": tab, "counts": counts, "deals": deals}
         return with_conn(run)
@@ -158,7 +182,8 @@ def create_app(ctx: Context, conn_factory=None) -> FastAPI:
 
     def action_result(conn, deal: Deal, check=None, decision: pipeline.ReviewResult | None = None) -> dict:
         _, obs = db.get_deal(conn, deal.id)
-        out = {"deal": deal_json(ctx, conn, deal, obs, pipeline.pending_decisions(ctx, conn))}
+        out = {"deal": deal_json(ctx, conn, deal, obs, pipeline.pending_decisions(ctx, conn),
+                                 pipeline.review_survival(ctx, conn, db.utcnow()))}
         if check is not None:
             out["check"] = {"valid": check.valid, "reason": check.reason,
                             "latest_price": None if check.latest_price is None

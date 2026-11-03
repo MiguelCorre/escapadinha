@@ -13,8 +13,8 @@ from pathlib import Path, PureWindowsPath
 
 import httpx
 
-from escapadinha import (archive, auto_review, demand, detector, discovery, i18n_pt, instagram, posting, review_events,
-                         routes, telegram)
+from escapadinha import (archive, auto_review, demand, detector, discovery, i18n_pt, instagram, outcomes, posting,
+                         review_events, routes, telegram)
 from escapadinha.affiliate import AffiliateError, PartnerLinksClient
 from escapadinha.articles import Article
 from escapadinha.captions import deal_caption, guide_caption, whatsapp_text
@@ -946,7 +946,7 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
         result = recheck(obs, route_latest, ctx.config.detector, now, rules=rules,
                          typical_low=deal.baseline_median)
         db.record_recheck(conn, deal.id, valid=result.valid, latest_price=result.latest_price,
-                          reason=result.reason, at=now)
+                          reason=result.reason, kind=result.kind, at=now)
         if not result.valid:
             _mark_expired_outputs(ctx, deal.id, result.reason, now)
         results.append((db.get_deal(conn, deal.id)[0], obs, result))
@@ -978,7 +978,7 @@ def run_reevaluate(ctx: Context, conn: sqlite3.Connection,
         reason = promotion_expiry(obs, deal.rule, base, cfg, route.price_cap_eur)
         if reason is None:
             continue
-        db.expire_deal(conn, deal.id, reason)
+        db.expire_deal(conn, deal.id, reason, kind="superseded", at=now)   # a judgement, not the fare
         _mark_expired_outputs(ctx, deal.id, reason, now)
         expired.append((db.get_deal(conn, deal.id)[0], obs, reason))
     close_empty_promotions(conn, now)
@@ -1045,6 +1045,39 @@ def check_failure(exc: Exception) -> str:
     return f"{CHECK_FAILED}: {why}."
 
 
+def deal_outcomes(ctx: Context, conn: sqlite3.Connection,
+                  since: datetime) -> list[outcomes.Outcome]:
+    """Every deal detected since `since` as the survival report reads it (D56): its expiry, who
+    approved it, its route's kind and the cheap dates around it at detection."""
+    kinds = {r.key: r.kind for r in routes.all_routes(conn, ctx.config.routes)}
+    backfilled = db.expiries_backfilled_before(conn)
+    return [outcomes.outcome(
+                deal, obs, route_kind=kinds.get(obs.route_key, outcomes.UNKNOWN),
+                seen=db.month_observations(conn, obs, until=deal.detected_at,
+                                           seen_since=deal.detected_at - outcomes.BREADTH_WINDOW),
+                backfilled_before=backfilled)
+            for deal, obs in db.deals_detected_since(conn, since)]
+
+
+def review_survival(ctx: Context, conn: sqlite3.Connection,
+                    now: datetime) -> dict[tuple[str, str | None], outcomes.Horizon]:
+    """How often deals of each source and confidence were gone within 24 h of detection over
+    the last `review.outcomes_days` days, where at least `review.outcomes_min_n` were judged:
+    what both review pages print next to a queue item (#79, D56)."""
+    cfg = ctx.config.review
+    rows = deal_outcomes(ctx, conn, now - timedelta(days=cfg.outcomes_days))
+    return {k: mark for k, mark in outcomes.by_source_and_confidence(rows, 24).items()
+            if mark.judged >= cfg.outcomes_min_n}
+
+
+def find_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]:
+    """The deal and its observation, or `UnknownDeal` in pt-PT for the reviewer."""
+    try:
+        return db.get_deal(conn, deal_id)
+    except KeyError:
+        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
+
+
 def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
                now: datetime | None = None) -> tuple[Deal, Recheck]:
     """Fetch this deal's route and departure month right now and recheck the price.
@@ -1055,10 +1088,7 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     pull sets aside, so the check only reports (`price_now`: nothing stored, no status change)
     and the next run's recheck expires the deal (D26).
     """
-    try:
-        deal, obs = db.get_deal(conn, deal_id)
-    except KeyError:
-        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
+    deal, obs = find_deal(conn, deal_id)
     if deal.status not in db.OPEN_STATUSES:
         raise ReviewError(f"O deal {deal_id} está '{STATUS_PT[deal.status]}' e já não é verificado.")
     if ctx.remote_store:
@@ -1078,7 +1108,7 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     result = recheck(obs, fresh, ctx.config.detector, now, rules=rules,
                      typical_low=deal.baseline_median)
     db.record_recheck(conn, deal_id, valid=result.valid, latest_price=result.latest_price,
-                      reason=result.reason, at=now)
+                      reason=result.reason, kind=result.kind, at=now)
     if not result.valid:
         _mark_expired_outputs(ctx, deal_id, result.reason, now)
         close_empty_promotions(conn, now)
@@ -1138,10 +1168,7 @@ def _decidable(ctx: Context, conn: sqlite3.Connection, deal_id: int, kind: str,
     """Refuse up front what the applier would refuse now (same rules), so the reviewer hears
     it at once; the applier still re-checks against the status at application time."""
     ensure_current_copy(ctx)
-    try:
-        deal, _ = db.get_deal(conn, deal_id)
-    except KeyError:
-        raise UnknownDeal(f"O deal {deal_id} não existe nesta base de dados.") from None
+    deal, _ = find_deal(conn, deal_id)
     waiting = [e for e in pending_decisions(ctx, conn) if e.deal_id == deal_id]
     if waiting:
         e = waiting[-1]

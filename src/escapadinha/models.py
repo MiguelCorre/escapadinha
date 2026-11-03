@@ -151,6 +151,10 @@ class Deal:
     # D53: the route's promotion this date belongs to (None: detected before, or expired before
     # anyone approved it and so never grouped).
     promotion_id: int | None = None
+    # #77: when the deal expired and why, as one of `outcomes.EXPIRY_KINDS`. None while open;
+    # rows expired before schema v19 were backfilled from `last_checked_at` and the reason.
+    expired_at: datetime | None = None
+    expired_kind: str | None = None
 
 
 @dataclass(frozen=True)

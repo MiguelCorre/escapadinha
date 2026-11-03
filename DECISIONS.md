@@ -3354,3 +3354,76 @@ so nothing has to be hosted.
   has cards only for routes with data, the never-seen sentence shows once and only there, and
   every route of an origin is listed exactly once, as a row or a plain link. The committed
   fixtures are unchanged: all their routes have data.
+
+## D56: Every expiry records when and why, and a report measures how long promotions last (2026-11-03, #74, #77, #78, #79)
+- **Problem:** the backtest (D44) measures rules before they ship; nothing measured promotions
+  after. The research of 2026-11-03 (`docs/research/2026-11-03-site-and-algorithm-improvements.md`,
+  section 2) found 80 % of deals gone within 24 h of detection, but had to read it off
+  `last_checked_at` and pt-PT sentences: `db.expire_deal` (the queue's re-evaluation, D40) kept
+  the previous recheck's time, and a reason like "o preço subiu para 39,98 €" carries a price.
+- **Decision (spec #74, `docs/specs/2026-11-03-promotion-outcomes.md`):** schema v19 adds
+  `deals.expired_at` (UTC) and `deals.expired_kind`, one of `outcomes.EXPIRY_KINDS` (the only
+  list; the SQL CHECK is tested against it): **gone** (the fare is no longer there at its
+  source: the price rose beyond D53's tolerance, or rose and is no longer a promotion against the
+  deal's typical low, the trip vanished, the price went stale), **superseded** (still there,
+  but no longer a promotion by our rules because of other data: a cheaper date is now the new
+  low, the typical low moved or is not mature for promotions), **rules** (the deal breaks a
+  route rule: nights range, D52; nonstop or stop limit). The code path sets the kind:
+  `recheck.Recheck.kind` on every invalid verdict, written by `db.record_recheck(…, kind=)`; the
+  re-evaluation is always `superseded`, written by `db.expire_deal(…, kind=, at=)` at its own
+  run's time (the last recheck's time and price stay). The reason text is unchanged, and is
+  never parsed at run time.
+- **Old rows:** the v19 migration's callable backfills every expired deal: `expired_at` from
+  `last_checked_at` (else `detected_at`), the kind from the reason's known v18 prefixes (unknown:
+  null). Meta `outcomes.backfilled_before` keeps the newest backfilled time (not the migration's
+  clock: the first run after the upgrade expires deals at its own, earlier `now`, and those are
+  exact); a time at or before it is approximate (`outcomes.approximate`).
+- **`deal check`** on an expired deal no longer refuses: it fetches nothing and prints the reason
+  and "expirou a 24/10/2026 às 14:05 (desaparecida)" (", hora aproximada" for a backfilled time).
+- **The survival report (#78):** `outcomes.py`, pure like the detector. Of the deals detected
+  in the window, per start (detection; approval for the approved ones): at 2, 6, 24 and 48 h,
+  the deals **judged** (gone by then, or watched at least that long) and the share **gone**
+  (`expired_kind = gone` within the mark); the median life (start to expiry, or to the last
+  check while open). Open deals and `superseded`/`rules` expiries are censored at their last
+  check: they count as surviving that long and never as gone, so the numbers never overstate how
+  fast fares vanish. Groups: source (the Travelpayouts row with the cache caveat), confidence,
+  approver (`rules` = the automatic approval's note, `human`, `none`; a deal rejected after an
+  approval counts as never approved, since its review time is the rejection's), lead time
+  (`< 14`, `14–29`, `30–59`, `60+` days), found age (`< 2`, `2–12`, `12+` h, or unknown),
+  route kind, and breadth (`0–1`, `2–3`, `4–7`, `8+`: distinct departure dates on the deal's
+  route, departure month and source at most 10 % above its price, first seen by detection and
+  last seen after the 6 h before it, its own date included). Rows come from
+  `pipeline.deal_outcomes` (`db.deals_detected_since`, `db.month_observations`). CLI
+  `escapadinha outcomes [--days 14] [--json] [--db]` on `backtest.open_copy`: the file is never
+  written, and an older file is upgraded in memory only.
+- **The first report** (`docs/research/2026-11-03-promotion-outcomes.md`, generation 604)
+  reproduces the research's §2.2 exactly (80 % of 361 gone within 24 h; Ryanair 83 % of 342;
+  Travelpayouts 21 % of 19; approved a median 9.2 h). §2.3's breadth counts are not reproduced
+  (the note did not record its query; eight variants tried), but every variant agrees with its
+  conclusion: deals with more cheap dates around them did not last longer.
+- **The reviewer sees the odds (#79):** every item awaiting review carries, on both review
+  pages, "Histórico: Destas promoções (Ryanair, confiança média), 85% desapareceram em 24 h
+  (últimos 14 dias, 313)" (the live copy's figures on 2026-11-03; 59% of 29 at high confidence).
+  `pipeline.review_survival` computes the 24 h mark per (source, confidence) over
+  `review.outcomes_days` (14) days once per snapshot or page request (0.4 s on the live copy)
+  and keeps only the groups with `review.outcomes_min_n` (20) judged deals;
+  `review_snapshot.survival_json` puts it on queue items only as the optional v1 field
+  `survival` `{gone_24h_pct, n, days, source, confidence}`, null otherwise (the v1 snapshot
+  exception: the Function reads the JSON as is and handles its absence). The spec called the
+  field `outcomes`; `survival` it is, because the snapshot's `recent_outcomes` already means
+  review-event outcomes. The copy is `i18n_pt.survival_line` locally and `format.survivalText`
+  on the Function, the same rule. A rate and a count: no price, no `data-obs`, traceability
+  untouched.
+- **Not done, Miguel's call (#79):** the visitor sentence on promotion pages (spec item 4) and
+  the final wording of both lines.
+- **Tests:** `tests/test_outcomes.py` (the kind of every recheck verdict, the recheck and the
+  re-evaluation storing their own time, a valid recheck storing neither, the CHECK against
+  `EXPIRY_KINDS`, the upgrade from v18 with one deal per known reason and an unknown one, the
+  backfill marker, `deal check`; survival on hand-made deals: open, superseded at 2 h, gone at
+  3 h and at 30 h, approved by the rules and by a human; slices in order with empty groups,
+  bands, the Markdown's dashes and caveat, the JSON, breadth, the database seam, and the command
+  on a v18 file whose bytes stay the same; the 24 h mark per source and confidence, the pt-PT
+  line, a queue item's `survival` in the snapshot and on the local page, null below the
+  minimum and on closed items); `web/test/format.test.ts` (`survivalText`, the same strings);
+  `web/test/review/page.test.ts` (the row with the field, none with null or an older
+  snapshot); the v5 and v7 upgrade tests run through v19.

@@ -51,6 +51,7 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
 | `run_path.py` | Fast or full path for a run: fingerprint of what the site shows, stored after each full path (D25) |
 | `detector.py` | Pure functions: `baseline`, `confidence`, `evaluate` (threshold, euro floor, new low, D44), `low_prices`, `detect_route`, `detect` (both tiers) |
 | `backtest.py` | The detector backtest (D44): replay of the stored runs on a read-only copy with several rule sets; `scripts/backtest_detector.py` runs it |
+| `outcomes.py` | Pure: promotion outcomes (D56): the expiry kinds, and the survival report (share gone within 2/6/24/48 h of detection and of approval, censored, by source, confidence, approver, lead time, found age, route kind and date breadth); `escapadinha outcomes` runs it |
 | `photos.py` | Pixabay search + download, credit stored in `photos` |
 | `renderer/` | Jinja HTML/CSS → Playwright Chromium → PNG; `tokens.py` = design-system tokens |
 | `captions/` | pt-PT caption templates (price, dates, timestamp, disclosure) and the WhatsApp text |
@@ -489,6 +490,24 @@ and new lows per route kind, and (`--state`) lists every route-month's typical l
 without the lead-time filter. `--json out.json` writes the same figures as data. The first preset
 reproduces the replay table of `docs/research/2026-10-15-data-reliability.md`.
 
+**Promotion outcomes (D56).** The backtest measures rules before they ship; the outcomes report
+measures what happened to the promotions afterwards:
+
+```bash
+uv run escapadinha store pull
+uv run escapadinha outcomes --days 14 --json out.json    # --db <file> reads another copy
+```
+
+Of the deals detected in the last N days, the share the recheck found **gone** within 2, 6, 24
+and 48 hours of detection (and of approval, for the approved ones), with the median life, overall
+and by source, confidence, approver (the rules, a human, nobody), lead time, found age, route
+kind and date breadth (other cheap dates on the route-month at detection). A deal still open, or
+that expired as *superseded* or *rules*, counts as surviving until its last check, never as gone.
+The Travelpayouts source's row carries its caveat (a cache keeps prices that may be gone). The
+database is copied into memory, read-only, and upgraded there. The first report, which
+reproduces the research of 2026-11-03: `docs/research/2026-11-03-promotion-outcomes.md`. Both
+review pages print the 24 h figure next to each queue item (below).
+
 Comparing against all fares would be wrong. A route's cheapest dates are always far below the
 median of all fares, so that rule flags almost every route on every run. On the first real data
 it flagged 9 of 10 routes.
@@ -525,6 +544,11 @@ recheck.
   decision for you ([Instagram](#instagram-decisions-d36)); mark by hand only what you posted
   yourself.
 - Approved deals show the **WhatsApp text** with a copy button (also on the phone page).
+- Each item awaiting review says how often promotions like it vanished (D56): *Histórico:
+  Destas promoções (Ryanair, confiança média), 85% desapareceram em 24 h (últimos 14 dias,
+  313)*, from the outcomes report for its source and confidence over `review.outcomes_days`
+  (14) days, only when at least `review.outcomes_min_n` (20) such deals were judged (both pages;
+  the snapshot's optional `survival`, v1). A rate and a count, never a price.
 - Approved deals keep being rechecked every 30 min. If the price moves before you post, the deal
   expires and the page tells you.
 
@@ -538,7 +562,12 @@ uv run escapadinha deal published 12 --url https://www.instagram.com/p/...
 ```
 
 Status flow: `new → rendered → approved → published`. `rejected` and `expired` are final;
-`expired` is only set by price checks.
+`expired` is only set by price checks (and, before approval, the queue's re-evaluation, D40).
+Every expiry records when and why (D56, schema v19): `expired_at` and `expired_kind`, **gone**
+(the fare went away at its source), **superseded** (a cheaper date or a new typical low took its
+place) or **rules** (it breaks a route rule). `deal check` on an expired deal fetches nothing and
+prints the reason and *expirou a 24/10/2026 às 14:05 (desaparecida)*; deals that expired before
+v19 were backfilled from their last check and say *hora aproximada*.
 
 ### Automatic approval for the website (DECISIONS D46)
 
@@ -1408,6 +1437,11 @@ uv run pytest -m "not browser"
   city, the twelve-month window and the zero months, the rank, the client, the discovery that
   stores the figures and archives the answer (a failed fetch reported, the old figures kept), the
   day's pass narrowed by rank (plan and `run_collect`), the v15 → v16 upgrade and the export.
+- `test_outcomes.py` (D56): the expiry kind of every recheck verdict and the time each expiry
+  stores, the SQL CHECK against `EXPIRY_KINDS`, the v18 → v19 backfill per known reason, `deal
+  check` on an expired deal, survival with censoring on hand-made deals, slices and bands with
+  empty groups, the Markdown (dashes, the cache caveat) and JSON, breadth, the database seam, and
+  the `outcomes` command, which leaves the file untouched.
 - `test_backtest.py` (D44): the detector backtest on a synthetic database: the copy is
   read-only, run selection by id or by day, one flag per candidate, the 24 h recheck and the
   hindsight check, the new-low rule, the presets, the Markdown and JSON, `--state` and the script.
