@@ -88,7 +88,10 @@ CREATE TABLE IF NOT EXISTS deals (
     partner_discount_pct NUMERIC,
     partner_offer_at     TEXT,
     -- D53: the route's promotion this date belongs to (NULL: never grouped).
-    promotion_id    INTEGER REFERENCES promotions(id)
+    promotion_id    INTEGER REFERENCES promotions(id),
+    -- #77: when the deal expired and why (outcomes.EXPIRY_KINDS). NULL while open.
+    expired_at      TEXT,
+    expired_kind    TEXT CHECK (expired_kind IN ('gone', 'superseded', 'rules'))
 );
 
 -- D53: one promotion per route at a time: the group of deals (dates) one page, one review card

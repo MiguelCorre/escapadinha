@@ -946,7 +946,7 @@ def run_recheck(ctx: Context, conn: sqlite3.Connection, run_id: int | None = Non
         result = recheck(obs, route_latest, ctx.config.detector, now, rules=rules,
                          typical_low=deal.baseline_median)
         db.record_recheck(conn, deal.id, valid=result.valid, latest_price=result.latest_price,
-                          reason=result.reason, at=now)
+                          reason=result.reason, kind=result.kind, at=now)
         if not result.valid:
             _mark_expired_outputs(ctx, deal.id, result.reason, now)
         results.append((db.get_deal(conn, deal.id)[0], obs, result))
@@ -978,7 +978,7 @@ def run_reevaluate(ctx: Context, conn: sqlite3.Connection,
         reason = promotion_expiry(obs, deal.rule, base, cfg, route.price_cap_eur)
         if reason is None:
             continue
-        db.expire_deal(conn, deal.id, reason)
+        db.expire_deal(conn, deal.id, reason, kind="superseded", at=now)   # a judgement, not the fare
         _mark_expired_outputs(ctx, deal.id, reason, now)
         expired.append((db.get_deal(conn, deal.id)[0], obs, reason))
     close_empty_promotions(conn, now)
@@ -1078,7 +1078,7 @@ def live_check(ctx: Context, conn: sqlite3.Connection, deal_id: int,
     result = recheck(obs, fresh, ctx.config.detector, now, rules=rules,
                      typical_low=deal.baseline_median)
     db.record_recheck(conn, deal_id, valid=result.valid, latest_price=result.latest_price,
-                      reason=result.reason, at=now)
+                      reason=result.reason, kind=result.kind, at=now)
     if not result.valid:
         _mark_expired_outputs(ctx, deal_id, result.reason, now)
         close_empty_promotions(conn, now)
