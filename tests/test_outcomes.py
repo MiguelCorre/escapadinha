@@ -375,3 +375,12 @@ def test_queue_items_carry_how_often_promotions_like_them_vanished_on_both_pages
     assert review_snapshot.build(ctx, conn, now)["queue"][0]["survival"] is None
     [d] = TestClient(create_app(ctx)).get("/api/deals", params={"tab": "queue"}).json()["deals"]
     assert d["survival_pt"] is None
+
+
+def test_the_outcomes_command_refuses_a_missing_file(ctx, monkeypatch, tmp_path):  # noqa: F811
+    from typer.testing import CliRunner
+    from escapadinha import cli
+    monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
+    result = CliRunner().invoke(cli.app, ["outcomes", "--db", str(tmp_path / "nope.db")])
+    assert result.exit_code == 1 and "nope.db" in " ".join(result.output.split())
+    assert not (tmp_path / "nope.db").exists()

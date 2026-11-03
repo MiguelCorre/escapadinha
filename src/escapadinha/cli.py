@@ -423,7 +423,11 @@ def outcomes_report(
     of approval, by source, confidence, approver, lead time, found age, route kind and date
     breadth. Read-only: the database is copied into memory (and upgraded there)."""
     ctx = Context()
-    conn = backtest.open_copy(db_path or ctx.db_path)
+    path = db_path or ctx.db_path
+    if not path.is_file():
+        console.print(f"[red]✗[/] {escape(str(path))}: not a database file (`store pull` first?)")
+        raise typer.Exit(1)
+    conn = backtest.open_copy(path)
     now = db.utcnow()
     since = now - timedelta(days=days)
     report = outcomes.report(pipeline.deal_outcomes(ctx, conn, since), since=since, now=now)
