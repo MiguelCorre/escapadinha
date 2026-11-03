@@ -5,7 +5,8 @@
 // the numbers, a notice when the route is dormant, what Eurostat says about the route's demand
 // (D45: passengers per month, "pouca procura" when there is no recent price on a thin route,
 // "sazonal" when months had no passengers; a count, never a price), and links to the origin
-// page, the destination hub and (from #17) the itinerary.
+// page, the destination hub and (from #17) the itinerary. A route with nothing of its own to show
+// is noindex (#76, src/lib/indexable.ts); one never seen with a price says so in one sentence.
 import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
@@ -19,6 +20,7 @@ import PromotionCard from "../../components/PromotionCard.astro";
 import type { Route } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { eur, nights, numericDate, shortDate } from "../../lib/format";
+import { routeIndexable } from "../../lib/indexable";
 import { pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { demandView, routeLowPrices, rulesText, typicalLowRule } from "../../lib/routes";
 
@@ -49,11 +51,13 @@ const cheapest = route.cheapest;
 const dormant = route.status === "dormant";
 const name = `${origin.name} para ${route.city}`;
 const demand = demandView(route, data.meta.demand);
+const thin = demand?.thin === true && !cheapest;
 ---
 <Base
   title={`Voos baratos de ${name} · ${BRAND}`}
   description={`Preço mínimo habitual por mês de partida, calendário dos preços mais baixos encontrados e preços baixos recentes de ida e volta de ${name}.`}
   path={route.path}
+  noindex={!routeIndexable(route)}
 >
   <Breadcrumbs crumbs={[{ name: `Voos desde ${origin.name}`, path: origin.path },
     { name: route.city, path: destination.path }, { name: `${origin.name} → ${route.city}`, path: route.path }]} />
@@ -68,9 +72,15 @@ const demand = demandView(route, data.meta.demand);
     )}
   </header>
 
-  {demand?.thin && !cheapest && (
+  {thin && (
     <div data-demand-thin class="notice mt-lg max-w-measure text-ink">
       <p><strong>Rota com pouca procura:</strong> os preços aparecem raramente. Poucos viajantes pesquisam esta ligação, por isso a fonte dos preços tem poucas tarifas para mostrar; quando encontrarmos uma, aparece aqui.</p>
+    </div>
+  )}
+
+  {route.last_observed_at == null && !thin && (
+    <div data-never-seen class="notice mt-lg max-w-measure text-ink">
+      <p>Ainda não vimos preços nesta rota: aparece aqui assim que um viajante encontrar um.</p>
     </div>
   )}
 

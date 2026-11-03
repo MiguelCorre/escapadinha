@@ -573,7 +573,9 @@ def test_a_full_path_records_the_export_it_deployed_not_a_later_state(ctx):
 def test_the_site_never_shows_what_the_fingerprint_leaves_out():
     """`site_data.PER_RUN` (left out of the fingerprint by `shown_digest`) lists the run id,
     routes' observation counts and their last-seen time beyond the day: a page that started
-    showing one would not be refreshed by a routine run."""
+    showing one would not be refreshed by a routine run. A page may read `last_observed_at`'s
+    day (`.slice(0, 10)`), test it (` ?`) or ask whether there is one (` == null`, D55: "never
+    seen with a price"); whether it is null changes only with the day, which the digest keeps."""
     import re
     for path in (REPO / "web" / "src").rglob("*"):
         if path.suffix not in (".astro", ".ts") or path.name == "contract.ts":
@@ -581,7 +583,7 @@ def test_the_site_never_shows_what_the_fingerprint_leaves_out():
         text = path.read_text("utf-8")
         assert "counts.observations" not in text and not re.search(r"meta\.run\b", text), path
         for m in re.finditer(r"last_observed_at", text):
-            assert text[m.end():].startswith((" ?", ".slice(0, 10)")), path
+            assert text[m.end():].startswith((" ?", ".slice(0, 10)", " == null")), path
 
 
 # --- deploy ------------------------------------------------------------------------------------

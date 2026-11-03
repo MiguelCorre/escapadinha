@@ -4,9 +4,11 @@
 // contract's origin order, with its route page, the cheapest price found now (data-obs) and
 // the best months by typical low (data-route), or that there is not enough data yet; live
 // promotions to the city; the arrival airports; and (from #17) the itinerary and the reviewed tips
-// about the city (story 36).
+// about the city (story 36). Origins whose route has nothing to show yet are plain links after the
+// cards, and a hub with no such route and no itinerary is noindex (#76, src/lib/indexable.ts).
 import type { GetStaticPaths } from "astro";
 import data from "virtual:site-data";
+import { itineraries } from "../../collections";
 import Base from "../../layouts/Base.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import SearchWidget from "../../components/SearchWidget.astro";
@@ -16,6 +18,8 @@ import RelatedTips from "../../components/RelatedTips.astro";
 import type { Destination } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { eur, shortDate } from "../../lib/format";
+import { hubIndexable, routeIndexable } from "../../lib/indexable";
+import { itineraryFor } from "../../lib/itinerary";
 import { pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { bestMonths, byPriceThenDemand, demandView } from "../../lib/routes";
 
@@ -39,6 +43,9 @@ const byOrigin = data.origins.origins
   .map((x) => ({ origin: x.origin, route: x.route!, best: bestMonths(x.route!),
     demand: demandView(x.route!, data.meta.demand) }))
   .sort((x, y) => byPriceThenDemand(x.route, y.route));   // stable: ties keep the origin order
+const shown = byOrigin.filter((x) => routeIndexable(x.route));
+const unpriced = byOrigin.filter((x) => !routeIndexable(x.route));
+const indexable = hubIndexable(byOrigin.map((x) => x.route), itineraryFor(destination.code, await itineraries()) !== null);
 const without = data.origins.origins.filter((o) => !byOrigin.some((x) => x.origin.iata === o.iata));
 const live = pagePromotions(data).filter((p) => p.live && keys.has(p.route));   // D53: one card per promotion
 const airports = destination.airports.map((code) => {
@@ -53,6 +60,7 @@ const fromText = fromNames.length > 1 ? `${fromNames.slice(0, -1).join(", ")} e 
   title={`Voos baratos para ${city} desde Portugal · ${BRAND}`}
   description={`Voos para ${city} desde ${fromText}: o preço mais baixo encontrado agora, os melhores meses para ir e a página de cada rota.`}
   path={destination.path}
+  noindex={!indexable}
 >
   <Breadcrumbs crumbs={[{ name: "Destinos", path: "/destinos/" }, { name: city, path: destination.path }]} />
 
@@ -67,37 +75,42 @@ const fromText = fromNames.length > 1 ? `${fromNames.slice(0, -1).join(", ")} e 
 
   <section class="mt-2xl" aria-labelledby="titulo-partidas">
     <h2 id="titulo-partidas" class="font-display text-headline">De onde partir</h2>
-    <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
-      {byOrigin.map(({ origin, route, best, demand }) => (
-        <article data-origin={origin.iata} class="border-t-[3px] border-double border-ink bg-surface p-md sm:p-lg">
-          <h3 class="font-display text-title"><a href={route.path}>Desde {origin.name}</a></h3>
-          {demand?.zeroMonths && <p class="mt-2xs"><span data-demand-seasonal class="tag tag-warning">rota sazonal</span></p>}
-          {route.status === "dormant" ? (
-            <p class="mt-xs"><span class="tag tag-expired">rota {data.labels.route_status.dormant}</span></p>
-          ) : route.cheapest ? (
-            <p data-obs={route.cheapest.obs} class="mt-xs">
-              <span class="text-small text-muted">Mais barato agora: </span><span class="num font-display text-title">{eur(route.cheapest.price)}</span>
-              <span class="block num text-small text-muted">{shortDate(route.cheapest.departure)} → {shortDate(route.cheapest.return)}</span>
-            </p>
-          ) : (
-            <p class="mt-xs text-small text-muted">Sem preços recentes.</p>
-          )}
-          <p class="label mt-md text-muted">Melhores meses</p>
-          {best.length ? (
-            <ol data-best-months data-route={route.key} class="mt-2xs grid gap-2xs">
-              {best.map((m) => (
-                <li class="flex items-baseline justify-between gap-sm border-b-2 border-rule py-2xs">
-                  <span>{m.label}</span>{" "}<span class="num font-semibold">{m.typicalLow}</span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p class="mt-2xs text-small text-muted">Ainda sem dados suficientes para dizer quais são os melhores meses.</p>
-          )}
-          <p class="mt-md text-small"><a href={origin.path}>Outros destinos desde {origin.name}</a></p>
-        </article>
-      ))}
-    </div>
+    {shown.length > 0 && (
+      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+        {shown.map(({ origin, route, best, demand }) => (
+          <article data-origin={origin.iata} class="border-t-[3px] border-double border-ink bg-surface p-md sm:p-lg">
+            <h3 class="font-display text-title"><a href={route.path}>Desde {origin.name}</a></h3>
+            {demand?.zeroMonths && <p class="mt-2xs"><span data-demand-seasonal class="tag tag-warning">rota sazonal</span></p>}
+            {route.status === "dormant" ? (
+              <p class="mt-xs"><span class="tag tag-expired">rota {data.labels.route_status.dormant}</span></p>
+            ) : route.cheapest ? (
+              <p data-obs={route.cheapest.obs} class="mt-xs">
+                <span class="text-small text-muted">Mais barato agora: </span><span class="num font-display text-title">{eur(route.cheapest.price)}</span>
+                <span class="block num text-small text-muted">{shortDate(route.cheapest.departure)} → {shortDate(route.cheapest.return)}</span>
+              </p>
+            ) : (
+              <p class="mt-xs text-small text-muted">Sem preços recentes.</p>
+            )}
+            <p class="label mt-md text-muted">Melhores meses</p>
+            {best.length ? (
+              <ol data-best-months data-route={route.key} class="mt-2xs grid gap-2xs">
+                {best.map((m) => (
+                  <li class="flex items-baseline justify-between gap-sm border-b-2 border-rule py-2xs">
+                    <span>{m.label}</span>{" "}<span class="num font-semibold">{m.typicalLow}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p class="mt-2xs text-small text-muted">Ainda sem dados suficientes para dizer quais são os melhores meses.</p>
+            )}
+            <p class="mt-md text-small"><a href={origin.path}>Outros destinos desde {origin.name}</a></p>
+          </article>
+        ))}
+      </div>
+    )}
+    {unpriced.length > 0 && (
+      <p data-unpriced class="mt-md max-w-measure">{shown.length > 0 ? "Sem preços para mostrar, por agora," : `Por agora não temos preços para mostrar para ${city}`} desde {unpriced.map(({ origin, route }, i) => <>{i > 0 && (i === unpriced.length - 1 ? " e " : ", ")}<a href={route.path} data-origin-unpriced={origin.iata}>{origin.name}</a></>)}.</p>
+    )}
     <p class="mt-md max-w-measure text-small text-muted">Melhores meses: os meses de partida com o preço mínimo habitual (ida e volta, por pessoa) mais baixo.{without.length > 0 && ` Ainda não acompanhamos voos para ${city} desde ${without.map((o) => o.name).join(", ")}.`}</p>
   </section>
 
