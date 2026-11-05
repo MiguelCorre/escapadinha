@@ -5,6 +5,7 @@
 // page keeps its server-rendered default list.
 import type { IslandConfig, OriginFile } from "./explorer-data";
 import { NO_FILTERS, explore, resultsHtml, statusText, type Filters } from "./explorer";
+import { upgradeFoundAt } from "./found-ago";
 
 function num(value: FormDataEntryValue | null): number | null {
   const n = Number(value);
@@ -55,6 +56,7 @@ export function start(): void {
       if (mine !== latest) return;
       const results = explore(file.rows, filtersOf(form), config.pontes, file.demand ?? {});
       list.innerHTML = resultsHtml(results, file.places);
+      upgradeFoundAt(list);     // D59: "há x h" on the rows just rendered
       status.textContent = statusText(results.length, name);
     } catch {
       if (mine !== latest) return;

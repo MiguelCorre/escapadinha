@@ -20,7 +20,7 @@ import PriceVerdict from "../../components/PriceVerdict.astro";
 import PromotionCard from "../../components/PromotionCard.astro";
 import type { Route } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
-import { eur, nights, numericDate, shortDate } from "../../lib/format";
+import { eur, foundAt, nights, numericDate, shortDate } from "../../lib/format";
 import { routeIndexable } from "../../lib/indexable";
 import { pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { demandView, routeLowPrices, rulesText, typicalLowRule } from "../../lib/routes";
@@ -102,7 +102,7 @@ const thin = demand?.thin === true && !cheapest;
       <span class="label block text-muted">Mais barato agora</span>
       <span class="num mt-2xs block font-display text-price">{eur(cheapest.price)}</span>
       <span class="num mt-xs block font-semibold">{shortDate(cheapest.departure)} → {shortDate(cheapest.return)} <span class="font-normal text-muted">· {nights(cheapest.nights)}</span></span>
-      {cheapest.found_date && <span class="block text-small text-muted">Encontrado por um viajante a <span class="num font-semibold text-ink">{numericDate(cheapest.found_date)}</span></span>}
+      {foundAt(cheapest.found_at, cheapest.found_date) && <span class="block text-small text-muted">Encontrado por um viajante a <span class="num font-semibold text-ink" data-found-at={cheapest.found_at ?? undefined}>{foundAt(cheapest.found_at, cheapest.found_date)}</span></span>}
     </p>
   )}
   {cheapest && <PriceVerdict price={cheapest.price} route={route} departure={cheapest.departure} det={det} />}

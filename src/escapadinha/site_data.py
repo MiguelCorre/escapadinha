@@ -55,7 +55,7 @@ TOP_FILES = ("meta.json", "labels.json", "origins.json", "routes.json", "destina
 HOLIDAYS_SOURCE = ("Código do Trabalho, art. 234.º (feriados obrigatórios) e art. 235.º "
                    "(Terça-Feira de Carnaval, facultativo), na redação da Lei n.º 8/2016")
 LOW_COLS = ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops",
-            "airport", "typical", "link", "baggage"]
+            "airport", "typical", "link", "baggage", "found_at"]
 # A promotion's post link on the site (D36): only an Instagram post (the publisher's permalink or
 # one given by hand with `deal published --url`); anything else stays off the page.
 INSTAGRAM_POST = re.compile(r"^https://(www\.)?instagram\.com/")
@@ -410,7 +410,10 @@ def _offer(o: Observation) -> dict:
             "return_transfers": o.return_transfers,
             "arrival_airport": _code(o.destination_airport),
             "found_date": _day(o.found_date), "fetched_at": db.utc_iso(o.fetched_at),
-            "baggage": o.with_baggage}          # from the GraphQL match only, null = unknown (D43)
+            "baggage": o.with_baggage,          # from the GraphQL match only, null = unknown (D43)
+            # D59: the exact time a traveller found it (GraphQL, D43; the airline's own, D47),
+            # null when only the day is known. The page prints the hour and the browser "há x h".
+            "found_at": db.utc_iso(o.found_at)}
 
 
 def _calendar(fresh: list[Observation], today: date) -> list[Observation]:
@@ -599,7 +602,8 @@ def _low_row(lp: detector.LowPrice, link: str | None) -> list:
     o = lp.observation
     return [o.id, o.destination, _eur(o.price), _day(o.departure_date), _day(o.return_date),
             _day(o.found_date), db.utc_iso(o.fetched_at, minutes=True), _code(o.airline), _stops(o),
-            _code(o.destination_airport), _eur(lp.baseline.median), link, o.with_baggage]
+            _code(o.destination_airport), _eur(lp.baseline.median), link, o.with_baggage,
+            db.utc_iso(o.found_at, minutes=True)]      # D59: the exact found time, to the minute
 
 
 def _labels() -> dict:

@@ -8,7 +8,7 @@ import type { LowPriceRow } from "./contract";
 import { bookingLink, NO_LINK_NOTE, type BookingLink } from "./cta";
 import { daysBetween } from "./dates";
 import {
-  baggageText, count, discountParts, eur, eurParts, lisbonTimestamp, monthName, nights, numericDate,
+  baggageText, count, discountParts, eur, eurParts, foundAt, lisbonTimestamp, monthName, nights,
   shortDate, stopsText, type EurParts,
 } from "./format";
 
@@ -44,14 +44,16 @@ export interface LowPriceView {
   baggage: string | null;     // "só bagagem de mão"; null when unknown (no line, D43)
   airport: string | null;     // "Beauvais (BVA)"
   remote: boolean;
-  foundOn: string | null;     // the traveller's found date (found_date)
+  foundOn: string | null;     // the traveller's found time (found_at, D59) or day (found_date)
+  foundAtUtc: string | null;  // the exact instant behind it (data-found-at for "há x h"), when known
   fetchedAt: string;          // our first sight, Lisbon time (fetched_at)
   more: number;
   link: BookingLink | null;   // null: no stored partner link yet
 }
 
 export function lowPriceView({ row, more }: LowPriceItem, places: Places): LowPriceView {
-  const [obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link, baggage] = row;
+  const [obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link, baggage,
+    foundAtUtc] = row;
   const city = places.cities[dest] ?? dest;
   const known = airport ? places.airports[airport] : undefined;
   const remote = known?.remote ?? false;
@@ -68,7 +70,8 @@ export function lowPriceView({ row, more }: LowPriceItem, places: Places): LowPr
     baggage: baggageText(baggage),
     airport: airport ? (known ? `${known.name} (${airport})` : airport) : null,
     remote,
-    foundOn: found ? numericDate(found) : null,
+    foundOn: foundAt(foundAtUtc, found),
+    foundAtUtc: foundAtUtc ?? null,
     fetchedAt: lisbonTimestamp(fetched),
     more,
     link: bookingLink(link),
@@ -89,8 +92,9 @@ export function lowPriceHtml(v: LowPriceView, { headline }: { headline: boolean 
     ? `<a class="text-ink no-underline hover:underline" href="${esc(v.path)}">${esc(v.headline)}</a>`
     : esc(v.headline);
   const carrier = [v.airline, v.stops].filter(Boolean).join(" · ");
+  const foundAttr = v.foundAtUtc ? ` data-found-at="${esc(v.foundAtUtc)}"` : "";
   const found = v.foundOn
-    ? `Encontrado por um viajante a <span class="num font-semibold text-ink">${esc(v.foundOn)}</span> · `
+    ? `Encontrado por um viajante a <span class="num font-semibold text-ink"${foundAttr}>${esc(v.foundOn)}</span> · `
     : "";
   return [
     `<li data-obs="${esc(v.obs)}" data-route="${esc(v.route)}" class="flex flex-col gap-xs border-t-[3px] border-double border-ink bg-surface p-md">`,

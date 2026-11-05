@@ -15,6 +15,7 @@ import {
   eur,
   eurParts,
   eurPlain,
+  foundAt,
   fromPlace,
   ponteTitle,
   lisbonTimestamp,
@@ -112,6 +113,17 @@ describe("pt-PT formats", () => {
       .toBe("Destas promoções (Ryanair, confiança média), 83% desapareceram em 24 h (últimos 14 dias, 342)");
     expect(survivalText("Aviasales", null, 5, 7, 1200))
       .toBe(`Destas promoções (Aviasales), 5% desapareceram em 24 h (últimos 7 dias, 1${NBSP}200)`);
+  });
+
+  it("prints when a price was found: the Lisbon hour when known, else the day (D59)", () => {
+    expect(foundAt("2026-11-01T13:05:00Z", "2026-11-01")).toBe("01/11/2026 às 13:05");   // WET
+    expect(foundAt("2026-07-01T13:05:00Z", "2026-07-01")).toBe("01/07/2026 às 14:05");   // WEST
+    // The 2026 autumn change (25 October, 02:00 WEST → 01:00 WET) at 00:30Z and 01:30Z.
+    expect(foundAt("2026-10-25T00:30:00Z", "2026-10-25")).toBe("25/10/2026 às 01:30");
+    expect(foundAt("2026-10-25T01:30:00Z", "2026-10-25")).toBe("25/10/2026 às 01:30");
+    expect(foundAt(null, "2026-11-01")).toBe("01/11/2026");
+    expect(foundAt(undefined, "2026-11-01")).toBe("01/11/2026");
+    expect(foundAt(null, null)).toBeNull();
   });
 
   it("prints the promotion pages' line on the approved promotions: a count, a rate and hours (#79)", () => {

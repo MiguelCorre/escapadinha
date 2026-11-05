@@ -50,7 +50,8 @@
         "arrival_airport": {"anyOf": [{"$ref": "#/$defs/airport"}, {"type": "null"}], "description": "Always name it (D11); labels.json says which ones are far from the city."},
         "found_date": {"anyOf": [{"$ref": "#/$defs/date"}, {"type": "null"}]},
         "fetched_at": {"$ref": "#/$defs/timestamp"},
-        "baggage": {"$ref": "#/$defs/baggage"}
+        "baggage": {"$ref": "#/$defs/baggage"},
+        "found_at": {"anyOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}], "description": "Added in v1 (D59): the exact UTC time a traveller found the price (the GraphQL match, D43; the airline's own priceUpdated, D47); null when only found_date is known. Pages print it as the Lisbon hour and the browser adds \"há x h\". Absent in older exports."}
       }
     },
     "baggage": {

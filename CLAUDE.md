@@ -53,7 +53,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   with `labels.disclosure.site`), low-price rows only via `src/lib/low-prices.ts` (route pages,
   explorer, ponte pages and the island share it; no link yet → `NO_LINK_NOTE`), expired promotions `noindex` without a button (for `site.expired_promotions_days`, then a 301 to their route page, D35), pt-PT formats (every month/weekday
   word, price, date and trip text) only from `src/lib/format.ts` and day arithmetic only from
-  `src/lib/dates.ts` (`web/test/format.test.ts` fails on month or weekday names elsewhere), copy passes `web/test/pt-lint.test.ts`. Styles use only the generated
+  `src/lib/dates.ts` (`web/test/format.test.ts` fails on month or weekday names elsewhere), copy passes `web/test/pt-lint.test.ts`.
+  When a price was found (D59): `format.foundAt(found_at, found_date)` prints the exact Lisbon
+  hour when the contract has `found_at` (offers and low-price rows, from the observation), else
+  the day; the element carries `data-found-at` and `src/lib/found-ago.ts` (`upgradeFoundAt`,
+  run by `Base.astro`'s script and by the explorer's island) appends "(há 2 h)" in the browser:
+  the build never writes a relative time, and that script stores nothing and calls nobody
+  (`seo.test.ts`). Styles use only the generated
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
   `tests/test_web_tokens.py` catches drift); `web/test/colours.test.ts` fails on any raw hex or
   rgb()/hsl() colour elsewhere in `web/src/` or `web/functions/`.

@@ -80,7 +80,7 @@ describe("explorer page", () => {
       .filter((n) => !["h3"].includes((n as typeof li).rawTagName) && !text(n as typeof li).startsWith("Mais "))
       .map((n) => text(n as typeof li)).join(" | ");
     expect(body(explorer)).toBe(body(route));
-    expect(body(route)).toContain("Encontrado por um viajante a 01/11/2026 · visto por nós a");
+    expect(body(route)).toContain("Encontrado por um viajante a 01/11/2026 às 13:10 · visto por nós a");   // D59
     expect(body(route)).toContain("Ver voo e reservar →");
   });
 

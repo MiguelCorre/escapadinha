@@ -1,7 +1,7 @@
-{"cols":["obs","dest","price","dep","ret","found","fetched","airline","stops","airport","typical","link","baggage"],"generated_at":"2026-11-02T16:49:05Z","origin":"LIS","rows":[
-[54954,"FNC",45,"2026-11-23","2026-11-28","2026-10-30","2026-10-30T20:18Z","FR",0,"FNC",53,"https://example.com/parceiro/site-low-54954",false],
-[73612,"FNC",45,"2026-12-07","2026-12-11","2026-11-02","2026-11-02T11:18Z","U2",0,"FNC",55.5,"https://example.com/parceiro/site-low-73612",false],
-[67488,"FNC",43,"2026-12-09","2026-12-12","2026-11-01","2026-11-01T17:48Z","U2",0,"FNC",55.5,"https://example.com/parceiro/site-low-67488",false],
-[65457,"FNC",40,"2026-12-12","2026-12-15","2026-11-01","2026-11-01T13:17Z","FR",0,"FNC",55.5,"https://example.com/parceiro/site-low-65457",false],
-[74256,"FNC",58,"2027-01-07","2027-01-10","2026-11-02","2026-11-02T15:48Z","FR",0,"FNC",72,"https://example.com/parceiro/site-low-74256",false]
+{"cols":["obs","dest","price","dep","ret","found","fetched","airline","stops","airport","typical","link","baggage","found_at"],"generated_at":"2026-11-02T16:49:05Z","origin":"LIS","rows":[
+[54954,"FNC",45,"2026-11-23","2026-11-28","2026-10-30","2026-10-30T20:18Z","FR",0,"FNC",53,"https://example.com/parceiro/site-low-54954",false,"2026-10-30T19:59Z"],
+[73612,"FNC",45,"2026-12-07","2026-12-11","2026-11-02","2026-11-02T11:18Z","U2",0,"FNC",55.5,"https://example.com/parceiro/site-low-73612",false,"2026-11-02T02:59Z"],
+[67488,"FNC",43,"2026-12-09","2026-12-12","2026-11-01","2026-11-01T17:48Z","U2",0,"FNC",55.5,"https://example.com/parceiro/site-low-67488",false,"2026-11-01T17:43Z"],
+[65457,"FNC",40,"2026-12-12","2026-12-15","2026-11-01","2026-11-01T13:17Z","FR",0,"FNC",55.5,"https://example.com/parceiro/site-low-65457",false,"2026-11-01T13:10Z"],
+[74256,"FNC",58,"2027-01-07","2027-01-10","2026-11-02","2026-11-02T15:48Z","FR",0,"FNC",72,"https://example.com/parceiro/site-low-74256",false,"2026-11-02T15:20Z"]
 ],"run":1711,"truncated":0,"version":1}
