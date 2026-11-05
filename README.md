@@ -654,6 +654,8 @@ so a review UI can warn before an approval gets too old). Slides of deals still 
 > approvals still queue their posts, every due post waits (*Em pausa por decisão do Miguel…* in
 > `queue list`), nothing is settled. To resume, switch the names back to `instagram` / `telegram`
 > after looking at `queue list`: the backlog would go out for every promotion still valid.
+> On 2026-11-05 Miguel closed the channels' tickets (#21, #24, #27, #50; D57): the website is the
+> product, and nothing more is planned for either channel.
 
 When a run applies an approval it queues the promotion twice: **Instagram** at the next free daily
 slot (09:00, 13:00, 19:00 Lisbon time, at most 3 a day; `posting` in `config.yaml`) and
