@@ -28,6 +28,7 @@ def contract_pages(data: Path) -> list[str]:
     paths += [d["path"] for d in read("destinations.json")["destinations"]]
     paths += [p["path"] for p in read("promotions.json")["promotions"]]
     paths += [o["path"] for p in read("pontes.json")["pontes"] for o in p["origins"]]
+    paths += [o["path"] for b in read("school-holidays.json")["breaks"] for o in b["origins"]]   # D61
     return paths
 
 

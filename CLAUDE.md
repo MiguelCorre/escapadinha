@@ -88,9 +88,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   prices come from the contract with their `data-obs`. Test-only entries (`fixture: true`) live
   in `web/test/fixtures/content/` and are built from fixture data only.
 - **School holidays only from the YAML (D61):** `content/school-holidays.yaml` (three networks,
-  each with its official https source) is the one source of the breaks; like the MDX articles,
-  only a human sets its `reviewed: true` (never Claude), and until then the export writes
-  `breaks: []`, so the site builds no `/ferias-escolares/` page and offers no filter. A trip fits
+  each with its official https source) is the one source of the breaks; its `reviewed: true`
+  means every date was confirmed on the official text (set on 2026-11-05 on Miguel's
+  instruction after the dates were read on the three primary texts and re-checked
+  independently; a changed or added date needs the same check before the flag stays), and
+  without it the export writes `breaks: []`, so the site builds no `/ferias-escolares/` page
+  and offers no filter. A trip fits
   a break by the pontes' rule (departure and return inside the window, a day wider on each
   side), in `explorer.fitsWindow` only. No price in the file or in the copy.
 - SEO on the Astro site (D34): a page decides its own `noindex`; `sitemap.xml` is generated from

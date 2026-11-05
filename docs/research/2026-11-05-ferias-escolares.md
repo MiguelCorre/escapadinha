@@ -1,7 +1,9 @@
 # Férias escolares 2026/2027: as datas oficiais por rede (2026-11-05, #49)
 
-Estado: rascunho para revisão do Miguel · Ficheiro: `content/school-holidays.yaml` (`reviewed: false`
-até ele confirmar cada data no texto oficial) · Decisão: D61.
+Estado: revisto a 2026-11-05 por instrução do Miguel ("faz tu por mim"): as doze datas lidas nos
+três textos primários e reconfirmadas por três verificadores independentes sobre o texto extraído de
+cada diploma (secção "Verificação" no fim) · Ficheiro: `content/school-holidays.yaml`
+(`reviewed: true`) · Decisão: D61.
 
 ## Fontes primárias lidas
 
@@ -16,12 +18,22 @@ Fontes secundárias consultadas antes (CGD, Porto Editora, Santander, calendario
 ## O que o ficheiro guarda
 
 - As três redes, cada uma com as quatro interrupções de 2026/2027: Natal, Carnaval, Páscoa e verão.
-- O verão vai do dia seguinte ao fim das aulas mais tardio (30 de junho, pré-escolar e 1.º ciclo) até à véspera do arranque do ano seguinte: 12 de setembro de 2027 no continente e nos Açores (13 a 15 de setembro nos dois diplomas). Na Madeira o calendário de 2027/2028 só sai em maio de 2027; o ficheiro usa a véspera do padrão de 2026/2027 (10 de setembro) e diz que deve ser corrigido.
+- O verão vai do dia seguinte ao fim das aulas do 1.º ciclo (a data mais tardia entre os ciclos do básico: 30 de junho no continente e na Madeira; 18 a 25 de junho nos Açores, logo 26 de junho) até à véspera do arranque do ano seguinte: 12 de setembro de 2027 no continente e nos Açores (13 a 15 de setembro nos dois diplomas). A educação pré-escolar fica de fora (na Madeira segue um regime de 11 meses, até 14 de julho). Na Madeira o calendário de 2027/2028 só sai em maio de 2027; o ficheiro usa a véspera do padrão de 2026/2027 (o 1.º ciclo começou a 10 de setembro de 2026) e diz que deve ser corrigido.
 - A janela de viagem é um dia antes e um dia depois (sai-se na véspera, volta-se no dia seguinte), como nas pontes (D31).
 - Não entram: as interrupções do regime de semestres dos Açores (duas escolas em cada dez), os dias de tolerância de ponto, os feriados municipais, as datas de cada escola.
 
-## O que o Miguel decide
+## O que fica para o Miguel
 
-1. Confirmar as doze datas nos três textos (as ligações estão no ficheiro) e pôr `reviewed: true`. Até lá o site não mostra nada.
-2. Se as três redes ficam ou só o continente para já (as páginas das ilhas servem quem parte do Funchal e de Ponta Delgada).
-3. O fim do verão da Madeira, quando o despacho de 2027/2028 sair (maio de 2027).
+1. Se as três redes ficam ou só o continente (as páginas das ilhas servem quem parte do Funchal e de Ponta Delgada; ficaram as três).
+2. O fim do verão da Madeira, quando o despacho de 2027/2028 sair (maio de 2027).
+
+## Verificação (2026-11-05)
+
+As doze datas do ficheiro foram comparadas uma a uma com o texto de cada diploma por três
+verificadores independentes (um por rede), com instrução para as refutar, mais uma verificação de
+coerência entre o ficheiro e esta nota.
+
+- As onze datas que os diplomas fixam (Natal, Carnaval e Páscoa nas três redes; o início do verão no continente e na Madeira) coincidem letra por letra com os anexos citados.
+- Açores, verão: o anexo III acaba o 3.º período do 1.º ciclo "18 a 25 de junho de 2027"; o ficheiro dizia 1 de julho (o teto do ponto 3.2, "não devendo terminar após 30 de junho"). Corrigido para 26 de junho, o dia seguinte ao referencial.
+- Madeira, verão: o ponto 7.1 põe a educação pré-escolar até 14 de julho (regime de 11 meses); a regra do ficheiro passou a dizer que usa o 1.º ciclo (30 de junho) e exclui o pré-escolar; o padrão "10 de setembro" é o início do 1.º ciclo em 2026/2027 (anexo I).
+- Madeira, Páscoa: o anexo II acaba a 1 de abril (quinta-feira) e o 3.º período começa a 5 de abril; o ficheiro segue a tabela das interrupções, como nas outras redes (o Natal acaba a 31 de dezembro embora as aulas só recomecem a 4 de janeiro). A janela de viagem (um dia de cada lado) cobre o 2 de abril.

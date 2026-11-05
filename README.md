@@ -835,7 +835,7 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
 | `/voos/<origem>-<destino>/` | A route: promotions, recent low prices, calendar, typical low per month (D30); with none of these, `noindex` (D55) |
 | `/partidas/<origem>/`, `/destinos/<destino>/` | Origin pages and destination hubs (+ index pages); routes with nothing to show are plain links after the others, and a hub with no such route and no itinerary is `noindex` (D55) |
 | `/explorar/`, `/pontes/<feriado>-<ano>/<origem>/` | Explorer and long weekends (D31) |
-| `/ferias-escolares/<férias>-<rede>/<origem>/` | School holidays by network (D61), once `content/school-holidays.yaml` is reviewed |
+| `/ferias-escolares/<férias>-<rede>/<origem>/` | School holidays by network (D61; `content/school-holidays.yaml`, reviewed 2026-11-05) |
 | `/roteiros/<slug>/`, `/dicas/<slug>/` | Reviewed itineraries and tips (D33) |
 | `/sobre/`, `/privacidade/`, `404.html`, `sitemap.xml`, `robots.txt` | (D34) |
 | `/review` | The review queue (Pages Function behind Access, D29) |
@@ -1098,8 +1098,9 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   Madeira and the Açores (the window a day wider on each side), plus the explorer's "Férias
   escolares" filter and a line of links on each origin page. The calendar is
   `content/school-holidays.yaml`, one official text per network, with the articles' review gate:
-  nothing is built until a person checks the dates and sets `reviewed: true`
-  (`docs/research/2026-11-05-ferias-escolares.md` has the dates and where they come from).
+  nothing is built without `reviewed: true`, which means every date was checked on the official
+  text (done 2026-11-05: `docs/research/2026-11-05-ferias-escolares.md` has the dates, where
+  they come from and the check). A changed or added date needs the same check.
 - **Prices:** every price element carries `data-obs` / `data-deal` / `data-route` (also on `<head>`
   when the title shows a price); `web/test/traceability.test.ts` fails on any price string on a
   built page that isn't an amount of the referenced observation, deal or route in the contract,

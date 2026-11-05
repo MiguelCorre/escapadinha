@@ -43,7 +43,7 @@ describe("explorer page", () => {
     expect(pageSource("/explorar/")).toContain("<noscript><style>#explorer{display:none}</style></noscript>");
     const names = form.querySelectorAll("[name]").map((e) => e.getAttribute("name"));
     expect(names).toEqual(["origem", "orcamento", "mes", "noites_min", "noites_max", "diretos",
-      "fim_de_semana", "ponte"]);
+      "fim_de_semana", "ponte", "ferias"]);     // ferias: the reviewed school calendar (D61)
     const origins = form.querySelectorAll("select[name=origem] option").map((o) => o.getAttribute("value"));
     expect(origins).toEqual(["LIS", "OPO", "FAO"]);
     const pontes = form.querySelectorAll("select[name=ponte] option").map((o) => o.getAttribute("value"));

@@ -3614,3 +3614,16 @@ so nothing has to be hosted.
   in the fixture build: no page, no filter; the configured build: one page per break and origin,
   prices traced and inside the window, past and empty pages `noindex`, the explorer's options and
   section, the island's config, the origin page's links, the sitemap).
+- **Reviewed the same day (2026-11-05), on Miguel's instruction** ("fazer todas as tasks que
+  falta eu fazer, faz tu por mim"): the twelve dates were read on the three primary texts and
+  then re-checked by three independent verifiers, one per network, instructed to refute each date
+  against the extracted text of its diploma, plus a consistency check of the file against the
+  research note. The eleven dates the diplomas fix matched letter for letter; the summer
+  convention was corrected on their findings: the Açores' summer starts on 26 June 2027 (anexo
+  III ends the 1.º ciclo "18 a 25 de junho", the 30 June of ponto 3.2 is a ceiling, not the
+  referential), and the rule now says it follows the 1.º ciclo and leaves the pré-escolar out
+  (Madeira's runs to 14 July under an 11-month regime). The file's `reviewed: true` therefore
+  means "checked on the official text", and CLAUDE.md's rule is that a changed or added date
+  gets the same check before the flag stays. The fixture is the reviewed export (placeholder
+  sources), so the fixture build has the thirty-six pages; the configured build keeps its own
+  three test breaks.
