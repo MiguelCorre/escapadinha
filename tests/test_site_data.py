@@ -235,13 +235,14 @@ def test_routes_carry_typical_lows_averages_status_and_counts(ctx, tmp_path):  #
     # 22 days older than the freshness window: 8 x 100, 7 x 101, 7 x 102 -> median 101,
     # mean 2221 / 22 = 100,95.
     assert lon["months"] == [{"month": "2026-11", "typical_low": 101, "average": 100.95,
-                              "days": 22}]
+                              "days": 22, "confidence": "high"}]         # D58: 22 lows, CV 0.01
     assert lon["path"] == "/voos/lisboa-londres/" and lon["kind"] == "europe"
     assert lon["rules"] == {"direct_only": True, "min_nights": 2, "max_nights": 10,
                             "max_transfers": 0}
     assert lon["counts"]["observations"] == 50 and lon["status"] == "active"   # 2 a day
     assert route(out, "LIS-BCN")["months"] == [
-        {"month": f"{jan:%Y-%m}", "typical_low": None, "average": None, "days": 2}]
+        {"month": f"{jan:%Y-%m}", "typical_low": None, "average": None, "days": 2,
+         "confidence": "low"}]
     assert route(out, "OPO-BER")["status"] == "dormant"
     origins = {o["iata"]: o for o in read(out, "origins.json")["origins"]}
     assert list(origins) == ["LIS", "OPO"] and origins["OPO"]["routes"]["dormant"] == 1
@@ -435,12 +436,31 @@ def test_a_month_shows_its_typical_low_only_once_mature(ctx, tmp_path):  # noqa:
     site_data.export_site_data(ctx, conn, out, new_links=False)
     month = f"{jan:%Y-%m}"
     assert route(out, "LIS-BCN")["months"] == [
-        {"month": month, "typical_low": None, "average": None, "days": 6}]
+        {"month": month, "typical_low": None, "average": None, "days": 6, "confidence": "low"}]
     assert route(out, "LIS-ROM")["months"] == [
-        {"month": month, "typical_low": 50, "average": 50, "days": 7}]
+        {"month": month, "typical_low": 50, "average": 50, "days": 7, "confidence": "medium"}]
     det = read(out, "meta.json")["detector"]
     assert (det["min_baseline_days"], det["min_dates_per_day"]) == (7, 2)
     assert validation_errors(out) == []
+
+
+def test_months_carry_their_confidence_and_meta_the_high_margin(exported):
+    """D58 (#80): `months[].confidence` is `detector.confidence` on the export's baseline, and
+    `meta.detector.high_margin` is config `site.price_insight.high_margin`: the verdict's inputs."""
+    ctx, conn, _, out, _ = exported
+    assert read(out, "meta.json")["detector"]["high_margin"] == 0.25
+    checked = 0
+    for r in read(out, "routes.json")["routes"]:
+        route = routes.get_route(conn, ctx.config.routes, r["key"])
+        history = pipeline.route_history(ctx, conn, route, db.utcnow())
+        bases = detector.month_baselines(history, ctx.config.detector, db.utcnow(), route.rules)
+        for m in r["months"]:
+            base = bases[(int(m["month"][:4]), int(m["month"][5:7]))]
+            assert m["confidence"] == detector.confidence(base, ctx.config.detector), (r["key"], m)
+            assert (m["confidence"] == "low") == (m["typical_low"] is None)   # D44: low = immature
+            checked += 1
+    assert checked > 0 and {m["confidence"] for r in read(out, "routes.json")["routes"]
+                            for m in r["months"]} == {"medium"}     # the scenario's mature months
 
 
 # --- size budget (D27) --------------------------------------------------------------------

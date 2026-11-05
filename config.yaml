@@ -403,6 +403,13 @@ site:
   expired_promotions_days: 30                 # expired promotions kept on the site; older links 301 to the route (D35)
   refresh_min_gap_minutes: 120                # D46: a change to the site data alone (a live promotion's "verificado a"
                                               # moves every run) rebuilds the site at most this often
+  # The price verdict (D58, #80): "Preço baixo / habitual / alto para <mês>" next to a route
+  # page's cheapest price and a live promotion's price. Baixo = the low-price rule
+  # (detector.low_threshold); alto = at least high_margin above the departure month's typical
+  # low; habitual in between; nothing on an immature or low-confidence month. Measured on a
+  # copy of 2026-11-05 before shipping (the PR of #80).
+  price_insight:
+    high_margin: 0.25
 
 # Review decisions (DECISIONS D26): an approve event whose live price check is older than this
 # is refused when a run applies it (check the price again); reject/published never expire.

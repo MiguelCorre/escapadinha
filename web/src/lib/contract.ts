@@ -32,7 +32,14 @@ export interface Detector {
   min_dates_per_day?: number;
   max_offer_age_days: number;
   lookback_days: number;
+  /** Added in v1 (D58): a price at least this fraction above the month's typical low is "alto";
+   * absent in older exports: no verdict. */
+  high_margin?: number;
 }
+
+/** How much to trust a typical low (D44): low below the maturity gate, high with enough daily
+ * lows and little spread, medium in between. */
+export type Confidence = "low" | "medium" | "high";
 
 export interface Meta {
   version: 1;
@@ -91,6 +98,8 @@ export interface RouteMonth {
   typical_low: number | null;
   average: number | null;
   days: number;
+  /** Added in v1 (D58): the verdict shows only at medium or high; absent in older exports. */
+  confidence?: Confidence | null;
 }
 
 /** One day of a route's price calendar: the cheapest fresh offer departing that day (D30). */

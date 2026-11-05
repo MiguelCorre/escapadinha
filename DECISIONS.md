@@ -3465,3 +3465,48 @@ so nothing has to be hosted.
 - **Also settled for Miguel the same day** (he asked for every pending action of his to be taken
   for him): D56's three expiry kinds and the report's slices stand (#77, #78), and the GitHub
   repository allows auto-merge (`allow_auto_merge`), so a green PR merges by itself.
+
+## D58: A price verdict next to the price: baixo, habitual or alto for the month (2026-11-05, #75, #80)
+- **Problem (spec #75, item 1):** a route page said "Mais barato agora: 98 €" and left the visitor
+  to compare it with the month table further down; a promotion page showed "−43%" but not what
+  the route's month looks like today. Google Flights answers in three words, and only where its
+  data is reliable. We had the ingredients (the typical low per route and month, the maturity
+  gate D40, the confidence level D44) and did not say it.
+- **Decision (taken for Miguel on 2026-11-05, when he asked for every pending action of his to
+  be done):** next to a route page's cheapest offer and a live promotion's price, "Preço baixo /
+  habitual / alto para <mês> · mínimo habitual 96 €, comparado com o mínimo habitual que medimos
+  nesta rota para esse mês". The rule is ours and fits one line: **baixo** when the price
+  qualifies as a low price (≤ typical low × (1 − `detector.low_threshold`), the D24 tier: the
+  word means the same everywhere), **alto** at ≥ `site.price_insight.high_margin` (0.25) above
+  the typical low, **habitual** in between. Shown only when that departure month's typical low
+  is mature (`days ≥ min_baseline_days`) and its confidence is medium or high; otherwise nothing,
+  never a "sem dados" badge (user story 3: the site never sounds surer than its data). A
+  promotion is judged against the route's **current** month, the same number the route page
+  shows, not the typical low stored at detection: the live truth, on `data-route`.
+- **Contract (additive, v1):** `routes.json` `months[].confidence` (`low | medium | high`,
+  `detector.confidence` on the export's baseline: `low` exactly when the month is immature) and
+  `meta.detector.high_margin`. No new price field: the typical low the verdict names is the
+  month's own, so the traceability checkers need no new rule. Fixtures hand-added, as the
+  fixture rule allows: the confidences recomputed for the fixtures' moment (run 1711, 2026-11-02
+  16:49 UTC) on read-only copies of the bucket's 2026-11-02 and 2026-11-03 daily backups, which
+  reproduce every fixture month's `days` and `typical_low` and agree with each other;
+  `high_margin` 0.25 from config.
+- **Code:** `web/src/lib/price-insight.ts` (`verdict`, `monthOf`, `priceInsight`, `VERDICT_NOTE`),
+  `PriceVerdict.astro` (both pages; tag classes from the tokens), words in `format.priceVerdict`.
+  No Python twin: posts are paused (D46) and captions keep D44's claim rules. The "Como funciona"
+  page explains the three words and their limit in one paragraph.
+- **Measured first (user story 7),** on a read-only copy of the 2026-11-05 daily backup, the
+  verdict each route page would have printed at noon on each of the last 14 days (typical lows as
+  of that day; the cheapest eligible offer seen by a run within 6 h, found within
+  `max_offer_age_days`): the table is in the PR of #80. Of 375 active routes a day, 1 993
+  route-days had a price and 220 of them (11 %) a month able to judge it: 84 baixo (38 %), 119
+  habitual (54 %), 17 alto (8 %). "Alto" is rare at 25 %, which is the point: it fires only when
+  a price is clearly above the month, and a looser margin would make the word cheap. The other
+  89 % say nothing, as user story 3 wants, until their months mature.
+- **Tests:** `web/test/price-insight.test.ts` (band edges at 85 and 125 on a 100 € month, immature,
+  low or missing confidence, no typical low, an older export without `high_margin`, the month
+  lookup, the words), `route-pages.test.ts` (LIS-PAR habitual with 96 € on `data-route`, LIS-FNC
+  baixo, OPO-MIL nothing: January has two days), `pages.test.ts` (the live promotion: baixo
+  against February's 101 €; nothing on the expired page), `seo.test.ts` (the About paragraph),
+  `tests/test_site_data.py` (`confidence` equals `detector.confidence` for every exported month,
+  `low` exactly when immature; `high_margin` from config; the fixtures validate).

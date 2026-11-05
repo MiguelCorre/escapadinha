@@ -320,6 +320,13 @@ def search_widget_problem(src: str, *, project: int | None, marker: str | None) 
     return None
 
 
+class PriceInsightConfig(BaseModel):
+    """The price verdict on route and promotion pages (D58, #80): "alto" is at least
+    `high_margin` above the month's typical low; "baixo" is the low-price rule (D24,
+    `detector.low_threshold`); "habitual" in between. Exported as `meta.detector.high_margin`."""
+    high_margin: float = Field(0.25, gt=0)
+
+
 class SiteConfig(BaseModel):
     base_url: str = "https://ondestaanocas.pages.dev"   # canonical URLs, sitemap, OG tags
     domain: str | None = None        # final domain (D19); live once base_url points at it
@@ -351,6 +358,9 @@ class SiteConfig(BaseModel):
     # every 30 minutes. When that is the only change, the site is rebuilt at most this often;
     # a new or expired promotion, a new day, a route or code change still rebuild at once.
     refresh_min_gap_minutes: int = Field(120, ge=0)
+    # The price verdict (D58): "Preço baixo / habitual / alto para <mês>" on route and live
+    # promotion pages, judged against the month's typical low (mature, confidence ≥ medium).
+    price_insight: PriceInsightConfig = PriceInsightConfig()
 
     @field_validator("base_url")
     @classmethod

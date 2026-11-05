@@ -197,6 +197,12 @@ export function publishedText(approvedN: number, stillValidPct: number, hours: n
     + `disponíveis ${hours} horas depois.`;
 }
 
+/** The price verdict's words (D58, src/lib/price-insight.ts): ("baixo", "2026-12") →
+ * "Preço baixo para dezembro". */
+export function priceVerdict(verdict: "baixo" | "habitual" | "alto", month: string): string {
+  return `Preço ${verdict} para ${monthName(month)}`;
+}
+
 /** (1, "noite", "noites") -> "1 noite"; 0 and 2+ take the plural. */
 export function count(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`;

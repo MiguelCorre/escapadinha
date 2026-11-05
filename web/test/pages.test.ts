@@ -99,6 +99,15 @@ describe("live promotion page", () => {
     expect(text(doc().querySelector("h1")!)).toBe("Porto → Milão");
   });
 
+  it("carries the price verdict against the route's month (D58), the typical low on data-route", () => {
+    // 58 € departing in February 2027; OPO-MIL's February typical low is 101 € (high confidence).
+    const v = doc().querySelector("[data-verdict]")!;
+    expect(v.getAttribute("data-verdict")).toBe("baixo");
+    expect(text(v)).toContain("Preço baixo para fevereiro · mínimo habitual 101 €, comparado com");
+    expect(text(v.querySelector('[data-route="OPO-MIL"]')!)).toBe("101 €");
+    expect(page(EXPIRED).querySelector("[data-verdict]")).toBeNull();
+  });
+
   it("shows price, discount, dates and who found the price when", () => {
     const body = text(doc().querySelector("main")!);
     expect(text(doc().querySelector('main [data-obs="71428"]')!)).toBe("58 €");

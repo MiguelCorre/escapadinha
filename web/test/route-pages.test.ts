@@ -48,6 +48,26 @@ describe("page set", () => {
   });
 });
 
+describe("price verdict on route pages (D58)", () => {
+  it("judges the cheapest offer against its departure month, naming the typical low on data-route", () => {
+    // LIS-PAR: 88 € departing in November, typical low 96 € (high confidence): between the bands.
+    const v = page("/voos/lisboa-paris/").querySelector("[data-verdict]")!;
+    expect(v.getAttribute("data-verdict")).toBe("habitual");
+    expect(text(v)).toBe("Preço habitual para novembro · mínimo habitual 96 €, comparado com o mínimo habitual que medimos nesta rota para esse mês");
+    expect(text(v.querySelector('[data-route="LIS-PAR"]')!)).toBe("96 €");
+    // LIS-FNC: 40 € in December against 55,50 € (medium): the low-price rule.
+    const low = page("/voos/lisboa-madeira/").querySelector("[data-verdict]")!;
+    expect(low.getAttribute("data-verdict")).toBe("baixo");
+    expect(text(low)).toContain("Preço baixo para dezembro · mínimo habitual 55,50 €");
+  });
+
+  it("says nothing when the departure month has no mature typical low", () => {
+    // OPO-MIL: 47 € departing in January 2027, a month with 2 days of data.
+    expect(page("/voos/porto-milao/").querySelector("[data-verdict]")).toBeNull();
+    expect(text(page("/voos/porto-milao/").querySelector("main")!)).not.toMatch(/Preço (baixo|habitual|alto) para/);
+  });
+});
+
 describe("route page", () => {
   const doc = () => page("/voos/lisboa-paris/");
 

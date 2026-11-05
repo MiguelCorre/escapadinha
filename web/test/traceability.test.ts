@@ -7,6 +7,8 @@
 // - data-route="<KEY>": a month's typical low or average on that route, or its cheapest offer.
 // The nearest element carrying any of these attributes decides. Mirrors tests/test_traceability.py.
 import { describe, expect, it } from "vitest";
+import type { Promotion } from "../src/lib/contract";
+import { priceInsight } from "../src/lib/price-insight";
 import { pagePromotions } from "../src/lib/promotion";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import { builtPages, pageSource } from "./html";
@@ -27,12 +29,19 @@ describe("traceability of prices", () => {
     expect(problems).toEqual([]);
     // The checker saw the prices it guards: one per card on the home page; on a live promotion 11
     // (title, OpenGraph and Twitter title and descriptions, the one-line summary (D46), price,
-    // typical low, the JSON-LD offer price and description) and one per other source (D47); on an
-    // expired one its old price, its typical low and the recheck's price when the reason names it.
+    // typical low, the JSON-LD offer price and description), one per other source (D47) and the
+    // verdict's typical low on data-route when its month can judge (D58); on an expired one its
+    // old price, its typical low and the recheck's price when the reason names it.
     const pages = pagePromotions(data);
+    const det = data.meta.detector;
+    const verdicts = (p: Promotion) => {
+      const route = data.routes.routes.find((r) => r.key === p.route)!;
+      return priceInsight(p.latest?.price ?? p.offer.price, route, p.offer.departure, det) ? 1 : 0;
+    };
     const expected = pages.length + pages.reduce((n, p) => n + (p.live
-      ? 11 + (p.also_seen?.length ?? 0)
+      ? 11 + (p.also_seen?.length ?? 0) + verdicts(p)
       : 2 + (p.expired?.reason?.includes("€") ? 1 : 0)), 0);
+    expect(pages.filter((p) => p.live).map(verdicts)).toEqual([1, 1]);   // both live fixtures judged
     const promos = ["/", ...[...checked.keys()].filter((p) => p.startsWith("/promos/"))];
     expect(promos.reduce((n, p) => n + checked.get(p)!, 0)).toBe(expected);
     expect(expected).toBeGreaterThan(100);              // the fixtures' 29 promotion pages (#52)

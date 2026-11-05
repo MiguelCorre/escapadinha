@@ -36,7 +36,8 @@
                 "month": {"$ref": "defs.schema.json#/$defs/month"},
                 "typical_low": {"anyOf": [{"$ref": "defs.schema.json#/$defs/eur"}, {"type": "null"}]},
                 "average": {"anyOf": [{"$ref": "defs.schema.json#/$defs/eur"}, {"type": "null"}]},
-                "days": {"type": "integer", "minimum": 0, "description": "Days with a low behind the numbers."}
+                "days": {"type": "integer", "minimum": 0, "description": "Days with a low behind the numbers."},
+                "confidence": {"enum": ["low", "medium", "high", null], "description": "Added in v1 (D58): how much to trust the typical low (D44): low below min_baseline_days, high with enough daily lows and little spread, medium in between. The price verdict (baixo / habitual / alto) is shown only at medium or high. Absent in older exports: no verdict."}
               }
             }
           },

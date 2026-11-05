@@ -57,6 +57,13 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
   `tests/test_web_tokens.py` catches drift); `web/test/colours.test.ts` fails on any raw hex or
   rgb()/hsl() colour elsewhere in `web/src/` or `web/functions/`.
+- **The price verdict (D58):** "Preço baixo / habitual / alto para <mês>" next to a route page's
+  "Mais barato agora" and a live promotion's price, judged against the departure month's typical
+  low in `routes.json` (`months[].confidence` = `detector.confidence`, `meta.detector.high_margin`
+  = config `site.price_insight.high_margin`), only through `src/lib/price-insight.ts`
+  (`verdict`, `priceInsight`: mature month, confidence medium or high, else nothing) and
+  `PriceVerdict.astro`; words only in `format.priceVerdict`; the typical low it names sits on
+  `data-route`; never a "sem dados" badge, never a Python twin (posts keep D44's claim rules).
 - Itineraries and tips (D33) are MDX in `web/src/content/{itineraries,tips}/` (file name = slug,
   pages `/roteiros/<slug>/`, `/dicas/<slug>/`), front matter per `src/lib/content.ts`. Only
   `reviewed: true` is built or listed, and only a human sets it (never mark Claude's drafts
