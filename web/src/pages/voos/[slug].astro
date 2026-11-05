@@ -16,6 +16,7 @@ import ItineraryLink from "../../components/ItineraryLink.astro";
 import LowPriceList from "../../components/LowPriceList.astro";
 import MonthTable from "../../components/MonthTable.astro";
 import PriceCalendar from "../../components/PriceCalendar.astro";
+import PriceVerdict from "../../components/PriceVerdict.astro";
 import PromotionCard from "../../components/PromotionCard.astro";
 import type { Route } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
@@ -104,6 +105,7 @@ const thin = demand?.thin === true && !cheapest;
       {cheapest.found_date && <span class="block text-small text-muted">Encontrado por um viajante a <span class="num font-semibold text-ink">{numericDate(cheapest.found_date)}</span></span>}
     </p>
   )}
+  {cheapest && <PriceVerdict price={cheapest.price} route={route} departure={cheapest.departure} det={det} />}
 
   {live.length > 0 && (
     <section class="mt-2xl" aria-labelledby="titulo-promocoes">

@@ -234,6 +234,9 @@ describe("About and Privacy pages", () => {
     expect(body).toContain("sem afiliado nem comissão");
     expect(body).toMatch(/regras fixas/);
     expect(body).not.toMatch(/Uma pessoa revê cada promoção/);
+    // The price verdict (D58) explained in one paragraph, with its three words and its limit.
+    expect(body).toContain("baixo, habitual ou alto para o mês de partida");
+    expect(body).toContain("sem ela, não dizemos nada");
     // Eurostat's reuse condition (D45): the source acknowledged, on the page that explains the data.
     expect(body).toContain("Dados de passageiros: Eurostat, avia_par_pt, reutilização autorizada com indicação da fonte");
     expect(page("/sobre/").querySelector('main a[href="https://www.instagram.com/ondestaanocas/"]')).not.toBeNull();

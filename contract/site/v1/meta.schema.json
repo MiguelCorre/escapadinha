@@ -46,7 +46,8 @@
         "min_baseline_days": {"type": "integer"},
         "min_dates_per_day": {"type": "integer", "minimum": 1, "description": "Added in v1 (D40): a day's low counts towards min_baseline_days only when that day saw at least this many different departure dates. Absent: every day counts (1)."},
         "max_offer_age_days": {"type": "integer"},
-        "lookback_days": {"type": "integer"}
+        "lookback_days": {"type": "integer"},
+        "high_margin": {"type": "number", "exclusiveMinimum": 0, "description": "Added in v1 (D58): a price at least this fraction above the month's typical low is \"preço alto\"; \"baixo\" is the low-price rule (low_threshold), \"habitual\" in between. Absent in older exports: no verdict."}
       }
     },
     "demand": {

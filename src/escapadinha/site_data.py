@@ -398,7 +398,9 @@ def _month(month: detector.Month, base: detector.Baseline, cfg) -> dict:
     mature = detector.is_mature(base, cfg)
     return {"month": f"{month[0]:04d}-{month[1]:02d}", "days": base.sample_size,
             "typical_low": _eur(base.median) if mature else None,
-            "average": _eur(base.mean) if mature else None}
+            "average": _eur(base.mean) if mature else None,
+            # D58: the verdict needs medium or high; `low` below the maturity gate (D44).
+            "confidence": detector.confidence(base, cfg)}
 
 
 def _offer(o: Observation) -> dict:
@@ -669,6 +671,7 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
         "instagram_handle": ctx.config.brand.handle,
         "detector": {"low_threshold": det.low_threshold, "threshold": det.threshold,
                      "min_saving_eur": det.min_saving_eur,
+                     "high_margin": ctx.config.site.price_insight.high_margin,     # D58
                      "min_baseline_days": det.min_baseline_days,
                      "min_dates_per_day": det.min_dates_per_day,
                      "max_offer_age_days": det.max_offer_age_days,

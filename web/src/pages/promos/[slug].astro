@@ -8,6 +8,7 @@ import Base from "../../layouts/Base.astro";
 import BookingCta from "../../components/BookingCta.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import PriceBlock from "../../components/PriceBlock.astro";
+import PriceVerdict from "../../components/PriceVerdict.astro";
 import type { Promotion } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { bookingCta } from "../../lib/cta";
@@ -102,6 +103,10 @@ const trip = promotionLd(data, promotion, view, description);
       )}
 
       <div class="mt-lg"><PriceBlock view={view} size="page" /></div>
+      {view.live && route && (
+        <PriceVerdict price={promotion.latest?.price ?? promotion.offer.price} route={route}
+          departure={promotion.offer.departure} det={data.meta.detector} />
+      )}
 
       {view.remote && view.arrivalName && (
         <p class="notice notice-warning mt-lg text-ink">Chegada a {arrival}, longe do centro de {view.city}. Conta com o transfer no tempo e no orçamento.</p>

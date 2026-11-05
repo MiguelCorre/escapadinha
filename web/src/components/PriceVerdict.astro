@@ -1,0 +1,26 @@
+---
+// The price verdict (D58, #80): "Preço baixo / habitual / alto para <mês>" next to a price, with
+// the typical low it was judged against on its data-route and the one-line explanation. Renders
+// nothing when src/lib/price-insight.ts gives no verdict (immature month, low confidence, an
+// export without the fields): never a "sem dados" badge.
+import type { Detector, Route } from "../lib/contract";
+import { eur, priceVerdict } from "../lib/format";
+import { VERDICT_NOTE, priceInsight } from "../lib/price-insight";
+
+interface Props {
+  price: number;
+  route: Pick<Route, "key" | "months">;
+  departure: string;
+  det: Detector;
+}
+
+const { price, route, departure, det } = Astro.props;
+const insight = priceInsight(price, route, departure, det);
+const tagClass = { baixo: "tag tag-success", habitual: "tag border-2 border-rule", alto: "tag tag-warning" };
+---
+{insight && (
+  <p data-verdict={insight.verdict} class="mt-xs max-w-measure">
+    <span class={tagClass[insight.verdict]}>{priceVerdict(insight.verdict, insight.month)}</span>
+    <span class="text-small text-muted"> · mínimo habitual <span class="num font-semibold text-ink" data-route={route.key}>{eur(insight.typicalLow)}</span>, {VERDICT_NOTE}</span>
+  </p>
+)}

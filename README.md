@@ -1002,6 +1002,14 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   promotions; nothing at all while unset (the fixture build). With `meta.analytics_token` every
   page gets Cloudflare's beacon script; null now (automatic setup at the edge). The site sets no
   cookies (a test fails on `document.cookie` in the build or the sources).
+- **Price verdict (D58):** next to a route page's "Mais barato agora" and a live promotion's
+  price: *Preço baixo para dezembro · mínimo habitual 55,50 €, comparado com o mínimo habitual que
+  medimos nesta rota para esse mês*. Baixo = the low-price rule (`low_threshold`), alto = at least
+  `site.price_insight.high_margin` (25 %) above the departure month's typical low, habitual in
+  between; only on a mature month with confidence medium or high (`routes.json`
+  `months[].confidence`), nothing otherwise (`src/lib/price-insight.ts`). Measured before shipping
+  on a copy of the database (the PR of #80): over 14 days, 11 % of the route-days with a price
+  had a month able to judge it; of those, 38 % baixo, 54 % habitual, 8 % alto.
 - **Route, origin and destination pages (D30):** `/voos/<origem>-<destino>/` (the contract's
   `path`, the Jinja site's URLs): promotions on the route, recent low prices (biggest 5 discounts,
   by date, each with its found-on date, our first sight and its own partner link, the disclosure
