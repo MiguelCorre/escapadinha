@@ -3,23 +3,29 @@
 # D61, #49). Lido por src/escapadinha/school_holidays.py; datas e fontes em
 # docs/research/2026-11-05-ferias-escolares.md.
 #
-# `reviewed`: só uma pessoa o põe a true, depois de confirmar cada data no texto oficial (como as
-# dicas e os roteiros, D33). Com false o site não constrói nenhuma página nem oferece o filtro: a
-# exportação escreve `breaks: []`.
+# `reviewed`: true só depois de cada data ser confirmada no texto oficial (como as dicas e os
+# roteiros, D33). Com false o site não constrói nenhuma página nem oferece o filtro: a exportação
+# escreve `breaks: []`. Revisto a 2026-11-05 por instrução do Miguel ("faz tu por mim"): as doze
+# datas lidas nos três textos primários (DR consolidado, JORAM, Jornal Oficial dos Açores) e
+# reconfirmadas por três verificadores independentes sobre o texto extraído de cada diploma
+# (docs/research/2026-11-05-ferias-escolares.md). Uma data nova só entra com a mesma verificação.
 #
 # Cada rede: `key`, `name`, `source` (ligação oficial, https), `source_name` (como a citar) e as
 # interrupções (`breaks`), cada uma com `slug` (+ rede = o endereço, /ferias-escolares/<slug>-<rede>/<origem>/),
 # `name`, `start` e `end` (primeiro e último dia sem aulas, inclusive). A janela de viagem é
 # start − 1 dia a end + 1 dia (sai-se na véspera, volta-se no dia seguinte).
 #
-# Verão: do dia seguinte ao fim das aulas da educação pré-escolar e do 1.º ciclo (30 de junho, a
-# data mais tardia) até à véspera do arranque do ano letivo seguinte. Continente: 13 a 15 de
-# setembro de 2027 (anexo I do Despacho n.º 8368/2024); Açores: 13 a 15 de setembro de 2027
-# (ponto 3.2 da Portaria n.º 937/2025); Madeira: o calendário de 2027/2028 só é publicado em
-# maio de 2027, por isso o fim do verão segue o padrão de 2026/2027 (início a 10 de setembro) e
-# deve ser corrigido quando o despacho sair.
+# Verão: do dia seguinte ao fim das aulas do 1.º ciclo (a data mais tardia entre os ciclos do
+# ensino básico: 30 de junho no continente, anexo I, e na Madeira, anexo I; 18 a 25 de junho nos
+# Açores, anexo III, logo 26 de junho) até à véspera do arranque do ano letivo seguinte. A
+# educação pré-escolar fica de fora: na Madeira segue um regime de 11 meses (ponto 7.1, até 14 de
+# julho) e no continente e nos Açores acaba com o 1.º ciclo. Arranque de 2027/2028: continente
+# entre 13 e 15 de setembro de 2027 (anexo I do Despacho n.º 8368/2024), Açores entre 13 e 15 de
+# setembro de 2027 (ponto 3.2 da Portaria n.º 937/2025); Madeira só publica o calendário de
+# 2027/2028 em maio de 2027, por isso o fim do verão segue o padrão de 2026/2027 (o 1.º ciclo
+# começou a 10 de setembro de 2026, anexo I) e deve ser corrigido quando o despacho sair.
 
-reviewed: false
+reviewed: true
 last_checked: 2026-11-05
 
 networks:
@@ -84,5 +90,5 @@ networks:
         end: 2027-04-02
       - slug: verao-2027
         name: Férias de verão
-        start: 2027-07-01
+        start: 2027-06-26
         end: 2027-09-12

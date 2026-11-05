@@ -47,15 +47,44 @@ describe("the school-break rule", () => {
   });
 });
 
-describe("the committed calendar is a draft", () => {
-  it("the fixtures carry the networks and no break, so the fixture build has no page and no filter", () => {
-    const data = loadSiteData(FIXTURES_DIR);
-    expect(data.schoolHolidays.reviewed).toBe(false);
-    expect(data.schoolHolidays.breaks).toEqual([]);
+describe("the committed calendar (reviewed 2026-11-05)", () => {
+  const data = loadSiteData(FIXTURES_DIR);
+
+  it("carries the three networks and their twelve breaks, so the fixture build has a page per break and origin", () => {
+    expect(data.schoolHolidays.reviewed).toBe(true);
     expect(data.schoolHolidays.networks.map((n) => n.key)).toEqual(["continente", "madeira", "acores"]);
-    expect(builtPages().filter((p) => p.startsWith("/ferias-escolares/"))).toEqual([]);
-    expect(page("/explorar/").querySelector("select[name=ferias]")).toBeNull();
-    expect(page("/explorar/").querySelector("#ferias-escolares")).toBeNull();
+    expect(data.schoolHolidays.breaks).toHaveLength(12);
+    const expected = data.schoolHolidays.breaks.flatMap((b) => b.origins.map((o) => o.path)).sort();
+    expect(builtPages().filter((p) => p.startsWith("/ferias-escolares/")).sort()).toEqual(expected);
+    expect(expected).toContain("/ferias-escolares/natal-2026-madeira/lisboa/");
+  });
+
+  it("every fixture break page either lists prices inside its window or is noindex and says so", () => {
+    for (const b of data.schoolHolidays.breaks) {
+      for (const o of b.origins) {
+        const doc = page(o.path);
+        const rows = doc.querySelectorAll("#explorer-results > li[data-obs]");
+        const noindex = doc.querySelector('meta[name="robots"]')?.getAttribute("content") ?? null;
+        if (rows.length) {
+          expect(noindex, o.path).toBeNull();
+          const lis = data.lowPrices[o.iata].rows;
+          for (const li of rows) {
+            const r = lis.find((x) => x[0] === Number(li.getAttribute("data-obs")))!;
+            expect(fitsWindow(r[3], r[4], b.window), `${o.path} ${r[0]}`).toBe(true);
+          }
+        } else {
+          expect(noindex, o.path).toBe("noindex");
+          expect(text(doc.querySelector("main")!), o.path).toContain("Ainda não há preços baixos para estas datas");
+        }
+      }
+    }
+  });
+
+  it("the explorer offers the twelve breaks and an origin page links its twelve pages", () => {
+    const options = page("/explorar/").querySelectorAll("select[name=ferias] option").map((o) => o.getAttribute("value"));
+    expect(options).toEqual(["", ...data.schoolHolidays.breaks.map((b) => b.slug)]);
+    expect(page("/explorar/").querySelectorAll("#ferias-escolares [data-school-holiday]")).toHaveLength(12);
+    expect(page("/partidas/lisboa/").querySelectorAll("[data-school-holidays] a")).toHaveLength(12);
   });
 });
 
@@ -114,7 +143,6 @@ describe("break pages and the explorer's filter (configured build, reviewed cale
     const links = configured("/partidas/lisboa/").querySelectorAll("[data-school-holidays] a");
     expect(links.map((a) => a.getAttribute("href"))).toEqual([LISBOA(WITH_PRICES.slug), LISBOA(EMPTY.slug)]);
     expect(text(links[0])).toBe("Férias de teste 2026 (Continente)");
-    expect(page("/partidas/lisboa/").querySelector("[data-school-holidays]")).toBeNull();   // the draft: nothing
   });
 
   it("the sitemap lists only the break pages with prices", () => {
