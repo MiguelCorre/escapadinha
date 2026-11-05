@@ -87,6 +87,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   pt-PT lint over all MDX refuses them, plus pt-BR words, "3.5", ISO/English dates, "20 %");
   prices come from the contract with their `data-obs`. Test-only entries (`fixture: true`) live
   in `web/test/fixtures/content/` and are built from fixture data only.
+- **School holidays only from the YAML (D61):** `content/school-holidays.yaml` (three networks,
+  each with its official https source) is the one source of the breaks; like the MDX articles,
+  only a human sets its `reviewed: true` (never Claude), and until then the export writes
+  `breaks: []`, so the site builds no `/ferias-escolares/` page and offers no filter. A trip fits
+  a break by the pontes' rule (departure and return inside the window, a day wider on each
+  side), in `explorer.fitsWindow` only. No price in the file or in the copy.
 - SEO on the Astro site (D34): a page decides its own `noindex`; `sitemap.xml` is generated from
   the built pages (`src/lib/sitemap.ts`), never from a list. Route pages and destination hubs are
   indexed only with data of their own, decided only by `src/lib/indexable.ts` (D55:
@@ -552,6 +558,14 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `public_deal_rows`, `route_slug`, `promo_slug`, `deal_image_paths`, ... (the Jinja site was
   deleted in #23 phase 2; its old URLs, `docs/cutover/jinja-sitemap-2026-10-14.xml`, must keep
   resolving: `tests/test_crawl.py`).
+- `src/escapadinha/school_holidays.py` + `content/school-holidays.yaml`: school holidays by network
+  (D61: `Network`, `Break` with `page_slug` and the ± 1 day window, `Calendar.published` = the
+  breaks only once a human set `reviewed: true`; `load_calendar` refuses a non-https source, a
+  slug twice, an end before its start), exported as `school-holidays.json` (`meta.files.school_holidays`,
+  schema `school-holidays.schema.json`; the committed fixture is the draft: networks, no break);
+  the site's filter and pages (`/ferias-escolares/<slug>/<origem>/`) share the pontes' window
+  rule (`explorer.fitsWindow`), `explorer-data.upcomingSchoolHolidays`, titles in
+  `format.schoolHolidayName` / `schoolHolidayTitle`; dates in `docs/research/2026-11-05-ferias-escolares.md`
 - `src/escapadinha/pontes.py` + `content/holidays.yaml`: Portuguese holidays 2026–2027 and their
   long weekends (D31; pure `long_weekend`/`pontes`, exported as `pontes.json`, past ones too, raw
   values only). The ponte rule (departure and return inside the window) and the weekend rule

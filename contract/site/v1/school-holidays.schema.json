@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pontonomada.pt/contract/site/v1/school-holidays.schema.json",
+  "title": "school-holidays.json: Portuguese school holidays, by network",
+  "description": "From the committed calendar (content/school-holidays.yaml; D61): the school breaks of the continente, Madeira and the Açores for the year the file covers, each with its official source to cite. The file carries a review gate like the articles (D33): until a human sets reviewed, `breaks` is empty and the site builds no page and offers no filter. A low price fits a break when its departure and its return both fall inside the window (window.start <= departure < return <= window.end), the pontes' rule. No prices here: the site selects the matching rows of each origin's low-price file. Past breaks are listed too: the site keeps their pages (noindex, \"já passou\") and calls a break past when window.end is before the Lisbon date of meta.generated_at. Added in v1 (additive): an export without it has no meta.files.school_holidays.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "reviewed", "networks", "breaks"],
+  "properties": {
+    "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "reviewed": {"type": "boolean", "description": "The calendar's review gate: false = draft, nothing published."},
+    "last_checked": {"anyOf": [{"$ref": "defs.schema.json#/$defs/date"}, {"type": "null"}], "description": "When a human last checked the dates on the official texts."},
+    "networks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "name", "source", "source_name"],
+        "properties": {
+          "key": {"type": "string", "pattern": "^[a-z]+$"},
+          "name": {"type": "string", "minLength": 1},
+          "source": {"$ref": "defs.schema.json#/$defs/link", "description": "The official text, https."},
+          "source_name": {"type": "string", "minLength": 1, "description": "How to cite it on the page."}
+        }
+      }
+    },
+    "breaks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "name", "network", "start", "end", "window", "origins"],
+        "properties": {
+          "slug": {"type": "string", "pattern": "^[a-z0-9-]+-[a-z]+$", "description": "Break and network: natal-2026-continente."},
+          "name": {"type": "string", "minLength": 1, "description": "\"Férias de Natal\"."},
+          "network": {"type": "string", "pattern": "^[a-z]+$", "description": "A key of `networks`."},
+          "start": {"$ref": "defs.schema.json#/$defs/date", "description": "First day without lessons."},
+          "end": {"$ref": "defs.schema.json#/$defs/date", "description": "Last day without lessons, inclusive."},
+          "window": {
+            "type": "object",
+            "description": "Travel window: the evening before the first day off to the day after the last one.",
+            "additionalProperties": false,
+            "required": ["start", "end"],
+            "properties": {
+              "start": {"$ref": "defs.schema.json#/$defs/date"},
+              "end": {"$ref": "defs.schema.json#/$defs/date"}
+            }
+          },
+          "origins": {
+            "type": "array",
+            "description": "One page per origin of origins.json, in its order.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["iata", "path"],
+              "properties": {
+                "iata": {"$ref": "defs.schema.json#/$defs/airport"},
+                "path": {"$ref": "defs.schema.json#/$defs/path", "description": "/ferias-escolares/<slug>/<origem>/"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

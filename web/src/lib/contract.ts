@@ -260,6 +260,35 @@ export interface Pontes {
   pontes: Ponte[];
 }
 
+/** One school break of one network (school-holidays.json, D61), past ones included: the first
+ * and last day without lessons and the travel window a day wider on each side. No display text:
+ * titles come from format.ts (`schoolHolidayTitle`). */
+export interface SchoolHoliday {
+  slug: string;        // "natal-2026-continente"
+  name: string;        // "Férias de Natal"
+  network: string;     // a key of SchoolHolidays.networks
+  start: string;
+  end: string;
+  window: { start: string; end: string };
+  origins: { iata: string; path: string }[];
+}
+
+export interface SchoolHolidayNetwork {
+  key: string;
+  name: string;         // "Continente", "Madeira", "Açores"
+  source: string;       // the official text (https)
+  source_name: string;  // how to cite it
+}
+
+/** Empty `breaks` until a human reviewed the calendar (D61), or in an older export. */
+export interface SchoolHolidays {
+  version: 1;
+  reviewed: boolean;
+  last_checked?: string | null;
+  networks: SchoolHolidayNetwork[];
+  breaks: SchoolHoliday[];
+}
+
 /** The affiliate blocks of itineraries and tips (D37). */
 export type Programme = "esim" | "insurance" | "activities";
 
@@ -292,6 +321,8 @@ export interface SiteData {
   lowPrices: Record<string, LowPrices>;
   /** Empty when the export predates pontes.json. */
   pontes: Pontes;
+  /** No break when the export predates school-holidays.json or the calendar is unreviewed (D61). */
+  schoolHolidays: SchoolHolidays;
   /** No programme configured and no links when the export predates affiliates.json. */
   affiliates: Affiliates;
 }

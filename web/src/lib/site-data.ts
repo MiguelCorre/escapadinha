@@ -16,7 +16,7 @@ export const FIXTURES_DIR = join(CONTRACT_DIR, "fixtures");
 export const DEFAULT_DATA_DIR = join(WEB_DIR, "src/data");
 
 const SCHEMAS = ["defs", "meta", "labels", "origins", "routes", "destinations", "promotions",
-  "low-prices", "pontes", "affiliates"];
+  "low-prices", "pontes", "school-holidays", "affiliates"];
 const ID = "https://pontonomada.pt/contract/site/v1/";
 
 export class SiteDataError extends Error {}
@@ -78,6 +78,9 @@ export function loadSiteData(dir: string): SiteData {
     promotions: read(meta.files.promotions, "promotions"),
     // Added within v1 (D31): an older export has no long weekends.
     pontes: meta.files.pontes ? read(meta.files.pontes, "pontes") : { version: 1, source: "", pontes: [] },
+    // Added within v1 (D61): an older export, or an unreviewed calendar, has no school break.
+    schoolHolidays: meta.files.school_holidays ? read(meta.files.school_holidays, "school-holidays")
+      : { version: 1, reviewed: false, networks: [], breaks: [] },
     // Added within v1 (D37): an older export configures no affiliate block.
     affiliates: meta.files.affiliates ? read(meta.files.affiliates, "affiliates") : {
       version: 1, links: [],

@@ -27,6 +27,20 @@ export const FAKE_INSURANCE_BRAND = "Seguradora de Teste";
 export const FAKE_INSURANCE_LINK = "https://example.com/parceiro/seguro-de-teste";
 /** The home page's cap on expired cards in the configured build (D60). */
 export const CONFIGURED_HOME_EXPIRED_MAX = 2;
+/** A reviewed school-holiday calendar in the configured build (D61): a break with fixture low
+ * prices inside its window, one already past, one with none; two networks. */
+export const SCHOOL_BREAKS = [
+  { slug: "teste-dezembro-2026-continente", name: "Férias de teste", network: "continente",
+    start: "2026-12-05", end: "2026-12-20", window: { start: "2026-12-04", end: "2026-12-21" } },
+  { slug: "teste-outubro-2026-continente", name: "Férias de teste", network: "continente",
+    start: "2026-10-01", end: "2026-10-05", window: { start: "2026-09-30", end: "2026-10-06" } },
+  { slug: "teste-maio-2027-madeira", name: "Férias de teste", network: "madeira",
+    start: "2027-05-03", end: "2027-05-07", window: { start: "2027-05-02", end: "2027-05-08" } },
+];
+export const SCHOOL_NETWORKS = [
+  { key: "continente", name: "Continente", source: "https://example.com/despacho-de-teste", source_name: "Despacho de teste" },
+  { key: "madeira", name: "Madeira", source: "https://example.com/joram-de-teste", source_name: "Despacho de teste da Madeira" },
+];
 /** The second live date of the live promotion in the configured build (D53). */
 export const GROUP_MEMBER_ID = 1008;
 export const GROUP_MEMBER_OBS = 999001;
@@ -61,6 +75,16 @@ export default function setup(project: TestProject) {
   writeFileSync(join(configuredData, "meta.json"), JSON.stringify({
     ...meta, analytics_token: FAKE_ANALYTICS_TOKEN, search_widget: FAKE_SEARCH_WIDGET,
     home_expired_max: CONFIGURED_HOME_EXPIRED_MAX,     // D60: below the fixtures' route count
+    files: { ...meta.files, school_holidays: "school-holidays.json" },
+  }));
+  // D61: a reviewed calendar, so the break pages and the explorer's filter build here (the
+  // committed fixture is the real draft: unreviewed, no break).
+  const origins = JSON.parse(readFileSync(join(configuredData, "origins.json"), "utf8")).origins;
+  writeFileSync(join(configuredData, "school-holidays.json"), JSON.stringify({
+    version: 1, reviewed: true, last_checked: "2026-11-05", networks: SCHOOL_NETWORKS,
+    breaks: SCHOOL_BREAKS.map((b) => ({
+      ...b, origins: origins.map((o: { iata: string; slug: string }) => ({ iata: o.iata, path: `/ferias-escolares/${b.slug}/${o.slug}/` })),
+    })),
   }));
   const promotions = JSON.parse(readFileSync(join(configuredData, "promotions.json"), "utf8"));
   for (const p of promotions.promotions) {

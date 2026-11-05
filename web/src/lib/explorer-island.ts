@@ -23,6 +23,7 @@ function filtersOf(form: HTMLFormElement): Filters {
     directOnly: f.has("diretos"),
     weekendOnly: f.has("fim_de_semana"),
     ponte: (f.get("ponte") as string) || null,
+    ferias: (f.get("ferias") as string) || null,
   };
 }
 
@@ -54,7 +55,7 @@ export function start(): void {
     try {
       const file = await load(iata);
       if (mine !== latest) return;
-      const results = explore(file.rows, filtersOf(form), config.pontes, file.demand ?? {});
+      const results = explore(file.rows, filtersOf(form), config.pontes, file.demand ?? {}, config.ferias ?? []);
       list.innerHTML = resultsHtml(results, file.places);
       upgradeFoundAt(list);     // D59: "há x h" on the rows just rendered
       status.textContent = statusText(results.length, name);

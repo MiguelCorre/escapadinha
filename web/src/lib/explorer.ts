@@ -2,7 +2,7 @@
 // the client island, so a list looks and filters the same with and without JavaScript. Pure and
 // browser-safe: no Node modules, no fetch. Input rows are low-prices/<ORIGIN>.json rows as the
 // contract gives them; every result keeps its row, so its price stays traced to `obs` (D2).
-import type { LowPriceRow, Ponte } from "./contract";
+import type { LowPriceRow, Ponte, SchoolHoliday } from "./contract";
 import { daysBetween, weekday } from "./dates";
 import { count } from "./format";
 import { lowPricesHtml, type LowPriceItem, type Places } from "./low-prices";
@@ -17,14 +17,17 @@ export interface Filters {
   directOnly: boolean;         // no stop in either direction (unknown stops are not direct)
   weekendOnly: boolean;
   ponte: string | null;        // a ponte's slug (pontes.json)
+  ferias: string | null;       // a school break's slug (school-holidays.json, D61)
 }
 
 export const NO_FILTERS: Filters = {
   maxPrice: null, month: null, minNights: null, maxNights: null, directOnly: false,
-  weekendOnly: false, ponte: null,
+  weekendOnly: false, ponte: null, ferias: null,
 };
 
 export type PonteWindow = Pick<Ponte, "holiday" | "window">;
+/** A school break as the filter needs it (D61): its travel window, like a ponte's. */
+export type BreakWindow = Pick<SchoolHoliday, "slug" | "window">;
 
 /** One destination: its cheapest matching row and how many other matching dates it has. */
 export type ExploreResult = LowPriceItem;
@@ -42,11 +45,16 @@ export function isWeekendTrip(dep: string, ret: string): boolean {
 /** The ponte rule (D31, pontes.schema.json): departure and return both inside the travel
  * window, from the evening before the first day off to the morning after the last one. */
 export function fitsPonte(dep: string, ret: string, p: PonteWindow): boolean {
-  const { start, end } = p.window;
+  return fitsWindow(dep, ret, p.window);
+}
+
+/** The one window rule (D31, D61): departure and return both inside it. */
+export function fitsWindow(dep: string, ret: string, { start, end }: { start: string; end: string }): boolean {
   return start <= dep && dep < ret && ret <= end;
 }
 
-function matches(r: LowPriceRow, f: Filters, ponte: PonteWindow | null | undefined): boolean {
+function matches(r: LowPriceRow, f: Filters, ponte: PonteWindow | null | undefined,
+  ferias: BreakWindow | null | undefined): boolean {
   const [, , price, dep, ret, , , , stops] = r;
   const n = daysBetween(dep, ret);
   if (f.maxPrice != null && price > f.maxPrice) return false;
@@ -56,6 +64,7 @@ function matches(r: LowPriceRow, f: Filters, ponte: PonteWindow | null | undefin
   if (f.directOnly && stops !== 0) return false;
   if (f.weekendOnly && !isWeekendTrip(dep, ret)) return false;
   if (f.ponte && !(ponte && fitsPonte(dep, ret, ponte))) return false;
+  if (f.ferias && !(ferias && fitsWindow(dep, ret, ferias.window))) return false;
   return true;
 }
 
@@ -66,11 +75,13 @@ export type Demand = Record<string, number>;
 /** Destinations whose low prices pass the filters, each at its cheapest, sorted by price; at the
  * same price the busier route first (`demand`, D45), then the earlier departure. */
 export function explore(rows: LowPriceRow[], f: Filters,
-  pontes: (PonteWindow & { slug: string })[], demand: Demand = {}): ExploreResult[] {
+  pontes: (PonteWindow & { slug: string })[], demand: Demand = {},
+  ferias: BreakWindow[] = []): ExploreResult[] {
   const ponte = f.ponte ? pontes.find((p) => p.slug === f.ponte) ?? null : null;
+  const feriasWindow = f.ferias ? ferias.find((b) => b.slug === f.ferias) ?? null : null;
   const byDest = new Map<string, ExploreResult>();
   for (const r of rows) {
-    if (!matches(r, f, ponte)) continue;
+    if (!matches(r, f, ponte, feriasWindow)) continue;
     const seen = byDest.get(r[1]);
     if (!seen) byDest.set(r[1], { row: r, more: 0 });
     else if (cheaper(r, seen.row, demand)) byDest.set(r[1], { row: r, more: seen.more + 1 });

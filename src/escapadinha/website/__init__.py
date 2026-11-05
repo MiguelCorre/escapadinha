@@ -43,6 +43,11 @@ def ponte_path(ponte_slug: str, origin_city: str) -> str:
     return f"/pontes/{ponte_slug}/{origin_slug(origin_city)}/"
 
 
+def school_holiday_path(break_slug: str, origin_city: str) -> str:
+    """A school break's page for one origin: /ferias-escolares/natal-2026-continente/porto/ (D61)."""
+    return f"/ferias-escolares/{break_slug}/{origin_slug(origin_city)}/"
+
+
 DESTINATION_KEY = "destination:"   # site.paths key of a destination hub: "destination:SJO"
 DESTINATIONS = "/destinos/"
 

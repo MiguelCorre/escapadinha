@@ -9,14 +9,17 @@ import Base from "../../layouts/Base.astro";
 import ExplorerResults from "../../components/ExplorerResults.astro";
 import { BRAND } from "../../lib/brand";
 import { NO_FILTERS, explore, statusText } from "../../lib/explorer";
-import { defaultOrigin, demandFor, islandConfig, months, placesFor, upcomingPontes } from "../../lib/explorer-data";
-import { dateRange, monthYear, ponteTitle } from "../../lib/format";
+import { defaultOrigin, demandFor, islandConfig, months, placesFor, upcomingPontes, upcomingSchoolHolidays } from "../../lib/explorer-data";
+import { dateRange, monthYear, ponteTitle, schoolHolidayName, schoolHolidayTitle } from "../../lib/format";
 
 const origin = defaultOrigin(data);
 const originName = data.origins.origins.find((o) => o.iata === origin)?.name ?? origin;
 const results = explore(data.lowPrices[origin]?.rows ?? [], NO_FILTERS, [], demandFor(data, origin));
 const config = islandConfig(data);
 const pontes = upcomingPontes(data);
+// D61: the reviewed calendar's upcoming school breaks, each named with its network.
+const networks = Object.fromEntries(data.schoolHolidays.networks.map((n) => [n.key, n]));
+const ferias = upcomingSchoolHolidays(data).map((b) => ({ ...b, label: schoolHolidayName(b.name, b.start, networks[b.network]?.name ?? b.network) }));
 const origins = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o]));
 ---
 <Base
@@ -62,6 +65,14 @@ const origins = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o]))
         {pontes.map((p) => <option value={p.slug}>{p.name} ({dateRange(p.window.start, p.window.end)})</option>)}
       </select>
     </label>
+    {ferias.length > 0 && (
+      <label class="flex flex-col gap-2xs text-small font-semibold sm:col-span-2">Férias escolares
+        <select name="ferias" class="field">
+          <option value="">Todas as datas</option>
+          {ferias.map((b) => <option value={b.slug}>{b.label} ({dateRange(b.window.start, b.window.end)})</option>)}
+        </select>
+      </label>
+    )}
   </form>
 
   <ExplorerResults heading="Destinos" results={results} places={placesFor(data, origin)} disclosure={data.labels.disclosure.site}
@@ -80,6 +91,24 @@ const origins = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o]))
                 they wrap (WCAG 2.5.8; six origins wrap on a phone). */}
             <p class="mt-2xs flex flex-wrap gap-x-md gap-y-xs text-small">
               {p.origins.map((o) => <a class="inline-flex min-h-6 min-w-6 items-center" href={o.path} aria-label={ponteTitle(p.name, origins[o.iata] ?? { name: o.iata })}>{origins[o.iata]?.name ?? o.iata}</a>)}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {ferias.length > 0 && (
+    <section id="ferias-escolares" class="mt-2xl" aria-labelledby="titulo-ferias">
+      <h2 id="titulo-ferias" class="font-display text-headline">Férias escolares</h2>
+      <p class="mt-xs max-w-measure text-small text-muted">As interrupções letivas do continente, da Madeira e dos Açores, segundo os calendários oficiais. Cada página mostra os preços baixos com ida e volta dentro das férias (da véspera ao dia seguinte).</p>
+      <ul class="mt-lg grid gap-md sm:grid-cols-2 lg:grid-cols-3">
+        {ferias.map((b) => (
+          <li class="border-t border-rule pt-sm" data-school-holiday={b.slug}>
+            <p class="font-semibold">{b.label}</p>
+            <p class="text-small text-muted">{dateRange(b.start, b.end)}</p>
+            <p class="mt-2xs flex flex-wrap gap-x-md gap-y-xs text-small">
+              {b.origins.map((o) => <a class="inline-flex min-h-6 min-w-6 items-center" href={o.path} aria-label={schoolHolidayTitle(b.name, b.start, networks[b.network]?.name ?? b.network, origins[o.iata] ?? { name: o.iata })}>{origins[o.iata]?.name ?? o.iata}</a>)}
             </p>
           </li>
         ))}

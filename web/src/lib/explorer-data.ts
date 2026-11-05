@@ -1,10 +1,10 @@
 // Build-time inputs of the explorer (D31): the per-origin JSON files the island loads lazily
 // (/explorar/dados/<ORIGIN>.json: the contract's rows plus the names they need), and the small
 // configuration the page embeds for the island. Nothing here ships to the browser.
-import type { LowPriceRow, Ponte, SiteData } from "./contract";
+import type { LowPriceRow, Ponte, SchoolHoliday, SiteData } from "./contract";
 import { bookingLink } from "./cta";
 import { lisbonDay } from "./dates";
-import type { Demand, PonteWindow } from "./explorer";
+import type { BreakWindow, Demand, PonteWindow } from "./explorer";
 import type { Places } from "./low-prices";
 
 /** /explorar/dados/<ORIGIN>.json */
@@ -30,6 +30,8 @@ export interface IslandConfig {
   defaultOrigin: string;
   origins: { iata: string; name: string; file: string }[];
   pontes: (PonteWindow & { slug: string })[];
+  /** The upcoming school breaks (D61); absent in a page built before them. */
+  ferias?: BreakWindow[];
 }
 
 export function dataFile(iata: string): string {
@@ -70,7 +72,19 @@ export function islandConfig(data: SiteData): IslandConfig {
     defaultOrigin: defaultOrigin(data),
     origins: data.origins.origins.map((o) => ({ iata: o.iata, name: o.name, file: dataFile(o.iata) })),
     pontes: upcomingPontes(data).map((p) => ({ slug: p.slug, holiday: p.holiday, window: p.window })),
+    ferias: upcomingSchoolHolidays(data).map((b) => ({ slug: b.slug, window: b.window })),
   };
+}
+
+/** A school break whose travel window ended before the data's day (D61): its pages stay,
+ * noindex, saying it has passed, like a ponte's. */
+export function isPastBreak(b: SchoolHoliday, data: SiteData): boolean {
+  return b.window.end < lisbonDay(data.meta.generated_at);
+}
+
+/** The school breaks the explorer offers: the reviewed calendar's, not past yet, by date. */
+export function upcomingSchoolHolidays(data: SiteData): SchoolHoliday[] {
+  return data.schoolHolidays.breaks.filter((b) => !isPastBreak(b, data));
 }
 
 /** A ponte whose travel window ended before the data's day (the Lisbon date of

@@ -180,6 +180,17 @@ export function ponteTitle(ponteName: string, origin: { name: string; article?: 
   return `${ponteName} ${fromPlace(origin.name, origin.article)}`;
 }
 
+/** A school break's name with its year and network (D61): "Férias de Natal 2026 (Madeira)". */
+export function schoolHolidayName(name: string, start: string, networkName: string): string {
+  return `${name} ${start.slice(0, 4)} (${networkName})`;
+}
+
+/** A school break page's title: "Férias de Natal 2026 (Madeira) desde Lisboa". */
+export function schoolHolidayTitle(name: string, start: string, networkName: string,
+  origin: { name: string; article?: string | null }): string {
+  return `${schoolHolidayName(name, start, networkName)} ${fromPlace(origin.name, origin.article)}`;
+}
+
 /** 141591 -> "141 591": pt-PT groups thousands with a space (no-break). For counts such as
  * passengers (D45), never for prices: a price is `eur`, with its sign. */
 export function integer(n: number): string {

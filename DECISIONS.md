@@ -3572,3 +3572,45 @@ so nothing has to be hosted.
   sitemap), `traceability.test.ts` (the home's and `/promos/`'s price counts), `jsonld.ts`
   (`ItemList` schema), `tests/test_site_data.py` (the two meta fields from config),
   `tests/test_web_build.py` (`/promos/` among the static pages).
+
+## D61: School holidays next to the pontes, from an official calendar a human reviews (2026-11-05, #49)
+- **Problem (#49, research of 2026-10-15):** families travel in the school breaks, and the site
+  had the long weekends (D31) but nothing for Natal, Carnaval, Páscoa and the summer. The
+  dates differ by network (continente, Madeira, Açores) and change every year by despacho.
+- **Decision (taken for Miguel on 2026-11-05, with the review left to him):**
+  `content/school-holidays.yaml` holds, per network, its official text (https) and the four
+  breaks of 2026/2027, read from the primary sources themselves (the consolidated Despacho n.º
+  8368/2024 on diariodarepublica.pt, annexes I and II; Despacho n.º 198/2026 in the JORAM;
+  Portaria n.º 937/2025 in the Jornal Oficial dos Açores: `docs/research/2026-11-05-ferias-escolares.md`).
+  The file has the articles' review gate (D33): **only a human sets `reviewed: true`**, after
+  checking every date on those texts; the committed file is a draft (`reviewed: false`), and
+  until Miguel flips it the export writes `breaks: []`, the site builds no page and offers no
+  filter. Three networks, not the continente alone: the pages serve whoever leaves from Funchal
+  and Ponta Delgada too, and the data costs nothing more.
+- **One rule, the pontes':** a break's travel window is a day wider on each side (leave the
+  evening before, come back the day after) and a trip fits when its departure and return both
+  fall inside it (`explorer.fitsWindow`, now shared with `fitsPonte`). The summer runs from the
+  day after the latest end of lessons (30 June, pré-escolar and 1.º ciclo) to the eve of the
+  next year's start (13 to 15 September 2027 in the two diplomas that set it; Madeira's
+  2027/2028 calendar is published in May 2027, so its summer end follows the 2026/2027 pattern
+  and is flagged in the file).
+- **Shapes:** `school_holidays.py` is pure (`Network`, `Break` with `page_slug`
+  `natal-2026-continente` and the window, `Calendar.published`); `load_calendar` refuses a
+  non-https source, a slug listed twice in a network and an end before its start. The export
+  `school-holidays.json` (additive v1, `meta.files.school_holidays`, its own schema) carries the
+  networks and sources always and the breaks once reviewed, each with one page path per origin
+  (`website.school_holiday_path`). The committed fixture is what a regeneration writes for the
+  draft (networks with placeholder sources, no break); the configured test build gets a reviewed
+  calendar of three test breaks (one with fixture prices inside its window, one past, one empty).
+- **Site:** `/ferias-escolares/<slug>/<origem>/` pages like the ponte pages (the break, its
+  network and source, the window, the origin's matching low prices through the shared row;
+  `noindex` when past or empty, so the sitemap lists only pages with prices), the explorer's
+  "Férias escolares" filter and section (upcoming breaks, a link per origin), and a line of links
+  on each origin page. Titles only through `format.schoolHolidayName` / `schoolHolidayTitle`
+  ("Férias de Natal 2026 (Madeira) desde Lisboa"). The island carries the windows in its config.
+- **Tests:** `tests/test_school_holidays.py` (the window, the committed draft's dates and gate,
+  a reviewed calendar, the three refusals, the export with and without review, validation),
+  `web/test/school-holidays.test.ts` (the rule's edges, the filter by slug, the names, the draft
+  in the fixture build: no page, no filter; the configured build: one page per break and origin,
+  prices traced and inside the window, past and empty pages `noindex`, the explorer's options and
+  section, the island's config, the origin page's links, the sitemap).
