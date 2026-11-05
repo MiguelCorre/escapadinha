@@ -779,3 +779,8 @@ class Context:
     def holidays_file(self) -> Path:
         """Portuguese public holidays (pontes, D31)."""
         return self.root / "content" / "holidays.yaml"
+
+    @property
+    def school_holidays_file(self) -> Path:
+        """Portuguese school holidays by network (férias escolares, D61)."""
+        return self.root / "content" / "school-holidays.yaml"

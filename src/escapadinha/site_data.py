@@ -36,7 +36,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from escapadinha import articles, detector, i18n_pt, pipeline, pontes, routes
+from escapadinha import articles, detector, i18n_pt, pipeline, pontes, routes, school_holidays
 from escapadinha.collector.ryanair import AIRLINE_SOURCES
 from escapadinha.config import PROGRAMMES, Context
 from escapadinha.models import Deal, Observation, Route
@@ -47,11 +47,12 @@ from escapadinha.storage import db
 from escapadinha.website import (
     DESTINATION_KEY, DESTINATIONS, LIVE, deal_image_paths, destination_path, destination_slugs, node,
     origin_slug, ponte_path, promo_slug, promotion_path, public_deal_rows, redirects, route_slug,
+    school_holiday_path,
 )
 
 VERSION = 1
 TOP_FILES = ("meta.json", "labels.json", "origins.json", "routes.json", "destinations.json",
-             "promotions.json", "pontes.json", "affiliates.json")
+             "promotions.json", "pontes.json", "school-holidays.json", "affiliates.json")
 HOLIDAYS_SOURCE = ("Código do Trabalho, art. 234.º (feriados obrigatórios) e art. 235.º "
                    "(Terça-Feira de Carnaval, facultativo), na redação da Lei n.º 8/2016")
 LOW_COLS = ["obs", "dest", "price", "dep", "ret", "found", "fetched", "airline", "stops",
@@ -288,6 +289,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
                      for lp in sorted(kept.get(code, []), key=_row_order)]}
     files["labels.json"] = _labels()
     files["pontes.json"] = _pontes(ctx, origin_codes)
+    files["school-holidays.json"] = _school_holidays(ctx, origin_codes)
     files["affiliates.json"] = _affiliates(ctx, conn, new_links, fixture)
     files["meta.json"] = _meta(ctx, conn, now, run_id, fixture, origin_codes, files)
     return Export(files)
@@ -389,6 +391,9 @@ def anonymize(export: Export) -> Export:
         if rel.startswith("low-prices/"):
             for row in doc["rows"]:
                 row[link] = f"{FIXTURE_LINK}site-low-{row[0]}"
+    # D61: the networks' official texts are public, but a fixture carries no real link at all.
+    for n in files["school-holidays.json"]["networks"]:
+        n["source"] = f"{FIXTURE_LINK}fonte-{n['key']}"
     return Export(files)
 
 
@@ -636,6 +641,25 @@ def _pontes(ctx: Context, origin_codes: list[str]) -> dict:
     return {"version": VERSION, "source": HOLIDAYS_SOURCE, "pontes": items}
 
 
+def _school_holidays(ctx: Context, origin_codes: list[str]) -> dict:
+    """The school breaks of the calendar (D61), past ones too, each with its travel window and
+    one page path per origin; none until a human reviewed the file (`published`). The networks
+    and their official sources always, so the page can cite them."""
+    cal = school_holidays.load_calendar(ctx.school_holidays_file)
+    return {
+        "version": VERSION, "reviewed": cal.reviewed, "last_checked": _day(cal.last_checked),
+        "networks": [{"key": n.key, "name": n.name, "source": n.source, "source_name": n.source_name}
+                     for n in cal.networks],
+        "breaks": [{
+            "slug": b.page_slug, "name": b.name, "network": b.network.key,
+            "start": _day(b.start), "end": _day(b.end),
+            "window": {"start": _day(b.window_start), "end": _day(b.window_end)},
+            "origins": [{"iata": code, "path": school_holiday_path(b.page_slug, ctx.config.origin_name(code))}
+                        for code in origin_codes],
+        } for b in cal.published],
+    }
+
+
 def _affiliates(ctx: Context, conn: sqlite3.Connection, new_links: bool, fixture: bool) -> dict:
     """The affiliate blocks' data (D37): every programme (its brand, null while not configured)
     and a tracked link per (published article, configured programme it lists). Fixture data
@@ -689,6 +713,7 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
         "files": {"origins": "origins.json", "routes": "routes.json",
                   "destinations": "destinations.json", "promotions": "promotions.json",
                   "labels": "labels.json", "pontes": "pontes.json",
+                  "school_holidays": "school-holidays.json",      # D61
                   "affiliates": "affiliates.json",
                   "low_prices": {c: f"low-prices/{c}.json" for c in origin_codes}},
         "counts": {"origins": len(origin_codes),

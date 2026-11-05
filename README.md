@@ -835,6 +835,7 @@ uv run escapadinha site crawl --sitemap https://pontonomada.pt/sitemap.xml   # e
 | `/voos/<origem>-<destino>/` | A route: promotions, recent low prices, calendar, typical low per month (D30); with none of these, `noindex` (D55) |
 | `/partidas/<origem>/`, `/destinos/<destino>/` | Origin pages and destination hubs (+ index pages); routes with nothing to show are plain links after the others, and a hub with no such route and no itinerary is `noindex` (D55) |
 | `/explorar/`, `/pontes/<feriado>-<ano>/<origem>/` | Explorer and long weekends (D31) |
+| `/ferias-escolares/<férias>-<rede>/<origem>/` | School holidays by network (D61), once `content/school-holidays.yaml` is reviewed |
 | `/roteiros/<slug>/`, `/dicas/<slug>/` | Reviewed itineraries and tips (D33) |
 | `/sobre/`, `/privacidade/`, `404.html`, `sitemap.xml`, `robots.txt` | (D34) |
 | `/review` | The review queue (Pages Function behind Access, D29) |
@@ -922,6 +923,7 @@ uv run escapadinha export fixtures --db data/escapadinha.db    # regenerate the 
 | `promotions.json` | Approved deals, live and expired after approval (for `site.expired_promotions_days`, 30, after expiring): offer, typical low, paths, slide/thumb/OG image paths, tracked link (live only), expiry reason with the recheck price's observation |
 | `low-prices/<ORIGIN>.json` | One origin's low prices for the explorer: compact rows `[obs, dest, price, dep, ret, found, fetched, airline, stops, airport, typical, link]` |
 | `pontes.json` | Every long weekend ("pontes", D31) of `content/holidays.yaml`, past ones too: holiday, days off, bridge day, travel window, one page path per origin. No prices, no display text (added within v1: older exports lack it) |
+| `school-holidays.json` | The school breaks of `content/school-holidays.yaml` by network (continente, Madeira, Açores; D61), each with its official source, the travel window and one page path per origin; `breaks` is empty until a human sets `reviewed: true` in the file (added within v1: older exports lack it) |
 | `affiliates.json` | Affiliate blocks (D37): each programme's brand (`esim`, `insurance`, `activities`; null while not configured) and one tracked link per (reviewed article, configured programme it lists). Added within v1: older exports lack it |
 
 - **Raw values:** ISO dates, UTC timestamps, euros as numbers. pt-PT formatting is the site's job,
@@ -1091,6 +1093,13 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   `noindex` while there are none. A ponte that has passed keeps its page, `noindex`, saying "Esta
   ponte já passou."; titles ("desde o Porto") use the article from config `origins_article`. The calendar is `content/holidays.yaml` (national
   holidays 2026–2027, Código do Trabalho art. 234.º/235.º; add the next year's dates before 2028).
+- **Férias escolares** `/ferias-escolares/<férias>-<rede>/<origem>/` (paths from
+  `school-holidays.json`, D61): the same page and rule for the school breaks of the continente,
+  Madeira and the Açores (the window a day wider on each side), plus the explorer's "Férias
+  escolares" filter and a line of links on each origin page. The calendar is
+  `content/school-holidays.yaml`, one official text per network, with the articles' review gate:
+  nothing is built until a person checks the dates and sets `reviewed: true`
+  (`docs/research/2026-11-05-ferias-escolares.md` has the dates and where they come from).
 - **Prices:** every price element carries `data-obs` / `data-deal` / `data-route` (also on `<head>`
   when the title shows a price); `web/test/traceability.test.ts` fails on any price string on a
   built page that isn't an amount of the referenced observation, deal or route in the contract,

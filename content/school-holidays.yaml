@@ -1,0 +1,88 @@
+# Férias escolares de Portugal, ano letivo 2026/2027, por rede (continente, Madeira, Açores): a
+# base do filtro "férias escolares" do explorador e das páginas /ferias-escolares/ (DECISIONS
+# D61, #49). Lido por src/escapadinha/school_holidays.py; datas e fontes em
+# docs/research/2026-11-05-ferias-escolares.md.
+#
+# `reviewed`: só uma pessoa o põe a true, depois de confirmar cada data no texto oficial (como as
+# dicas e os roteiros, D33). Com false o site não constrói nenhuma página nem oferece o filtro: a
+# exportação escreve `breaks: []`.
+#
+# Cada rede: `key`, `name`, `source` (ligação oficial, https), `source_name` (como a citar) e as
+# interrupções (`breaks`), cada uma com `slug` (+ rede = o endereço, /ferias-escolares/<slug>-<rede>/<origem>/),
+# `name`, `start` e `end` (primeiro e último dia sem aulas, inclusive). A janela de viagem é
+# start − 1 dia a end + 1 dia (sai-se na véspera, volta-se no dia seguinte).
+#
+# Verão: do dia seguinte ao fim das aulas da educação pré-escolar e do 1.º ciclo (30 de junho, a
+# data mais tardia) até à véspera do arranque do ano letivo seguinte. Continente: 13 a 15 de
+# setembro de 2027 (anexo I do Despacho n.º 8368/2024); Açores: 13 a 15 de setembro de 2027
+# (ponto 3.2 da Portaria n.º 937/2025); Madeira: o calendário de 2027/2028 só é publicado em
+# maio de 2027, por isso o fim do verão segue o padrão de 2026/2027 (início a 10 de setembro) e
+# deve ser corrigido quando o despacho sair.
+
+reviewed: false
+last_checked: 2026-11-05
+
+networks:
+  - key: continente
+    name: Continente
+    source: https://diariodarepublica.pt/dr/detalhe/despacho/8368-2024-873447631
+    source_name: Despacho n.º 8368/2024, de 25 de julho (anexos I e II; em vigor com as alterações dos Despachos n.º 9989/2025 e n.º 10430/2026)
+    breaks:
+      - slug: natal-2026
+        name: Férias de Natal
+        start: 2026-12-16
+        end: 2026-12-31
+      - slug: carnaval-2027
+        name: Férias de Carnaval
+        start: 2027-02-08
+        end: 2027-02-10
+      - slug: pascoa-2027
+        name: Férias da Páscoa
+        start: 2027-03-22
+        end: 2027-04-02
+      - slug: verao-2027
+        name: Férias de verão
+        start: 2027-07-01
+        end: 2027-09-12
+  - key: madeira
+    name: Madeira
+    source: https://joram.madeira.gov.pt/joram/2serie/Ano%20de%202026/IISerie-079-2026-05-05Supl2.pdf
+    source_name: Despacho n.º 198/2026 (JORAM, II Série, n.º 79, 2.º Suplemento, de 5 de maio de 2026), anexo II
+    breaks:
+      - slug: natal-2026
+        name: Férias de Natal
+        start: 2026-12-17
+        end: 2026-12-31
+      - slug: carnaval-2027
+        name: Férias de Carnaval
+        start: 2027-02-08
+        end: 2027-02-10
+      - slug: pascoa-2027
+        name: Férias da Páscoa
+        start: 2027-03-22
+        end: 2027-04-01
+      - slug: verao-2027
+        name: Férias de verão
+        start: 2027-07-01
+        end: 2027-09-09
+  - key: acores
+    name: Açores
+    source: https://certificar.azores.gov.pt/files/public/documents/2025/07/a7ac8365ba0a246025552801a401f84ac9f2613ebb4e35ebee971d66d4e84238.pdf
+    source_name: Portaria n.º 937/2025, de 8 de julho (Jornal Oficial dos Açores, II Série, n.º 128), anexo III, calendário referencial; cada escola fixa as suas datas
+    breaks:
+      - slug: natal-2026
+        name: Férias de Natal
+        start: 2026-12-21
+        end: 2026-12-31
+      - slug: carnaval-2027
+        name: Férias de Carnaval
+        start: 2027-02-08
+        end: 2027-02-10
+      - slug: pascoa-2027
+        name: Férias da Páscoa
+        start: 2027-03-22
+        end: 2027-04-02
+      - slug: verao-2027
+        name: Férias de verão
+        start: 2027-07-01
+        end: 2027-09-12

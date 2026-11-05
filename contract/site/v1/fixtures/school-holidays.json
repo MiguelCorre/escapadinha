@@ -1,0 +1,6 @@
+{"breaks":[],"last_checked":"2026-11-05","networks":[
+{"key":"continente","name":"Continente","source":"https://example.com/parceiro/fonte-continente","source_name":"Despacho n.º 8368/2024, de 25 de julho (anexos I e II; em vigor com as alterações dos Despachos n.º 9989/2025 e n.º 10430/2026)"},
+{"key":"madeira","name":"Madeira","source":"https://example.com/parceiro/fonte-madeira","source_name":"Despacho n.º 198/2026 (JORAM, II Série, n.º 79, 2.º Suplemento, de 5 de maio de 2026), anexo II"},
+{"key":"acores","name":"Açores","source":"https://example.com/parceiro/fonte-acores","source_name":"Portaria n.º 937/2025, de 8 de julho (Jornal Oficial dos Açores, II Série, n.º 128), anexo III, calendário referencial; cada escola fixa as suas datas"}
+],"reviewed":false,"version":1}
+
