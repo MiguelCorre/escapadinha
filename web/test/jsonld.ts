@@ -95,6 +95,33 @@ export const SCHEMAS: Record<string, object> = {
       offers: offer,
     },
   },
+  // D60: /promos/ lists its live promotions; names and URLs only, no price (no Offer for an
+  // expired one, D34).
+  ItemList: {
+    type: "object",
+    additionalProperties: false,
+    required: ["@context", "@type", "name", "itemListElement"],
+    properties: {
+      "@context": CONTEXT,
+      "@type": { const: "ItemList" },
+      name: { type: "string", minLength: 1 },
+      itemListElement: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["@type", "position", "url", "name"],
+          properties: {
+            "@type": { const: "ListItem" },
+            position: { type: "integer", minimum: 1 },
+            url: SITE_URL,
+            name: { type: "string", minLength: 1 },
+          },
+        },
+      },
+    },
+  },
   Article: {
     type: "object",
     additionalProperties: false,

@@ -978,7 +978,12 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   build reads `web/src/data` and stops with a clear message when it is missing. Every file is
   validated against `contract/site/v1/*.schema.json` (ajv) before any page renders; a mismatch
   fails the build naming the file and the field. A fixture build carries `<html data-fixture>`.
-- **Pages:** `/` (live promotions, then recently expired ones), `/promos/<id>-<origem>-<destino>/`
+- **Pages:** `/` (live promotions, then the recently expired ones as one card per route, the
+  most recent, at most `site.home_expired_max` (6) with "+ N promoções nesta rota nos últimos
+  30 dias" to the route page, D60), `/promos/` (the record: every live promotion, then every
+  expired one of the last `site.expired_promotions_days` grouped by route, newest first;
+  indexed only while a promotion is live; JSON-LD `ItemList` of the live ones, no Offer),
+  `/promos/<id>-<origem>-<destino>/`
   (the path from the contract, same URLs as today), `/sobre/` ("Como funciona") and
   `/privacidade/` (linked from every footer), `404.html`, `robots.txt`, `sitemap.xml`,
   `og-default.png`. An expired promotion is `noindex`, has no booking button and says why (the

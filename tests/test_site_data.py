@@ -473,6 +473,8 @@ def test_months_carry_their_confidence_and_meta_the_high_margin(exported):
     `meta.detector.high_margin` is config `site.price_insight.high_margin`: the verdict's inputs."""
     ctx, conn, _, out, _ = exported
     assert read(out, "meta.json")["detector"]["high_margin"] == 0.25
+    # D60: the home page's cap and the window, from config too.
+    assert (read(out, "meta.json")["home_expired_max"], read(out, "meta.json")["expired_promotions_days"]) == (6, 30)
     checked = 0
     for r in read(out, "routes.json")["routes"]:
         route = routes.get_route(conn, ctx.config.routes, r["key"])

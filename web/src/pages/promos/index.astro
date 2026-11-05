@@ -1,0 +1,61 @@
+---
+// /promos/ (D60): the record of what we found. Every live promotion first, then every expired
+// one still kept (meta.expired_promotions_days) grouped by route, the most recent route and
+// promotion first; each card's price on its data-obs, no booking link on an expired one. Indexed
+// while at least one promotion is live, else noindex (it then shows only expired ones, like their
+// own pages). JSON-LD: an ItemList of the live promotions only (no Offer for an expired one, D34).
+import data from "virtual:site-data";
+import Base from "../../layouts/Base.astro";
+import PromotionCard from "../../components/PromotionCard.astro";
+import { BRAND } from "../../lib/brand";
+import { expiredByRoute, expiredOnRoute, pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
+import { itemListLd } from "../../lib/structured-data";
+
+const live = pagePromotions(data).filter((p) => p.live)
+  .map((p) => ({ promotion: p, view: promotionView(data, p), dates: promotionDates(data, p).length }));
+const days = data.meta.expired_promotions_days ?? 30;
+const groups = expiredByRoute(data).map((r) => {
+  const route = data.routes.routes.find((x) => x.key === r.route) ?? null;
+  const items = expiredOnRoute(data, r.route).map((p) => ({ promotion: p, view: promotionView(data, p) }));
+  return { key: r.route, route, title: items[0].view.routesLine, items };
+});
+const expiredCount = groups.reduce((n, g) => n + g.items.length, 0);
+const list = live.length ? itemListLd(data, "Promoções ativas", live.map((x) => ({ name: x.view.headline, path: x.promotion.path }))) : null;
+---
+<Base
+  title={`Promoções recentes: ativas e expiradas · ${BRAND}`}
+  description={`Todas as promoções de voos que encontrámos nos últimos ${days} dias, por rota: as ativas, com ligação de reserva, e as expiradas, como registo.`}
+  path="/promos/"
+  noindex={live.length === 0}
+  jsonLd={list ? [{ data: list }] : []}
+>
+  <header class="max-w-measure">
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Promoções recentes</h1>
+    <p class="mt-md text-lead text-muted">O registo do que encontrámos nos últimos {days} dias: {live.length} {live.length === 1 ? "promoção ativa" : "promoções ativas"} e {expiredCount} {expiredCount === 1 ? "expirada" : "expiradas"}, por rota. As expiradas ficam como registo, sem ligação de reserva.</p>
+  </header>
+
+  <section id="ativas" class="mt-2xl" aria-labelledby="titulo-ativas">
+    <h2 id="titulo-ativas" class="font-display text-headline">Ativas</h2>
+    {live.length ? (
+      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+        {live.map(({ promotion, view, dates }, i) => <PromotionCard promotion={promotion} view={view} dates={dates} eager={i === 0} />)}
+      </div>
+    ) : (
+      <p class="notice mt-lg max-w-measure">Neste momento não há promoções ativas. Os preços são verificados várias vezes por dia e as novas promoções aparecem na <a href="/">página inicial</a>.</p>
+    )}
+  </section>
+
+  {groups.length > 0 && (
+    <section id="expiradas" class="mt-2xl" aria-labelledby="titulo-expiradas">
+      <h2 id="titulo-expiradas" class="font-display text-headline">Expiradas, por rota</h2>
+      {groups.map((g) => (
+        <section class="mt-xl" data-route-group={g.key} aria-labelledby={`rota-${g.key}`}>
+          <h3 id={`rota-${g.key}`} class="font-display text-title">{g.route ? <a href={g.route.path} class="text-ink">{g.title}</a> : g.title} <span class="text-small text-muted">· {g.items.length}</span></h3>
+          <div class="mt-md grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+            {g.items.map(({ promotion, view }) => <PromotionCard promotion={promotion} view={view} />)}
+          </div>
+        </section>
+      ))}
+    </section>
+  )}
+</Base>

@@ -50,6 +50,8 @@
         "high_margin": {"type": "number", "exclusiveMinimum": 0, "description": "Added in v1 (D58): a price at least this fraction above the month's typical low is \"preço alto\"; \"baixo\" is the low-price rule (low_threshold), \"habitual\" in between. Absent in older exports: no verdict."}
       }
     },
+    "home_expired_max": {"type": "integer", "minimum": 0, "description": "Added in v1 (D60): the home page shows at most this many expired promotions, one per route (the most recent); the rest are on /promos/. Absent in older exports: the page shows them all."},
+    "expired_promotions_days": {"type": "integer", "minimum": 0, "description": "Added in v1 (D60): expired promotions stay in promotions.json this many days after they expired (config site.expired_promotions_days), the window the home page and /promos/ name. Absent in older exports."},
     "demand": {
       "type": "object",
       "additionalProperties": false,

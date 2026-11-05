@@ -683,6 +683,9 @@ def _meta(ctx: Context, conn: sqlite3.Connection, now: datetime, run_id: int | N
         # Route demand (D45): below this many passengers a month, a route without a price says
         # "rota com pouca procura" (a count, never a price).
         "demand": {"thin_pax_month": ctx.config.demand.thin_pax_month},
+        # D60: how the home page and /promos/ show expired promotions (config site.*).
+        "home_expired_max": ctx.config.site.home_expired_max,
+        "expired_promotions_days": ctx.config.site.expired_promotions_days,
         "files": {"origins": "origins.json", "routes": "routes.json",
                   "destinations": "destinations.json", "promotions": "promotions.json",
                   "labels": "labels.json", "pontes": "pontes.json",

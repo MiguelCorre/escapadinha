@@ -128,6 +128,18 @@ describe("structured data (JSON-LD)", () => {
     expect(org.sameAs).toEqual(["https://www.instagram.com/ondestaanocas/"]);
   });
 
+  it("/promos/ lists its live promotions as an ItemList of names and URLs, no price (D60)", () => {
+    const blocks = jsonLd(page("/promos/"));
+    expect(blocks.map((b) => b.type)).toEqual(["ItemList"]);
+    const live = data.promotions.promotions.filter((p) => p.live && (!p.promotion || p.promotion.lead));
+    const items = blocks[0].data.itemListElement;
+    expect(items.map((i: { url: string }) => i.url).sort()).toEqual(live.map((p) => BASE + p.path).sort());
+    expect(items.map((i: { position: number }) => i.position)).toEqual(items.map((_: unknown, i: number) => i + 1));
+    expect(JSON.stringify(blocks[0].data)).not.toMatch(/price|Offer/);
+    expect(noindex("/promos/")).toBe(false);
+    expect(sitemapUrls()).toContain(`${BASE}/promos/`);
+  });
+
   it("a live promotion is a Trip with an Offer whose price is the traced price on the page", () => {
     const doc = page(LIVE);
     expect(jsonLd(doc).map((b) => b.type).sort()).toEqual(["BreadcrumbList", "Trip"]);

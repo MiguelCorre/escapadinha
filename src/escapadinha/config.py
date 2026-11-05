@@ -361,6 +361,9 @@ class SiteConfig(BaseModel):
     # The price verdict (D58): "Preço baixo / habitual / alto para <mês>" on route and live
     # promotion pages, judged against the month's typical low (mature, confidence ≥ medium).
     price_insight: PriceInsightConfig = PriceInsightConfig()
+    # D60: the home page shows at most this many expired promotions, one per route (the most
+    # recent), each with "+ N promoções nesta rota"; the full record is /promos/.
+    home_expired_max: int = Field(6, ge=0)
 
     @field_validator("base_url")
     @classmethod

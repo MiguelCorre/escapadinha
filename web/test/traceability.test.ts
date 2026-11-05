@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import type { Promotion } from "../src/lib/contract";
 import { priceInsight } from "../src/lib/price-insight";
-import { pagePromotions } from "../src/lib/promotion";
+import { expiredByRoute, pagePromotions } from "../src/lib/promotion";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import { builtPages, pageSource } from "./html";
 import { traceableAmounts, untraceable } from "./trace";
@@ -38,10 +38,16 @@ describe("traceability of prices", () => {
       const route = data.routes.routes.find((r) => r.key === p.route)!;
       return priceInsight(p.latest?.price ?? p.offer.price, route, p.offer.departure, det) ? 1 : 0;
     };
-    const expected = pages.length + pages.reduce((n, p) => n + (p.live
+    // The home page (D60): the live cards and one card per route among the expired ones, capped;
+    // /promos/: every card once.
+    const homeCards = pages.filter((p) => p.live).length
+      + Math.min(data.meta.home_expired_max ?? Infinity, expiredByRoute(data).length);
+    const expected = homeCards + pages.length + pages.reduce((n, p) => n + (p.live
       ? 11 + (p.also_seen?.length ?? 0) + verdicts(p)
       : 2 + (p.expired?.reason?.includes("€") ? 1 : 0)), 0);
     expect(pages.filter((p) => p.live).map(verdicts)).toEqual([1, 1]);   // both live fixtures judged
+    expect(checked.get("/")).toBe(homeCards);
+    expect(checked.get("/promos/")).toBe(pages.length);
     const promos = ["/", ...[...checked.keys()].filter((p) => p.startsWith("/promos/"))];
     expect(promos.reduce((n, p) => n + checked.get(p)!, 0)).toBe(expected);
     expect(expected).toBeGreaterThan(100);              // the fixtures' 29 promotion pages (#52)

@@ -60,6 +60,11 @@ export interface Meta {
   detector: Detector;
   /** Route demand (D45): the rule the pages apply to routes.json `demand`. */
   demand: { thin_pax_month: number };
+  /** D60: the home page shows at most this many expired promotions, one per route; absent in
+   * older exports: all of them. */
+  home_expired_max?: number;
+  /** D60: how many days an expired promotion stays in promotions.json; absent in older exports. */
+  expired_promotions_days?: number;
   files: {
     origins: string; routes: string; destinations: string; promotions: string; labels: string;
     pontes?: string;
