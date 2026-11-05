@@ -3427,3 +3427,23 @@ so nothing has to be hosted.
   minimum and on closed items); `web/test/format.test.ts` (`survivalText`, the same strings);
   `web/test/review/page.test.ts` (the row with the field, none with null or an older
   snapshot); the v5 and v7 upgrade tests run through v19.
+
+## D57: The website is the product: the Instagram and Telegram tickets are closed (2026-11-05)
+- **Miguel's decision (2026-11-05):** "Menos mexer no instagram e telegram, essas quero que feches
+  só": no work on either channel. Tickets #21 (Telegram publisher), #24 (Instagram publisher), #27
+  (handle rename and its Travelpayouts Project) and #50 (per-origin Telegram digests and the weekly
+  e-mail digest) are closed without a code change. D46's pause stands: `posting.publishers` stays
+  `paused`, the publishers (D36, D38) stay in the code and in the tests, approvals still queue
+  posts that wait. Nothing is deleted: bringing a channel back is D46's switch, not a rebuild. The
+  e-mail digest was specified only together with the Telegram digests; on its own it is a new
+  ticket.
+- **The launch checklist** drops the Instagram steps (handle, professional account, bio link); the
+  payout method's condition ("both the website and the Instagram page up") becomes the website
+  alone, which is up. The "Como funciona" and "Privacidade" pages were reviewed against the code
+  the same day: Ryanair's own fares (D47), the "Também visto" comparison prices (D48), the
+  automatic approval (D46: "regras fixas", no longer "uma pessoa revê cada promoção") and the
+  airline links that open the airline's site with no affiliate in between; `web/test/seo.test.ts`
+  pins the sentences. The Instagram account stays the contact on both pages.
+- **Also settled for Miguel the same day** (he asked for every pending action of his to be taken
+  for him): D56's three expiry kinds and the report's slices stand (#77, #78), and the GitHub
+  repository allows auto-merge (`allow_auto_merge`), so a green PR merges by itself.

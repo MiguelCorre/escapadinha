@@ -314,7 +314,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `site.expired_promotions_days`, then 301 to their route page (D35).
 - **Instagram and Telegram are paused** (Miguel, 2026-10-24, D46): `posting.publishers` is
   `paused` for both (`pipeline.PUBLISHERS["paused"]`: due posts wait with `PAUSED_REASON`, never a
-  dry run). Only Miguel switches them back; never change it for him.
+  dry run). Only Miguel switches them back; never change it for him. Their tickets (#21, #24,
+  #27, #50) were closed on 2026-11-05 (D57): no work on either channel, the website is the
+  product; the publishers stay in the code as they are.
 - Aviasales' special offers (D46): `pipeline.run_special_offers` every run after enrichment, one
   GraphQL `special_offers_round_trip` per origin with an open deal, their `discount` stored on
   `deals.partner_discount_pct` / `partner_offer_at` (v17) and shown on the review pages only as

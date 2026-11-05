@@ -217,6 +217,8 @@ describe("About and Privacy pages", () => {
     // The search form loads on the button only (src/lib/search-widget.ts), as this page says.
     expect(body).toContain(`só é carregada quando carregas no botão "${SEARCH_BUTTON}"`);
     expect(body).not.toMatch(/quando chegas a essa parte/);
+    // An airline's own link (D47) goes to the airline, with nobody in between.
+    expect(body).toContain("abre diretamente o site da companhia");
     expect(page("/privacidade/").querySelector('main a[href="https://www.instagram.com/ondestaanocas/"]')).not.toBeNull();
   });
 
@@ -225,6 +227,13 @@ describe("About and Privacy pages", () => {
     expect(body).toContain("Nunca inventamos nem estimamos preços");
     expect(body).toContain("preço mínimo habitual");
     expect(body).toContain("comissão");
+    // The sources as they are: the airline's own fares (D47), the comparison prices (D48) and the
+    // automatic approval (D46), not "a person reviews every promotion".
+    expect(body).toContain("pela própria Ryanair");
+    expect(body).toContain("só para comparação");
+    expect(body).toContain("sem afiliado nem comissão");
+    expect(body).toMatch(/regras fixas/);
+    expect(body).not.toMatch(/Uma pessoa revê cada promoção/);
     // Eurostat's reuse condition (D45): the source acknowledged, on the page that explains the data.
     expect(body).toContain("Dados de passageiros: Eurostat, avia_par_pt, reutilização autorizada com indicação da fonte");
     expect(page("/sobre/").querySelector('main a[href="https://www.instagram.com/ondestaanocas/"]')).not.toBeNull();
