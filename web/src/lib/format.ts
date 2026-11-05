@@ -156,6 +156,14 @@ export function timeAgo(utc: string, now: Date): string {
   return `há ${Math.floor(hours / 24)} dias`;
 }
 
+/** When a traveller found a price (D59): the exact Lisbon time when it is known
+ * ("01/11/2026 às 13:05"), else the day ("01/11/2026"), else null. The build never writes a
+ * relative time: "há 2 h" is added in the browser by src/lib/found-ago.ts. */
+export function foundAt(foundAtUtc: string | null | undefined, foundDate: string | null): string | null {
+  if (foundAtUtc) return lisbonTimestamp(foundAtUtc);
+  return foundDate ? numericDate(foundDate) : null;
+}
+
 /** UTC instant -> "12/10/2026 às 22:17" in Lisbon time. */
 export function lisbonTimestamp(utc: string): string {
   const p = Object.fromEntries(LISBON.formatToParts(new Date(utc)).map((x) => [x.type, x.value]));

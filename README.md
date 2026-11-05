@@ -1002,6 +1002,12 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   promotions; nothing at all while unset (the fixture build). With `meta.analytics_token` every
   page gets Cloudflare's beacon script; null now (automatic setup at the edge). The site sets no
   cookies (a test fails on `document.cookie` in the build or the sources).
+- **The hour a price was found (D59):** promotion cards and pages, a route page's cheapest offer
+  and every low-price row say *Encontrado por um viajante a 01/11/2026 às 13:05* (Lisbon time)
+  when the exact time is known (contract `found_at`: the GraphQL match, D43, or the airline's
+  own `priceUpdated`, D47), else the day as before. In the browser a few lines of our own
+  (`src/lib/found-ago.ts`, from `data-found-at`) append *(há 2 h)*; nothing stored, nothing
+  requested; without JavaScript the hour stays. The build never writes a relative time.
 - **Price verdict (D58):** next to a route page's "Mais barato agora" and a live promotion's
   price: *Preço baixo para dezembro · mínimo habitual 55,50 €, comparado com o mínimo habitual que
   medimos nesta rota para esse mês*. Baixo = the low-price rule (`low_threshold`), alto = at least

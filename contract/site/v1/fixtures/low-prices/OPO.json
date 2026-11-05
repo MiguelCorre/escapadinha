@@ -1,8 +1,8 @@
-{"cols":["obs","dest","price","dep","ret","found","fetched","airline","stops","airport","typical","link","baggage"],"generated_at":"2026-11-02T16:49:05Z","origin":"OPO","rows":[
-[52734,"PAR",49,"2026-11-20","2026-11-23","2026-10-30","2026-10-30T10:48Z","FR",0,"BVA",68.5,"https://example.com/parceiro/site-low-52734",false],
-[52426,"PAR",55,"2026-11-25","2026-11-28","2026-10-30","2026-10-30T10:18Z","FR",0,"BVA",68.5,"https://example.com/parceiro/site-low-52426",false],
-[67832,"PAR",67,"2026-12-11","2026-12-13","2026-11-01","2026-11-01T21:18Z","FR",0,"BVA",95,"https://example.com/parceiro/site-low-67832",false],
-[67795,"PAR",65,"2026-12-12","2026-12-14","2026-11-01","2026-11-01T19:47Z","FR",0,"BVA",95,"https://example.com/parceiro/site-low-67795",false],
-[73602,"MIL",85,"2027-02-07","2027-02-10","2026-11-02","2026-11-02T11:18Z","W4",0,"MXP",101,"https://example.com/parceiro/site-low-73602",false],
-[71428,"MIL",58,"2027-02-12","2027-02-15","2026-11-01","2026-11-02T06:18Z","W4",0,"MXP",101,"https://example.com/parceiro/site-low-71428",false]
+{"cols":["obs","dest","price","dep","ret","found","fetched","airline","stops","airport","typical","link","baggage","found_at"],"generated_at":"2026-11-02T16:49:05Z","origin":"OPO","rows":[
+[52734,"PAR",49,"2026-11-20","2026-11-23","2026-10-30","2026-10-30T10:48Z","FR",0,"BVA",68.5,"https://example.com/parceiro/site-low-52734",false,"2026-10-30T10:37Z"],
+[52426,"PAR",55,"2026-11-25","2026-11-28","2026-10-30","2026-10-30T10:18Z","FR",0,"BVA",68.5,"https://example.com/parceiro/site-low-52426",false,"2026-10-30T10:15Z"],
+[67832,"PAR",67,"2026-12-11","2026-12-13","2026-11-01","2026-11-01T21:18Z","FR",0,"BVA",95,"https://example.com/parceiro/site-low-67832",false,"2026-11-01T20:51Z"],
+[67795,"PAR",65,"2026-12-12","2026-12-14","2026-11-01","2026-11-01T19:47Z","FR",0,"BVA",95,"https://example.com/parceiro/site-low-67795",false,"2026-11-01T19:34Z"],
+[73602,"MIL",85,"2027-02-07","2027-02-10","2026-11-02","2026-11-02T11:18Z","W4",0,"MXP",101,"https://example.com/parceiro/site-low-73602",false,"2026-11-02T06:06Z"],
+[71428,"MIL",58,"2027-02-12","2027-02-15","2026-11-01","2026-11-02T06:18Z","W4",0,"MXP",101,"https://example.com/parceiro/site-low-71428",false,"2026-11-01T21:53Z"]
 ],"run":1711,"truncated":0,"version":1}

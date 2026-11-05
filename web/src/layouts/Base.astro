@@ -68,6 +68,12 @@ const headRefs = Object.fromEntries(Object.entries(refs).map(([k, v]) => [`data-
   <Font cssVariable="--pn-font-text" />
   {jsonLd.map((block) => <JsonLd data={block.data} refs={block.refs} />)}
   {analytics && <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon={analytics}></script>}
+  <script>
+    // D59: "(há 2 h)" after every "encontrado a … às 13:05", computed here from data-found-at.
+    // Ours, a few lines, no storage and no request; without it the absolute time stays.
+    import { upgradeFoundAt } from "../lib/found-ago";
+    upgradeFoundAt(document);
+  </script>
 </head>
 <body class="flex min-h-screen flex-col">
   <a href="#conteudo" class="sr-only focus:not-sr-only focus:absolute focus:left-md focus:top-md focus:bg-surface focus:p-xs">Saltar para o conteúdo</a>

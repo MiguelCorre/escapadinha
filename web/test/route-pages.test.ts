@@ -121,7 +121,8 @@ describe("route page with a live promotion and low prices", () => {
     const li = doc().querySelector('[data-low-prices] li[data-obs="73602"]')!;
     const body = text(li);
     expect(body).toContain("85 €");
-    expect(body).toContain("Encontrado por um viajante a 02/11/2026");
+    expect(body).toContain("Encontrado por um viajante a 02/11/2026 às 06:06");   // D59: found_at 06:06:17Z
+    expect(li.querySelector('[data-found-at="2026-11-02T06:06Z"]')).not.toBeNull();
     expect(body).toContain("Mínimo habitual em fevereiro: 101 €");
     expect(body).toContain("visto por nós a 02/11/2026 às 11:18");      // 11:18Z: Lisbon is UTC in November
     expect(text(li.querySelector('[data-route="OPO-MIL"]')!)).toBe("101 €");

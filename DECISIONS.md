@@ -3510,3 +3510,32 @@ so nothing has to be hosted.
   against February's 101 €; nothing on the expired page), `seo.test.ts` (the About paragraph),
   `tests/test_site_data.py` (`confidence` equals `detector.confidence` for every exported month,
   `low` exactly when immature; `high_margin` from config; the fixtures validate).
+
+## D59: The hour a price was found, and "há x h" in the browser (2026-11-05, #75, #81)
+- **Problem (spec #75, item 2):** our promotions last hours (a median 9.2 h after approval, D56),
+  yet cards, pages and low-price rows said only the day a traveller found the price, although
+  the exact time is known for most offers (the GraphQL match's `found_at`, D43; the airline's own
+  `priceUpdated`, D47) and the review pages already print it ("encontrado a 24/10/2026 às 13:05
+  (há 1 h 20)", D46).
+- **Decision (taken for Miguel on 2026-11-05):** the contract's offer definition and the low-price
+  rows gain `found_at` (additive within v1: the observation's exact UTC time, to the second on
+  offers, to the minute on rows for the size budget; null when only the day is known; a
+  13-column low-price file is an older export). Pages print `format.foundAt(found_at,
+  found_date)`: "01/11/2026 às 13:05" in Lisbon time (the full date was kept, not the spec's
+  "01/11 às 13:05", so the line reads like every other date on the site), else the day as before.
+  The element carries `data-found-at`, and `src/lib/found-ago.ts` (`upgradeFoundAt`, run by
+  `Base.astro`'s script on every page and by the explorer's island on the rows it renders)
+  appends "(há 2 h)" with `format.timeAgo`'s thresholds. The absolute time stays and the relative
+  one is added, not swapped in: the review pages' shape, and nothing is lost when the browser's
+  clock is wrong. A few lines of our own: no third party, no cookie, no storage, no request
+  (`seo.test.ts` checks the script's source for those and the build for any "(há …)"); without
+  JavaScript the hour stays. Not a per-run field: `found_at` belongs to the observation.
+- **Fixtures** hand-added (the rule for additive fields): every fixture observation's `found_at`
+  read from a read-only copy of the bucket's 2026-11-03 daily backup (48 of 55 have one; the
+  stored value, not a recomputation).
+- **Tests:** `web/test/format.test.ts` (`foundAt` with and without the instant, WET and WEST, both
+  sides of the 2026 autumn change), `found-ago.test.ts` (appends once, idempotent, skips an empty
+  or unparsable value), `pages.test.ts` and `route-pages.test.ts` (the fixtures' hours on
+  `data-found-at`), `seo.test.ts` (no storage or request in the script; no relative time in the
+  build), `tests/test_site_data.py` (`found_at` equals the observation's, null elsewhere; the
+  row budget and the per-run classification unchanged).

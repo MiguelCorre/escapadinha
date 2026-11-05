@@ -347,7 +347,7 @@ def test_baggage_comes_only_from_an_enriched_observation(exported):
     ctx, conn, s, out, _ = exported
     doc = read(out, "low-prices/LIS.json")
     rows = {r[0]: dict(zip(doc["cols"], r)) for r in doc["rows"]}
-    assert doc["cols"][-1] == "baggage" and all(r["baggage"] is None for r in rows.values())
+    assert "baggage" in doc["cols"] and all(r["baggage"] is None for r in rows.values())
     assert all(r["cheapest"] is None or r["cheapest"]["baggage"] is None
                for r in read(out, "routes.json")["routes"])
     assert all(p["offer"]["baggage"] is None for p in read(out, "promotions.json")["promotions"])
@@ -359,6 +359,30 @@ def test_baggage_comes_only_from_an_enriched_observation(exported):
     assert rows[s.low_only[1]]["baggage"] is True
     assert all(r["baggage"] is None for i, r in rows.items() if i != s.low_only[1])
     assert "Trip.com" not in json.dumps(export.files)          # the agency stays off the site
+
+
+def test_found_at_is_the_observations_exact_found_time(exported):
+    """D59 (#81): `found_at` on offers (to the second) and low-price rows (to the minute) is the
+    observation's exact found time, null when only the day is known; never a guess."""
+    ctx, conn, s, out, _ = exported
+    doc = read(out, "low-prices/LIS.json")
+    rows = {r[0]: dict(zip(doc["cols"], r)) for r in doc["rows"]}
+    assert doc["cols"][-1] == "found_at" and all(r["found_at"] is None for r in rows.values())
+    assert all(p["offer"]["found_at"] is None for p in read(out, "promotions.json")["promotions"])
+    at = datetime(2026, 11, 1, 13, 5, 44, tzinfo=timezone.utc)
+    db.set_enrichment(conn, s.low_only[1], with_baggage=None, baggage_code=None, gate=None,
+                      found_at=at)
+    live_obs = db.get_deal(conn, s.live_deal)[1]
+    db.set_enrichment(conn, live_obs.id, with_baggage=None, baggage_code=None, gate=None, found_at=at)
+    export = site_data.build_export(ctx, conn, new_links=False)
+    rows = {r[0]: dict(zip(export.files["low-prices/LIS.json"]["cols"], r))
+            for r in export.files["low-prices/LIS.json"]["rows"]}
+    assert rows[s.low_only[1]]["found_at"] == "2026-11-01T13:05Z"
+    assert rows[s.low_only[1]]["found"] == db.get_observation(conn, s.low_only[1]).found_date.isoformat()
+    promo = next(p for p in export.files["promotions.json"]["promotions"] if p["id"] == s.live_deal)
+    assert promo["offer"]["found_at"] == "2026-11-01T13:05:44Z"
+    # The live promotion's own offer is a low-price row too (D24): the two enriched rows only.
+    assert all(r["found_at"] is None for i, r in rows.items() if i not in (s.low_only[1], live_obs.id))
 
 
 def test_low_prices_per_origin_with_found_date_and_tracked_links(exported):

@@ -260,4 +260,18 @@ describe("no third parties and no cookies in a fixture build", () => {
       expect(/document\.cookie|cookieStore|set-cookie/i.test(source), file).toBe(false);
     }
   });
+
+  it("the found-ago script (D59) stores nothing and calls nobody", () => {
+    // The script that turns "encontrado a … às 13:05" into "(há 2 h)" is ours and only reads the
+    // page: no storage, no request, as the privacy page promises.
+    for (const file of [join(WEB, "src/lib/found-ago.ts"), join(WEB, "src/layouts/Base.astro")]) {
+      const source = readFileSync(file, "utf8");
+      expect(/localStorage|sessionStorage|indexedDB|fetch\(|XMLHttpRequest|sendBeacon|WebSocket|navigator\./.test(source), file).toBe(false);
+    }
+    // And the build writes no relative time: the browser does, from data-found-at.
+    for (const path of builtPages()) {
+      expect(text(page(path).querySelector("main")!), path).not.toMatch(/\(há \d+ (min|h|dias?)/);
+    }
+    expect(page(LIVE).querySelector("main [data-found-at]")).not.toBeNull();
+  });
 });

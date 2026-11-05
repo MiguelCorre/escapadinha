@@ -117,7 +117,12 @@ describe("live promotion page", () => {
       .toMatch(/ida e volta, 43% abaixo do habitual em fevereiro/);
     expect(body).toContain("abaixo do habitual");
     expect(body).toContain("sex, 12 fev → seg, 15 fev · 3 noites");
-    expect(body).toContain("Encontrado por um viajante a 01/11/2026");
+    // D59: the exact Lisbon hour (obs 71428, found_at 21:53:44Z, Lisbon = UTC in November) with
+    // the instant on data-found-at for the browser's "(há x h)"; the build writes no relative time.
+    expect(body).toContain("Encontrado por um viajante a 01/11/2026 às 21:53");
+    const found = doc().querySelector('main [data-found-at="2026-11-01T21:53:44Z"]')!;
+    expect(text(found)).toBe("01/11/2026 às 21:53");
+    expect(body).toContain("o preço foi encontrado a 01/11/2026 às 21:53 e verificado por nós a");
     expect(body).toContain("02/11/2026 às 16:49"); // checked_at 16:49Z: Lisbon time is UTC in November
     expect(body).toContain("101 €"); // the typical low it was measured against
     expect(body).toContain("Wizz Air");
@@ -142,7 +147,7 @@ describe("live promotion page", () => {
     const steps = d.querySelectorAll("main #como-reservar ~ ol li");
     expect(steps.length).toBe(3);
     expect(text(steps[0])).toContain("abre a pesquisa do parceiro já com estas datas");
-    expect(text(steps[2])).toContain("encontrado a 01/11/2026 e verificado por nós a 02/11/2026 às 16:49");
+    expect(text(steps[2])).toContain("encontrado a 01/11/2026 às 21:53 e verificado por nós a 02/11/2026 às 16:49");
     // #79 (D56): the fixture's `outcomes` (36 approved, 28 % still bookable a day later), live only.
     expect(text(steps[2].querySelector("[data-outcomes]")!))
       .toBe("Das últimas 36 promoções que publicámos, 28% ainda estavam disponíveis 24 horas depois.");

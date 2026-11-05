@@ -173,7 +173,7 @@ const trip = promotionLd(data, promotion, view, description);
           <ol class="mt-sm list-decimal space-y-xs pl-lg">
             <li>Carrega em <strong>{cta?.text ?? "Reservar"}</strong>: abre {opens} já com estas datas.</li>
             <li>Confirma o preço final antes de pagar. Mala de porão, lugar marcado e seguro são extras.</li>
-            <li>Os lugares a este preço são poucos: o preço foi encontrado a <span class="num">{view.foundOn ?? "—"}</span> e verificado por nós a <span class="num">{view.checkedAt}</span>; pode mudar a qualquer momento, e esta página expira quando mudar.{outcomes && <> <span data-outcomes>{publishedText(outcomes.approved_n, outcomes.still_valid_pct, outcomes.hours)}</span></>}</li>
+            <li>Os lugares a este preço são poucos: o preço foi encontrado a <span class="num" data-found-at={view.foundAtUtc ?? undefined}>{view.foundOn ?? "—"}</span> e verificado por nós a <span class="num">{view.checkedAt}</span>; pode mudar a qualquer momento, e esta página expira quando mudar.{outcomes && <> <span data-outcomes>{publishedText(outcomes.approved_n, outcomes.still_valid_pct, outcomes.hours)}</span></>}</li>
           </ol>
         </section>
       )}
