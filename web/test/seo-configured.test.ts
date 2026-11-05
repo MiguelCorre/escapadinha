@@ -8,7 +8,8 @@ import { join } from "node:path";
 import { describe, expect, inject, it } from "vitest";
 import { parse } from "node-html-parser";
 import {
-  FAKE_ANALYTICS_TOKEN as FAKE_TOKEN, FAKE_POST_URL, FAKE_SEARCH_WIDGET as FAKE_WIDGET,
+  CONFIGURED_HOME_EXPIRED_MAX, FAKE_ANALYTICS_TOKEN as FAKE_TOKEN, FAKE_POST_URL,
+  FAKE_SEARCH_WIDGET as FAKE_WIDGET,
 } from "./build-site";
 import { SEARCH_BUTTON } from "../src/lib/search-widget";
 import { builtPagesIn, pageSource, text } from "./html";
@@ -19,6 +20,19 @@ const distDir = inject("configuredDistDir");
 const doc = (path: string) => parse(pageSource(path, distDir), { comment: false });
 const pages = () => builtPagesIn(distDir);
 const WIDGET_PAGES = /^\/(voos|destinos)\/[^/]+\/$/;
+
+describe("with a home page cap below the route count (D60)", () => {
+  it("the home page shows that many expired cards, one per route, and says how many routes there are", () => {
+    const home = doc("/");
+    const cards = home.querySelectorAll("#titulo-expiradas ~ div [data-deal]");
+    expect(cards).toHaveLength(CONFIGURED_HOME_EXPIRED_MAX);
+    const routes = Number(home.querySelector("[data-expired-routes]")!.getAttribute("data-expired-routes"));
+    expect(routes).toBeGreaterThan(CONFIGURED_HOME_EXPIRED_MAX);
+    expect(home.querySelector('a[href="/promos/"]')).not.toBeNull();
+    // /promos/ still lists every expired promotion of every route.
+    expect(doc("/promos/").querySelectorAll("[data-route-group]")).toHaveLength(routes);
+  });
+});
 
 describe("with an analytics token", () => {
   it("every page loads the official Cloudflare Web Analytics beacon with it, deferred", () => {

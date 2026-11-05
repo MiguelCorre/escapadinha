@@ -37,7 +37,7 @@ from escapadinha.storage import db
 from escapadinha.website import DESTINATION_KEY, redirects
 from escapadinha.website.node import BuildError
 
-STATIC = ("/", "/sobre/", "/privacidade/")
+STATIC = ("/", "/sobre/", "/privacidade/", "/promos/")      # /promos/: the record page (D60)
 CONTENT = {"itineraries": "/roteiros/", "tips": "/dicas/"}   # collection -> listing (D33)
 GUIDE_KEY = "guide:"                                         # the Jinja guides' history keys
 GUIDES = "/guias/"

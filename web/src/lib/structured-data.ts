@@ -5,7 +5,7 @@
 // its offer's (the block carries the offer's data-obs and data-deal, so the traceability test
 // checks it), an article's dateModified is its last_checked day.
 import type {
-  Airport, Article, BreadcrumbList, Organization, Trip, WebSite, WithContext,
+  Airport, Article, BreadcrumbList, ItemList, Organization, Trip, WebSite, WithContext,
 } from "schema-dts";
 import type { Promotion, SiteData } from "./contract";
 import { BRAND } from "./brand";
@@ -117,6 +117,20 @@ export function breadcrumbLd(data: SiteData, crumbs: Crumb[]): WithContext<Bread
 }
 
 /** JSON for a <script type="application/ld+json">: "<" escaped so no "</script>" can end it. */
+/** /promos/ (D60): its live promotions as an ItemList of names and URLs, in page order; no price,
+ * so no Offer and nothing to trace (an expired promotion never appears here, D34). */
+export function itemListLd(data: SiteData, name: string,
+  items: { name: string; path: string }[]): WithContext<ItemList> {
+  return {
+    "@context": CONTEXT,
+    "@type": "ItemList",
+    name,
+    itemListElement: items.map((item, i) => ({
+      "@type": "ListItem", position: i + 1, url: url(data.meta.base_url, item.path), name: item.name,
+    })),
+  };
+}
+
 export function jsonLdText(value: object): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }

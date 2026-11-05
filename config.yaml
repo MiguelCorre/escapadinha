@@ -410,6 +410,10 @@ site:
   # copy of 2026-11-05 before shipping (the PR of #80).
   price_insight:
     high_margin: 0.25
+  # D60 (#82): the home page leads with the live promotions; expired ones shrink to one card per
+  # route (the most recent), at most this many, each with "+ N promoções nesta rota"; the full
+  # record of the last expired_promotions_days is /promos/.
+  home_expired_max: 6
 
 # Review decisions (DECISIONS D26): an approve event whose live price check is older than this
 # is refused when a run applies it (check the price again); reject/published never expire.

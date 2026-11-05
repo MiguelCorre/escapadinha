@@ -25,6 +25,8 @@ export const FAKE_POST_URL = "https://www.instagram.com/p/fake-test-only/";
 /** An insurance programme connected in the configured build (D37). */
 export const FAKE_INSURANCE_BRAND = "Seguradora de Teste";
 export const FAKE_INSURANCE_LINK = "https://example.com/parceiro/seguro-de-teste";
+/** The home page's cap on expired cards in the configured build (D60). */
+export const CONFIGURED_HOME_EXPIRED_MAX = 2;
 /** The second live date of the live promotion in the configured build (D53). */
 export const GROUP_MEMBER_ID = 1008;
 export const GROUP_MEMBER_OBS = 999001;
@@ -58,6 +60,7 @@ export default function setup(project: TestProject) {
   const meta = JSON.parse(readFileSync(join(configuredData, "meta.json"), "utf8"));
   writeFileSync(join(configuredData, "meta.json"), JSON.stringify({
     ...meta, analytics_token: FAKE_ANALYTICS_TOKEN, search_widget: FAKE_SEARCH_WIDGET,
+    home_expired_max: CONFIGURED_HOME_EXPIRED_MAX,     // D60: below the fixtures' route count
   }));
   const promotions = JSON.parse(readFileSync(join(configuredData, "promotions.json"), "utf8"));
   for (const p of promotions.promotions) {

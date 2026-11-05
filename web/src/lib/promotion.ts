@@ -102,6 +102,35 @@ export function pagePromotions(data: SiteData): Promotion[] {
   return data.promotions.promotions.filter((p) => !p.promotion || p.promotion.lead);
 }
 
+/** A route's expired promotions (D60): the most recent one and how many there are, among the
+ * page promotions of the export's window (`meta.expired_promotions_days`). */
+export interface RouteRecord {
+  route: string;
+  latest: Promotion;
+  count: number;
+}
+
+/** Expired page promotions grouped by route, the most recently detected first within a route
+ * and across routes (D60): the home page shows the first `meta.home_expired_max` records, one
+ * card each with "+ N promoções nesta rota"; /promos/ lists every group in full. */
+export function expiredByRoute(data: SiteData): RouteRecord[] {
+  const byRoute = new Map<string, Promotion[]>();
+  for (const p of pagePromotions(data).filter((p) => !p.live)) {
+    byRoute.set(p.route, [...(byRoute.get(p.route) ?? []), p]);
+  }
+  const newest = (a: Promotion, b: Promotion) => b.detected_at.localeCompare(a.detected_at) || b.id - a.id;
+  return [...byRoute].map(([route, items]) => {
+    const sorted = [...items].sort(newest);
+    return { route, latest: sorted[0], count: sorted.length };
+  }).sort((a, b) => newest(a.latest, b.latest));
+}
+
+/** The expired page promotions of one route, newest first (D60, /promos/). */
+export function expiredOnRoute(data: SiteData, route: string): Promotion[] {
+  return pagePromotions(data).filter((p) => !p.live && p.route === route)
+    .sort((a, b) => b.detected_at.localeCompare(a.detected_at) || b.id - a.id);
+}
+
 /** The live dates of a promotion page, cheapest first, the lead among them (D53); an ungrouped
  * item is its own only date. Each is an item of the contract with its own offer and `obs`. */
 export function promotionDates(data: SiteData, lead: Promotion): Promotion[] {

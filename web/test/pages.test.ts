@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fixtureImages, placeholderSvg } from "../src/lib/fixture-images";
-import { pagePromotions } from "../src/lib/promotion";
+import { expiredByRoute, expiredOnRoute, pagePromotions } from "../src/lib/promotion";
 import { FIXTURES_DIR, loadSiteData } from "../src/lib/site-data";
 import { brokenLinks, builtPages, distDir, page, text } from "./html";
 
@@ -18,7 +18,7 @@ const SITE_DISCLOSURE = "Publicidade: os botões de reserva são links de afilia
 describe("built pages", () => {
   it("are the home page, one page per promotion, the explorer and the ponte pages", () => {
     const data = loadSiteData(FIXTURES_DIR);
-    const promos = builtPages().filter((p) => p.startsWith("/promos/"));
+    const promos = builtPages().filter((p) => /^\/promos\/[^/]+\/$/.test(p));   // not /promos/ itself (D60)
     // One page per promotion (D53): the dates grouped under another item's page have none.
     expect(promos.sort()).toEqual(pagePromotions(data).map((p) => p.path).sort());
     expect(promos).toEqual(expect.arrayContaining([LIVE, EXPIRED]));
@@ -78,17 +78,63 @@ describe("home page", () => {
     expect(text(card.querySelector("[data-flight]")!)).toBe("Wizz Air · só bagagem de mão");   // known (D43)
   });
 
-  it("lists the recently expired promotion as expired, without its booking link", () => {
-    const card = home().querySelector(`[data-deal="397"]`)!;
-    expect(card.querySelector(`a[href="${EXPIRED}"]`)).not.toBeNull();
-    expect(text(card)).toContain("Lisboa → Paris (Beauvais)");
+  it("lists the expired promotions one per route, the most recent, with the route's count (D60)", () => {
+    const data = loadSiteData(FIXTURES_DIR);
+    const records = expiredByRoute(data);
+    expect(records.length).toBeGreaterThan(1);
+    expect(data.meta.home_expired_max).toBe(6);
+    const cards = home().querySelectorAll("#titulo-expiradas ~ div [data-deal]");
+    expect(cards.map((c) => Number(c.getAttribute("data-deal"))))
+      .toEqual(records.slice(0, 6).map((r) => r.latest.id));
+    expect(home().querySelector("[data-expired-routes]")!.getAttribute("data-expired-routes")).toBe(String(records.length));
+    // LIS-PAR: 409 is the most recent of its three expired page promotions (404 is a grouped date
+    // of 409's promotion, whose page is /promos/404-lisboa-paris/, D53); 397, a page of its own,
+    // is not a card.
+    const lisPar = records.find((r) => r.route === "LIS-PAR")!;
+    expect([lisPar.latest.id, lisPar.count, lisPar.latest.path]).toEqual([409, 3, "/promos/404-lisboa-paris/"]);
+    expect(home().querySelector(`[data-deal="397"]`)).toBeNull();
+    const card = home().querySelector(`[data-deal="409"]`)!;
+    expect(card.querySelector('a[href="/promos/404-lisboa-paris/"]')).not.toBeNull();
     expect(text(card)).toContain("Expirada");
-    expect(text(card.querySelector("[data-flight]")!)).toBe("Ryanair");       // baggage unknown: no line (D43)
-    expect(home().querySelector('a[href^="https://example.com/parceiro/site-deal-397"]')).toBeNull();
+    const more = card.querySelector("[data-more-on-route] a")!;
+    expect(text(more)).toBe("+ 2 promoções nesta rota nos últimos 30 dias");
+    expect(more.getAttribute("href")).toBe("/voos/lisboa-paris/");
+    // A route with one expired promotion says nothing more; no booking link anywhere.
+    const single = records.find((r) => r.count === 1)!;
+    expect(home().querySelector(`[data-deal="${single.latest.id}"] [data-more-on-route]`)).toBeNull();
+    expect(home().querySelector('a[href^="https://example.com/parceiro/site-deal-"]')).toBeNull();
+    expect(home().querySelector('a[href="/promos/"]')).not.toBeNull();
   });
 
   it("is indexable", () => {
     expect(home().querySelector('meta[name="robots"]')).toBeNull();
+  });
+});
+
+describe("/promos/, the record page (D60)", () => {
+  const doc = () => page("/promos/");
+  const data = loadSiteData(FIXTURES_DIR);
+
+  it("lists every live promotion, then every expired one grouped by route, newest first", () => {
+    const live = pagePromotions(data).filter((p) => p.live);
+    const liveCards = doc().querySelectorAll("#ativas [data-deal]").map((c) => Number(c.getAttribute("data-deal")));
+    expect(liveCards.sort()).toEqual(live.map((p) => p.id).sort());
+    const records = expiredByRoute(data);
+    const groups = doc().querySelectorAll("[data-route-group]");
+    expect(groups.map((g) => g.getAttribute("data-route-group"))).toEqual(records.map((r) => r.route));
+    for (const g of groups) {
+      const ids = g.querySelectorAll("[data-deal]").map((c) => Number(c.getAttribute("data-deal")));
+      expect(ids, g.getAttribute("data-route-group")!).toEqual(expiredOnRoute(data, g.getAttribute("data-route-group")!).map((p) => p.id));
+      expect(ids.slice(1).every((id, i) => id < ids[i])).toBe(true);        // newest first
+    }
+    expect(doc().querySelectorAll("[data-deal]").length).toBe(pagePromotions(data).length);
+    expect(text(doc().querySelector("h1")!)).toBe("Promoções recentes");
+    expect(doc().querySelector('[data-route-group="LIS-PAR"] a[href="/voos/lisboa-paris/"]')).not.toBeNull();
+  });
+
+  it("has no booking link on an expired card and is indexed while a promotion is live", () => {
+    expect(doc().querySelector('a[href^="https://example.com/parceiro/site-deal-"]')).toBeNull();
+    expect(doc().querySelector('meta[name="robots"]')).toBeNull();
   });
 });
 

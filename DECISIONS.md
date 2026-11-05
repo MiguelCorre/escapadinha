@@ -3539,3 +3539,36 @@ so nothing has to be hosted.
   `data-found-at`), `seo.test.ts` (no storage or request in the script; no relative time in the
   build), `tests/test_site_data.py` (`found_at` equals the observation's, null elsewhere; the
   row budget and the per-run classification unchanged).
+
+## D60: The home page leads with what is live; /promos/ keeps the record by route (2026-11-05, #75, #82)
+- **Problem (spec #75, item 3):** on 2026-11-03 the home page showed 1 live promotion under 28
+  expired ones, 19 of them Lisboa → Madeira, with no cap (everything from the last
+  `site.expired_promotions_days`); the one thing a visitor could book was lost in a wall of things
+  they could not, and `/promos/` was a 404, so the full record lived nowhere.
+- **Decision (taken for Miguel on 2026-11-05):** the home page shows the live promotions first,
+  then the expired ones reduced to **one card per route**, the most recently detected, at most
+  `site.home_expired_max` (6, exported as `meta.home_expired_max`), each with "+ N promoções
+  nesta rota nos últimos 30 dias" linking to the route page (the window from
+  `meta.expired_promotions_days`, exported too; both additive v1 fields, hand-added to the
+  fixtures with config's values), and a link to the new page. `/promos/` ("Promoções recentes")
+  lists every live promotion, then every expired one still kept, grouped by route, the most
+  recent route and promotion first, each price on its `data-obs`, no booking link on an expired
+  card; it is indexed while at least one promotion is live and `noindex` otherwise (then it only
+  shows what cannot be booked, like an expired promotion's own page); its JSON-LD is an
+  `ItemList` of the live promotions' names and URLs (`structured-data.itemListLd`), no Offer for
+  an expired one (D34). `/promos/` has a stable key in `website/routing.STATIC`, so a rename gets
+  a 301 like every other page. The top menu is unchanged ("Promoções" still points at the home's
+  live list; the record is reached from the expired section): the ticket asked Miguel whether to
+  add it, and the home already leads with what matters.
+- **Code:** `promotion.expiredByRoute` (route → most recent expired page promotion and count,
+  newest first) and `expiredOnRoute` are the one grouping, used by the home and `/promos/`;
+  `PromotionCard` gained `more` (the "+ N" link); `web/src/pages/promos/index.astro`.
+- **Tests:** `pages.test.ts` (the home's cards are the records in order, 409 for LIS-PAR with
+  "+ 3 promoções", 397 no longer a card, a single-promotion route says nothing, no booking link,
+  the link to `/promos/`; `/promos/` lists every live card, every route group with its
+  promotions newest first, every page promotion once, indexed), `seo-configured.test.ts` (a cap
+  of 2 in the configured build: two cards, the route count said, `/promos/` complete),
+  `seo.test.ts` (the `ItemList`: the live promotions' URLs, positions, no price; `/promos/` in the
+  sitemap), `traceability.test.ts` (the home's and `/promos/`'s price counts), `jsonld.ts`
+  (`ItemList` schema), `tests/test_site_data.py` (the two meta fields from config),
+  `tests/test_web_build.py` (`/promos/` among the static pages).

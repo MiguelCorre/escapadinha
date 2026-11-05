@@ -16,7 +16,7 @@ from test_pipeline import REPO, ctx  # noqa: F401
 from test_website import approved_deal
 
 STATIC_PAGES = ("/", "/sobre/", "/privacidade/", "/partidas/", "/destinos/", "/explorar/",
-                "/roteiros/", "/dicas/")
+                "/roteiros/", "/dicas/", "/promos/")
 
 
 def contract_pages(data: Path) -> list[str]:
@@ -208,7 +208,7 @@ def test_the_build_reads_the_export_and_adds_the_promotion_images(ctx, npm):
     for path in [*images["slides"], images["thumb"], images["og"]]:
         assert (web / "dist" / path.lstrip("/")).is_file(), path
     assert promo["id"] == deal_id
-    assert summary.pages["promos"] == 1 and summary.pages["voos"] == 10
+    assert summary.pages["promos"] == 2 and summary.pages["voos"] == 10   # the page + /promos/ (D60)
     assert summary.images == 8 and summary.missing_images == []
     assert summary.size_bytes > 0
 

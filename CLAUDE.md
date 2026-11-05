@@ -59,7 +59,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   the day; the element carries `data-found-at` and `src/lib/found-ago.ts` (`upgradeFoundAt`,
   run by `Base.astro`'s script and by the explorer's island) appends "(há 2 h)" in the browser:
   the build never writes a relative time, and that script stores nothing and calls nobody
-  (`seo.test.ts`). Styles use only the generated
+  (`seo.test.ts`). The home page (D60) leads with the live promotions and shows the expired ones
+  as one card per route (the most recent, at most `meta.home_expired_max`, "+ N promoções nesta
+  rota" to the route page); `/promos/` is the full record of `meta.expired_promotions_days`,
+  grouped by route, indexed only while a promotion is live, with an `ItemList` of the live ones
+  (`structured-data.itemListLd`, no Offer); the grouping is only `promotion.expiredByRoute` /
+  `expiredOnRoute`, and `/promos/` has its stable key in `website/routing.STATIC`. Styles use only the generated
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
   `tests/test_web_tokens.py` catches drift); `web/test/colours.test.ts` fails on any raw hex or
   rgb()/hsl() colour elsewhere in `web/src/` or `web/functions/`.

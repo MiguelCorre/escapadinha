@@ -3,6 +3,7 @@
 // block, arrival airport line. The whole card is one link to the promotion page. On phones the
 // thumbnail sits beside the text so a card stays within one screen.
 import type { Promotion } from "../lib/contract";
+import { count } from "../lib/format";
 import { airportLabel, type PromotionView } from "../lib/promotion";
 import PriceBlock from "./PriceBlock.astro";
 
@@ -12,9 +13,12 @@ interface Props {
   /** D53: how many live dates the promotion lists (1: nothing said). */
   dates?: number;
   eager?: boolean;
+  /** D60 (the home page): the route's other expired promotions of the window, as a link to the
+   * route page; nothing when there are none. */
+  more?: { count: number; path: string; days: number } | null;
 }
 
-const { promotion, view, dates = 1, eager = false } = Astro.props;
+const { promotion, view, dates = 1, eager = false, more = null } = Astro.props;
 const thumb = promotion.images?.thumb ?? null;
 const arrival = airportLabel(view);
 ---
@@ -32,6 +36,9 @@ const arrival = airportLabel(view);
     <PriceBlock view={view} />
     {dates > 1 && (
       <p class="text-small text-muted" data-dates>{dates} datas a este preço ou perto</p>
+    )}
+    {more && more.count > 0 && (
+      <p class="text-small text-muted" data-more-on-route><a href={more.path} class="relative z-10">+ {count(more.count, "promoção", "promoções")} nesta rota nos últimos {more.days} dias</a></p>
     )}
     {(view.airline || view.baggage) && (
       <p class="text-small text-muted" data-flight>{[view.airline, view.baggage].filter(Boolean).join(" · ")}</p>
