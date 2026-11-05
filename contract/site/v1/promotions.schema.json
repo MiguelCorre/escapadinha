@@ -8,6 +8,17 @@
   "required": ["version", "promotions"],
   "properties": {
     "version": {"$ref": "defs.schema.json#/$defs/version"},
+    "outcomes": {
+      "type": ["object", "null"],
+      "description": "Added in v1 (D56, #79): what live promotion pages tell visitors about the promotions approved in the last review.outcomes_days days: of the last `approved_n` judged `hours` after their approval, `still_valid_pct` were still bookable then (open or superseded ones count as bookable until their last check). A rate, a count and hours: never a price. Null below review.outcomes_min_n; absent in older exports.",
+      "additionalProperties": false,
+      "required": ["approved_n", "still_valid_pct", "hours"],
+      "properties": {
+        "approved_n": {"type": "integer", "minimum": 1},
+        "still_valid_pct": {"type": "integer", "minimum": 0, "maximum": 100},
+        "hours": {"type": "integer", "minimum": 1}
+      }
+    },
     "promotions": {
       "type": "array",
       "items": {

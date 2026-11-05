@@ -189,6 +189,14 @@ export function survivalText(sourceLabel: string, confidencePt: string | null, g
   return `Destas promoções (${group}), ${gonePct}% desapareceram em 24 h (últimos ${days} dias, ${integer(n)})`;
 }
 
+/** The live promotion pages' line (#79, D56, `promotions.json` `outcomes`): "Das últimas 36
+ * promoções que publicámos, 28% ainda estavam disponíveis 24 horas depois." Honest urgency: a
+ * rate, a count and hours, never a price, no countdown. */
+export function publishedText(approvedN: number, stillValidPct: number, hours: number): string {
+  return `Das últimas ${integer(approvedN)} promoções que publicámos, ${stillValidPct}% ainda estavam `
+    + `disponíveis ${hours} horas depois.`;
+}
+
 /** (1, "noite", "noites") -> "1 noite"; 0 and 2+ take the plural. */
 export function count(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`;

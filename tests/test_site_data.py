@@ -321,6 +321,26 @@ def test_expired_promotions_leave_the_export_after_the_configured_window(exporte
     assert exported_ids(30.1) == [s.live_deal, s.expired_deal]
 
 
+def test_promotions_carry_what_visitors_may_know_about_approved_ones(exported, tmp_path):
+    """#79 (D56): `outcomes` is `outcomes.published` over the deals of the last
+    `review.outcomes_days` days, null below `review.outcomes_min_n` judged; the page's line."""
+    from escapadinha import outcomes
+    ctx, conn, s, out, _ = exported
+    assert ctx.config.review.outcomes_min_n == 20
+    assert read(out, "promotions.json")["outcomes"] is None            # two approved deals
+    ctx.config.review.outcomes_min_n = 1
+    now = db.utcnow()
+    rows = pipeline.deal_outcomes(ctx, conn, now - timedelta(days=ctx.config.review.outcomes_days))
+    expected = outcomes.published(rows, min_n=1)
+    assert expected is not None and expected.hours == 24
+    assert {o.deal_id for o in rows if o.approved_at} == {s.live_deal, s.expired_deal}
+    again = tmp_path / "again"
+    site_data.export_site_data(ctx, conn, again, new_links=False)
+    assert read(again, "promotions.json")["outcomes"] == {
+        "approved_n": expected.approved_n, "still_valid_pct": expected.still_valid_pct, "hours": 24}
+    assert validation_errors(again) == []
+
+
 def test_baggage_comes_only_from_an_enriched_observation(exported):
     """`baggage` on offers and low-price rows (D43): the matched offer's value, null elsewhere."""
     ctx, conn, s, out, _ = exported
