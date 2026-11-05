@@ -32,6 +32,7 @@ EXPIRY_KIND_PT = {"gone": "desaparecida", "superseded": "ultrapassada",
                   "rules": "fora das regras da rota"}
 
 HORIZONS_H = (2, 6, 24, 48)
+PUBLISHED_HOURS = 24                       # the visitors' sentence judges approvals at this mark
 APPROVERS = ("rules", "human", "none")     # the automatic approval (D46), anyone else, nobody
 # Bands as (upper bound, exclusive; None = no bound, label), in order.
 LEAD_DAYS = ((14, "< 14"), (30, "14–29"), (60, "30–59"), (None, "60+"))   # found → departure
@@ -218,6 +219,26 @@ def by_source_and_confidence(rows: Iterable[Outcome],
         groups.setdefault((o.source, o.confidence), []).append(o)
     mark = HORIZONS_H.index(hours)
     return {k: _clock(g, lambda o: o.detected_at).horizons[mark] for k, g in groups.items()}
+
+
+@dataclass(frozen=True)
+class Published:
+    """What a live promotion page tells visitors (#79, Miguel 2026-11-05): of the last
+    `approved_n` promotions judged `hours` after their approval, `still_valid_pct` were still
+    bookable then. A rate, a count and hours: never a price."""
+    approved_n: int
+    still_valid_pct: int
+    hours: int
+
+
+def published(rows: Iterable[Outcome], *, hours: int = PUBLISHED_HOURS,
+              min_n: int) -> Published | None:
+    """The approval clock's `hours` mark over every approved deal, censored like the report
+    (open or superseded deals survive until their last check); None below `min_n` judged."""
+    mark = _clock(list(rows), lambda o: o.approved_at).horizons[HORIZONS_H.index(hours)]
+    if mark.judged < min_n or mark.share is None:
+        return None
+    return Published(mark.judged, round(100 * (1 - mark.share)), hours)
 
 
 @dataclass(frozen=True)

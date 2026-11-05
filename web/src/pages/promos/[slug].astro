@@ -11,7 +11,7 @@ import PriceBlock from "../../components/PriceBlock.astro";
 import type { Promotion } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { bookingCta } from "../../lib/cta";
-import { eur } from "../../lib/format";
+import { eur, publishedText } from "../../lib/format";
 import { airportLabel, pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { bestMonths } from "../../lib/routes";
 import { promotionLd } from "../../lib/structured-data";
@@ -41,6 +41,8 @@ const linkKind = promotion.link_kind ?? "partner";
 const cta = bookingCta(promotion.booking_link, promotion.live, data.labels, linkKind, promotion.seller ?? null);
 // D47: the same trip's newest price at every other source, each on its observation.
 const alsoSeen = promotion.live ? promotion.also_seen ?? [] : [];
+// #79 (D56): how many recently approved promotions were still bookable a day later (live only).
+const outcomes = promotion.live ? data.promotions.outcomes ?? null : null;
 const opens = linkKind === "airline" ? `o site da ${promotion.seller ?? "companhia aérea"}` : "a pesquisa do parceiro";
 const arrival = airportLabel(view);
 const slides = promotion.images?.slides ?? [];
@@ -166,7 +168,7 @@ const trip = promotionLd(data, promotion, view, description);
           <ol class="mt-sm list-decimal space-y-xs pl-lg">
             <li>Carrega em <strong>{cta?.text ?? "Reservar"}</strong>: abre {opens} já com estas datas.</li>
             <li>Confirma o preço final antes de pagar. Mala de porão, lugar marcado e seguro são extras.</li>
-            <li>Os lugares a este preço são poucos: o preço foi encontrado a <span class="num">{view.foundOn ?? "—"}</span> e verificado por nós a <span class="num">{view.checkedAt}</span>; pode mudar a qualquer momento, e esta página expira quando mudar.</li>
+            <li>Os lugares a este preço são poucos: o preço foi encontrado a <span class="num">{view.foundOn ?? "—"}</span> e verificado por nós a <span class="num">{view.checkedAt}</span>; pode mudar a qualquer momento, e esta página expira quando mudar.{outcomes && <> <span data-outcomes>{publishedText(outcomes.approved_n, outcomes.still_valid_pct, outcomes.hours)}</span></>}</li>
           </ol>
         </section>
       )}

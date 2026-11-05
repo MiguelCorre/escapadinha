@@ -255,13 +255,23 @@ export interface Affiliates {
   links: { article: string; programme: Programme; url: string }[];
 }
 
+/** `promotions.json` `outcomes` (D56, #79): what live promotion pages tell visitors about the
+ * promotions approved lately: of the last `approved_n` judged `hours` after their approval,
+ * `still_valid_pct` were still bookable then. A rate, a count and hours, never a price. Null
+ * below the pipeline's minimum; absent in older exports. */
+export interface Outcomes {
+  approved_n: number;
+  still_valid_pct: number;
+  hours: number;
+}
+
 export interface SiteData {
   meta: Meta;
   labels: Labels;
   origins: { version: 1; origins: Origin[] };
   routes: { version: 1; routes: Route[] };
   destinations: { version: 1; destinations: Destination[] };
-  promotions: { version: 1; promotions: Promotion[] };
+  promotions: { version: 1; promotions: Promotion[]; outcomes?: Outcomes | null };
   lowPrices: Record<string, LowPrices>;
   /** Empty when the export predates pontes.json. */
   pontes: Pontes;

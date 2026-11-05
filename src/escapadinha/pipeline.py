@@ -1070,6 +1070,15 @@ def review_survival(ctx: Context, conn: sqlite3.Connection,
             if mark.judged >= cfg.outcomes_min_n}
 
 
+def site_survival(ctx: Context, conn: sqlite3.Connection, now: datetime) -> outcomes.Published | None:
+    """What a live promotion page may tell visitors about the promotions approved in the last
+    `review.outcomes_days` days (#79, Miguel 2026-11-05): how many were still bookable
+    `outcomes.PUBLISHED_HOURS` after approval. None below `review.outcomes_min_n` judged."""
+    cfg = ctx.config.review
+    rows = deal_outcomes(ctx, conn, now - timedelta(days=cfg.outcomes_days))
+    return outcomes.published(rows, min_n=cfg.outcomes_min_n)
+
+
 def find_deal(conn: sqlite3.Connection, deal_id: int) -> tuple[Deal, Observation]:
     """The deal and its observation, or `UnknownDeal` in pt-PT for the reviewer."""
     try:

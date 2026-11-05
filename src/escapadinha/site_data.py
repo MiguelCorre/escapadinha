@@ -32,7 +32,7 @@ import json
 import re
 import sqlite3
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -278,7 +278,8 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     files["promotions.json"] = {"version": VERSION, "promotions": [
         _promotion(ctx, conn, d, o, route_by_key[o.route_key], deal_links.get(d.id),
                    group=groups.get(d.promotion_id))
-        for d, o in promotions]}
+        for d, o in promotions],
+        "outcomes": _published(ctx, conn, now)}
     for code in origin_codes:
         files[f"low-prices/{code}.json"] = {
             "version": VERSION, "origin": code, "generated_at": db.utc_iso(now), "run": run_id,
@@ -502,6 +503,15 @@ def _latest_seen(conn: sqlite3.Connection, deal: Deal, o: Observation) -> dict |
         return None
     seen = db.trip_observation_at(conn, o, deal.last_seen_price)
     return {"obs": seen.id, "price": _eur(seen.price)} if seen else None
+
+
+def _published(ctx: Context, conn: sqlite3.Connection, now: datetime) -> dict | None:
+    """`promotions.json` `outcomes` (#79, D56): one line for every live promotion page, from the
+    outcomes report: a count, a rate and hours, never a price. Null below
+    `review.outcomes_min_n`. Not per run: it moves only when a deal is approved or expires, or
+    a day drops out of the window."""
+    published = pipeline.site_survival(ctx, conn, now)
+    return asdict(published) if published else None
 
 
 def _promotion_groups(ctx: Context, conn: sqlite3.Connection,

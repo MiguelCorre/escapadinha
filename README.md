@@ -549,6 +549,10 @@ recheck.
   313)*, from the outcomes report for its source and confidence over `review.outcomes_days`
   (14) days, only when at least `review.outcomes_min_n` (20) such deals were judged (both pages;
   the snapshot's optional `survival`, v1). A rate and a count, never a price.
+- Visitors get the same honesty on every live promotion page (#79, Miguel 2026-11-05): *Das
+  últimas 36 promoções que publicámos, 28% ainda estavam disponíveis 24 horas depois.* (the
+  approved deals of the same window, judged 24 h after approval; `promotions.json` `outcomes`,
+  null below the same minimum). A count, a rate and hours: never a price, never a countdown.
 - Approved deals keep being rechecked every 30 min. If the price moves before you post, the deal
   expires and the page tells you.
 

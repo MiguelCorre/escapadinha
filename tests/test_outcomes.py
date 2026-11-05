@@ -321,6 +321,18 @@ def test_the_24_h_mark_per_source_and_confidence():
         ("ryanair", "medium"): (0, 2), ("travelpayouts", "medium"): (1, 1)}
 
 
+def test_what_visitors_may_know_about_the_approved_promotions():
+    """#79 (Miguel, 2026-11-05): the approval clock's 24 h mark over the approved deals,
+    censored like the report; nothing below `min_n` judged, nothing without a judged deal."""
+    # Deal 3: approved at 1 h, gone 2 h later; deal 4: approved at 0.5 h, gone 29.5 h later.
+    assert outcomes.published(ROWS, min_n=2) == outcomes.Published(2, 50, 24)
+    assert outcomes.published(ROWS, hours=48, min_n=2) == outcomes.Published(2, 0, 48)
+    assert outcomes.published(ROWS, hours=2, min_n=1) == outcomes.Published(2, 50, 2)
+    assert outcomes.published(ROWS, min_n=3) is None
+    assert outcomes.published([], min_n=0) is None
+    assert outcomes.PUBLISHED_HOURS == 24
+
+
 def test_the_survival_line_in_pt_pt():
     from escapadinha import i18n_pt
     assert i18n_pt.survival_line("Ryanair", "média", 83, 14, 342) == (

@@ -27,6 +27,7 @@ import {
   numericDate,
   numericDayMonth,
   shortDate,
+  publishedText,
   survivalText,
 } from "../src/lib/format";
 
@@ -111,6 +112,13 @@ describe("pt-PT formats", () => {
       .toBe("Destas promoções (Ryanair, confiança média), 83% desapareceram em 24 h (últimos 14 dias, 342)");
     expect(survivalText("Aviasales", null, 5, 7, 1200))
       .toBe(`Destas promoções (Aviasales), 5% desapareceram em 24 h (últimos 7 dias, 1${NBSP}200)`);
+  });
+
+  it("prints the promotion pages' line on the approved promotions: a count, a rate and hours (#79)", () => {
+    expect(publishedText(36, 28, 24))
+      .toBe("Das últimas 36 promoções que publicámos, 28% ainda estavam disponíveis 24 horas depois.");
+    expect(publishedText(1200, 0, 48))
+      .toBe(`Das últimas 1${NBSP}200 promoções que publicámos, 0% ainda estavam disponíveis 48 horas depois.`);
   });
 
   it("prints a discount with a true minus sign", () => {

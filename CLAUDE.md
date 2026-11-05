@@ -188,8 +188,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   line (#79) comes only from `pipeline.review_survival` (config `review.outcomes_days`,
   `outcomes_min_n`) through `review_snapshot.survival_json` (snapshot `survival`, queue items
   only) and `i18n_pt.survival_line` / `format.survivalText` (one rule, both sides): a rate and a
-  count, never a price. Nothing of it is on the public site (the visitor sentence waits for
-  Miguel, #79).
+  count, never a price. The visitors' line (#79, Miguel 2026-11-05) comes only from
+  `pipeline.site_survival` (`outcomes.published`: the approval clock's `PUBLISHED_HOURS` mark,
+  the same config) as `promotions.json` `outcomes` `{approved_n, still_valid_pct, hours}` (null
+  below the minimum; not per run) and `format.publishedText` on live promotion pages: a count,
+  a rate and hours, never a price, no countdown.
 - Plain SQL in `storage/db.py`. Schema changes bump `SCHEMA_VERSION`, update `schema.sql` (fresh
   installs) and add the ALTER steps to `MIGRATIONS` (existing DBs; a step may be a Python
   callable). Test the upgrade from real old schemas (`tests/fixtures/schema_v5.sql`, `schema_v7.sql`).

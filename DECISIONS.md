@@ -3414,8 +3414,26 @@ so nothing has to be hosted.
   review-event outcomes. The copy is `i18n_pt.survival_line` locally and `format.survivalText`
   on the Function, the same rule. A rate and a count: no price, no `data-obs`, traceability
   untouched.
-- **Not done, Miguel's call (#79):** the visitor sentence on promotion pages (spec item 4) and
-  the final wording of both lines.
+- **The visitor sees it too (#79, decided for Miguel on 2026-11-05, when he asked for every
+  pending action of his to be taken):** every live promotion page ends its "Como reservar" steps
+  with "Das últimas 36 promoções que publicámos, 28% ainda estavam disponíveis 24 horas depois."
+  The numbers are `promotions.json` `outcomes` `{approved_n, still_valid_pct, hours}` (additive
+  v1 field), from `pipeline.site_survival` = `outcomes.published`: the approval clock's 24 h mark
+  (`outcomes.PUBLISHED_HOURS`) over the deals of the last `review.outcomes_days` days, censored
+  like the report (an open or superseded promotion counts as bookable until its last check), null
+  below `review.outcomes_min_n` judged, the same two knobs as the reviewers' line: one window,
+  one minimum. The spec's sketch ("metade ainda estava disponível 9 horas depois") used the
+  median life; the 24 h mark was chosen because its censoring is exact (a promotion approved
+  three hours ago is not judged yet) while a median over censored lives is a bound. Copy only in
+  `format.publishedText`, on live pages only, after the step that says the page expires; a
+  count, a rate and hours, never a price, no countdown, no "reserva já". Not a per-run field:
+  the value moves only when a deal is approved or expires or a day leaves the window, so a
+  routine run never takes the full path for it (`test_every_field_a_new_run_changes_is_classified_per_run`).
+  **Fixture:** hand-added as this rule allows, with the value computed for the fixtures' moment
+  (run 1711, 2026-11-02 16:49 UTC) on a read-only copy of the bucket's 2026-11-03 daily backup
+  (the database as it stood after that run, upgraded to v19 in memory): 36 approved promotions
+  judged, 28 % still bookable a day later (the median life was 9.2 h, the research's figure).
+  The reviewers' wording and the kinds' names stand as shipped.
 - **Tests:** `tests/test_outcomes.py` (the kind of every recheck verdict, the recheck and the
   re-evaluation storing their own time, a valid recheck storing neither, the CHECK against
   `EXPIRY_KINDS`, the upgrade from v18 with one deal per known reason and an unknown one, the

@@ -134,6 +134,10 @@ describe("live promotion page", () => {
     expect(steps.length).toBe(3);
     expect(text(steps[0])).toContain("abre a pesquisa do parceiro já com estas datas");
     expect(text(steps[2])).toContain("encontrado a 01/11/2026 e verificado por nós a 02/11/2026 às 16:49");
+    // #79 (D56): the fixture's `outcomes` (36 approved, 28 % still bookable a day later), live only.
+    expect(text(steps[2].querySelector("[data-outcomes]")!))
+      .toBe("Das últimas 36 promoções que publicámos, 28% ainda estavam disponíveis 24 horas depois.");
+    expect(page(EXPIRED).querySelector("[data-outcomes]")).toBeNull();
   });
 
   it("has one tracked booking button with the disclosure next to it", () => {
