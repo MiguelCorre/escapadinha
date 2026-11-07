@@ -62,6 +62,20 @@ describe("queue page", () => {
     expect(txt(card.querySelector('[data-obs="2002"]'))).toBe("110,50 €");
   });
 
+  it("puts every 'Também visto' price on its observation (D47), like the site does", async () => {
+    const also_seen = [
+      { source: "kayak", label: "Kayak", price_eur: 44, observation_id: 3001, seen_at: "2026-10-14T08:00:00Z" },
+      { source: "ryanair", label: "Ryanair", price_eur: 61.5, observation_id: 3002, gate: null, seen_at: "2026-10-14T08:00:00Z" },
+    ];
+    const snap = snapshot({ queue: [deal(7, { also_seen })] });
+    expect(schemaErrors("snapshot", snap)).toEqual([]);
+    const { doc } = await open(snap);
+    const card = doc.querySelector('[data-deal="7"]')!;
+    expect(txt(card)).toContain("Kayak 44 € · Ryanair 61,50 €");
+    expect(txt(card.querySelector('[data-obs="3001"]'))).toBe("44 €");
+    expect(txt(card.querySelector('[data-obs="3002"]'))).toBe("61,50 €");
+  });
+
   it("shows only the days for a deal without a stored range or from an older snapshot", async () => {
     const { baseline: _, ...before } = deal(7);                     // a snapshot made before D40
     const older = snapshot({ queue: [before] });
