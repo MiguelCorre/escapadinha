@@ -71,7 +71,7 @@ export function promotionLd(data: SiteData, promotion: Promotion, view: Promotio
       { "@type": "Trip", name: "Ida", departureTime: o.departure, tripOrigin: from, itinerary: to },
       { "@type": "Trip", name: "Regresso", departureTime: o.return, tripOrigin: to, itinerary: from },
     ],
-    offers: { "@type": "Offer", price: o.price, priceCurrency: "EUR", url: page },
+    offers: { "@type": "Offer", price: view.priceEur, priceCurrency: "EUR", url: page },
   };
 }
 
