@@ -7,9 +7,10 @@ import sqlite3
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path, PureWindowsPath
+from typing import Protocol
 
 import httpx
 
@@ -89,6 +90,144 @@ def run_collect(ctx: Context, conn: sqlite3.Connection, now: datetime | None = N
     return summary
 
 
+# --- the run's own-row steps (D63) ------------------------------------------------------
+
+class StepSummary(Protocol):
+    """What a run step did: its errors (printed under its line) and its one line in the run's
+    report. `line()` is `describe()` unless the step names itself first (the airlines)."""
+
+    errors: list[str]
+
+    def describe(self) -> str: ...
+
+    def line(self) -> str:
+        return self.describe()
+
+
+@dataclass(frozen=True)
+class StepFailed(StepSummary):
+    """A step that raised: one red line in the report, and the run goes on."""
+
+    label: str
+    error: str                  # "Type: message"
+    errors: list[str] = field(default_factory=list)
+
+    def describe(self) -> str:
+        return f"{self.label}: failed ({self.error})"
+
+
+@dataclass
+class StepRun:
+    """A step's run row while its items run: `run_step` opens and closes it, the step records
+    each item on it (`store` / `answer` / `fail`)."""
+
+    run_id: int
+    responses: list[dict] = field(default_factory=list)   # archived with the run (D18)
+    errors: list[str] = field(default_factory=list)
+    n_requests: int = 0
+    n_observations: int = 0
+    n_new: int = 0
+    answered: int = 0           # items that answered (the rest are in `errors`)
+    stopped: bool = False       # a wall ended the pass (D13, D47): the row fails
+
+    def answer(self, response: dict, *, observations: int = 0, new: int = 0) -> None:
+        self.responses.append(response)
+        self.n_observations += observations
+        self.n_new += new
+        self.answered += 1
+
+    def store(self, conn: sqlite3.Connection, response: dict,
+              observations: list[Observation]) -> None:
+        """An item that brought prices: stored under the run, counted, its answer archived."""
+        stored = db.insert_observations(conn, self.run_id, observations)
+        self.answer(response, observations=len(observations), new=stored.new)
+
+    def fail(self, label: str, exc: Exception) -> None:
+        self.errors.append(f"{label}: {exc}")
+
+    def status(self) -> str:
+        """The row's status: ok without errors, partial when some item answered, else failed."""
+        if self.stopped:
+            return "failed"
+        if not self.errors:
+            return "ok"
+        return "partial" if self.answered else "failed"
+
+
+class RunStep(Protocol):
+    """One of the run's steps with their own run row that never fail the run (D63): the
+    airlines (D47), the probe's import (D48), the enrichment (D43), the special offers (D46).
+    `run_step` calls `plan`, opens the row, `run`, archives, `finish`, closes the row."""
+
+    name: str                   # the run row's source
+    scope: str                  # the run row's scope
+    label: str                  # the report's name for it: "<label>: failed (…)"
+
+    def plan(self, ctx: Context, conn: sqlite3.Connection, now: datetime) -> StepSummary | None:
+        """Before any run row: a summary when there is nothing to ask, else None."""
+        return None
+
+    def run(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, now: datetime) -> None:
+        """The items, each recorded on `run`; an item's failure is `run.fail`, never a raise."""
+
+    def archived(self, ctx: Context, run: StepRun) -> None:
+        """After the archive is written (a failure here counts as the archive's)."""
+        return None
+
+    def finish(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, status: str,
+               now: datetime) -> StepSummary:
+        """Before the row is closed with `status`: the step's own bookkeeping, its summary."""
+
+
+def guard(label: str, call: Callable[[], StepSummary]) -> StepSummary:
+    """The step's summary, or `StepFailed` when it raised: never fails the run."""
+    try:
+        return call()
+    except Exception as exc:
+        return StepFailed(label, f"{type(exc).__name__}: {exc}")
+
+
+def run_step(ctx: Context, conn: sqlite3.Connection, step: RunStep,
+             now: datetime | None = None) -> StepSummary:
+    """Run one own-row step (D63): its plan, its run row (`step.name`, `step.scope`), its
+    items, one archive object with their answers, the row's status and counts. Never raises:
+    an unexpected error closes the row as failed and comes back as `StepFailed`."""
+    now = now or db.utcnow()
+    return guard(step.label, lambda: _run_step(ctx, conn, step, now))
+
+
+def _run_step(ctx: Context, conn: sqlite3.Connection, step: RunStep,
+              now: datetime) -> StepSummary:
+    early = step.plan(ctx, conn, now)
+    if early is not None:
+        return early
+    run = StepRun(db.start_run(conn, step.name, scope=step.scope))
+    try:
+        step.run(ctx, conn, run, now)
+        _archive_step(ctx, conn, step, run)
+        status = run.status()
+        summary = step.finish(ctx, conn, run, status, now)
+    except Exception as exc:   # the row never stays open; `guard` reports the error
+        run.errors.append(f"{type(exc).__name__}: {exc}")
+        _close_run(conn, run, "failed")
+        raise
+    _close_run(conn, run, status)
+    return summary
+
+
+def _archive_step(ctx: Context, conn: sqlite3.Connection, step: RunStep, run: StepRun) -> None:
+    try:
+        archive.write_run(ctx.object_store, conn, run.run_id, run.responses)
+        step.archived(ctx, run)
+    except Exception as exc:  # what was stored stays; say loudly that its payloads are not
+        run.errors.append(f"archive: {exc}")
+
+
+def _close_run(conn: sqlite3.Connection, run: StepRun, status: str) -> None:
+    db.finish_run(conn, run.run_id, status=status, n_requests=run.n_requests,
+                  n_observations=run.n_observations, n_new=run.n_new,
+                  error="\n".join(run.errors) or None)
+
 # --- the airlines' own fares (D47) ---------------------------------------------
 
 AIRLINE_BLOCKED = "airlines.{}.blocked"   # meta: {"at", "until", "status"}: the source is paused
@@ -96,7 +235,7 @@ AIRLINE_CURSOR = "airlines.{}.cursor"     # meta: {"cursor": n}: where the rotat
 
 
 @dataclass(frozen=True)
-class AirlinesSummary:
+class AirlinesSummary(StepSummary):
     """What the airline step did: its own run row (scope `airlines`), or why nothing was asked."""
 
     source: str
@@ -124,6 +263,9 @@ class AirlinesSummary:
         if self.errors:
             text += f", {len(self.errors)} failed"
         return text
+
+    def line(self) -> str:
+        return f"Airlines: {self.describe()}"
 
 
 def also_seen(conn: sqlite3.Connection, obs: Observation) -> list[Observation]:
@@ -161,83 +303,81 @@ def ryanair_source(ctx: Context) -> RyanairSource:
 
 
 def run_airlines(ctx: Context, conn: sqlite3.Connection,
-                 now: datetime | None = None) -> AirlinesSummary:
+                 now: datetime | None = None) -> AirlinesSummary | StepFailed:
     """Ryanair's fare finder for the hot list (D47): the open promotions' months on Ryanair
     flights, then the next `max_requests_per_run` (airport pair, month) tasks of the rotation,
     one request at a time. Its own run row (source `ryanair`, scope `airlines`): detection and
     the recheck read its offers like the collection's (`observations_seen_since` the collection
     run, which is older). The first 403/429/challenge stops the pass and pauses the source for
     `blocked_hours`. Any other failed request is listed and the pass goes on. Never raises."""
-    now = now or db.utcnow()
+    return run_step(ctx, conn, _Airlines(), now)
+
+
+def _hot_plan(ctx: Context, conn: sqlite3.Connection, now: datetime) -> hotlist.HotPlan:
+    """The airline step's tasks (D47): the open Ryanair promotions' months, then the rotation."""
     c = ctx.config.airlines.ryanair
-    name = ryanair.SOURCE
-    if not c.enabled:
-        return AirlinesSummary(name, None, "disabled", 0, 0, 0, [])
-    until = airline_pause(conn, name, now)
-    if until is not None:
-        return AirlinesSummary(name, None, "paused", 0, 0, 0, [], paused_until=until)
     active = routes.active_routes(conn, ctx.config.routes)
     seen = db.airline_airport_counts(conn, ryanair.AIRLINE,
                                      since=now - timedelta(days=c.lookback_days))
-    known = hotlist.pairs(active, seen)
     today = now.astimezone(i18n_pt.LISBON).date()
     months = departure_months(today, ctx.config.collector.months_ahead)
     trips = [(o.origin, o.destination, o.destination_airport, o.departure_date.replace(day=1))
              for _, o in db.open_deals(conn) if o.airline == ryanair.AIRLINE]
-    cursor = int(db.get_meta_json(conn, AIRLINE_CURSOR.format(name)).get("cursor", 0))
-    plan = hotlist.plan(known, months=months, deal_trips=trips, cursor=cursor,
-                        limit=c.max_requests_per_run)
-    if not plan.tasks:
-        return AirlinesSummary(name, None, "empty", 0, 0, 0, [], plan)
-    source = ryanair_source(ctx)
-    run_id = db.start_run(conn, name, scope="airlines")
-    errors: list[str] = []
-    responses: list[dict] = []
-    n_requests = n_observations = n_new = 0
-    blocked: int | None = None
-    for pair, month in plan.tasks:
-        n_requests += 1
-        label = f"{pair.route.key}/{pair.airport} {month:%Y-%m}"
-        try:
-            fetched = source.fetch_fares(pair.route.origin, pair.route.destination, pair.airport,
-                                         month, rules=pair.route.rules)
-        except RyanairError as exc:
-            errors.append(f"{label}: {exc}")
-            if exc.kind == "blocked":
-                blocked = exc.status
-                break
-            continue
-        except Exception as exc:  # one pair-month must not lose the rest
-            errors.append(f"{label}: {exc}")
-            continue
-        responses.append(fetched.response)
-        stored = db.insert_observations(conn, run_id, fetched.observations)
-        n_observations += len(fetched.observations)
-        n_new += stored.new
-    failed_requests = len(errors)
-    try:
-        archive.write_run(ctx.object_store, conn, run_id, responses)
-    except Exception as exc:  # prices are stored; say loudly that their payloads are not
-        errors.append(f"archive: {exc}")
-    paused_until = None
-    if blocked is not None:
-        paused_until = ryanair.pause_until(now, c.blocked_hours)
-        db.set_meta(conn, AIRLINE_BLOCKED.format(name), json.dumps(
-            {"at": now.isoformat(), "until": paused_until.isoformat(), "status": blocked}))
-        status = "blocked"
-    elif not errors:
-        status = "ok"
-    elif failed_requests < n_requests:
-        status = "partial"
-    else:
-        status = "failed"
-    db.set_meta(conn, AIRLINE_CURSOR.format(name), json.dumps({"cursor": plan.cursor}))
-    db.touch_routes_observed(conn, run_id)
-    db.finish_run(conn, run_id, status="failed" if status in ("failed", "blocked") else status,
-                  n_requests=n_requests, n_observations=n_observations, n_new=n_new,
-                  error="\n".join(errors) or None)
-    return AirlinesSummary(name, run_id, status, n_requests, n_observations, n_new, errors, plan,
-                           paused_until)
+    cursor = int(db.get_meta_json(conn, AIRLINE_CURSOR.format(ryanair.SOURCE)).get("cursor", 0))
+    return hotlist.plan(hotlist.pairs(active, seen), months=months, deal_trips=trips,
+                        cursor=cursor, limit=c.max_requests_per_run)
+
+
+class _Airlines(RunStep):
+    """Ryanair's fare finder as a run step (D47, D63)."""
+
+    name = ryanair.SOURCE
+    scope = "airlines"
+    label = "Airlines"
+
+    def plan(self, ctx: Context, conn: sqlite3.Connection, now: datetime) -> AirlinesSummary | None:
+        if not ctx.config.airlines.ryanair.enabled:
+            return AirlinesSummary(self.name, None, "disabled", 0, 0, 0, [])
+        until = airline_pause(conn, self.name, now)
+        if until is not None:
+            return AirlinesSummary(self.name, None, "paused", 0, 0, 0, [], paused_until=until)
+        self.hot = _hot_plan(ctx, conn, now)
+        if not self.hot.tasks:
+            return AirlinesSummary(self.name, None, "empty", 0, 0, 0, [], self.hot)
+        self.source = ryanair_source(ctx)
+        self.blocked: int | None = None
+        return None
+
+    def run(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, now: datetime) -> None:
+        for pair, month in self.hot.tasks:
+            run.n_requests += 1
+            label = f"{pair.route.key}/{pair.airport} {month:%Y-%m}"
+            try:
+                fetched = self.source.fetch_fares(pair.route.origin, pair.route.destination,
+                                                  pair.airport, month, rules=pair.route.rules)
+            except RyanairError as exc:
+                run.fail(label, exc)
+                if exc.kind == "blocked":
+                    self.blocked, run.stopped = exc.status, True
+                    break
+                continue
+            except Exception as exc:  # one pair-month must not lose the rest
+                run.fail(label, exc)
+                continue
+            run.store(conn, fetched.response, fetched.observations)
+
+    def finish(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, status: str,
+               now: datetime) -> AirlinesSummary:
+        paused_until = None
+        if run.stopped:      # the row says failed; the summary says why
+            paused_until = ryanair.pause_until(now, ctx.config.airlines.ryanair.blocked_hours)
+            db.set_meta(conn, AIRLINE_BLOCKED.format(self.name), json.dumps(
+                {"at": now.isoformat(), "until": paused_until.isoformat(), "status": self.blocked}))
+            status = "blocked"
+        db.set_meta(conn, AIRLINE_CURSOR.format(self.name), json.dumps({"cursor": self.hot.cursor}))
+        db.touch_routes_observed(conn, run.run_id)
+        return AirlinesSummary(self.name, run.run_id, status, run.n_requests, run.n_observations,
+                               run.n_new, run.errors, self.hot, paused_until)
 
 
 # --- the probe on the PC (D48) ----------------------------------------------------
@@ -257,10 +397,14 @@ def comparable(observations: list[Observation]) -> list[Observation]:
 
 
 @dataclass(frozen=True)
-class WantedSummary:
+class WantedSummary(StepSummary):
     trips: int
     promotions: int
     key: str
+
+    @property
+    def errors(self) -> list[str]:
+        return []
 
     def describe(self) -> str:
         return (f"Probe list: {self.trips} trips" + (f" ({self.promotions} open promotions first)"
@@ -268,11 +412,16 @@ class WantedSummary:
 
 
 def run_probe_wanted(ctx: Context, conn: sqlite3.Connection,
-                     now: datetime | None = None) -> WantedSummary:
+                     now: datetime | None = None) -> WantedSummary | StepFailed:
     """Write `probe/wanted.json` for the PC's probe (D48): every open promotion's trip, then the
     cheapest fresh nonstop offer of each route, busiest route first, in rotation (meta
-    `probe.cursor`), up to `probe.max_trips`. Runs after detection on every run."""
+    `probe.cursor`), up to `probe.max_trips`. Runs after detection on every run. Never raises:
+    no run row of its own, but the run steps' guard (D63)."""
     now = now or db.utcnow()
+    return guard("Probe list", lambda: _write_probe_wanted(ctx, conn, now))
+
+
+def _write_probe_wanted(ctx: Context, conn: sqlite3.Connection, now: datetime) -> WantedSummary:
     cfg = ctx.config
     promotions = [(d.id, o) for d, o in db.open_deals(conn)]
     run_id, offers = latest_offers(ctx, conn, now)
@@ -298,7 +447,7 @@ def run_probe_wanted(ctx: Context, conn: sqlite3.Connection,
 
 
 @dataclass(frozen=True)
-class ProbeImport:
+class ProbeImport(StepSummary):
     run_id: int | None          # its own run row (source probe, scope probe), or None
     files: int
     records: int
@@ -318,43 +467,51 @@ class ProbeImport:
 
 
 def run_probe_import(ctx: Context, conn: sqlite3.Connection,
-                     now: datetime | None = None) -> ProbeImport:
+                     now: datetime | None = None) -> ProbeImport | StepFailed:
     """Read the probe's results files from the object store, store their offers (source
     `google_flights` or `kayak`: comparison sources) under one run row (source `probe`, scope
-    `probe`), archive the files with that run and delete them. Never raises: a file that cannot be read is listed and left
-    in place for the next run."""
-    keys = ctx.object_store.list(probe_results.RESULTS_PREFIX)
-    if not keys:
-        return ProbeImport(None, 0, 0, 0, 0, 0, [])
-    run_id = db.start_run(conn, PROBE_RUN_SOURCE, scope="probe")
-    responses: list[dict] = []
-    errors: list[str] = []
-    records = ok = n_obs = n_new = 0
-    imported: list[str] = []
-    for key in keys:
-        try:
-            doc = json.loads(ctx.object_store.get(key).decode("utf-8"))
-            found = probe_results.to_observations(doc)
-        except Exception as exc:  # a bad file must not lose the others, nor stop the run
-            errors.append(f"{key}: {exc}")
-            continue
-        stored = db.insert_observations(conn, run_id, found.observations)
-        records += found.records
-        ok += found.searches_ok
-        n_obs += len(found.observations)
-        n_new += stored.new
-        responses.append({"key": key, "document": doc})
-        imported.append(key)
-    try:
-        archive.write_run(ctx.object_store, conn, run_id, responses)
-        for key in imported:
+    `probe`), archive the files with that run and delete them. Never raises: a file that cannot
+    be read is listed and left in place for the next run."""
+    return run_step(ctx, conn, _ProbeImport(), now)
+
+
+class _ProbeImport(RunStep):
+    """The probe's results files as a run step (D48, D63)."""
+
+    name = PROBE_RUN_SOURCE
+    scope = "probe"
+    label = "Probe results"
+
+    def plan(self, ctx: Context, conn: sqlite3.Connection, now: datetime) -> ProbeImport | None:
+        self.keys = ctx.object_store.list(probe_results.RESULTS_PREFIX)
+        self.imported: list[str] = []
+        self.records = self.searches_ok = 0
+        return None if self.keys else ProbeImport(None, 0, 0, 0, 0, 0, [])
+
+    def run(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, now: datetime) -> None:
+        run.n_requests = len(self.keys)
+        for key in self.keys:
+            try:
+                doc = json.loads(ctx.object_store.get(key).decode("utf-8"))
+                found = probe_results.to_observations(doc)
+            except Exception as exc:  # a bad file must not lose the others, nor stop the run
+                run.fail(key, exc)
+                continue
+            run.store(conn, {"key": key, "document": doc}, found.observations)
+            self.records += found.records
+            self.searches_ok += found.searches_ok
+            self.imported.append(key)
+
+    def archived(self, ctx: Context, run: StepRun) -> None:
+        # Deleted only once archived: on a failure the files stay and the next run reads them
+        # again (dedup keeps one row).
+        for key in self.imported:
             ctx.object_store.delete(key)
-    except Exception as exc:  # the files stay; the next run reads them again (dedup keeps one row)
-        errors.append(f"archive: {exc}")
-    status = "ok" if not errors else ("partial" if imported else "failed")
-    db.finish_run(conn, run_id, status=status, n_requests=len(keys), n_observations=n_obs,
-                  n_new=n_new, error="\n".join(errors) or None)
-    return ProbeImport(run_id, len(keys), records, ok, n_obs, n_new, errors)
+
+    def finish(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, status: str,
+               now: datetime) -> ProbeImport:
+        return ProbeImport(run.run_id, len(self.keys), self.records, self.searches_ok,
+                           run.n_observations, run.n_new, run.errors)
 
 
 def latest_offers(ctx: Context, conn: sqlite3.Connection,
@@ -750,7 +907,7 @@ def current_baselines(ctx: Context, conn: sqlite3.Connection,
 # --- enrich (D43) --------------------------------------------------------------
 
 @dataclass(frozen=True)
-class EnrichSummary:
+class EnrichSummary(StepSummary):
     run_id: int | None        # the enrichment's own run row (its archive holds the answers)
     offers: int               # low prices and candidates of the run still without a match
     queried: int              # GraphQL requests made (one per route and trip dates)
@@ -758,6 +915,15 @@ class EnrichSummary:
     skipped: int              # offers left for a later run (over `enrich_per_run`)
     errors: list[str]
 
+    def describe(self) -> str:
+        if self.run_id is None and not self.offers:
+            return "Enrichment: nothing to ask (no new low prices or candidates)"
+        if self.run_id is None:
+            return f"Enrichment: skipped ({self.offers} offers)"
+        return (f"Enrichment: {self.queried} GraphQL requests, {self.matched} of "
+                f"{self.offers} offers matched"
+                + (f", {self.skipped} left for the next run" if self.skipped else "")
+                + (f", {len(self.errors)} failed" if self.errors else ""))
 
 def graphql_client(ctx: Context) -> graphql.GraphQLClient:
     c = ctx.config.collector
@@ -795,130 +961,182 @@ def enrich_targets(ctx: Context, conn: sqlite3.Connection, run_id: int,
 
 
 def run_enrich(ctx: Context, conn: sqlite3.Connection, run_id: int | None = None,
-               now: datetime | None = None) -> EnrichSummary:
+               now: datetime | None = None) -> EnrichSummary | StepFailed:
     """Enrich the given (default: latest completed) run's candidates and low prices."""
     now = now or db.utcnow()
-    run_id = run_id or db.latest_completed_run_id(conn)
-    if run_id is None:
-        return EnrichSummary(None, 0, 0, 0, 0, [])
-    return enrich_offers(ctx, conn, enrich_targets(ctx, conn, run_id, now), now)
+
+    def targets() -> list[Observation]:
+        of_run = run_id or db.latest_completed_run_id(conn)
+        return [] if of_run is None else enrich_targets(ctx, conn, of_run, now)
+    return run_step(ctx, conn, _Enrich(targets), now)
 
 
 def enrich_offers(ctx: Context, conn: sqlite3.Connection, offers: list[Observation],
-                  now: datetime | None = None) -> EnrichSummary:
+                  now: datetime | None = None) -> EnrichSummary | StepFailed:
     """Ask the Aviasales GraphQL API about these offers, one query per (route, departure,
     return) in the given order, at most `collector.enrich_per_run` queries, and store
     `with_baggage`, `baggage_code`, `gate` and `found_at` on each offer a row matches
     (`graphql.match`). Prices are never touched; an offer without a match keeps its fields
     null. Answers are archived under an `enrich` run (D18). Never raises: a failed query (a
     429 that kept failing, a GraphQL error) is listed in `errors` and the run goes on."""
-    budget = ctx.config.collector.enrich_per_run
-    offers = [o for o in offers if o.source == TravelpayoutsSource.name]   # an airline's own
-    if not offers or budget == 0:                                           # row has no GraphQL match
-        return EnrichSummary(None, len(offers), 0, 0, len(offers), [])
-    groups: dict[tuple[str, str, date, date], list[Observation]] = {}
+    return run_step(ctx, conn, _Enrich(lambda: offers), now)
+
+
+Trip = tuple[str, str, date, date]      # origin, destination, departure, return
+
+
+def _trips(offers: list[Observation]) -> dict[Trip, list[Observation]]:
+    groups: dict[Trip, list[Observation]] = {}
     for o in offers:
         groups.setdefault((o.origin, o.destination, o.departure_date, o.return_date), []).append(o)
-    tasks = list(groups.items())[:budget]
-    skipped = sum(len(v) for v in list(groups.values())[budget:])
-    try:
-        client = graphql_client(ctx)
-    except TravelpayoutsError as exc:
-        return EnrichSummary(None, len(offers), 0, 0, len(offers), [str(exc)])
-    rules = {key: route_for(ctx, conn, key).rules
-             for key in {f"{k[0]}-{k[1]}" for k, _ in tasks}}
-    run_id = db.start_run(conn, graphql.SOURCE, scope="enrich")
-    errors: list[str] = []
-    responses: list[dict] = []
-    matched = n_rows = 0
+    return groups
 
-    def fetch(task):
+
+class _Enrich(RunStep):
+    """The GraphQL enrichment as a run step (D43, D63): `offers` is read in `plan`, inside the
+    step's guard."""
+
+    name = graphql.SOURCE
+    scope = "enrich"
+    label = "Enrichment"
+
+    def __init__(self, offers: Callable[[], list[Observation]]):
+        self.offers = offers
+
+    def plan(self, ctx: Context, conn: sqlite3.Connection, now: datetime) -> EnrichSummary | None:
+        budget = ctx.config.collector.enrich_per_run
+        offers = [o for o in self.offers() if o.source == TravelpayoutsSource.name]  # an airline's
+        self.n_offers = len(offers)                                       # own row has no GraphQL match
+        if not offers or budget == 0:
+            return EnrichSummary(None, len(offers), 0, 0, len(offers), [])
+        groups = _trips(offers)
+        self.tasks = list(groups.items())[:budget]
+        self.skipped = sum(len(v) for v in list(groups.values())[budget:])
+        try:
+            self.client = graphql_client(ctx)
+        except TravelpayoutsError as exc:
+            return EnrichSummary(None, len(offers), 0, 0, len(offers), [str(exc)])
+        self.rules = {key: route_for(ctx, conn, key).rules
+                      for key in {f"{k[0]}-{k[1]}" for k, _ in self.tasks}}
+        return None
+
+    def _fetch(self, task: tuple[Trip, list[Observation]]):
         (origin, destination, departure, ret), _ = task
         try:
-            direct = rules[f"{origin}-{destination}"].direct_only
-            return client.prices_round_trip(origin, destination, departure, ret,
-                                            direct=direct), None
+            direct = self.rules[f"{origin}-{destination}"].direct_only
+            return self.client.prices_round_trip(origin, destination, departure, ret,
+                                                 direct=direct), None
         except Exception as exc:  # one trip must not lose the rest
             return None, exc
 
-    with ThreadPoolExecutor(max_workers=ctx.config.collector.workers) as pool:
-        for (key, group), (answer, exc) in zip(tasks, pool.map(fetch, tasks)):
-            if exc is not None:
-                errors.append(f"{key[0]}-{key[1]} {key[2]} {key[3]}: {exc}")
-                continue
-            responses.append(answer.response)
-            n_rows += len(answer.offers)
-            for o in group:
-                found = graphql.match(o, answer.offers)
-                if found.found:
-                    db.set_enrichment(conn, o.id, with_baggage=found.with_baggage,
-                                      baggage_code=found.baggage_code, gate=found.gate,
-                                      found_at=found.found_at)
-                    matched += 1
-    try:
-        archive.write_run(ctx.object_store, conn, run_id, responses)
-    except Exception as exc:
-        errors.append(f"archive: {exc}")
-    status = "ok" if not errors else ("partial" if responses else "failed")
-    db.finish_run(conn, run_id, status=status, n_requests=len(tasks), n_observations=n_rows,
-                  n_new=matched, error="\n".join(errors) or None)
-    return EnrichSummary(run_id, len(offers), len(tasks), matched, skipped, errors)
+    def run(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, now: datetime) -> None:
+        run.n_requests = len(self.tasks)
+        with ThreadPoolExecutor(max_workers=ctx.config.collector.workers) as pool:
+            for (key, group), (answer, exc) in zip(self.tasks, pool.map(self._fetch, self.tasks)):
+                if exc is not None:
+                    run.fail(f"{key[0]}-{key[1]} {key[2]} {key[3]}", exc)
+                    continue
+                run.answer(answer.response, observations=len(answer.offers),
+                           new=_store_matches(conn, group, answer.offers))
+
+    def finish(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, status: str,
+               now: datetime) -> EnrichSummary:
+        return EnrichSummary(run.run_id, self.n_offers, len(self.tasks), run.n_new, self.skipped,
+                             run.errors)
+
+
+def _store_matches(conn: sqlite3.Connection, group: list[Observation], rows: list) -> int:
+    """Store each offer's GraphQL match (D43); how many matched."""
+    matched = 0
+    for o in group:
+        found = graphql.match(o, rows)
+        if found.found:
+            db.set_enrichment(conn, o.id, with_baggage=found.with_baggage,
+                              baggage_code=found.baggage_code, gate=found.gate,
+                              found_at=found.found_at)
+            matched += 1
+    return matched
 
 
 @dataclass(frozen=True)
-class SpecialOffersSummary:
+class SpecialOffersSummary(StepSummary):
     run_id: int | None        # its own run row (scope `special_offers`; the archive holds the answers)
     deals: int                # open deals looked at
     queried: int              # one GraphQL request per origin with an open deal
     flagged: int              # deals found on Aviasales' list
     errors: list[str]
 
+    def describe(self) -> str:
+        if self.run_id is None and not self.deals:
+            return "Special offers: nothing to ask (no open deals)"
+        if self.run_id is None:
+            return f"Special offers: skipped ({self.deals} open deals)"
+        return (f"Special offers: {self.queried} GraphQL requests, {self.flagged} of "
+                f"{self.deals} open deals on Aviasales' list"
+                + (f", {len(self.errors)} failed" if self.errors else ""))
+
 
 def run_special_offers(ctx: Context, conn: sqlite3.Connection,
-                       now: datetime | None = None) -> SpecialOffersSummary:
+                       now: datetime | None = None) -> SpecialOffersSummary | StepFailed:
     """Aviasales' own "special offers" as a second opinion for the reviewer (D46): one
     `special_offers_round_trip` query per origin that has an open deal; a deal whose trip is on
     the list (`graphql.special_offer_for`) stores their `discount` (a percentage of their average:
     their measure, shown as such and never as a price), a deal not on it stores null. Answers
     are archived under a `special_offers` run. Never raises: a failed origin is reported and its
     deals keep what they had."""
-    now = now or db.utcnow()
-    deals = db.open_deals(conn)
-    if not deals:
-        return SpecialOffersSummary(None, 0, 0, 0, [])
-    try:
-        client = graphql_client(ctx)
-    except TravelpayoutsError as exc:
-        return SpecialOffersSummary(None, len(deals), 0, 0, [str(exc)])
-    by_origin: dict[str, list[tuple[Deal, Observation]]] = {}
-    for deal, obs in deals:
-        by_origin.setdefault(obs.origin, []).append((deal, obs))
-    run_id = db.start_run(conn, graphql.SOURCE, scope="special_offers")
-    errors: list[str] = []
-    responses: list[dict] = []
-    flagged = 0
-    for origin, pairs in sorted(by_origin.items()):
+    return run_step(ctx, conn, _SpecialOffers(), now)
+
+
+class _SpecialOffers(RunStep):
+    """Aviasales' special-offers list as a run step (D46, D63)."""
+
+    name = graphql.SOURCE
+    scope = "special_offers"
+    label = "Special offers"
+
+    def plan(self, ctx: Context, conn: sqlite3.Connection,
+             now: datetime) -> SpecialOffersSummary | None:
+        deals = db.open_deals(conn)
+        self.n_deals = len(deals)
+        if not deals:
+            return SpecialOffersSummary(None, 0, 0, 0, [])
         try:
-            answer = client.special_offers_round_trip(origin)
-        except Exception as exc:          # one origin must not lose the rest
-            errors.append(f"{origin}: {exc}")
-            continue
-        responses.append(answer.response)
-        for deal, obs in pairs:
-            found = graphql.special_offer_for(obs, answer.offers)
-            db.set_partner_offer(conn, deal.id, None if found is None else found.discount,
-                                 None if found is None else now)
-            flagged += found is not None
-    try:
-        archive.write_run(ctx.object_store, conn, run_id, responses)
-    except Exception as exc:
-        errors.append(f"archive: {exc}")
-    status = "ok" if not errors else ("partial" if responses else "failed")
-    db.finish_run(conn, run_id, status=status, n_requests=len(by_origin),
-                  n_observations=sum(len(r["payload"].get("data", {}).get(graphql.SPECIAL_OFFERS_FIELD) or [])
-                                     for r in responses),
-                  n_new=flagged, error="\n".join(errors) or None)
-    return SpecialOffersSummary(run_id, len(deals), len(by_origin), flagged, errors)
+            self.client = graphql_client(ctx)
+        except TravelpayoutsError as exc:
+            return SpecialOffersSummary(None, len(deals), 0, 0, [str(exc)])
+        self.by_origin: dict[str, list[tuple[Deal, Observation]]] = {}
+        for deal, obs in deals:
+            self.by_origin.setdefault(obs.origin, []).append((deal, obs))
+        return None
+
+    def run(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, now: datetime) -> None:
+        run.n_requests = len(self.by_origin)
+        for origin, pairs in sorted(self.by_origin.items()):
+            try:
+                answer = self.client.special_offers_round_trip(origin)
+            except Exception as exc:          # one origin must not lose the rest
+                run.fail(origin, exc)
+                continue
+            rows = answer.response["payload"].get("data", {}).get(graphql.SPECIAL_OFFERS_FIELD) or []
+            run.answer(answer.response, observations=len(rows),
+                       new=_store_partner_offers(conn, pairs, answer.offers, now))
+
+    def finish(self, ctx: Context, conn: sqlite3.Connection, run: StepRun, status: str,
+               now: datetime) -> SpecialOffersSummary:
+        return SpecialOffersSummary(run.run_id, self.n_deals, len(self.by_origin), run.n_new,
+                                    run.errors)
+
+
+def _store_partner_offers(conn: sqlite3.Connection, pairs: list[tuple[Deal, Observation]],
+                          offers: list, now: datetime) -> int:
+    """Each deal's discount on Aviasales' list, or null off it (D46); how many were on it."""
+    flagged = 0
+    for deal, obs in pairs:
+        found = graphql.special_offer_for(obs, offers)
+        db.set_partner_offer(conn, deal.id, None if found is None else found.discount,
+                             None if found is None else now)
+        flagged += found is not None
+    return flagged
 
 
 # --- recheck ------------------------------------------------------------------

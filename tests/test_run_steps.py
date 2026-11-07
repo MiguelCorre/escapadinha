@@ -6,6 +6,7 @@ unexpected error becomes a "failed" line, never a stopped run."""
 from types import SimpleNamespace
 
 import pytest
+from typer.testing import CliRunner
 
 from escapadinha import cli, pipeline
 from escapadinha.collector import hotlist
@@ -108,3 +109,90 @@ def test_an_unexpected_error_is_a_failed_line_never_a_stopped_run(steps, monkeyp
     assert lines[:3] == ["Airlines: failed (RuntimeError: pause broke)",
                          "Probe results: failed (RuntimeError: results broke)",
                          "Probe list: failed (RuntimeError: list broke)"]
+
+
+def test_enrichment_and_special_offers_never_fail_the_run_either(ctx, steps, monkeypatch):
+    conn = pipeline.open_db(ctx)
+    db.finish_run(conn, db.start_run(conn, "travelpayouts"), status="ok", n_requests=0,
+                  n_observations=0, error=None)          # a completed run to enrich
+    conn.close()
+
+    def broken(message):
+        def fail(*args, **kwargs):
+            raise RuntimeError(message)
+        return fail
+    monkeypatch.setattr(pipeline, "enrich_targets", broken("targets broke"))
+    monkeypatch.setattr(pipeline.db, "open_deals", broken("deals broke"))
+    lines = steps(run_airlines=pipeline.AirlinesSummary("ryanair", None, "disabled", 0, 0, 0, []),
+                  run_probe_import=pipeline.ProbeImport(None, 0, 0, 0, 0, 0, []),
+                  run_probe_wanted=pipeline.WantedSummary(0, 0, "probe/wanted.json"))
+    assert lines[3:] == ["Enrichment: failed (RuntimeError: targets broke)",
+                         "Special offers: failed (RuntimeError: deals broke)"]
+    result = CliRunner().invoke(cli.app, ["special-offers"])
+    assert result.exit_code == 1 and "Special offers: failed (RuntimeError: deals broke)" in result.output
+
+
+# --- the seam itself: `pipeline.run_step` ---------------------------------------------------
+
+class Step(pipeline.RunStep):
+    """A run step over fixed items: a number is an answer with that many rows, an exception a
+    failed item; `boom` raises in the middle of the items."""
+
+    name = "test-source"
+    scope = "test"
+    label = "Test step"
+
+    def __init__(self, items, boom=False):
+        self.items, self.boom = items, boom
+
+    def run(self, ctx, conn, run, now):
+        for n, item in enumerate(self.items):
+            run.n_requests += 1
+            if self.boom and n == 1:
+                raise RuntimeError("step broke")
+            if isinstance(item, Exception):
+                run.fail(f"item {n}", item)
+                continue
+            run.answer({"payload": {"rows": item}}, observations=item, new=1)
+
+    def finish(self, ctx, conn, run, status, now):
+        return pipeline.EnrichSummary(run.run_id, len(self.items), run.n_requests, run.n_new, 0,
+                                      run.errors)
+
+
+def fetch_run(conn, run_id):
+    return conn.execute("SELECT source, scope, status, n_requests, n_observations, n_new, error, "
+                        "archive_key FROM fetch_runs WHERE id = ?", (run_id,)).fetchone()
+
+
+@pytest.mark.parametrize("items, status", [
+    ([2, 3], "ok"), ([2, ValueError("down")], "partial"), ([ValueError("down")], "failed")])
+def test_a_step_gets_its_own_archived_run_row_with_the_items_counts(ctx, items, status):
+    conn = pipeline.open_db(ctx)
+    summary = pipeline.run_step(ctx, conn, Step(items))
+    row = fetch_run(conn, summary.run_id)
+    answered = [i for i in items if not isinstance(i, Exception)]
+    assert tuple(row)[:6] == ("test-source", "test", status, len(items), sum(answered), len(answered))
+    assert row["archive_key"] and (row["error"] is None) == (status == "ok")
+    assert summary.errors == [f"item {n}: down" for n, i in enumerate(items) if isinstance(i, Exception)]
+
+
+def test_a_step_that_raises_closes_its_row_as_failed_and_never_raises(ctx):
+    conn = pipeline.open_db(ctx)
+    summary = pipeline.run_step(ctx, conn, Step([2, 3, 4], boom=True))
+    assert summary == pipeline.StepFailed("Test step", "RuntimeError: step broke")
+    assert summary.line() == "Test step: failed (RuntimeError: step broke)" and summary.errors == []
+    [row] = conn.execute("SELECT status, n_requests, n_observations, error FROM fetch_runs "
+                         "WHERE source = 'test-source'").fetchall()
+    assert tuple(row) == ("failed", 2, 2, "RuntimeError: step broke")
+
+
+def test_an_archive_failure_is_listed_and_makes_the_row_partial(ctx, monkeypatch):
+    conn = pipeline.open_db(ctx)
+
+    def no_archive(*args):
+        raise OSError("bucket down")
+    monkeypatch.setattr(pipeline.archive, "write_run", no_archive)
+    summary = pipeline.run_step(ctx, conn, Step([2]))
+    assert summary.errors == ["archive: bucket down"]
+    assert fetch_run(conn, summary.run_id)["status"] == "partial"
