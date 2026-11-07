@@ -3661,3 +3661,35 @@ so nothing has to be hosted.
   to config `site.base_url`, in the brand-switch runbook), never a hard-coded host (D35).
 - **The expired-promotions window counts from `expired_at`** (D56), not from the last check: a
   re-evaluation's expiry has its own, later time (`tests/test_site_data.py`).
+
+## D63: One seam for the run steps that never fail the run (2026-11-07)
+- **Context:** D62's architecture pass ranked it the first refactor by value and risk. Four
+  steps with their own run row (the airlines D47, the probe's import D48, the enrichment D43,
+  the special offers D46) each repeated `db.start_run` → items appending `errors` →
+  `archive.write_run` in a try → ok/partial/failed → `db.finish_run` → a summary (CC 15–16 for
+  three of them), and `cli.py` caught "never fails the run" per step in five wrappers and three
+  `_report_*` helpers, two of which (enrichment, special offers) did not catch at all although
+  CLAUDE.md said they never fail the run.
+- **Decision:** `pipeline.RunStep` (a Protocol: `name` and `scope` = the run row's source and
+  scope, `label` = the report's name; `plan` before any row, a summary when there is nothing to
+  ask; `run` records each item on a `StepRun` with `store` / `answer` / `fail`; `archived` after
+  the archive object; `finish` for the step's bookkeeping and its summary) and one
+  `pipeline.run_step(ctx, conn, step, now)` that owns the row, the archive, the status (ok
+  without errors, partial when some item answered, else failed; `StepRun.stopped` = a wall
+  ended the pass, the row fails, D47's `blocked`) and the closing counts. Every summary is a
+  `StepSummary` with `describe()` and `line()` (the report's line: `describe()`, or
+  "Airlines: …" for the airline step); `cli._step` prints it with its errors (the five names
+  `cli._airlines` … `_special_offers` stay, one line each over it). `pipeline.guard`
+  turns an exception into `StepFailed` ("<label>: failed (Type: message)", red), so
+  `run_step` never raises; `run_probe_wanted` (no run row) uses the same guard.
+- **Behaviour:** unchanged for every report line, run row (source, scope, status, counts) and
+  archive key (`tests/test_run_steps.py` pinned the lines on the old code first). Three
+  deliberate differences, all on the error path: an unexpected error inside a step now closes
+  its row as failed with the error instead of leaving it open; the enrichment and the special
+  offers now never fail the run, as documented; the `airlines`, `enrich` and `special-offers`
+  commands print the failed line and exit 1 instead of a traceback.
+- **Not ported:** `collector/runner.collect` keeps its own loop: it sits below `pipeline` (the
+  seam would be an import cycle), takes an `ObjectStore` rather than a `Context`, returns the
+  archive key and runs its requests on a thread pool with a result per request that
+  `run_collect` and the daily pass read; a collection that fails entirely fails the run, the
+  opposite of these steps.

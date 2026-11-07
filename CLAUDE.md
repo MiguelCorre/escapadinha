@@ -524,7 +524,16 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `open_copy` (read-only → memory), `replay` (rule sets × runs → `Replay`, candidates judged by
   the recheck within 24 h and in hindsight), `rule_sets` presets, `state`, `markdown`/`to_json`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
-  `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...)
+  `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...). The run
+  steps with their own run row that never fail the run (D63: `run_airlines`,
+  `run_probe_import`, `run_enrich`/`enrich_offers`, `run_special_offers`) are each a `RunStep`
+  (`plan`, `run` on a `StepRun`, `archived`, `finish`) run by `run_step`, the one owner of the
+  row, its archive, status and counts; an error becomes `StepFailed` (`guard`, also around
+  `run_probe_wanted`). Every summary is a `StepSummary` (`describe()`, `line()`); a new such
+  step is a `RunStep`, never another loop
+- `src/escapadinha/cli.py`: the Typer commands and `run` (`_run_steps`, `_pipeline_steps`);
+  `_step` prints a run step's `line()` and errors (the one wrapper, D63; `_airlines`,
+  `_probe_import`, `_probe_wanted`, `_enrich`, `_special_offers` are one-line names over it)
 - `src/escapadinha/auto_review.py`: the automatic approval's pure rules (D46: `disqualified`, `ACTOR`,
   `NOTE`, `summary`; no daily cap, D51); wired by `pipeline.run_auto_approve`
 - `src/escapadinha/review.py`: status transitions + `check_decision`; `review_events.py`: event log (write,

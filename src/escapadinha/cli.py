@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -140,60 +142,51 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
                       f"({escape(reason)})")
 
 
-def _airlines() -> str:
-    """The run's airline step (D47) and its report line; an unexpected error is reported, never
-    raised (the cache's collection already happened and the run goes on)."""
+def _step(run: Callable[[Context, sqlite3.Connection], pipeline.StepSummary], *,
+          command: bool = False) -> str:
+    """One of the run's steps that never fail it (D63: the airlines, the probe's import and
+    list, the enrichment, the special offers): its one report line, printed with its errors
+    under it. A step that raised prints its "failed" line in red; as a command, it exits 1."""
     ctx, conn = _ctx()
-    try:
-        return _report_airlines(pipeline.run_airlines(ctx, conn))
-    except Exception as exc:
-        line = f"Airlines: failed ({type(exc).__name__}: {exc})"
-        console.print(f"[red]{escape(line)}[/]")
-        return line
-
-
-def _report_airlines(summary: pipeline.AirlinesSummary) -> str:
-    line = f"Airlines: {summary.describe()}"
-    console.print(line)
+    summary = run(ctx, conn)
+    line = summary.line()
+    failed = isinstance(summary, pipeline.StepFailed)
+    console.print(f"[red]{escape(line)}[/]" if failed else line)
     for err in summary.errors:
         console.print(f"  [red]✗[/] {escape(err)}")
+    if failed and command:
+        raise typer.Exit(1)
     return line
+
+
+# The run's steps that never fail it, by name (the run's order is `_pipeline_steps`; tests
+# stub them one by one).
+
+def _airlines() -> str:
+    return _step(pipeline.run_airlines)
+
+
+def _probe_import() -> str:
+    return _step(pipeline.run_probe_import)
+
+
+def _probe_wanted() -> str:
+    return _step(pipeline.run_probe_wanted)
+
+
+def _enrich() -> str:
+    return _step(pipeline.run_enrich)
+
+
+def _special_offers() -> str:
+    return _step(pipeline.run_special_offers)
 
 
 @app.command("airlines")
 def airlines() -> None:
     """The airlines' own fare finders for the hot list (D47): Ryanair's cheapest round trips
     per departure day on the open promotions' months and the next pairs of the rotation."""
-    ctx, conn = _ctx()
-    _report_airlines(pipeline.run_airlines(ctx, conn))
-
-
-def _probe_import() -> str:
-    """The run's import of the PC probe's results (D48) and its report line; never raises."""
-    ctx, conn = _ctx()
-    try:
-        summary = pipeline.run_probe_import(ctx, conn)
-    except Exception as exc:
-        line = f"Probe results: failed ({type(exc).__name__}: {exc})"
-        console.print(f"[red]{escape(line)}[/]")
-        return line
-    console.print(summary.describe())
-    for err in summary.errors:
-        console.print(f"  [red]✗[/] {escape(err)}")
-    return summary.describe()
-
-
-def _probe_wanted() -> str:
-    """The run's list for the PC probe (D48) and its report line; never raises."""
-    ctx, conn = _ctx()
-    try:
-        line = pipeline.run_probe_wanted(ctx, conn).describe()
-    except Exception as exc:
-        line = f"Probe list: failed ({type(exc).__name__}: {exc})"
-        console.print(f"[red]{escape(line)}[/]")
-        return line
-    console.print(line)
-    return line
+    _step(pipeline.run_airlines, command=True)
 
 
 def _probe_profile(ctx: Context) -> Path:
@@ -284,33 +277,11 @@ def probe_status() -> None:
         console.print("Lista a pesquisar: ainda não foi escrita pelo pipeline.")
 
 
-def _special_offers() -> str:
-    """The run's special-offers step (D46) and its report line."""
-    ctx, conn = _ctx()
-    return _report_special_offers(pipeline.run_special_offers(ctx, conn))
-
-
-def _report_special_offers(summary: pipeline.SpecialOffersSummary) -> str:
-    if summary.run_id is None and not summary.deals:
-        line = "Special offers: nothing to ask (no open deals)"
-    elif summary.run_id is None:
-        line = f"Special offers: skipped ({summary.deals} open deals)"
-    else:
-        line = (f"Special offers: {summary.queried} GraphQL requests, {summary.flagged} of "
-                f"{summary.deals} open deals on Aviasales' list"
-                + (f", {len(summary.errors)} failed" if summary.errors else ""))
-    console.print(line)
-    for err in summary.errors:
-        console.print(f"  [red]✗[/] {escape(err)}")
-    return line
-
-
 @app.command("special-offers")
 def special_offers() -> None:
     """Ask Aviasales' special-offers list about every open deal (D46): their own discount shows
     on the review pages as a second opinion, never as a price. The run does this after enrichment."""
-    ctx, conn = _ctx()
-    _report_special_offers(pipeline.run_special_offers(ctx, conn))
+    _step(pipeline.run_special_offers, command=True)
 
 
 def _auto_approve() -> list[str]:
@@ -346,30 +317,7 @@ def auto_approve() -> None:
 def enrich(run_id: Annotated[int | None, typer.Option(help="Run to enrich (default: latest)")] = None) -> None:
     """Baggage, selling agency and exact found time for the run's low prices and promotion
     candidates, from the Aviasales GraphQL API (D43). Fields stay unknown without a match."""
-    ctx, conn = _ctx()
-    _report_enrich(pipeline.run_enrich(ctx, conn, run_id))
-
-
-def _enrich() -> str:
-    """The run's enrichment step (D43) and its report line."""
-    ctx, conn = _ctx()
-    return _report_enrich(pipeline.run_enrich(ctx, conn))
-
-
-def _report_enrich(summary: pipeline.EnrichSummary) -> str:
-    if summary.run_id is None and not summary.offers:
-        line = "Enrichment: nothing to ask (no new low prices or candidates)"
-    elif summary.run_id is None:
-        line = f"Enrichment: skipped ({summary.offers} offers)"
-    else:
-        line = (f"Enrichment: {summary.queried} GraphQL requests, {summary.matched} of "
-                f"{summary.offers} offers matched"
-                + (f", {summary.skipped} left for the next run" if summary.skipped else "")
-                + (f", {len(summary.errors)} failed" if summary.errors else ""))
-    console.print(line)
-    for err in summary.errors:
-        console.print(f"  [red]✗[/] {escape(err)}")
-    return line
+    _step(lambda ctx, conn: pipeline.run_enrich(ctx, conn, run_id), command=True)
 
 
 @app.command("recheck")
