@@ -122,7 +122,7 @@ def test_every_run_of_the_pipeline_workflow_is_a_real_run():
     fallback can count every run in their window."""
     on = workflow("pipeline.yml")["on"]
     assert "schedule" not in on
-    assert set(on) == {"workflow_dispatch", "repository_dispatch"}
+    assert set(on) == {"workflow_dispatch"}                       # D62: the Function's too
 
 
 def test_the_fallback_runs_the_workers_tick_with_its_own_token_and_window():

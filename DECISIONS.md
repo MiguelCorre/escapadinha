@@ -3627,3 +3627,37 @@ so nothing has to be hosted.
   gets the same check before the flag stays. The fixture is the reviewed export (placeholder
   sources), so the fixture build has the thirty-six pages; the configured build keeps its own
   three test breaks.
+
+## D62: What the whole-project review fixed (2026-11-07)
+- **Context:** a two-axis review of the whole repository (standards and spec, with a security
+  and an architecture pass; five sub-agents, master `6fe1be7`) found no critical issue, 850
+  Python and 469 web tests green, and six points worth fixing at once. The remaining findings
+  (the module-size and duplication smells, the unpinned `i18n_pt` ↔ `format.ts` pairs, the
+  cycle `pipeline ↔ review_snapshot ↔ website`, four spec stories without a decision: 32, 33,
+  48, 52) are recorded in the review's report and in the next tickets, not here.
+- **Schema upgrades are one transaction per version** (`db._upgrade`): DDL ran in autocommit
+  and `user_version` was stamped only after every version, so a job killed mid-migration pushed
+  a half-migrated database that every later run failed to open (`duplicate column`). Now each
+  version's steps and its stamp commit together, or roll back together; a callable step must
+  not commit by itself (v7's `_dedupe_observations` is the historical exception: it rebuilds a
+  table with foreign keys off). `tests/test_migrations.py`.
+- **The review Function starts the pipeline with `workflow_dispatch`, not
+  `repository_dispatch`:** the latter needs a token with *Contents: write*, which lived on a host
+  that is not behind Access and in a Function that talks to two third parties; a leak would have
+  been a push to `master`, i.e. a pipeline run with every secret. `workflow_dispatch` of
+  `pipeline.yml` with `full: true` is the scheduler Worker's call and needs *Actions: write*
+  only. `pipeline.yml`'s only trigger is `workflow_dispatch` (`tests/test_workflow.py`); the
+  `full-run` event type is gone (`gh workflow run pipeline.yml -f full=true` replaces it).
+  **Miguel:** a new fine-grained PAT with *Actions: read and write* only, into the Pages secret
+  `GITHUB_DISPATCH_TOKEN`, and the old one revoked (`docs/runbooks/review-phone.md`); until
+  then a decision's dispatch fails and the next scheduled run (≤ 30 min) applies it.
+- **One shown price per promotion page:** after a recheck that held a promotion through a rise
+  within tolerance (D53) the summary showed the latest verified price while the Trip's Offer
+  (JSON-LD) carried the detection's. `PromotionView.priceEur` is the one amount, on `obs`;
+  `promotionLd` and `PriceVerdict` read it (`web/test/structured-data.test.ts`).
+- **"Também visto" on the review page puts each price on its observation** (D47 said so; the
+  site did, `page.ts` did not): `web/test/review/page.test.ts`.
+- **The refused-access message names the queue from `SITE_BASE_URL`** (a Pages variable equal
+  to config `site.base_url`, in the brand-switch runbook), never a hard-coded host (D35).
+- **The expired-promotions window counts from `expired_at`** (D56), not from the last check: a
+  re-evaluation's expiry has its own, later time (`tests/test_site_data.py`).

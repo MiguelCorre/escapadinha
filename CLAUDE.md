@@ -115,7 +115,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   only: it never changes a status (the applier does, D26). Every request must pass
   `access.verifyAccess` (RS256 Access JWT: signature against the team's certs, `aud` =
   `ACCESS_AUD`, `iss`, `exp`; the pages.dev host is not behind Access, so the header's presence
-  proves nothing). Keep `handler.handle(request, env, deps)` pure (clock, fetch, UUIDs, key cache
+  proves nothing). A refused request names the queue's address from `SITE_BASE_URL` (= config
+  `site.base_url`, D62), never a hard-coded host; after a decision it starts the pipeline with a
+  `workflow_dispatch` of `pipeline.yml` (`full: true`), so `GITHUB_DISPATCH_TOKEN` needs
+  *Actions: write* only (D62). Keep `handler.handle(request, env, deps)` pure (clock, fetch, UUIDs, key cache
   injected) and tested in `web/test/review/` on the in-memory bucket. Its live check is a port of
   `pipeline.price_now` + `recheck.recheck`: change both sides together and keep
   `contract/review/v1/fixtures/live-check-cases.json` passing on both (`tests/test_live_check_cases.py`,
@@ -499,9 +502,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `mirror.py`: `Mirror` (a local folder also kept under a store prefix: `photos/`, `output/`)
 - `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint` incl. `site_data_digest`,
   `record_full_path(ctx, conn, export)`: records the export the full path wrote, never a re-read)
-- `.github/workflows/pipeline.yml`: `escapadinha run` on Actions, dispatched every 2 h (D41);
-  `full` input or `repository_dispatch` → `--full` (D25). `pipeline-fallback.yml`: the schedule's
-  fallback (D41)
+- `.github/workflows/pipeline.yml`: `escapadinha run` on Actions, dispatched every 30 min (D41,
+  D46); its only trigger is `workflow_dispatch`, `full` input → `--full` (D25; the review
+  Function sends it after a decision, D62). `pipeline-fallback.yml`: the schedule's fallback (D41)
 - `docker/probe/`: the probe's container (D50): `Dockerfile` (Python 3.14, `uv sync --frozen`,
   `playwright install --with-deps chrome`, `xvfb-run … escapadinha probe`), `compose.yaml`
   (volume `pontonomada-probe` at `/root/.pontonomada`, `env_file` `.env`); `.dockerignore` at the root

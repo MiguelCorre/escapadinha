@@ -74,15 +74,21 @@ export async function pendingEvents(store: Bucket, snapshot: Snapshot): Promise<
   return events.sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
-/** One repository_dispatch (`review-decision`) so the pipeline applies the event within minutes
- * (D25). Returns null when GitHub accepted it, else the reason in pt-PT, without the response
- * text (the event stays pending). */
-export async function dispatch(event: ReviewEvent, { token, repository, fetch: fetchFn }: {
+/** The branch the pipeline runs on. */
+export const BRANCH = "master";
+export const WORKFLOW = "pipeline.yml";
+
+/** One workflow_dispatch of pipeline.yml (`full: true`) so the pipeline applies the event within
+ * minutes (D25, D62: the same call the scheduler Worker makes, so the token needs *Actions:
+ * write* only, never write access to the repository's contents). Returns null when GitHub
+ * accepted it, else the reason in pt-PT, without the response text (the event stays pending).
+ * The event itself travels through the store, never through GitHub. */
+export async function dispatch(_event: ReviewEvent, { token, repository, fetch: fetchFn }: {
   token: string; repository: string; fetch: typeof fetch;
 }): Promise<string | null> {
   if (!token) return "falta o token do GitHub (GITHUB_DISPATCH_TOKEN)";
   try {
-    const res = await fetchFn(`https://api.github.com/repos/${repository}/dispatches`, {
+    const res = await fetchFn(`https://api.github.com/repos/${repository}/actions/workflows/${WORKFLOW}/dispatches`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -91,8 +97,7 @@ export async function dispatch(event: ReviewEvent, { token, repository, fetch: f
         "User-Agent": "pontonomada-review",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ event_type: "review-decision",
-        client_payload: { event_id: event.id, deal_id: event.deal_id, type: event.type } }),
+      body: JSON.stringify({ ref: BRANCH, inputs: { full: "true" } }),
     });
     return res.status === 204 || res.ok ? null : `o GitHub respondeu com o erro HTTP ${res.status}`;
   } catch {

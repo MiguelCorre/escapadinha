@@ -104,7 +104,7 @@ const trip = promotionLd(data, promotion, view, description);
 
       <div class="mt-lg"><PriceBlock view={view} size="page" /></div>
       {view.live && route && (
-        <PriceVerdict price={promotion.latest?.price ?? promotion.offer.price} route={route}
+        <PriceVerdict price={view.priceEur} route={route}
           departure={promotion.offer.departure} det={data.meta.detector} />
       )}
 

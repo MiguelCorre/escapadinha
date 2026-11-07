@@ -58,6 +58,8 @@ export interface PromotionView extends Place {
   path: string;
   live: boolean;
   price: EurParts;            // {amount: "86", currency: "€", text: "86 €"}
+  priceEur: number;           // the same amount as a number: the one price the page, its verdict
+                              // and its Offer (JSON-LD) all show, on `obs`
   /** {sign: "−", value: "44%", text: "−44%"}; median rule only (no "% below" claim without a
    * typical low). */
   discount: DiscountParts | null;
@@ -157,6 +159,7 @@ export function promotionView(data: SiteData, p: Promotion): PromotionView {
     path: p.path,
     live: p.live,
     price: eurParts(shown.price),
+    priceEur: shown.price,
     discount,
     typicalLow: p.typical_low != null ? eur(p.typical_low) : null,
     month: monthName(o.departure),

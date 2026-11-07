@@ -9,8 +9,12 @@ describe("Access", () => {
     const w = await world();
     const res = await handle(get("/review"), w.env, w.deps);
     expect(res.status).toBe(403);
-    expect(await res.text()).toContain("Acesso negado");
+    const body = await res.text();
+    expect(body).toContain("Acesso negado");
+    expect(body).toContain("Abre a fila em https://example.test/review e entra");   // from SITE_BASE_URL (D62)
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const bare = await handle(get("/review"), { ...w.env, SITE_BASE_URL: undefined }, w.deps);
+    expect(await bare.text()).toContain("Abre a fila no domínio do site e entra");
   });
 
   it("serves the queue with a valid token", async () => {

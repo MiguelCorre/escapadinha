@@ -138,7 +138,7 @@ export class FakeNet {
 
 export const CERTS = `https://${TEAM}/cdn-cgi/access/certs`;
 export const PRICES = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates";
-export const DISPATCH = "https://api.github.com/repos/MiguelCorre/escapadinha/dispatches";
+export const DISPATCH = "https://api.github.com/repos/MiguelCorre/escapadinha/actions/workflows/pipeline.yml/dispatches";
 
 /** A Travelpayouts v3 item (the fields the pipeline reads). */
 export function item(price: number, over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -214,7 +214,7 @@ export async function world(snap: Record<string, any> | null = snapshot()): Prom
     .on(DISPATCH, () => new Response(null, { status: 204 }));
   const env: Env = {
     ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, GITHUB_DISPATCH_TOKEN: "gh-test-token",
-    TRAVELPAYOUTS_TOKEN: "tp-test-token", STORE: store,
+    TRAVELPAYOUTS_TOKEN: "tp-test-token", SITE_BASE_URL: "https://example.test/", STORE: store,
   };
   const deps: Deps = {
     fetch: net.fetch, now: () => NOW,

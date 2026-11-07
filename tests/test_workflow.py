@@ -23,7 +23,9 @@ def test_triggers_on_demand_only():
     on = load()["on"]
     assert "schedule" not in on
     assert on["workflow_dispatch"]["inputs"]["full"]["type"] == "boolean"
-    assert set(on["repository_dispatch"]["types"]) >= {"review-decision", "full-run"}
+    # D62: the review Function dispatches this workflow too (`full: true`), so the only trigger
+    # is workflow_dispatch and no token with write access to the repository's contents exists.
+    assert set(on) == {"workflow_dispatch"}
 
 
 def test_runs_never_overlap_and_end_before_the_lock_expires():
@@ -58,7 +60,7 @@ def test_dispatch_forces_the_full_path_and_the_rest_decides_in_python():
     run_steps = [s for s in job["steps"] if "escapadinha run" in s.get("run", "")]
     assert len(run_steps) == 1
     step = run_steps[0]
-    assert "repository_dispatch" in step["env"]["FULL"] and "inputs.full" in step["env"]["FULL"]
+    assert "inputs.full" in step["env"]["FULL"] and "repository_dispatch" not in step["env"]["FULL"]
     assert "--full" in step["run"]
 
 

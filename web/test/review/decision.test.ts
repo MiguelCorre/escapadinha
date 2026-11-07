@@ -1,6 +1,6 @@
 // Decisions from the phone (#9, D29): the Function writes one review event per decision
 // (contract/review/v1/event.schema.json) under review/events/pending/, then fires exactly one
-// repository_dispatch. It never changes a status: the pipeline's applier does (D26).
+// workflow_dispatch of pipeline.yml (D62: the token needs Actions: write only). It never changes a status: the pipeline's applier does (D26).
 import { describe, expect, it } from "vitest";
 import { handle } from "../../functions/_lib/review/handler";
 import { DISPATCH, deal, EMAIL, item, post, PRICES, pricesPayload, schemaErrors, snapshot, world } from "./helpers";
@@ -34,8 +34,7 @@ describe("approve", () => {
     expect(dispatches[0].method).toBe("POST");
     expect(dispatches[0].headers.get("Authorization")).toBe("Bearer gh-test-token");
     expect(dispatches[0].headers.get("User-Agent")).toBeTruthy();
-    expect(JSON.parse(dispatches[0].body!)).toEqual({
-      event_type: "review-decision", client_payload: { event_id: event.id, deal_id: 7, type: "approve" } });
+    expect(JSON.parse(dispatches[0].body!)).toEqual({ ref: "master", inputs: { full: "true" } });
     expect(body).toMatchObject({ ok: true, dispatched: true, event_id: event.id });
     expect(body.message).toContain("58 €");
   });
