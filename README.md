@@ -798,7 +798,8 @@ the WhatsApp text (when the snapshot has it) with copy buttons.
   more than 24 h after its check is refused, as everywhere (D26).
 
 Setup (done once by Miguel, in the dashboards): an Access application on `pontonomada.pt/review`;
-on the Pages project (Production) the variables `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, the secrets
+on the Pages project (Production) the variables `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`,
+`SITE_BASE_URL` (= config `site.base_url`, named when a request is refused), the secrets
 `GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, *Actions: read and write* only, D62) and
 `TRAVELPAYOUTS_TOKEN`, and the R2 binding `STORE` to the pipeline's bucket. The Function checks the
 Access token itself (signature, audience, issuer, expiry), because `ondestaanocas.pages.dev` is not

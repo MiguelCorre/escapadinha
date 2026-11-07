@@ -108,6 +108,9 @@ Podes pedir-me isto ("liga o site ao pontonomada.pt") ou fazer tu:
 - [ ] Confirma em https://pontonomada.pt (ver código-fonte da página): o `<link rel="canonical"`
       e o `sitemap.xml` já usam `https://pontonomada.pt`.
 - [ ] Faz commit da alteração ao `config.yaml`.
+- [ ] Cloudflare → **Workers & Pages** → o projeto do site → **Settings** → **Variables and
+      Secrets** (Production): `SITE_BASE_URL` = `https://pontonomada.pt` (o mesmo valor; a fila
+      de aprovação nomeia-o quando recusa um acesso, D62) e volta a publicar.
 
 A partir daqui, o ficheiro `_headers` gerado marca os endereços antigos como `noindex`, para o
 Google indexar só o domínio novo, mesmo antes do passo 6.

@@ -40,9 +40,9 @@ function refused(exc: unknown): Response {
   throw exc;
 }
 
-function refuse(reason: string): Response {
-  return text(`Acesso negado: ${reason}. Abre a fila em https://pontonomada.pt/review e entra com `
-    + "o código enviado por e-mail.", 403);
+function refuse(reason: string, env: Env): Response {
+  const where = env.SITE_BASE_URL ? `em ${env.SITE_BASE_URL.replace(/\/+$/, "")}/review` : "no domínio do site";
+  return text(`Acesso negado: ${reason}. Abre a fila ${where} e entra com o código enviado por e-mail.`, 403);
 }
 
 function findDeal(snapshot: Snapshot, id: number): SnapshotDeal | undefined {
@@ -190,7 +190,7 @@ export async function handle(request: Request, env: Env, deps: Deps): Promise<Re
     actor = await verifyAccess(request.headers.get(HEADER),
       { teamDomain: env.ACCESS_TEAM_DOMAIN, aud: env.ACCESS_AUD }, deps);
   } catch (exc) {
-    return refuse(exc instanceof AccessError ? exc.message : "não foi possível verificar o acesso agora");
+    return refuse(exc instanceof AccessError ? exc.message : "não foi possível verificar o acesso agora", env);
   }
 
   const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";

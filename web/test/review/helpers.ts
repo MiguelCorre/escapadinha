@@ -214,7 +214,7 @@ export async function world(snap: Record<string, any> | null = snapshot()): Prom
     .on(DISPATCH, () => new Response(null, { status: 204 }));
   const env: Env = {
     ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, GITHUB_DISPATCH_TOKEN: "gh-test-token",
-    TRAVELPAYOUTS_TOKEN: "tp-test-token", STORE: store,
+    TRAVELPAYOUTS_TOKEN: "tp-test-token", SITE_BASE_URL: "https://example.test/", STORE: store,
   };
   const deps: Deps = {
     fetch: net.fetch, now: () => NOW,
