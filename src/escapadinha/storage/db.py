@@ -204,12 +204,31 @@ def init(conn: sqlite3.Connection) -> None:
         raise RuntimeError(f"Database schema v{current} is newer than this code (v{SCHEMA_VERSION})")
     if current == 0:
         conn.executescript(files("escapadinha.storage").joinpath("schema.sql").read_text("utf-8"))
-    else:
-        for version in range(current + 1, SCHEMA_VERSION + 1):
-            for step in MIGRATIONS[version]:
-                step(conn) if callable(step) else conn.execute(step)
-    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
+        return
+    for version in range(current + 1, SCHEMA_VERSION + 1):
+        _upgrade(conn, version)
+
+
+def _upgrade(conn: sqlite3.Connection, version: int) -> None:
+    """One version, one transaction: its steps and its `user_version` stamp commit together, so a
+    run killed half-way (the job's timeout, a lost runner) leaves the database at the version
+    before, with nothing of this one applied, and the next run starts it over instead of failing
+    on a column that already exists. DDL runs in autocommit under sqlite3's legacy transaction
+    control, hence the explicit BEGIN. A callable step must not commit or roll back by itself
+    (`_dedupe_observations`, v7, is the historical exception: it rebuilds a table with foreign
+    keys off, which only works outside a transaction, so it commits its own work)."""
     conn.commit()
+    conn.execute("BEGIN")
+    try:
+        for step in MIGRATIONS[version]:
+            step(conn) if callable(step) else conn.execute(step)
+        conn.execute(f"PRAGMA user_version = {version}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 # --- fetch runs -------------------------------------------------------------
@@ -1182,7 +1201,6 @@ def _backfill_promotions(conn: sqlite3.Connection) -> None:
     conn.execute("""UPDATE posting_queue SET promotion_id =
                         (SELECT promotion_id FROM deals WHERE deals.id = posting_queue.deal_id)
                     WHERE promotion_id IS NULL""")
-    conn.commit()
 
 
 MIGRATIONS[18].append(_backfill_promotions)
@@ -1217,7 +1235,6 @@ def _backfill_expiries(conn: sqlite3.Connection) -> None:
     if rows:
         conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
                      (EXPIRIES_BACKFILLED_KEY, max(r["at"] for r in rows)))
-    conn.commit()
 
 
 MIGRATIONS[19].append(_backfill_expiries)
