@@ -302,10 +302,15 @@ def test_a_published_promotion_carries_its_instagram_post(exported, tmp_path, po
 
 
 def test_expired_promotions_leave_the_export_after_the_configured_window(exported):
-    """`site.expired_promotions_days` (default 30) after it expired; live ones always stay."""
+    """`site.expired_promotions_days` (default 30) after it expired (`expired_at`, D56: a
+    re-evaluation's expiry has its own time, later than the deal's last check); live ones always
+    stay."""
     ctx, conn, s, _, _ = exported
     assert ctx.config.site.expired_promotions_days == 30
-    expired_at = db.get_deal(conn, s.expired_deal)[0].last_checked_at
+    last_checked = db.get_deal(conn, s.expired_deal)[0].last_checked_at
+    expired_at = last_checked + timedelta(days=2)
+    conn.execute("UPDATE deals SET expired_at = ? WHERE id = ?", (expired_at.isoformat(), s.expired_deal))
+    conn.commit()
 
     def exported_ids(days_later: float) -> list[int]:
         export = site_data.build_export(ctx, conn, expired_at + timedelta(days=days_later),

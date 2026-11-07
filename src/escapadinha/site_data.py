@@ -499,11 +499,12 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
 
 
 def _in_window(deal: Deal, now: datetime, days: int) -> bool:
-    """Live promotions always; expired ones until `days` after they expired (the recheck that
-    expired them is their last check)."""
+    """Live promotions always; expired ones until `days` after they expired: `expired_at` (D56,
+    every expiry writes it; a re-evaluation's has its own time, later than the deal's last
+    check), with the pre-v19 fallbacks the backfill used."""
     if deal.status in LIVE:
         return True
-    expired_at = deal.last_checked_at or deal.detected_at
+    expired_at = deal.expired_at or deal.last_checked_at or deal.detected_at
     return now - expired_at <= timedelta(days=days)
 
 
