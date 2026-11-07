@@ -138,7 +138,7 @@ export class FakeNet {
 
 export const CERTS = `https://${TEAM}/cdn-cgi/access/certs`;
 export const PRICES = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates";
-export const DISPATCH = "https://api.github.com/repos/MiguelCorre/escapadinha/dispatches";
+export const DISPATCH = "https://api.github.com/repos/MiguelCorre/escapadinha/actions/workflows/pipeline.yml/dispatches";
 
 /** A Travelpayouts v3 item (the fields the pipeline reads). */
 export function item(price: number, over: Record<string, unknown> = {}): Record<string, unknown> {

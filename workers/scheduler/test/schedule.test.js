@@ -102,7 +102,7 @@ describe("skip logic", () => {
   test("a run created within the window serves the tick, whatever its event or outcome", async () => {
     for (const recent of [
       run(10),                                                    // the last tick's own, done
-      run(44, { event: "repository_dispatch" }),                  // a review decision
+      run(44, { event: "workflow_dispatch", actor: "review" }),   // a review decision (D62)
       run(5, { status: "in_progress", conclusion: null }),        // still running
       run(1, { status: "queued", conclusion: null }),
       run(30, { conclusion: "failure" }),

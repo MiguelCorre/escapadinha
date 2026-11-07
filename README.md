@@ -789,7 +789,8 @@ the WhatsApp text (when the snapshot has it) with copy buttons.
   nothing. **Rejeitar** (optional note) and **Marcar como publicado** (optional post link) need
   no check.
 - Each decision is one event in `review/events/pending/` (actor = your Access e-mail), then one
-  `repository_dispatch` (`review-decision`) starts the pipeline, which applies it within minutes.
+  `workflow_dispatch` of `pipeline.yml` (`full: true`, D62) starts the pipeline, which applies it
+  within minutes.
   If GitHub can't be reached the page says *a decisão ficou guardada; aplica-se no próximo run*:
   the event is kept and the next scheduled run (≤ 30 min) applies it.
 - The page shows when the snapshot was made (and warns when it's over 3 h old), pending decisions
@@ -798,7 +799,7 @@ the WhatsApp text (when the snapshot has it) with copy buttons.
 
 Setup (done once by Miguel, in the dashboards): an Access application on `pontonomada.pt/review`;
 on the Pages project (Production) the variables `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, the secrets
-`GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, *Contents: read and write*) and
+`GITHUB_DISPATCH_TOKEN` (fine-grained PAT, this repo, *Actions: read and write* only, D62) and
 `TRAVELPAYOUTS_TOKEN`, and the R2 binding `STORE` to the pipeline's bucket. The Function checks the
 Access token itself (signature, audience, issuer, expiry), because `ondestaanocas.pages.dev` is not
 behind Access. The step-by-step test from the phone (pt-PT) is
@@ -1341,9 +1342,9 @@ only when needed** → push → unlock.
   gh workflow run pipeline.yml                # like the schedule: the run decides fast or full
   gh workflow run pipeline.yml -f full=true   # full path
   gh run watch                                # follow the run that just started
-  gh api repos/MiguelCorre/escapadinha/dispatches -f event_type=full-run   # like the review Function's review-decision
   ```
-  `repository_dispatch` events of type `review-decision` or `full-run` always take the full path.
+  `full=true` is what the review Function sends after a decision (D62); it always takes the full
+  path. The workflow has no other trigger.
 
 ### Schedule (DECISIONS D41)
 

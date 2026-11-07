@@ -499,9 +499,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `mirror.py`: `Mirror` (a local folder also kept under a store prefix: `photos/`, `output/`)
 - `src/escapadinha/run_path.py`: fast/full decision (`decide`, `fingerprint` incl. `site_data_digest`,
   `record_full_path(ctx, conn, export)`: records the export the full path wrote, never a re-read)
-- `.github/workflows/pipeline.yml`: `escapadinha run` on Actions, dispatched every 2 h (D41);
-  `full` input or `repository_dispatch` → `--full` (D25). `pipeline-fallback.yml`: the schedule's
-  fallback (D41)
+- `.github/workflows/pipeline.yml`: `escapadinha run` on Actions, dispatched every 30 min (D41,
+  D46); its only trigger is `workflow_dispatch`, `full` input → `--full` (D25; the review
+  Function sends it after a decision, D62). `pipeline-fallback.yml`: the schedule's fallback (D41)
 - `docker/probe/`: the probe's container (D50): `Dockerfile` (Python 3.14, `uv sync --frozen`,
   `playwright install --with-deps chrome`, `xvfb-run … escapadinha probe`), `compose.yaml`
   (volume `pontonomada-probe` at `/root/.pontonomada`, `env_file` `.env`); `.dockerignore` at the root

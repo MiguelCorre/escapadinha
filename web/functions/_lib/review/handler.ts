@@ -6,7 +6,7 @@
 //   POST /review/check     {deal_id}       live price check only (writes nothing)
 //   POST /review/decision  {type, deal_id, note?, post_url?}
 //                                          approve | reject | published -> one pending event
-//                                          + one repository_dispatch
+//                                          + one workflow_dispatch of pipeline.yml (D62)
 //
 // Every request needs a valid Cloudflare Access token (access.ts). The Function is a writer of
 // pending review events only: it never changes a status (D26).

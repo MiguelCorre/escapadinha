@@ -15,7 +15,7 @@ export interface Bucket {
 export interface Env {
   ACCESS_TEAM_DOMAIN: string;       // pontonomada.cloudflareaccess.com
   ACCESS_AUD: string;               // AUD tag of the Access application protecting /review
-  GITHUB_DISPATCH_TOKEN: string;    // fine-grained PAT: Contents read/write on the repository
+  GITHUB_DISPATCH_TOKEN: string;    // fine-grained PAT: Actions read/write on the repository (D62)
   TRAVELPAYOUTS_TOKEN: string;
   GITHUB_REPOSITORY?: string;       // owner/name; default MiguelCorre/escapadinha
   STORE: Bucket;                    // R2: the pipeline's bucket (review/snapshot.json, events, slides)

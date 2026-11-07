@@ -78,8 +78,8 @@ faz o teste com **Rejeitar** numa que rejeitarias de qualquer forma.
 
 ## 6. Ver o pipeline aplicar a decisão
 
-- [ ] GitHub → **Actions** → aparece uma execução do **Pipeline** iniciada por
-      **repository_dispatch** segundos depois da tua decisão.
+- [ ] GitHub → **Actions** → aparece uma execução do **Pipeline** (workflow_dispatch, `full:
+      true`) segundos depois da tua decisão.
 - [ ] Quando acabar a verde, recarrega a fila: a promoção passou para **Aprovados** e em
       **Decisões recentes** aparece "aprovar o deal N (o teu e-mail): aplicada".
 - [ ] A promoção aparece no site público (`https://pontonomada.pt/`).
@@ -93,8 +93,9 @@ faz o teste com **Rejeitar** numa que rejeitarias de qualquer forma.
   a aplicação → **Overview**) e que `ACCESS_TEAM_DOMAIN` é `pontonomada.cloudflareaccess.com`
   (sem `https://`). Depois de mudar variáveis, repete o passo 1 (só valem numa publicação nova).
 - **"O aviso ao GitHub falhou (HTTP 401/403/404)":** o `GITHUB_DISPATCH_TOKEN` expirou ou não tem
-  *Contents: Read and write* no repositório `escapadinha`. Cria outro, atualiza o segredo e
-  repete o passo 1. A decisão já guardada é aplicada na próxima execução agendada.
+  *Actions: Read and write* no repositório `escapadinha` (só isso: nunca *Contents*, D62). Cria
+  outro, atualiza o segredo e repete o passo 1. A decisão já guardada é aplicada na próxima
+  execução agendada.
 - **"Não foi possível verificar o preço agora: HTTP 401":** o `TRAVELPAYOUTS_TOKEN` do Pages está
   errado. **HTTP 429:** limite da API; tenta daqui a um minuto.
 - **"Ainda não há snapshot"** ou slides em falta: o binding `STORE` não aponta para o bucket do
