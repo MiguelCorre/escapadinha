@@ -537,7 +537,9 @@ def test_export_command_writes_the_contract_files(ctx, monkeypatch):  # noqa: F8
     result = CliRunner().invoke(cli.app, ["export", "site-data", "--no-new-links"])
     assert result.exit_code == 0, result.output
     out = ctx.root / "web" / "src" / "data"                         # site.data_dir
-    assert "10 routes" in result.output and str(out) in result.output.replace("\n", "")
+    # Rich wraps the line at the terminal's width, wherever the temporary path makes it fall.
+    assert "10 routes" in " ".join(result.output.split())
+    assert str(out) in result.output.replace("\n", "")
     assert read(out, "meta.json")["counts"]["routes"] == 10 and validation_errors(out) == []
     custom = ctx.root / "web-data"
     custom.mkdir()

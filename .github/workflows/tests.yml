@@ -1,0 +1,58 @@
+# The Python tests on every pull request (DECISIONS D64). `web.yml` covers the web package and
+# starts only for its paths; this one has no path filter: the pipeline deploys master every 30
+# minutes with every secret, and config, content and the docs have tests too.
+#
+# No secret here: the repository is public, so a pull request from a fork runs this workflow.
+name: Tests
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONIOENCODING: utf-8
+      ASTRO_TELEMETRY_DISABLED: "1"
+      # The browser test renders real slides: `renderer.ensure_browser` installs Chromium
+      # exactly as a pipeline run does (and falls back the same way when apt fails).
+      ESCAPADINHA_INSTALL_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # Node for the scheduler Worker's own tests (node:test) and the real Astro build that
+      # tests/test_crawl.py crawls; without web/node_modules that test would be skipped.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the web package
+        working-directory: web
+        run: npm ci
+
+      # Restored from the pipeline's cache on master (same key) when the lockfile is unchanged.
+      - name: Cache the Chromium download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Tests
+        run: uv run --no-sync pytest

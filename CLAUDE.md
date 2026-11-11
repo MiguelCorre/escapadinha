@@ -7,6 +7,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 
 ## Commands
 - `uv run pytest`: all tests. `-m "not browser"` skips the Playwright render test.
+  `.github/workflows/tests.yml` runs all of them on every pull request (D64: no path filter,
+  no secret; Chromium through `renderer.ensure_browser`, as in a pipeline run).
 - `uv run escapadinha <cmd>`: CLI (`init-db`, `collect`, `recheck`, `detect`, `enrich`, `stats`, `outcomes`, `routes list|discover`, `photos fetch`,
   `render deals|guide`, `run [--full]`, `review`, `deal check|approve|reject|published`, `auto-approve`,
   `special-offers`, `airlines`, `probe setup|run|status` (the PC, D48, D49), `queue list|retry`,
@@ -282,7 +284,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `site deploy` (`web/dist` + Functions; refuses a fixture build; on success, or skipped as
   unchanged, commits the pending paths) → `record_full_path(ctx, conn, export)`: the export that
   went live, never a re-read) → `export_review_snapshot` on every run, even a failed one. The
-  full path runs only when `run_path.decide` says so. Anything new the site shows must be part of
+  full path runs only when `run_path.decide` says so. A render that raises never stops the site
+  (D64, `cli._render`): the new deals stay unrendered (not approved, not public), the export,
+  the build and the deploy go on, then the run exits 1 without `record_full_path`, so the
+  next run takes the full path and renders. On a runner `renderer.ensure_browser` installs
+  Chromium with apt's packages and, when apt fails, the browser alone. Anything new the site shows must be part of
   `run_path.fingerprint`, or a routine run won't publish it: the exported contract is (component
   `site_data`, minus the per-run fields `site_data.PER_RUN` lists and `site_data.shown_digest`
   drops: never render one of those on a page; a new field that changes every run must be
@@ -504,7 +510,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `record_full_path(ctx, conn, export)`: records the export the full path wrote, never a re-read)
 - `.github/workflows/pipeline.yml`: `escapadinha run` on Actions, dispatched every 30 min (D41,
   D46); its only trigger is `workflow_dispatch`, `full` input → `--full` (D25; the review
-  Function sends it after a decision, D62). `pipeline-fallback.yml`: the schedule's fallback (D41)
+  Function sends it after a decision, D62). `pipeline-fallback.yml`: the schedule's fallback (D41).
+  `tests.yml`: pytest on every pull request (D64; `tests/test_workflow.py` pins it)
 - `docker/probe/`: the probe's container (D50): `Dockerfile` (Python 3.14, `uv sync --frozen`,
   `playwright install --with-deps chrome`, `xvfb-run … escapadinha probe`), `compose.yaml`
   (volume `pontonomada-probe` at `/root/.pontonomada`, `env_file` `.env`); `.dockerignore` at the root

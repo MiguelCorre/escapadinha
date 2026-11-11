@@ -1312,7 +1312,10 @@ only when needed** → push → unlock.
   `Path: fast (nothing the site shows changed)`, `Path: fast (site data changed, rebuilt at most
   every 120 min (last full path 40 min ago))`, `Path: full (changed: promotions, site data)`,
   `Path: full (forced with --full)`. A full path that fails records nothing, so the next run
-  tries again. The first run after Lisbon midnight is always full, so typical lows and
+  tries again. A render that fails (no browser on the runner) is the one failure that does not
+  stop the rest (D64): the report says `Render: failed (…)`, the new deal stays unrendered, the
+  site is still exported, built and deployed (expiries and prices reach it), and the run ends
+  failed, so the next one renders. The first run after Lisbon midnight is always full, so typical lows and
   "Atualizado a" are at most a day old.
 - **Duration and status.** Every run ends with `Run ok in 1 min 52 s.` and writes the same to the
   run's summary page (status, duration, collection counts, path and reason). A failing route or
@@ -1323,10 +1326,18 @@ only when needed** → push → unlock.
 - **Caches.** uv's cache (setup-uv) and the Chromium download (`~/.cache/ms-playwright`, keyed on
   `uv.lock`). Chromium and its system libraries are installed only when slides are rendered
   (`ESCAPADINHA_INSTALL_BROWSER=1`: `playwright install --with-deps chromium` the first time a
-  renderer opens), so the fast path never pays for it. Node 22 for the full path's `npm ci`, the
+  renderer opens), so the fast path never pays for it. When apt fails, the browser is installed
+  alone (D64: the runner image has Chromium's libraries; apt only adds fonts for scripts the
+  slides never use). Node 22 for the full path's `npm ci`, the
   Astro build and `npx wrangler`; the fast path never runs npm. npm's download cache (`~/.npm`,
   keyed on `web/package-lock.json`) is restored on every run (a few seconds) and saved only after
   a full path that ran `npm ci` on a cache miss (`npm_ci=true` in `$GITHUB_OUTPUT`, D35).
+- **Tests on pull requests (D64).** `.github/workflows/tests.yml` runs `uv run pytest` on every
+  pull request, whatever it touches: the browser test (Chromium through the pipeline's own
+  install), the scheduler Worker's Node tests and the crawl of the real Astro build (`npm ci`
+  in `web/`). It holds no secret, so a fork's pull request can run it. `web.yml` stays the web
+  package's own check. Neither is a required check until `master` is protected (*Settings* →
+  *Branches*): only Miguel can set that.
 - **Secrets:** repo → *Settings* → *Secrets and variables* → *Actions* → *New repository
   secret*, one per `.env` key: `TRAVELPAYOUTS_TOKEN`, `TRAVELPAYOUTS_MARKER`, `PIXABAY_API_KEY`,
   `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`,

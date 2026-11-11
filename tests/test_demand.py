@@ -294,22 +294,26 @@ def test_run_collect_narrows_the_daily_pass_by_demand_rank(ctx):  # noqa: F811
 
 # --- schema v16 ----------------------------------------------------------------------------
 
+def v15_database(path: Path) -> None:
+    """A file as schema v15 left it, with one dormant route: the v7 schema and every step such
+    a database went through. Not today's tables with `ALTER TABLE ... DROP COLUMN`: an older
+    SQLite (the GitHub runner's, D64) rewrites the stored text wrongly when the table's last
+    column goes and a comment before it holds a comma, and `deals` has such a comment."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = sqlite3.connect(path)
+    old.executescript((Path(__file__).parent / "fixtures" / "schema_v7.sql").read_text("utf-8"))
+    for version in range(8, 16):
+        for step in db.MIGRATIONS[version]:
+            old.execute(step)
+    old.execute("""INSERT INTO routes (origin, destination, city_pt, kind, status, discovered_at)
+                   VALUES ('FAO', 'DUB', 'Dublin', 'europe', 'dormant', '2026-09-01T00:00:00+00:00')""")
+    old.execute("PRAGMA user_version = 15")
+    old.commit()
+    old.close()
+
+
 def test_upgrade_from_a_v15_database_adds_the_demand_columns_and_keeps_the_routes(ctx):  # noqa: F811
-    conn = pipeline.open_db(ctx)                      # a fresh v16 database with the seeded routes
-    n_routes = len(routes.all_routes(conn, ctx.config.routes))
-    conn.execute("DROP TABLE route_demand")
-    conn.execute("ALTER TABLE routes DROP COLUMN demand_pax_month")
-    conn.execute("ALTER TABLE routes DROP COLUMN demand_period")
-    conn.execute("ALTER TABLE deals DROP COLUMN partner_discount_pct")    # v17 (D46) too
-    conn.execute("ALTER TABLE deals DROP COLUMN partner_offer_at")
-    conn.execute("ALTER TABLE deals DROP COLUMN promotion_id")            # v18 (D53) too
-    conn.execute("ALTER TABLE posting_queue DROP COLUMN promotion_id")
-    conn.execute("DROP TABLE promotions")
-    conn.execute("ALTER TABLE deals DROP COLUMN expired_at")             # v19 (#77) too
-    conn.execute("ALTER TABLE deals DROP COLUMN expired_kind")
-    conn.execute("PRAGMA user_version = 15")
-    conn.commit()
-    conn.close()
+    v15_database(ctx.db_path)
 
     conn = pipeline.open_db(ctx)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 19
@@ -320,10 +324,11 @@ def test_upgrade_from_a_v15_database_adds_the_demand_columns_and_keeps_the_route
     assert columns == {r[1] for r in fresh.execute("PRAGMA table_info(routes)")}
     assert ({r[1] for r in conn.execute("PRAGMA table_info(route_demand)")}
             == {r[1] for r in fresh.execute("PRAGMA table_info(route_demand)")} == {"origin", "destination", "month", "pax"})
-    kept = routes.all_routes(conn, ctx.config.routes)
-    assert len(kept) == n_routes and all(r.demand_pax_month is None for r in kept)
-    db.set_route_demand(conn, {"LIS-LON": demand.Demand(5.0, "2024-12", (("2024-12", 5),))})
-    assert db.route_demand_months(conn) == {"LIS-LON": [("2024-12", 5)]}
+    [kept] = routes.all_routes(conn, ctx.config.routes)
+    assert (kept.key, kept.status, kept.city_pt) == ("FAO-DUB", "dormant", "Dublin")
+    assert kept.demand_pax_month is None and kept.demand_period is None
+    db.set_route_demand(conn, {"FAO-DUB": demand.Demand(5.0, "2024-12", (("2024-12", 5),))})
+    assert db.route_demand_months(conn) == {"FAO-DUB": [("2024-12", 5)]}
     with pytest.raises(sqlite3.IntegrityError):              # months belong to a stored route
         conn.execute("INSERT INTO route_demand VALUES ('XXX', 'YYY', '2024-12', 1)")
 
