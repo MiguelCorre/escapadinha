@@ -15,11 +15,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `instagram token`,
   `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
-- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44|stays|churn]
+- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44|stays|churn|probe]
   [--runs 19-57 | --days 14] [--candidates --state --json out.json]`: the detector backtest (D44),
   read-only on a database copy (`escapadinha.backtest`); `store pull` first. `stays` (D52)
   compares the kinds' nights ranges with the per-destination ones in config; `churn` (D53) the
-  recheck tolerance and the re-flag margin with none.
+  recheck tolerance and the re-flag margin with none; `probe` (D65) the probe's prices
+  against the cache's deals of the same trip (`docs/research/2026-11-11-probe-expiry.md`).
 - `uv run escapadinha outcomes [--days 14] [--json out.json] [--db copy.db]`: the promotion
   outcomes report (D56), read-only on an in-memory copy (`backtest.open_copy`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.

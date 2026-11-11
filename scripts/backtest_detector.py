@@ -4,11 +4,16 @@
     uv run python scripts/backtest_detector.py data/escapadinha.db --preset data-reliability --runs 19-57
     uv run python scripts/backtest_detector.py data/escapadinha.db --days 14 --candidates --json out.json
     uv run python scripts/backtest_detector.py data/escapadinha.db --preset stays --days 14
+    uv run python scripts/backtest_detector.py data/escapadinha.db --preset probe --json out.json
 
 Read-only: the file is opened read-only and copied into memory (`escapadinha.backtest`). Routes
 and the configured detector come from the repository's config.yaml and the copy's `routes`
 table; no network, no secrets. Prints Markdown (the tables of
 docs/research/2026-10-18-detector-backtest.md), optionally the same figures as JSON.
+`--preset probe` replays no detector: it compares every deal from the cache with the PC
+probe's searches of its trip and replays a grid of probe-expiry rules over the deals' lives
+(`backtest.probe_report`, docs/research/2026-11-11-probe-expiry.md; `--runs`/`--days` do
+not apply).
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ REPO = Path(__file__).resolve().parent.parent
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("db", type=Path, help="database copy (opened read-only)")
-    parser.add_argument("--preset", choices=backtest.PRESETS, default="d44",
+    parser.add_argument("--preset", choices=(*backtest.PRESETS, backtest.PROBE_PRESET), default="d44",
                         help="rule sets to compare (default: d44)")
     parser.add_argument("--runs", help="replay these run ids, e.g. 19-57 (default: --days)")
     parser.add_argument("--days", type=int, default=14,
@@ -40,6 +45,14 @@ def main(argv: list[str] | None = None) -> int:
 
     ctx = Context(root=REPO)
     conn = backtest.open_copy(args.db)
+    if args.preset == backtest.PROBE_PRESET:
+        data = backtest.probe_report(backtest.cache_deals(conn), backtest.default_rules(),
+                                     ctx.config.detector.recheck_tolerance_pct,
+                                     controls=backtest.cache_deals(conn, source=backtest.ryanair.SOURCE))
+        sys.stdout.write(backtest.probe_markdown(data))
+        if args.json:
+            args.json.write_text(json.dumps(data, ensure_ascii=False, indent=1), "utf-8")
+        return 0
     all_runs = backtest.completed_runs(conn)
     ids = tuple(int(x) for x in args.runs.split("-")) if args.runs else None
     runs = backtest.select_runs(all_runs, ids=ids, days=args.days)

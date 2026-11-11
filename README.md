@@ -477,11 +477,18 @@ uv run escapadinha store pull
 uv run python scripts/backtest_detector.py data/escapadinha.db --preset d44 --days 14 --candidates --state
 uv run python scripts/backtest_detector.py data/escapadinha.db --preset data-reliability --runs 19-57
 uv run python scripts/backtest_detector.py data/escapadinha.db --preset stays --days 14
+uv run python scripts/backtest_detector.py data/escapadinha.db --preset probe --json probe.json
 ```
 
 The `stays` preset (D52) keeps the detector and compares the kinds' nights ranges alone with the
 per-destination ranges of `routes.overrides`, so a change to a destination's stay length is
 measured like a threshold change.
+
+The `probe` preset (D65) replays no detector: for every cache-source deal the probe searched
+while it was open, it sets the probe's Google Flights and Kayak prices of the same trip against
+the deal's price over time, with the Ryanair-source deals as a control set (their price is the
+airline's own), and grids the expiry rule's margin, age and engines with the false positives
+named by deal (`docs/research/2026-11-11-probe-expiry.md`).
 
 Read-only: the database file is opened read-only and copied into memory. The script replays every
 completed collection run of the window with one rule set per column, judges each candidate with
