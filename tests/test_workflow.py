@@ -96,3 +96,43 @@ def test_the_full_path_can_build_and_deploy_the_astro_site_on_a_fresh_runner():
     assert not any("npm ci" in s.get("run", "") for s in job["steps"])   # Python decides
     repo_web = WORKFLOW.parent.parent.parent / "web"
     assert site_deploy.function_files(repo_web)      # raises on a package import
+
+
+# --- the tests' own workflow (D64) -----------------------------------------------------------
+
+TESTS = WORKFLOW.parent / "tests.yml"
+
+
+def python_workflow() -> dict:
+    wf = yaml.safe_load(TESTS.read_text("utf-8"))
+    wf["on"] = wf.pop(True, wf.get("on"))
+    return wf
+
+
+def test_every_pull_request_runs_the_python_tests():
+    """D64: `web.yml` starts only for the web package and the contract, so PR #96 (src/ and
+    tests/ only) merged with no check at all, onto the branch the pipeline deploys every 30
+    minutes. Every pull request runs pytest, whatever it touches (docs and config have tests
+    too), and nothing is deselected or skipped for a missing tool."""
+    wf = python_workflow()
+    assert set(wf["on"]) == {"pull_request"} and not wf["on"]["pull_request"]     # no path filter
+    [job] = wf["jobs"].values()
+    assert job["timeout-minutes"] <= 20
+    runs = [s.get("run", "") for s in job["steps"]]
+    [pytest_run] = [r for r in runs if "pytest" in r]
+    assert pytest_run.strip() == "uv run --no-sync pytest"       # the browser test too
+    assert any("uv sync --frozen" in r and "--no-dev" not in r for r in runs)
+    uses = {s.get("uses", "").split("@")[0]: s for s in job["steps"]}
+    assert int(uses["actions/setup-node"]["with"]["node-version"]) >= 22   # the Worker's tests
+    assert any("npm ci" in r for r in runs)                      # test_crawl builds the real site
+    # Chromium comes from `renderer.ensure_browser`, the pipeline's own install (and fallback).
+    assert job["env"]["ESCAPADINHA_INSTALL_BROWSER"] == "1"
+    assert not any("playwright install" in r for r in runs)
+
+
+def test_the_tests_workflow_holds_no_secret():
+    """The repository is public: a pull request from a fork runs this workflow."""
+    wf = python_workflow()
+    assert wf["permissions"] == {"contents": "read"}
+    text = TESTS.read_text("utf-8")
+    assert "secrets." not in text and "pull_request_target" not in text

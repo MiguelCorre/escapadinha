@@ -3693,3 +3693,40 @@ so nothing has to be hosted.
   archive key and runs its requests on a thread pool with a result per request that
   `run_collect` and the daily pass read; a collection that fails entirely fails the run, the
   opposite of these steps.
+
+## D64: Python tests on every pull request; a failed render never stops the site (2026-11-11)
+- **Context:** a review of the whole project on 2026-11-11 found two gaps in the automation.
+  (1) The Python tests ran on no pull request: `web.yml` starts only for `web/`, `contract/`
+  and the design assets, so PR #96 (`src/` and `tests/` only) merged with "no checks reported"
+  onto the branch the pipeline deploys every 30 minutes with every secret. The suite had never
+  run on Linux, the pipeline's system. (2) On 2026-11-11 Ubuntu's mirrors did not resolve from
+  the runners for two hours. `playwright install --with-deps chromium` (run by
+  `renderer.ensure_browser` on every full path) failed, the render raised, and four full paths
+  in a row (14:47–16:17 UTC) exported, built and deployed nothing: promotion 419 waited two
+  hours, and so did every expiry and price on the site. The log of those runs shows what apt
+  wanted: nine font packages (`fonts-ipafont-gothic`, `fonts-wqy-zenhei`, `xfonts-*` …);
+  every library Chromium needs was already on the runner image.
+- **Tests workflow:** `.github/workflows/tests.yml`, `uv run pytest` on every pull request,
+  without a path filter (config, content and the docs have tests too) and with nothing
+  deselected or skipped: the browser test, the scheduler Worker's `node --test`, and
+  `tests/test_crawl.py` on the real Astro build (`npm ci` in `web/`). Chromium comes from
+  `ensure_browser` itself (`ESCAPADINHA_INSTALL_BROWSER=1`), so the pipeline's install path is
+  what the check exercises. No secret and `contents: read` only: the repository is public and
+  a fork's pull request runs it. `tests/test_workflow.py` pins all of this.
+- **The browser without apt:** when `--with-deps` fails, `ensure_browser` runs `playwright
+  install chromium` (the download, cached by the workflow) and goes on. The slides embed their
+  own fonts (D22) and are pt-PT; the fonts apt adds are fallbacks for scripts they never use.
+  A browser that cannot be downloaded still raises, and `_installed` stays unset so the next
+  render tries again. No timeout on the apt attempt: it gave up by itself after about ten
+  minutes, well inside the job, and a killed installer could leave apt's children behind.
+- **A failed render never stops the site:** the slides are an input of a *new* promotion, not
+  of the site. `cli._render` turns a render that raised into one red report line
+  (`Render: failed (Type: first line)`); the deals stay `new` (so not approved and not public:
+  the automatic approval takes `rendered` deals only), and the full path goes on with the
+  export, the build and the deploy. Then the run exits 1 and does not call
+  `record_full_path`: GitHub shows the failure, and the next run takes the full path again and
+  renders (`tests/test_actions.py`). Every other failure of the full path stops it as before.
+- **Not done here:** a promotion image made without a browser (Pillow, or at the Astro build)
+  would take Chromium out of the path altogether; that is a redesign of the slides, for its own
+  ticket. Requiring the two checks before a merge needs a protected `master`, which is a
+  repository setting only Miguel changes.
