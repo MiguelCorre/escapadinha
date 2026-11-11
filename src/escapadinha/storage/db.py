@@ -15,7 +15,7 @@ from escapadinha.models import Deal, Observation, Photo, Post, Promotion
 if TYPE_CHECKING:
     from escapadinha.demand import Demand
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -74,6 +74,42 @@ ROUTE_DEMAND_TABLE = """CREATE TABLE IF NOT EXISTS route_demand (
     pax         INTEGER NOT NULL,                    -- 0: no passengers reported that month
     PRIMARY KEY (origin, destination, month),
     FOREIGN KEY (origin, destination) REFERENCES routes (origin, destination)
+)"""
+
+# `deals` as v20 rebuilds it (D65): v19's columns, references and order, with `expired_kind`
+# taking 'contradicted' (outcomes.EXPIRY_KINDS; the test checks it against schema.sql and this).
+# No comments: an older SQLite rewrites a table's text wrongly on DROP COLUMN (D64).
+DEALS_V20 = """CREATE TABLE deals (
+    id              INTEGER PRIMARY KEY,
+    observation_id  INTEGER NOT NULL UNIQUE REFERENCES price_observations(id),
+    rule            TEXT    NOT NULL CHECK (rule IN ('median', 'price_cap')),
+    baseline_median NUMERIC,
+    sample_size     INTEGER NOT NULL,
+    discount_pct    NUMERIC,
+    threshold       NUMERIC NOT NULL,
+    detected_at     TEXT    NOT NULL,
+    status          TEXT    NOT NULL DEFAULT 'new'
+        CHECK (status IN ('new', 'rendered', 'approved', 'rejected', 'published', 'expired')),
+    affiliate_url   TEXT,
+    affiliate_error TEXT,
+    last_checked_at TEXT,
+    last_seen_price NUMERIC,
+    expired_reason  TEXT,
+    output_path     TEXT,
+    reviewed_at     TEXT,
+    review_note     TEXT,
+    published_at    TEXT,
+    post_url        TEXT,
+    baseline_span_days      INTEGER,
+    baseline_lowest_obs_id  INTEGER REFERENCES price_observations(id),
+    baseline_highest_obs_id INTEGER REFERENCES price_observations(id),
+    confidence      TEXT CHECK (confidence IN ('low', 'medium', 'high')),
+    new_low         INTEGER,
+    partner_discount_pct NUMERIC,
+    partner_offer_at     TEXT,
+    promotion_id    INTEGER REFERENCES promotions(id),
+    expired_at      TEXT,
+    expired_kind    TEXT CHECK (expired_kind IN ('gone', 'superseded', 'rules', 'contradicted'))
 )"""
 
 # Steps that bring an existing database from version N-1 to N.
@@ -431,6 +467,21 @@ def trip_observations_by_source(conn: sqlite3.Connection,
     return out
 
 
+def trip_observations(conn: sqlite3.Connection, o: Observation,
+                      sources: frozenset[str] | set[str]) -> list[Observation]:
+    """Every stored row of `o`'s trip (route and dates, `trip_observations_by_source`'s match)
+    from `sources`, oldest first: all of them, not the newest per seller (D65's probe rule)."""
+    if not sources:
+        return []
+    rows = conn.execute(
+        f"""SELECT * FROM price_observations WHERE origin = ? AND destination = ?
+            AND departure_date = ? AND return_date = ?
+            AND source IN ({','.join('?' * len(sources))}) ORDER BY id""",
+        (o.origin, o.destination, o.departure_date.isoformat(), o.return_date.isoformat(),
+         *sorted(sources)))
+    return [_row_to_observation(r) for r in rows]
+
+
 def deal_observation_ids(conn: sqlite3.Connection) -> set[int]:
     """Observations that already became a deal (any status): never flagged twice."""
     return {r[0] for r in conn.execute("SELECT observation_id FROM deals")}
@@ -753,14 +804,19 @@ def record_recheck(conn: sqlite3.Connection, deal_id: int, *, valid: bool,
 
 
 def expire_deal(conn: sqlite3.Connection, deal_id: int, reason: str, *, kind: str,
-                at: datetime | None = None) -> None:
-    """A deal awaiting review that is no longer a promotion against its month's current typical
-    low (D40). Pipeline-owned like a recheck's expiry; the last recheck's time and price stay,
-    the expiry gets its own time and kind (#77)."""
+                at: datetime | None = None,
+                statuses: tuple[str, ...] = AWAITING_REVIEW) -> None:
+    """A pipeline-owned expiry outside the recheck: by default a deal awaiting review that is no
+    longer a promotion against its month's current typical low (D40); `statuses=OPEN_STATUSES`
+    reaches approved deals too (D65's probe rule). The last recheck's time and price stay, the
+    expiry gets its own time and kind (#77), one of `outcomes.EXPIRY_KINDS`."""
+    from escapadinha.outcomes import EXPIRY_KINDS
+    if kind not in EXPIRY_KINDS:
+        raise ValueError(f"unknown expiry kind {kind!r} (one of {', '.join(EXPIRY_KINDS)})")
     conn.execute(f"""UPDATE deals SET status = 'expired', expired_reason = ?, expired_at = ?,
                          expired_kind = ?
-                     WHERE id = ? AND status IN ({','.join('?' * len(AWAITING_REVIEW))})""",
-                 (reason, _ts(at or utcnow()), kind, deal_id, *AWAITING_REVIEW))
+                     WHERE id = ? AND status IN ({','.join('?' * len(statuses))})""",
+                 (reason, _ts(at or utcnow()), kind, deal_id, *statuses))
     conn.commit()
 
 
@@ -1238,6 +1294,36 @@ def _backfill_expiries(conn: sqlite3.Connection) -> None:
 
 
 MIGRATIONS[19].append(_backfill_expiries)
+
+
+def _deal_references_broken(conn: sqlite3.Connection) -> set[tuple]:
+    """`PRAGMA foreign_key_check` rows from or to `deals` (table, rowid, parent, fk id)."""
+    return {tuple(r) for r in conn.execute("PRAGMA foreign_key_check")
+            if "deals" in (r[0], r[2])}
+
+
+def _rebuild_deals(conn: sqlite3.Connection) -> None:
+    """D65, v20: SQLite can't alter a CHECK, so `deals` is rebuilt as `DEALS_V20` (its
+    `expired_kind` takes 'contradicted'), inside the version's one transaction. `PRAGMA
+    foreign_keys` can't change in a transaction, so the references are deferred instead: the
+    rows are copied aside, `deals` is dropped (the posts that reference it dangle for a moment)
+    and recreated under its own name, and putting every row back under its own id satisfies
+    those references again before the commit. A reference the rebuild broke (one the check
+    did not find before) raises, and the version rolls back."""
+    before = _deal_references_broken(conn)
+    columns = ", ".join(r[1] for r in conn.execute("PRAGMA table_info(deals)"))
+    conn.execute("PRAGMA defer_foreign_keys = ON")       # off again at the commit
+    conn.execute("CREATE TEMP TABLE deals_v19 AS SELECT * FROM deals")
+    conn.execute("DROP TABLE deals")
+    conn.execute(DEALS_V20)
+    conn.execute(f"INSERT INTO deals ({columns}) SELECT {columns} FROM temp.deals_v19")
+    conn.execute("DROP TABLE temp.deals_v19")
+    broken = _deal_references_broken(conn) - before
+    if broken:
+        raise RuntimeError(f"Migration 20 would break references: {sorted(broken)[:5]}")
+
+
+MIGRATIONS[20] = [_rebuild_deals]
 
 
 def expiries_backfilled_before(conn: sqlite3.Connection) -> datetime | None:

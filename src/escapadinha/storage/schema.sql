@@ -1,4 +1,4 @@
--- Schema version 15 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
+-- Schema version 20 (fresh installs). Older databases are migrated in db.py. Timestamps are UTC ISO-8601 strings, dates are YYYY-MM-DD.
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
     id             INTEGER PRIMARY KEY,
@@ -89,9 +89,9 @@ CREATE TABLE IF NOT EXISTS deals (
     partner_offer_at     TEXT,
     -- D53: the route's promotion this date belongs to (NULL: never grouped).
     promotion_id    INTEGER REFERENCES promotions(id),
-    -- #77: when the deal expired and why (outcomes.EXPIRY_KINDS). NULL while open.
+    -- #77: when the deal expired and why (outcomes.EXPIRY_KINDS; contradicted since v20). NULL while open.
     expired_at      TEXT,
-    expired_kind    TEXT CHECK (expired_kind IN ('gone', 'superseded', 'rules'))
+    expired_kind    TEXT CHECK (expired_kind IN ('gone', 'superseded', 'rules', 'contradicted'))
 );
 
 -- D53: one promotion per route at a time: the group of deals (dates) one page, one review card

@@ -108,6 +108,19 @@ detector:
   # Lead time (D44): fares found less than this many days before departure (~14 % dearer than
   # the month) are left out of the typical low; they can still be candidates against it.
   baseline_min_lead_days: 7
+  # The probe may take a cache promotion down, never put one up (D65): an open deal from the
+  # Travelpayouts cache expires ("desmentida pela sonda") when every engine below searched the
+  # same trip at the deal's arrival airport after its price was found, no more than
+  # max_age_hours ago, and saw its cheapest option at least min_rise_pct AND min_rise_eur above
+  # the deal's price. Measured in docs/research/2026-11-11-probe-expiry.md (the backtest's
+  # `probe` preset): 5 of 17 compared deals, no false positive on 2 known-real deals and 214
+  # Ryanair controls. Rerun the preset before widening it.
+  probe_expiry:
+    enabled: true
+    min_rise_pct: 0.10
+    min_rise_eur: 5
+    max_age_hours: 12
+    engines: [google_flights, kayak]
 
 # Routes live in the database (`escapadinha routes list`). Config only shapes them.
 routes:

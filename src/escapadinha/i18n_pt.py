@@ -123,6 +123,19 @@ def survival_line(source_label: str, confidence_pt: str | None, gone_pct: int, d
             f"(últimos {days} dias, {integer(n)})")
 
 
+def probe_contradiction(engines: list[str], searched_at: datetime) -> str:
+    """Why the probe took a cache promotion down (D65): 'o Google Flights e o Kayak mostraram
+    esta viagem bem mais cara (pesquisa de 11/11 às 14:39)', the newest deciding search in
+    Lisbon time. Never a euro amount: the reason is exported to the expired promotion's page,
+    where no price may appear without its observation; the probe's prices show only where each
+    sits on its own (`also_seen`: the review pages, a live promotion's page)."""
+    named = [f"o {name}" for name in engines]
+    names = named[0] if len(named) == 1 else f"{', '.join(named[:-1])} e {named[-1]}"
+    verb = "mostrou" if len(engines) == 1 else "mostraram"
+    local = searched_at.astimezone(LISBON)
+    return f"{names} {verb} esta viagem bem mais cara (pesquisa de {local:%d/%m} às {local:%H:%M})"
+
+
 def nights(n: int) -> str:
     return count(n, "noite", "noites")
 

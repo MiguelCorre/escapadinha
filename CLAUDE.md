@@ -15,11 +15,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `instagram token`,
   `site build|preview|setup|deploy|crawl`, `design directions`, `export site-data|fixtures`,
   `store status|pull|push|restore|upload-archives|check`).
-- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44|stays|churn]
+- `uv run python scripts/backtest_detector.py data/escapadinha.db [--preset data-reliability|d44|stays|churn|probe]
   [--runs 19-57 | --days 14] [--candidates --state --json out.json]`: the detector backtest (D44),
   read-only on a database copy (`escapadinha.backtest`); `store pull` first. `stays` (D52)
   compares the kinds' nights ranges with the per-destination ones in config; `churn` (D53) the
-  recheck tolerance and the re-flag margin with none.
+  recheck tolerance and the re-flag margin with none; `probe` (D65) the probe's prices
+  against the cache's deals of the same trip (`docs/research/2026-11-11-probe-expiry.md`).
 - `uv run escapadinha outcomes [--days 14] [--json out.json] [--db copy.db]`: the promotion
   outcomes report (D56), read-only on an in-memory copy (`backtest.open_copy`).
 - Set `PYTHONIOENCODING=utf-8` in Git Bash on Windows so pt-PT output prints correctly.
@@ -208,14 +209,18 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   reason "fora do intervalo de x–y noites da rota"), approved ones too. Changing a range is a
   detector rule change: measure it with the backtest's `stays` preset first and update the note.
 - **Expiry time and kind (D56):** every expiry writes `deals.expired_at` and `expired_kind`
-  (schema v19), one of `outcomes.EXPIRY_KINDS` (`gone` / `superseded` / `rules`; the SQL CHECK
-  is tested against it), set by the code path that expires the deal (`recheck.Recheck.kind`
+  (schema v19), one of `outcomes.EXPIRY_KINDS` (`gone` / `superseded` / `rules` /
+  `contradicted`, D65: both probe engines saw the trip clearly dearer; the SQL CHECK in
+  `schema.sql` and `db.DEALS_V20`, the v20 rebuild of `deals`, is tested against it; a new kind
+  is a new rebuild), set by the code path that expires the deal (`recheck.Recheck.kind`
   through `db.record_recheck`; the re-evaluation's `db.expire_deal`, always `superseded`, at its
-  own run's time), never parsed from the pt-PT reason at run time (only the v19 backfill reads
+  own run's time; the probe rule's, always `contradicted`, with `statuses=db.OPEN_STATUSES`,
+  which reaches approved deals), never parsed from the pt-PT reason at run time (only the v19 backfill reads
   the old reasons' prefixes). Backfilled times are approximate (`outcomes.approximate` against
   meta `outcomes.backfilled_before`). The survival report (`outcomes.py`, pure: `survival`,
-  `report`, `markdown`, `to_json`; rows from `pipeline.deal_outcomes`) counts only `gone` as
-  gone: open deals and `superseded`/`rules` expiries are censored at their last check. Bands,
+  `report`, `markdown`, `to_json`; rows from `pipeline.deal_outcomes`) counts only
+  `outcomes.GONE_KINDS` (`gone`, `contradicted`) as gone (the backtest's truth stays the cache's
+  own `gone`): open deals and `superseded`/`rules` expiries are censored at their last check. Bands,
   horizons and the breadth rule are constants there; never a second copy. The review pages'
   line (#79) comes only from `pipeline.review_survival` (config `review.outcomes_days`,
   `outcomes_min_n`) through `review_snapshot.survival_json` (snapshot `survival`, queue items
@@ -271,7 +276,7 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   (`pipeline.missed_daily_pass_warning`, last recorded pass > 30 h ago) → `run_airlines`
   (D47: the airlines' own fares for the hot list, its own run row, never fails the run) →
   `run_probe_import` (D48: the PC probe's results as a comparison source, never fails the run) → recheck →
-  detect (+ `run_reevaluate`, D40) → `run_probe_wanted` (D48: the probe's next list, never fails
+  detect (+ `run_reevaluate`, D40, + `run_probe_expiry`, D65) → `run_probe_wanted` (D48: the probe's next list, never fails
   the run) → `run_enrich` (D43: never fails the run) →
   `run_special_offers` (D46: never fails the run) → `publish_due`
   (D32, every run: posting never waits for a full path) →
@@ -344,6 +349,29 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   module with `ENGINE`/`SOURCE`/`LABEL`, pure parsers, `search(browser, …)` and an adapter,
   registered in `probe.ENGINES`, `results.SOURCES`, `presentation.SOURCE_LABELS` and
   `config.ProbeEngine`.
+- **The probe may take a cache promotion down, never put one up (D65):** one pure rule,
+  `recheck.probe_contradiction(deal_obs, readings, cfg, now) -> Contradiction | None` (config
+  `detector.probe_expiry`: `enabled`, `min_rise_pct`, `min_rise_eur`, `max_age_hours`,
+  `engines`), wired only by `pipeline.run_probe_expiry` (every open deal, approved too; readings
+  = every probe row of the trip, `db.trip_observations`, never `also_seen`'s newest per seller;
+  `db.expire_deal(kind="contradicted", statuses=db.OPEN_STATUSES)`, `close_empty_promotions`;
+  no run row) inside the CLI `detect` right after `run_reevaluate`, so before `run_auto_approve`,
+  under `pipeline.probe_expiry_step` (the run steps' `guard`: it never fails the run).
+  Only `recheck.CACHE_SOURCES` deals (never an airline or a comparison source); every engine of
+  `engines` must have searched the trip at the deal's arrival airport (known) at or after its
+  price was found (`recheck.found_moment`: `found_at`, else the first fetch, never the found
+  day's start: `found_at` arrives only with the enrichment, after `detect`) within
+  `max_age_hours`, and its newest such search's cheapest option at that airport (airport
+  filtered first, then `cheapest_per_search`; a row is a search at `fetched_at` and at a later
+  `last_seen_at`) be `min_rise_pct` AND `min_rise_eur` above. **Nonstop deals only**
+  (`is_nonstop`: the probe reads only nonstop; unknown stops: never):
+  a missing, old or other-airport reading never expires anything. The reason comes only from
+  `i18n_pt.probe_contradiction` (engines + Lisbon search time, **no euro amount**: it is
+  exported on the expired page). The backtest's `probe` preset decides the shipped shape with
+  the same `recheck.contradicting` (`ProbeRule.shipped`, `from_config`;
+  `tests/test_backtest_probe.py` checks both agree): change a threshold only after rerunning
+  it. Not in `recheck.recheck`: the review Function's live check has no probe rows (no port,
+  `live-check-cases.json` unchanged).
 - Never publish a deal whose status is `expired` (recheck runs every collection). The website
   only shows deals a human or the rules approved (D46: `review.auto_approve`, pure rules in
   `auto_review.disqualified`, `pipeline.run_auto_approve` in the full path right after
@@ -529,7 +557,12 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `report`, `markdown`, `to_json`; CLI `outcomes`
 - `src/escapadinha/backtest.py` + `scripts/backtest_detector.py`: the detector backtest (D44):
   `open_copy` (read-only → memory), `replay` (rule sets × runs → `Replay`, candidates judged by
-  the recheck within 24 h and in hindsight), `rule_sets` presets, `state`, `markdown`/`to_json`
+  the recheck within 24 h and in hindsight), `rule_sets` presets, `state`, `markdown`/`to_json`;
+  the probe section (`cache_deals`, `ProbeRule`, `fires`, `probe_grid`, `probe_report`, D65)
+- `src/escapadinha/recheck.py`: `recheck` (D53 tolerance), `promotion_expiry` (D40) and the
+  probe rule (D65): `CACHE_SOURCES`, `probe_sightings`, `cheapest_per_search`, `found_moment`,
+  `is_nonstop`, `newest_search`, `rises_above`, `contradicting`, `probe_contradiction` →
+  `Contradiction`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...). The run
   steps with their own run row that never fail the run (D63: `run_airlines`,

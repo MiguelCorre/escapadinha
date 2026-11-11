@@ -32,6 +32,8 @@ Travelpayouts API ──collect──▶ SQLite (price_observations, one row per
                                    │      candidate  ≥30% and ≥15 € below, and a new low → a deal for review
                                    │    then the queue again (D40): still a candidate today?
                                    │            no → status expired + EXPIRADO.txt
+                                   │    then the probe (D65): both engines saw a cache deal's trip clearly dearer?
+                                   │            yes → status expired (contradicted) + EXPIRADO.txt
                                 enrich  GraphQL API, same cache (D43): checked bag? which agency?
                                    │      matched by the link's t= token; no match → unknown, no line
                                    ▼
@@ -416,6 +418,26 @@ to the price recheck (a human approved them on the figures the review showed). T
 waiting on 2026-10-16 were detected on 4–6-day typical lows; on the database of run 58 this rule
 expires all of them (none of their months had 10 counted days; D40 has the replay).
 
+**When the probe contradicts the cache (D65).** A deal from the Travelpayouts cache is
+rechecked only at the cache, which can keep a price for days after it stopped being bookable.
+Right after the re-evaluation, every run also sets each open cache deal (`new`, `rendered` and
+`approved`) against the PC probe's searches of the same trip (D48, D49): when the deal is
+nonstop both ways (the probe reads only nonstop itineraries) and **both** Google Flights and
+Kayak searched it at the deal's arrival airport after its price was found (its exact found time,
+else the first time the pipeline fetched it), each
+engine's newest such search is at most 12 h old, and its cheapest option is at least 10 % **and**
+5 € above the deal's price, the deal expires with kind `contradicted` and a reason that names the
+engines and the search time, never a price: *o Google Flights e o Kayak mostraram esta viagem bem
+mais cara (pesquisa de 11/11 às 14:39)*. The thresholds are `detector.probe_expiry` in
+`config.yaml` (`enabled: false` turns it off). No probe search, an old one, an engine missing
+(paused after a wall), a search before the price was found or at another airport: nothing
+happens. A deal from an airline's own fare (D47) is never touched, and a probe price never
+confirms, makes or links a promotion: it only takes one down. It runs inside `detect`, so a new
+deal the probe already saw dearer is expired before the automatic approval can publish it; an
+approval through the review Function (which sees no probe rows) is taken down by the next run.
+An error in the rule prints one red line and never stops the run.
+Measured with the backtest's `probe` preset (`docs/research/2026-11-11-probe-expiry.md`).
+
 ### A rise of a euro is not an expiry; a bounce is not a new deal (DECISIONS D53)
 
 Since 2026-10-28 a deal (one trip, one observation) stays valid while its latest price is at
@@ -477,11 +499,20 @@ uv run escapadinha store pull
 uv run python scripts/backtest_detector.py data/escapadinha.db --preset d44 --days 14 --candidates --state
 uv run python scripts/backtest_detector.py data/escapadinha.db --preset data-reliability --runs 19-57
 uv run python scripts/backtest_detector.py data/escapadinha.db --preset stays --days 14
+uv run python scripts/backtest_detector.py data/escapadinha.db --preset probe --json probe.json
 ```
 
 The `stays` preset (D52) keeps the detector and compares the kinds' nights ranges alone with the
 per-destination ranges of `routes.overrides`, so a change to a destination's stay length is
 measured like a threshold change.
+
+The `probe` preset (D65) replays no detector: for every cache-source deal the probe searched
+while it was open, it sets the probe's Google Flights and Kayak prices of the same trip against
+the deal's price over time, with the Ryanair-source deals as a control set (their price is the
+airline's own), and grids the expiry rule's margin, age and engines with the false positives
+named by deal (`docs/research/2026-11-11-probe-expiry.md`). Its rows with both engines, the
+deal's airport and the found-time guard are decided by the shipped rule's own code
+(`recheck.contradicting`), so the grid measures what the pipeline does.
 
 Read-only: the database file is opened read-only and copied into memory. The script replays every
 completed collection run of the window with one rule set per column, judges each candidate with
@@ -566,10 +597,12 @@ uv run escapadinha deal published 12 --url https://www.instagram.com/p/...
 ```
 
 Status flow: `new → rendered → approved → published`. `rejected` and `expired` are final;
-`expired` is only set by price checks (and, before approval, the queue's re-evaluation, D40).
+`expired` is only set by price checks (and, before approval, the queue's re-evaluation, D40;
+on a cache deal, the probe's contradiction, D65).
 Every expiry records when and why (D56, schema v19): `expired_at` and `expired_kind`, **gone**
 (the fare went away at its source), **superseded** (a cheaper date or a new typical low took its
-place) or **rules** (it breaks a route rule). `deal check` on an expired deal fetches nothing and
+place), **rules** (it breaks a route rule) or, since schema v20, **contradicted** (both probe
+engines saw the trip clearly dearer, D65; the report counts it as gone). `deal check` on an expired deal fetches nothing and
 prints the reason and *expirou a 24/10/2026 às 14:05 (desaparecida)*; deals that expired before
 v19 were backfilled from their last check and say *hora aproximada*.
 

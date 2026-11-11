@@ -40,7 +40,7 @@ from escapadinha.probe import results as probe_results
 from escapadinha.probe import wanted as probe_wanted
 from escapadinha.presentation import (DealView, OtherDate, PhotoCredit, booking_url,
                                       build_deal_view, other_date)
-from escapadinha.recheck import Recheck, promotion_expiry, recheck
+from escapadinha.recheck import Recheck, probe_contradiction, promotion_expiry, recheck
 from escapadinha.review import DECISION_PT, STATUS_PT, ReviewError, UnknownDeal, check_decision
 from escapadinha.renderer import SlideRenderer
 from escapadinha.storage import db, sync
@@ -1201,6 +1201,51 @@ def run_reevaluate(ctx: Context, conn: sqlite3.Connection,
         expired.append((db.get_deal(conn, deal.id)[0], obs, reason))
     close_empty_promotions(conn, now)
     return expired
+
+
+def run_probe_expiry(ctx: Context, conn: sqlite3.Connection,
+                     now: datetime | None = None) -> list[tuple[Deal, Observation, str]]:
+    """Every open deal (approved ones too: they are the ones on the site) that the probe
+    contradicts (D65, `recheck.probe_contradiction`: a cache deal whose trip every configured
+    engine recently saw clearly dearer, at its airport, after its price was found) expires
+    with kind `contradicted` and the reason. Runs in `detect` right after the re-evaluation,
+    so after the probe's import and the recheck, before the automatic approval.
+
+    Pipeline-owned (D26), like the recheck's expiry. The probe only takes a promotion down: its
+    rows never confirm one. No run row: it stores no observation."""
+    now = now or db.utcnow()
+    cfg = ctx.config.detector.probe_expiry
+    expired = []
+    for deal, obs in db.open_deals(conn):
+        readings = db.trip_observations(conn, obs, COMPARISON_SOURCES)
+        hit = probe_contradiction(obs, readings, cfg, now)
+        if hit is None:
+            continue
+        reason = hit.reason
+        db.expire_deal(conn, deal.id, reason, kind="contradicted", at=now,
+                       statuses=db.OPEN_STATUSES)
+        _mark_expired_outputs(ctx, deal.id, reason, now)
+        expired.append((db.get_deal(conn, deal.id)[0], obs, reason))
+    close_empty_promotions(conn, now)
+    return expired
+
+
+@dataclass(frozen=True)
+class ProbeExpiry(StepSummary):
+    """What the probe rule took down in a `detect` step (D65)."""
+
+    expired: list[tuple[Deal, Observation, str]]
+    errors: list[str] = field(default_factory=list)
+
+    def describe(self) -> str:
+        return f"Probe expiry: {len(self.expired)} contradicted"
+
+
+def probe_expiry_step(ctx: Context, conn: sqlite3.Connection,
+                      now: datetime | None = None) -> ProbeExpiry | StepFailed:
+    """`run_probe_expiry` under the run steps' guard: like every probe step (D48), it never
+    fails the run; an error is one red line."""
+    return guard("Probe expiry", lambda: ProbeExpiry(run_probe_expiry(ctx, conn, now)))
 
 
 def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime) -> None:

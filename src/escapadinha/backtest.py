@@ -23,14 +23,19 @@ from __future__ import annotations
 import sqlite3
 import statistics
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from escapadinha import detector, i18n_pt, routes
-from escapadinha.config import DetectorConfig, RoutesConfig
+from escapadinha import auto_review, detector, i18n_pt, outcomes, routes
+from escapadinha.collector import ryanair, travelpayouts
+from escapadinha.config import DetectorConfig, ProbeExpiryConfig, RoutesConfig
+from escapadinha.probe import google_flights as gf_engine
+from escapadinha.probe import kayak as kayak_engine
 from escapadinha.models import Observation, Route, RouteRules
-from escapadinha.recheck import recheck
+from escapadinha.recheck import (cheapest_per_search, contradicting, found_moment, newest_search,
+                                 recheck, rises_above)
 from escapadinha.storage import db
 
 EXPIRY_WINDOW = timedelta(hours=24)
@@ -354,6 +359,7 @@ def rule_sets(base: DetectorConfig, preset: str, *, routes_cfg: RoutesConfig | N
 
 
 PRESETS = ("data-reliability", "d44", "stays", "churn")
+PROBE_PRESET = "probe"     # not a rule set: `probe_report` (the probe against cache deals)
 
 
 # --- the report ---------------------------------------------------------------------------
@@ -523,3 +529,828 @@ def to_json(replays: list[Replay]) -> dict:
             "candidates": [plain(c) for c in rp.candidates],
         } for rp in replays],
     }
+
+
+# --- the probe against the cache's deals (2026-11-11) -----------------------------------
+#
+# Question: should a deal whose own source is the Travelpayouts cache expire when a probe
+# engine (D48, D49: comparison sources) saw the same trip recently at a clearly higher price?
+# The cache can keep a stale price for days, and the recheck only asks the cache (D47). The
+# measure: every cache deal, every probe reading of its trip (`also_seen`'s match: route and
+# dates, `db.trip_observations_by_source`'s WHERE), a ground truth at each moment from the best
+# signal the data has, and a grid of candidate rules replayed over the deals' lives.
+# Report: docs/research/2026-11-11-probe-expiry.md; `scripts/backtest_detector.py --preset probe`.
+
+PROBE_ENGINES = (gf_engine.SOURCE, kayak_engine.SOURCE)    # every comparison source, in search order
+TRUTH_WINDOW = timedelta(hours=24)       # a later fact this close to a moment judges it
+AIRLINE_SLACK = timedelta(hours=3)       # an airline price this close to a moment, if none covers it
+PAIR_WINDOW = timedelta(hours=1)         # a Google Flights and a Kayak search of the same trip
+
+
+@dataclass(frozen=True)
+class Seen:
+    """One stored row of the deal's trip at another source: the price it showed from `first` to
+    `last` (first and last sighting; a probe row is one search, or two on the same Lisbon day at
+    the same price), and when the pipeline had each sighting (`*_usable`: the import's run for
+    the probe; the collection's for the others)."""
+
+    source: str
+    price: float
+    first: datetime
+    last: datetime
+    first_usable: datetime
+    last_usable: datetime
+    observation_id: int
+    seller: str | None = None
+    airline: str | None = None
+    airport: str | None = None
+    nonstop: bool | None = None
+    with_baggage: bool | None = None
+    found: datetime | None = None    # when a traveller found it: exact, else the found day's start
+
+    def sightings(self) -> list[tuple[datetime, datetime]]:
+        """(seen at, usable at) for the first sighting and, when later, the last."""
+        out = [(self.first, self.first_usable)]
+        if self.last > self.first:
+            out.append((self.last, self.last_usable))
+        return out
+
+
+@dataclass(frozen=True)
+class ProbeSearch:
+    """One engine's search of the trip: its cheapest option (the probe reads the cheapest
+    nonstop itinerary, then its booking options)."""
+
+    engine: str
+    at: datetime                 # the probe's search time
+    usable_at: datetime          # the import's run: the first recheck that could use it
+    price: float
+    observation_id: int
+    seller: str | None
+    airline: str | None
+    airport: str | None
+
+
+@dataclass(frozen=True)
+class CacheDeal:
+    """A deal from the cache source and everything else stored about its trip."""
+
+    deal_id: int
+    route: str
+    airport: str | None
+    departure_date: date
+    return_date: date
+    price: float
+    airline: str | None
+    seller: str | None
+    nonstop: bool
+    with_baggage: bool | None
+    source: str
+    found: datetime | None
+    detected_at: datetime
+    approved_at: datetime | None     # the rules' or a human's approval (None: rejected or never)
+    approver: str                    # rules | human | none
+    status: str
+    expired_at: datetime | None
+    expired_kind: str | None
+    last_seen_price: float | None
+    approximate: bool                # the expiry time is the v19 backfill's (`outcomes.approximate`)
+    end: datetime                    # the expiry, else the copy's last run
+    rechecks: int                    # collection runs inside its life (each rechecks it)
+    probe: tuple[Seen, ...] = ()
+    airline_seen: tuple[Seen, ...] = ()
+    cache_seen: tuple[Seen, ...] = ()   # the cache's other rows of the trip
+
+    @property
+    def life_hours(self) -> float:
+        return (self.end - self.detected_at).total_seconds() / 3600
+
+    @property
+    def open(self) -> bool:
+        return self.expired_at is None
+
+    @property
+    def rose(self) -> bool:
+        """The recheck's last price was above the deal's (a price rise, not the stale timer)."""
+        return self.last_seen_price is not None and self.last_seen_price > self.price + detector.EPS
+
+    def sightings(self, engine: str | None = None) -> list[ProbeSearch]:
+        """Every sighting of the trip in the probe's rows, in row order (one per row and time)."""
+        return [ProbeSearch(s.source, at, usable, s.price, s.observation_id, s.seller, s.airline,
+                            s.airport)
+                for s in self.probe if engine is None or s.source == engine
+                for at, usable in s.sightings()]
+
+    def searches(self, engine: str | None = None) -> list[ProbeSearch]:
+        """Every probe search of the trip (each engine's cheapest option per search), oldest first."""
+        return cheapest_per_search(self.sightings(engine))
+
+    def searches_in_life(self, engine: str | None = None) -> list[ProbeSearch]:
+        return [x for x in self.searches(engine) if self.detected_at <= x.at < self.end]
+
+    @property
+    def compared(self) -> bool:
+        """The probe read the trip while the deal was open."""
+        return bool(self.searches_in_life())
+
+
+def _hours(a: datetime, b: datetime) -> float:
+    return (b - a).total_seconds() / 3600
+
+
+def gap(deal: CacheDeal, price: float) -> tuple[float, float]:
+    """(€, share) by which `price` is above the deal's."""
+    return price - deal.price, price / deal.price - 1
+
+
+# --- ground truth ----------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Truth:
+    """Whether the deal's price was still real at a moment, and on what evidence: `airline`
+    (strong: the carrier's own price for the same flight pair, D47), `cache` (medium: the cache
+    re-found the same itinerary at the deal's price, within the recheck tolerance, after the
+    moment), `rose` (weak: the recheck expired the deal as gone within `TRUTH_WINDOW` after it,
+    the cache's own price having risen) and `timer` (weakest: the same, by the stale-price timer:
+    only that nobody re-found the price for three days)."""
+
+    verdict: str | None              # stale | real | None (unknown)
+    basis: str                       # airline | cache | rose | timer | none
+    detail: str = ""
+
+    @property
+    def label(self) -> str:
+        return "unknown" if self.verdict is None else f"{self.verdict} ({self.basis})"
+
+
+def airline_price_at(deal: CacheDeal, t: datetime) -> Seen | None:
+    """The carrier's own price for the deal's trip at `t`: the cheapest airline-source row of
+    the same carrier and arrival airport whose sightings cover `t`, else the row seen nearest to
+    `t` within `AIRLINE_SLACK`."""
+    rows = [s for s in deal.airline_seen if s.airline == deal.airline and s.airport == deal.airport]
+    covering = [s for s in rows if s.first <= t <= s.last]
+    if covering:
+        return min(covering, key=lambda s: (s.price, s.observation_id))
+    def distance(s: Seen) -> float:
+        return min(abs((s.first - t).total_seconds()), abs((s.last - t).total_seconds()))
+    near = [s for s in rows if distance(s) <= AIRLINE_SLACK.total_seconds()]
+    return min(near, key=lambda s: (distance(s), s.price)) if near else None
+
+
+def truth_at(deal: CacheDeal, t: datetime, tolerance: float) -> Truth:
+    """The best evidence on whether the deal's price was real at `t` (`Truth`); `tolerance`
+    is the recheck's (D53): a price within it still counts as the deal's."""
+    limit = deal.price * (1 + tolerance) + detector.EPS
+    for judge in (_airline_truth, _cache_truth, _expiry_truth):     # strongest evidence first
+        truth = judge(deal, t, limit)
+        if truth is not None:
+            return truth
+    return Truth(None, "none")
+
+
+def _airline_truth(deal: CacheDeal, t: datetime, limit: float) -> Truth | None:
+    """The carrier's own price at `t` (`airline_price_at`): real within `limit`, else stale."""
+    own = airline_price_at(deal, t)
+    if own is None:
+        return None
+    verdict = "real" if own.price <= limit else "stale"
+    return Truth(verdict, "airline", f"{own.source} {own.price:g} € (obs {own.observation_id})")
+
+
+def _refinds(deal: CacheDeal, s: Seen, t: datetime, limit: float) -> bool:
+    """`s` is the cache finding the deal's itinerary again within `TRUTH_WINDOW` after `t`, at
+    a price within `limit`."""
+    return (s.found is not None and t < s.found <= t + TRUTH_WINDOW and s.price <= limit
+            and s.airline == deal.airline and s.airport == deal.airport)
+
+
+def _cache_truth(deal: CacheDeal, t: datetime, limit: float) -> Truth | None:
+    """Real when the cache re-found the deal's itinerary at its price after `t` (the earliest)."""
+    refound = [s for s in deal.cache_seen if _refinds(deal, s, t, limit)]
+    if not refound:
+        return None
+    s = min(refound, key=lambda s: s.found)
+    return Truth("real", "cache", f"cache re-found {s.price:g} € (obs {s.observation_id})")
+
+
+def _expiry_truth(deal: CacheDeal, t: datetime, limit: float) -> Truth | None:
+    """Stale when the cache's recheck expired the deal as gone within `TRUTH_WINDOW` after `t`."""
+    # The cache's own recheck only, never `contradicted` (D65): that expiry is the probe rule
+    # this backtest measures, so it can't be the evidence it is measured against.
+    expired = deal.expired_at
+    if deal.expired_kind != "gone" or expired is None or not t < expired <= t + TRUTH_WINDOW:
+        return None
+    return Truth("stale", "rose" if deal.rose else "timer", f"gone {_hours(t, expired):.0f} h later")
+
+
+# --- the rules -------------------------------------------------------------------------------
+
+ENGINE_MODES = ("any", "both", gf_engine.SOURCE)
+
+
+@dataclass(frozen=True)
+class ProbeRule:
+    """Expire the deal at the first recheck where the probe's latest search (per engine, no
+    older than `max_age_hours`) is `pct` and `eur` above the deal's price: on `engines` "any"
+    engine, "both" engines, or Google Flights alone. `same_airport`: only searches that landed
+    at the deal's own airport (stricter than `also_seen`, which matches the city).
+    `newer_than_price`: only searches made after the deal's price was found (a search from
+    before a price drop cannot contradict the drop)."""
+
+    pct: float
+    eur: float
+    max_age_hours: float
+    engines: str
+    same_airport: bool = False
+    newer_than_price: bool = True
+
+    @property
+    def shipped(self) -> bool:
+        """The shape of the production rule (D65): every engine, the deal's airport, searches
+        after the price was found."""
+        return self.engines == "both" and self.same_airport and self.newer_than_price
+
+    @classmethod
+    def from_config(cls, cfg: ProbeExpiryConfig) -> ProbeRule:
+        """The configured rule (D65), when it asks every probe engine (the backtest's "both")."""
+        if set(cfg.engines) != set(PROBE_ENGINES):
+            raise ValueError("the backtest replays the probe rule with every engine only")
+        return cls(cfg.min_rise_pct, cfg.min_rise_eur, cfg.max_age_hours, "both",
+                   same_airport=True, newer_than_price=True)
+
+    @property
+    def label(self) -> str:
+        return (f"{self.engines}, ≥{self.pct:.0%} and ≥{self.eur:g} €, ≤{self.max_age_hours:g} h"
+                + (", same airport" if self.same_airport else "")
+                + ("" if self.newer_than_price else ", searches older than the price too"))
+
+
+def latest_search(deal: CacheDeal, engine: str, t: datetime, max_age: timedelta, *,
+                  same_airport: bool = False, since: datetime | None = None) -> ProbeSearch | None:
+    """The engine's newest search the pipeline had at `t`, if no older than `max_age` (and,
+    with `since`, made at or after it)."""
+    usable = [x for x in deal.searches(engine) if x.usable_at <= t
+              and (not same_airport or x.airport == deal.airport)]
+    return newest_search(usable, engine, t, max_age, since=since)
+
+
+def fires(deal: CacheDeal, rule: ProbeRule, t: datetime) -> tuple[ProbeSearch, ...]:
+    """The searches that make `rule` expire the deal at `t` (empty: it does not). The shipped
+    rule's shape (`ProbeRule.shipped`) is decided by the production code itself,
+    `recheck.contradicting` (D65), on the searches the pipeline had at `t`."""
+    age = timedelta(hours=rule.max_age_hours)
+    if rule.shipped:
+        return _shipped_fires(deal, rule, t, age)
+    since = deal.found if rule.newer_than_price else None
+    fresh = {e: latest_search(deal, e, t, age, same_airport=rule.same_airport, since=since)
+             for e in PROBE_ENGINES}
+    return _engine_fires(rule.engines, fresh,
+                         lambda x: x is not None and rises_above(deal.price, x.price, rule.pct, rule.eur))
+
+
+def _shipped_fires(deal: CacheDeal, rule: ProbeRule, t: datetime,
+                   age: timedelta) -> tuple[ProbeSearch, ...]:
+    """The production rule's verdict (`recheck.contradicting`) on the searches usable at `t`."""
+    usable = [x for x in deal.sightings() if x.usable_at <= t]
+    return contradicting(deal.price, deal.airport, deal.found, deal.nonstop, usable,
+                         engines=PROBE_ENGINES, pct=rule.pct, eur=rule.eur, max_age=age,
+                         now=t) or ()
+
+
+def _engine_fires(engines: str, fresh: dict[str, ProbeSearch | None],
+                  higher: Callable[[ProbeSearch | None], bool]) -> tuple[ProbeSearch, ...]:
+    """The engine mode (`ENGINE_MODES`) over each engine's latest search: "any" fires on every
+    higher one, "both" only when all are higher, an engine's name on that engine alone."""
+    if engines == "any":
+        return tuple(x for x in fresh.values() if higher(x))
+    if engines == "both":
+        return tuple(fresh.values()) if all(higher(x) for x in fresh.values()) else ()
+    x = fresh.get(engines)
+    return (x,) if higher(x) else ()
+
+
+def decision_times(deal: CacheDeal) -> list[datetime]:
+    """When a rule's verdict can change: the first recheck after detection (taken as detection
+    itself) and every probe import while the deal is open."""
+    times = {deal.detected_at} | {x.usable_at for x in deal.searches()
+                                   if deal.detected_at < x.usable_at < deal.end}
+    return sorted(times)
+
+
+@dataclass(frozen=True)
+class Fire:
+    deal_id: int
+    at: datetime
+    searches: tuple[ProbeSearch, ...]
+    truth: Truth
+    hours_early: float               # before the deal's real expiry, or before the copy's end
+    open: bool
+    approved: bool                   # approved (so on the site) when the rule fired
+
+
+def first_fire(deal: CacheDeal, rule: ProbeRule, tolerance: float) -> Fire | None:
+    for t in decision_times(deal):
+        hit = fires(deal, rule, t)
+        if hit:
+            truth = truth_at(deal, max(x.at for x in hit), tolerance)
+            return Fire(deal.deal_id, t, hit, truth, _hours(t, deal.end), deal.open,
+                        deal.approved_at is not None and deal.approved_at <= t)
+    return None
+
+
+def grid_rules(pcts=(0.05, 0.10, 0.15, 0.20, 0.25), eurs=(0, 5, 10, 15), ages=(6, 12, 24, 48),
+               engines=ENGINE_MODES, airports=(False, True), newer=(True,)) -> list[ProbeRule]:
+    return [ProbeRule(p, e, a, m, s, n) for n in newer for s in airports for m in engines
+            for a in ages for p in pcts for e in eurs]
+
+
+def default_rules() -> list[ProbeRule]:
+    """The report's grid: every margin, age and engine mode with both matches, then the same at
+    12 and 24 h without the found-time guard (what the guard is worth)."""
+    return grid_rules() + grid_rules(ages=(12, 24), airports=(False,), newer=(False,))
+
+
+@dataclass
+class GridRow:
+    rule: ProbeRule
+    fires: list[Fire]
+    control_fires: list[Fire] = field(default_factory=list)   # on the airline-source deals
+
+    def ids(self, verdict: str | None, basis: str | None = None) -> list[int]:
+        return [f.deal_id for f in self.fires if f.truth.verdict == verdict
+                and (basis is None or f.truth.basis == basis)]
+
+    @property
+    def median_hours_early(self) -> float | None:
+        early = [f.hours_early for f in self.fires if not f.open]
+        return statistics.median(early) if early else None
+
+    def summary(self, stale_known: set[int]) -> dict:
+        caught = {f.deal_id for f in self.fires} & stale_known
+        return {"rule": self.rule.__dict__, "label": self.rule.label, "fired": len(self.fires),
+                "fired_ids": [f.deal_id for f in self.fires],
+                "fires": [{"deal_id": f.deal_id, "at": f.at.isoformat(), "hours_early": f.hours_early,
+                           "open": f.open, "approved": f.approved, "truth": f.truth.label,
+                           "searches": [{"engine": x.engine, "price": x.price, "at": x.at.isoformat(),
+                                         "observation_id": x.observation_id} for x in f.searches]}
+                          for f in self.fires],
+                "approved_when_fired": sum(f.approved for f in self.fires),
+                "stale_airline": self.ids("stale", "airline"), "stale_rose": self.ids("stale", "rose"),
+                "stale_timer": self.ids("stale", "timer"),
+                "real": self.ids("real"), "unknown": self.ids(None),
+                "open": [f.deal_id for f in self.fires if f.open],
+                "median_hours_early": self.median_hours_early,
+                "caught_stale_known": sorted(caught), "stale_known": sorted(stale_known),
+                "control_fired": [f.deal_id for f in self.control_fires],
+                "control_false": [f.deal_id for f in self.control_fires
+                                  if f.hours_early > CONTROL_SLACK.total_seconds() / 3600]}
+
+
+# A control deal (its source rechecked at the seller every run, D47) is real while open, give
+# or take the half hour between rechecks: a rule that expires one earlier than this before its
+# own expiry has expired a real price.
+CONTROL_SLACK = timedelta(hours=1)
+
+
+def probe_grid(deals: list[CacheDeal], rules: list[ProbeRule], tolerance: float,
+               controls: list[CacheDeal] = ()) -> list[GridRow]:
+    """Every rule over `deals`, and over `controls`: deals from a live source, whose fires are
+    false positives unless their own source expired them within `CONTROL_SLACK`."""
+    rows = []
+    for rule in rules:
+        hits = [f for f in (first_fire(d, rule, tolerance) for d in deals) if f is not None]
+        ctrl = [f for f in (first_fire(d, rule, tolerance) for d in controls) if f is not None]
+        rows.append(GridRow(rule, hits, ctrl))
+    return rows
+
+
+def stale_known(deals: list[CacheDeal], tolerance: float) -> set[int]:
+    """Deals the truth calls stale at some probe search of their life (what a rule could catch)."""
+    return {d.deal_id for d in deals
+            if any(truth_at(d, x.at, tolerance).verdict == "stale" for x in d.searches_in_life())}
+
+
+def engine_pairs(deals: list[CacheDeal]) -> list[tuple[CacheDeal, ProbeSearch, ProbeSearch]]:
+    """Each Google Flights search of a deal's life paired with the nearest Kayak search of the
+    same trip within `PAIR_WINDOW`; a trip shared by several deals counts once."""
+    out, seen = [], set()
+    for d in deals:
+        kayak = d.searches_in_life(kayak_engine.SOURCE)
+        for g in d.searches_in_life(gf_engine.SOURCE):
+            near = [k for k in kayak if abs(k.at - g.at) <= PAIR_WINDOW]
+            key = (d.route, d.departure_date, d.return_date, g.at)
+            if near and key not in seen:
+                seen.add(key)
+                out.append((d, g, min(near, key=lambda k: abs(k.at - g.at))))
+    return out
+
+
+# --- loading from the copy -------------------------------------------------------------------
+
+def cache_deals(conn: sqlite3.Connection, *, source: str = travelpayouts.SOURCE,
+                until: datetime | None = None) -> list[CacheDeal]:
+    """Every deal whose observation is from `source`, with its trip's rows at every other
+    source and the cache's other rows (`also_seen`'s match: route and dates). `until`: the end
+    of an open deal's life (default: the copy's last collection run)."""
+    runs = completed_runs(conn)
+    load = _Loading(
+        source=source, runs=runs, until=until or (runs[-1].at if runs else db.utcnow()),
+        run_at={r["id"]: datetime.fromisoformat(r["started_at"])
+                for r in conn.execute("SELECT id, started_at FROM fetch_runs")},
+        backfilled=db.expiries_backfilled_before(conn))
+    rows = conn.execute(
+        """SELECT d.*, o.origin, o.destination, o.destination_airport, o.departure_date,
+                  o.return_date, o.price, o.airline, o.transfers, o.return_transfers, o.gate,
+                  o.with_baggage, o.found_at, o.found_date, o.fetched_at, o.source
+           FROM deals d JOIN price_observations o ON o.id = d.observation_id
+           WHERE o.source = ? ORDER BY d.id""", (source,)).fetchall()
+    return [_cache_deal(conn, r, load) for r in rows]
+
+
+@dataclass(frozen=True)
+class _Loading:
+    """What every deal of one `cache_deals` call is read against."""
+
+    source: str
+    runs: list[Run]
+    until: datetime                  # the end of an open deal's life
+    run_at: dict[int, datetime]      # every fetch run's start
+    backfilled: datetime | None      # `db.expiries_backfilled_before`
+
+
+def _cache_deal(conn: sqlite3.Connection, r: sqlite3.Row, load: _Loading) -> CacheDeal:
+    """One deal row (joined with its observation) and its trip's rows at every source."""
+    detected = datetime.fromisoformat(r["detected_at"])
+    expired = db._dt(r["expired_at"])
+    end = expired or load.until
+    approved, approver = _approval(r)
+    return CacheDeal(
+        deal_id=r["id"], route=f"{r['origin']}-{r['destination']}",
+        airport=r["destination_airport"], departure_date=date.fromisoformat(r["departure_date"]),
+        return_date=date.fromisoformat(r["return_date"]), price=float(r["price"]),
+        airline=r["airline"], seller=r["gate"], nonstop=_nonstop(r),
+        with_baggage=_bool_or_none(r["with_baggage"]),
+        source=r["source"], found=_found(r), detected_at=detected, approved_at=approved,
+        approver=approver, status=r["status"], expired_at=expired, expired_kind=r["expired_kind"],
+        last_seen_price=None if r["last_seen_price"] is None else float(r["last_seen_price"]),
+        approximate=outcomes.approximate(expired, load.backfilled), end=end,
+        rechecks=sum(1 for x in load.runs if detected < x.at <= end),
+        **_seen_by_source(_trip_rows(conn, r, load.run_at), load.source))
+
+
+def _approval(r: sqlite3.Row) -> tuple[datetime | None, str]:
+    """(when, by whom: rules | human | none): a rejected deal was never approved."""
+    approved = (db._dt(r["reviewed_at"])
+                if r["reviewed_at"] and r["status"] != "rejected" else None)
+    if approved is None:
+        return None, "none"
+    return approved, "rules" if r["review_note"] == auto_review.NOTE else "human"
+
+
+def _trip_rows(conn: sqlite3.Connection, r: sqlite3.Row, run_at: dict[int, datetime]) -> list[Seen]:
+    """Every other stored row of the deal's trip (route and dates), any source, oldest first."""
+    return [_seen(row, run_at) for row in conn.execute(
+        """SELECT * FROM price_observations WHERE origin = ? AND destination = ?
+           AND departure_date = ? AND return_date = ? AND id != ? ORDER BY id""",
+        (r["origin"], r["destination"], r["departure_date"], r["return_date"],
+         r["observation_id"]))]
+
+
+def _seen_by_source(seen: list[Seen], source: str) -> dict[str, tuple[Seen, ...]]:
+    """The trip's rows as `CacheDeal`'s probe, airline and cache fields."""
+    return {"probe": tuple(s for s in seen if s.source in PROBE_ENGINES),
+            "airline_seen": tuple(s for s in seen if s.source in ryanair.AIRLINE_SOURCES),
+            "cache_seen": tuple(s for s in seen if s.source == source)}
+
+
+def _nonstop(row: sqlite3.Row) -> bool:
+    return row["transfers"] == 0 and row["return_transfers"] == 0
+
+
+def _bool_or_none(value: int | None) -> bool | None:
+    return None if value is None else bool(value)
+
+
+def _found(row: sqlite3.Row) -> datetime | None:
+    """When the price was found, as the shipped rule assumes it (`recheck.found_moment`)."""
+    return found_moment(db._dt(row["found_at"]), db._dt(row["fetched_at"]))
+
+
+def _seen(row: sqlite3.Row, run_at: dict[int, datetime]) -> Seen:
+    first, last = datetime.fromisoformat(row["fetched_at"]), datetime.fromisoformat(row["last_seen_at"])
+    return Seen(source=row["source"], price=float(row["price"]), first=first, last=last,
+                first_usable=max(first, run_at.get(row["run_id"], first)),
+                last_usable=max(last, run_at.get(row["last_run_id"], last)),
+                observation_id=row["id"], seller=row["gate"], airline=row["airline"],
+                airport=row["destination_airport"], nonstop=_nonstop(row),
+                with_baggage=_bool_or_none(row["with_baggage"]), found=_found(row))
+
+
+# --- the probe report ------------------------------------------------------------------------
+
+def _t(dt: datetime | None) -> str:
+    return "–" if dt is None else f"{dt:%d/%m %H:%M}"
+
+
+def _h(hours: float | None) -> str:
+    return "–" if hours is None else f"{hours:.0f}"
+
+
+def _shares(values: list[float]) -> str:
+    return "–" if not values else f"{statistics.median(values):+.0%} ({min(values):+.0%} … {max(values):+.0%})"
+
+
+def _cadence(searches: list[ProbeSearch]) -> float | None:
+    """Median hours between the trip's probe visits (one visit: both engines, minutes apart)."""
+    visits: list[datetime] = []
+    for x in searches:
+        if not visits or x.at - visits[-1] > PAIR_WINDOW:
+            visits.append(x.at)
+    gaps = [_hours(a, b) for a, b in zip(visits, visits[1:])]
+    return statistics.median(gaps) if gaps else None
+
+
+def probe_report(deals: list[CacheDeal], rules: list[ProbeRule], tolerance: float,
+                 controls: list[CacheDeal] = ()) -> dict:
+    """The figures behind the probe report, as data (`probe_markdown` prints them). `controls`:
+    deals from an airline source (`cache_deals(conn, source="ryanair")`), the same comparison
+    where the deal's own price is known to be live."""
+    compared = [d for d in deals if d.compared]
+    checked = [d for d in controls if d.compared]
+    known = stale_known(compared, tolerance)
+    grid = probe_grid(compared, rules, tolerance, checked)
+    return {"source": deals[0].source if deals else None, "tolerance": tolerance,
+            "deals": len(deals), "compared": len(compared),
+            "approved_compared": sum(1 for d in compared if d.approved_at is not None),
+            "stale_known": sorted(known), "deal_rows": [_deal_row(d) for d in compared],
+            "readings": [_reading_row(d, x, tolerance) for d in compared for x in _readings(d)],
+            "pairs": [_pair_row(d, g, k) for d, g, k in engine_pairs(compared)],
+            "control": _control(checked), "grid": [row.summary(known) for row in grid]}
+
+
+def _iso(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt else None
+
+
+def _deal_row(d: CacheDeal) -> dict:
+    """A compared deal's row of the report: the deal, its life, and its trip's prices."""
+    life = d.searches_in_life()
+    return {
+        "deal_id": d.deal_id, "route": d.route, "airport": d.airport,
+        "departure_date": d.departure_date.isoformat(), "return_date": d.return_date.isoformat(),
+        "price": d.price, "airline": d.airline, "seller": d.seller, "nonstop": d.nonstop,
+        "with_baggage": d.with_baggage, "source": d.source, "found": _iso(d.found),
+        "detected_at": d.detected_at.isoformat(),
+        "approved_at": _iso(d.approved_at), "approver": d.approver,
+        "status": d.status, "expired_at": _iso(d.expired_at),
+        "expired_kind": d.expired_kind, "rose": d.rose, "last_seen_price": d.last_seen_price,
+        "approximate": d.approximate, "life_hours": d.life_hours, "rechecks": d.rechecks,
+        "searches": {e: len(d.searches_in_life(e)) for e in PROBE_ENGINES},
+        "first_search_hours": _hours(d.detected_at, life[0].at) if life else None,
+        "hours_between_searches": _cadence(life),
+        **_gap_range([gap(d, x.price)[1] for x in life]),
+        "airline_prices": sorted({s.price for s in (airline_price_at(d, x.at) for x in life)
+                                  if s is not None}),
+        "cache_later": _cache_later(d),
+    }
+
+
+def _gap_range(shares: list[float]) -> dict[str, float | None]:
+    """The first, smallest and largest gap of the deal's probe searches (None without one)."""
+    if not shares:
+        return {"first_gap": None, "min_gap": None, "max_gap": None}
+    return {"first_gap": shares[0], "min_gap": min(shares), "max_gap": max(shares)}
+
+
+def _cache_later(d: CacheDeal) -> list[float]:
+    """The cache's prices for the trip at the deal's airport, first seen in its life (or up to
+    `TRUTH_WINDOW` after)."""
+    return sorted({s.price for s in d.cache_seen
+                   if d.detected_at <= s.first < d.end + TRUTH_WINDOW and s.airport == d.airport})
+
+
+def _readings(d: CacheDeal) -> list[ProbeSearch]:
+    """The deal's probe searches from `TRUTH_WINDOW` before detection to its end."""
+    return [x for x in d.searches() if d.detected_at - TRUTH_WINDOW <= x.at < d.end]
+
+
+def _reading_row(d: CacheDeal, x: ProbeSearch, tolerance: float) -> dict:
+    """One probe search against the deal: its gap, its timing and the truth at that moment."""
+    euros, share = gap(d, x.price)
+    truth = truth_at(d, x.at, tolerance)
+    return {
+        "deal_id": d.deal_id, "engine": x.engine, "seller": x.seller, "airline": x.airline,
+        "airport": x.airport, "airline_differs": x.airline != d.airline,
+        "airport_differs": x.airport != d.airport, "price": x.price, "gap_eur": euros,
+        "gap_pct": share, "at": x.at.isoformat(), "usable_at": x.usable_at.isoformat(),
+        "hours_after_detection": _hours(d.detected_at, x.at),
+        "import_lag_hours": _hours(x.at, x.usable_at),
+        "hours_before_end": _hours(x.at, d.end), "truth": truth.label,
+        "truth_detail": truth.detail}
+
+
+def _pair_row(d: CacheDeal, g: ProbeSearch, k: ProbeSearch) -> dict:
+    """A Google Flights search and its Kayak pair (`engine_pairs`) against the deal."""
+    return {"deal_id": d.deal_id, "at": g.at.isoformat(), "google_flights": g.price,
+            "kayak": k.price, "gf_gap": gap(d, g.price)[1], "kayak_gap": gap(d, k.price)[1],
+            "between": g.price / k.price - 1}
+
+
+def _control(deals: list[CacheDeal]) -> dict:
+    """How far the probe's searches sit from deals whose price is live (each search in a
+    deal's life, the deal's own carrier and airport only)."""
+    shares = [gap(d, x.price)[1] for d in deals for x in d.searches_in_life()
+              if x.airport == d.airport]
+    return {"source": deals[0].source if deals else None, "deals": len(deals), "searches": len(shares),
+            "median_gap": statistics.median(shares) if shares else None,
+            "at_least_5": sum(g >= 0.05 - detector.EPS for g in shares),
+            "at_least_10": sum(g >= 0.10 - detector.EPS for g in shares),
+            "below": sum(g < -detector.EPS for g in shares)}
+
+
+# A Markdown table column: its header and how one row (a report dict) prints in it.
+Column = tuple[str, Callable[[dict], str]]
+
+
+def _md_header(columns: tuple[Column, ...]) -> tuple[str, str]:
+    return "| " + " | ".join(name for name, _ in columns) + " |", "|" + "---|" * len(columns)
+
+
+def _md_line(columns: tuple[Column, ...], row: dict) -> str:
+    return "| " + " | ".join(cell(row) for _, cell in columns) + " |"
+
+
+def _md_table(columns: tuple[Column, ...], rows: list[dict]) -> list[str]:
+    """The columns' header, then one line per row."""
+    return [*_md_header(columns), *(_md_line(columns, r) for r in rows)]
+
+
+def _ids(xs: list[int]) -> str:
+    return ", ".join(map(str, xs)) or "–"
+
+
+def _id_cell(key: str) -> Callable[[dict], str]:
+    return lambda g: _ids(g[key])
+
+
+def _prices(xs: list[float]) -> str:
+    return ", ".join(f"{p:g}" for p in xs) or "–"
+
+
+BAGGAGE_CELL = {None: "bag ?", False: "cabin", True: "checked bag"}
+
+
+def _carrier_cell(r: dict) -> str:
+    nonstop = "" if r["nonstop"] else ", not nonstop"
+    return f"{r['airline']}, {r['seller'] or '–'}, {BAGGAGE_CELL[r['with_baggage']]}{nonstop}"
+
+
+def _expiry_cell(r: dict) -> str:
+    if r["expired_at"] is None:
+        return "open"
+    rose = " (rose)" if r["rose"] else ""
+    approximate = " ≈" if r["approximate"] else ""
+    return f"{r['expired_kind']}{rose} {_t(datetime.fromisoformat(r['expired_at']))}{approximate}"
+
+
+def _gaps_cell(r: dict) -> str:
+    if r["first_gap"] is None:
+        return "–"
+    return f"{r['first_gap']:+.0%}; {r['min_gap']:+.0%} … {r['max_gap']:+.0%}"
+
+
+DEAL_COLUMNS: tuple[Column, ...] = (
+    ("Deal", lambda r: f"{r['deal_id']}"),
+    ("Route, airport", lambda r: f"{r['route']} {r['airport']}"),
+    ("Trip", lambda r: f"{r['departure_date'][5:]}–{r['return_date'][5:]}"),
+    ("Price", lambda r: f"{r['price']:g} €"),
+    ("Carrier, seller, bag", _carrier_cell),
+    ("Approved", lambda r: f"{r['approver'] if r['approved_at'] else 'no'}"),
+    ("Expiry", _expiry_cell),
+    ("Life h (rechecks)", lambda r: f"{r['life_hours']:.0f} ({r['rechecks']})"),
+    ("Searches GF/K",
+     lambda r: f"{r['searches'][gf_engine.SOURCE]}/{r['searches'][kayak_engine.SOURCE]}"),
+    ("First search, then every (h)",
+     lambda r: f"{_h(r['first_search_hours'])}, {_h(r['hours_between_searches'])}"),
+    ("Gap first; min … max", _gaps_cell),
+    ("Airline price", lambda r: _prices(r["airline_prices"])),
+    ("Cache later", lambda r: _prices(r["cache_later"])),
+)
+
+
+def _reading_carrier_cell(r: dict) -> str:
+    mark = "*" if r["airline_differs"] or r["airport_differs"] else ""
+    return f"{r['airline']}, {r['airport']}{mark}"
+
+
+def _truth_cell(r: dict) -> str:
+    return f"{r['truth']}{': ' + r['truth_detail'] if r['truth_detail'] else ''}"
+
+
+READING_COLUMNS: tuple[Column, ...] = (
+    ("Deal", lambda r: f"{r['deal_id']}"),
+    ("Engine", lambda r: f"{r['engine']}"),
+    ("Seller", lambda r: f"{r['seller'] or '–'}"),
+    ("Carrier, airport", _reading_carrier_cell),
+    ("Price", lambda r: f"{r['price']:g} €"),
+    ("Gap", lambda r: f"{r['gap_eur']:+g} € ({r['gap_pct']:+.0%})"),
+    ("Searched", lambda r: _t(datetime.fromisoformat(r["at"]))),
+    ("After detection (h)", lambda r: f"{r['hours_after_detection']:.1f}"),
+    ("Import lag (h)", lambda r: f"{r['import_lag_hours']:.1f}"),
+    ("Before end (h)", lambda r: f"{r['hours_before_end']:.0f}"),
+    ("Truth then", _truth_cell),
+)
+
+GRID_COLUMNS: tuple[Column, ...] = (
+    ("Match", lambda g: "airport" if g["rule"]["same_airport"] else "trip"),
+    ("Engines", lambda g: f"{g['rule']['engines']}"),
+    ("Max age h", lambda g: f"{g['rule']['max_age_hours']:g}"),
+    ("Margin", lambda g: f"≥{g['rule']['pct']:.0%}, ≥{g['rule']['eur']:g} €"),
+    ("Fired", lambda g: f"{g['fired']}"),
+    ("Approved then", lambda g: f"{g['approved_when_fired']}"),
+    ("Stale: airline", _id_cell("stale_airline")),
+    ("Stale: rose", _id_cell("stale_rose")),
+    ("Stale: timer", _id_cell("stale_timer")),
+    ("Real: false positives", _id_cell("real")),
+    ("Unknown", _id_cell("unknown")),
+    ("Open", _id_cell("open")),
+    ("Early h", lambda g: _h(g["median_hours_early"])),
+    ("Caught stale known", lambda g: f"{len(g['caught_stale_known'])}/{len(g['stale_known'])}"),
+    ("Control false", lambda g: f"{_ids(g['control_false'])} ({len(g['control_fired'])})"),
+)
+GRID_HEADER = _md_header(GRID_COLUMNS)
+
+# The engine pairs' agreement with the deal: (label, test on a `_pair_row`).
+PAIR_TESTS: tuple[tuple[str, Callable[[dict], bool]], ...] = (
+    ("both ≥ 10 % higher", lambda p: min(p["gf_gap"], p["kayak_gap"]) >= 0.10),
+    ("both ≥ 5 % higher", lambda p: min(p["gf_gap"], p["kayak_gap"]) >= 0.05),
+    ("both within ±5 %", lambda p: max(abs(p["gf_gap"]), abs(p["kayak_gap"])) <= 0.05),
+    ("one ≥ 10 % higher, the other within 5 %",
+     lambda p: max(p["gf_gap"], p["kayak_gap"]) >= 0.10 and min(p["gf_gap"], p["kayak_gap"]) <= 0.05),
+    ("either below the deal", lambda p: min(p["gf_gap"], p["kayak_gap"]) < 0),
+)
+
+
+def probe_markdown(data: dict, *, every_rule: bool = True) -> str:
+    """The probe report as Markdown: the compared deals, every probe reading with its gap and
+    the truth at that moment, how the two engines agree, and the rule grid."""
+    lines = [*_deals_section(data), *_readings_section(data["readings"]),
+             *_pairs_section(data["pairs"]), *_control_section(data.get("control") or {}),
+             *_grid_section(data, every_rule)]
+    return "\n".join(lines) + "\n"
+
+
+def _deals_section(data: dict) -> list[str]:
+    return [f"Cache deals (source `{data['source']}`): {data['deals']}; compared (a probe search "
+            f"of the trip while the deal was open): {data['compared']}, of them approved "
+            f"{data['approved_compared']}. Truth tolerance {data['tolerance']:.0%} (the recheck's).",
+            "", *_md_table(DEAL_COLUMNS, data["deal_rows"])]
+
+
+def _readings_section(readings: list[dict]) -> list[str]:
+    return ["", "Every probe search from 24 h before detection to the deal's end (cheapest option "
+            "per search; * = another carrier or airport than the deal's):", "",
+            *_md_table(READING_COLUMNS, readings)]
+
+
+def _pairs_section(pairs: list[dict]) -> list[str]:
+    if not pairs:
+        return []
+    between = [abs(p["between"]) for p in pairs]
+    return ["", f"Google Flights and Kayak on the same trip within {PAIR_WINDOW.seconds // 3600} h, "
+            f"during a deal's life: {len(pairs)} pairs; |GF − Kayak| median {statistics.median(between):.1%}, "
+            f"max {max(between):.1%}; within 5 % of each other {sum(b <= 0.05 for b in between)}.", "",
+            "| Both engines vs the deal | Pairs |", "|---|---|",
+            *(f"| {label} | {sum(1 for p in pairs if test(p))} |" for label, test in PAIR_TESTS)]
+
+
+def _control_section(c: dict) -> list[str]:
+    if not c.get("deals"):
+        return []
+    return ["", f"Control: {c['deals']} deals from `{c['source']}` (rechecked at the seller every run) "
+            f"with a probe search while open, {c['searches']} searches at their airport: gap median "
+            f"{c['median_gap']:+.1%}; ≥ 5 % above {c['at_least_5']}, ≥ 10 % above {c['at_least_10']}, "
+            f"below the deal {c['below']}."]
+
+
+def _grid_section(data: dict, every_rule: bool) -> list[str]:
+    """The rule grid (only the rules that fired unless `every_rule`); the rules without the
+    found-time guard follow under their own header."""
+    known = data["stale_known"]
+    lines = ["", f"Rule grid. \"Stale known\": deals the truth calls stale at one of their probe "
+             f"searches ({len(known)}: {', '.join(map(str, known)) or 'none'}). A rule fires at the "
+             f"first recheck (probe import) where its condition holds; the truth is judged at the "
+             f"search that fired it. \"Early\": median hours before the real expiry (expired deals). "
+             f"\"Control false\": control deals it would have expired more than "
+             f"{CONTROL_SLACK.seconds // 3600} h before their own source did (of those it fired on).", "",
+             *GRID_HEADER]
+    guarded = True
+    for g in data["grid"]:
+        if not every_rule and not g["fired"]:
+            continue
+        if guarded and not g["rule"]["newer_than_price"]:
+            guarded = False
+            lines += ["", "The same rules without the found-time guard (searches older than the "
+                      "deal's price count too):", "", *GRID_HEADER]
+        lines.append(_md_line(GRID_COLUMNS, g))
+    return lines
