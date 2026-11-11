@@ -30,20 +30,24 @@ DEP, RET = date(2026, 12, 3), date(2026, 12, 6)
 
 def trip_obs(source: str, price: float, at: datetime, *, oid: int = 0, airport: str | None = "BVA",
              last: datetime | None = None, seller: str | None = None,
-             found_at: datetime | None = None, found_date: date | None = None) -> Observation:
+             found_at: datetime | None = None, found_date: date | None = None,
+             transfers: int | None = 0, return_transfers: int | None = 0) -> Observation:
     """OPO-PAR 03–06/12 at `source` (test data only)."""
     return Observation(source=source, origin="OPO", destination="PAR", origin_airport="OPO",
                        destination_airport=airport, departure_date=DEP, return_date=RET,
                        price=float(price), currency="EUR", airline="FR", flight_number=None,
-                       transfers=0, return_transfers=0, deep_link=None, fetched_at=at,
+                       transfers=transfers, return_transfers=return_transfers, deep_link=None,
+                       fetched_at=at,
                        last_seen_at=last or at, id=oid, gate=seller, found_at=found_at,
                        found_date=found_date)
 
 
 def cache_deal(price: float = 50, *, source: str = "travelpayouts", airport: str | None = "BVA",
-               found_at: datetime | None = NOW - 10 * H, found_date: date | None = None) -> Observation:
-    return trip_obs(source, price, NOW - 10 * H, oid=1, airport=airport, found_at=found_at,
-                    found_date=found_date)
+               found_at: datetime | None = NOW - 10 * H, found_date: date | None = None,
+               fetched: datetime = NOW - 10 * H, **kw) -> Observation:
+    """A cache deal first fetched at `fetched` (10 h before NOW)."""
+    return trip_obs(source, price, fetched, oid=1, airport=airport, found_at=found_at,
+                    found_date=found_date, **kw)
 
 
 def both(price_gf: float, price_kayak: float, at: datetime, **kw) -> list[Observation]:
@@ -94,9 +98,8 @@ def test_the_newest_search_decides_an_older_dearer_one_does_not():
     pytest.param(cache_deal(50, found_at=NOW - H), both(70, 70, NOW - 2 * H),
                  id="searched before the price was found"),
     pytest.param(cache_deal(50, found_at=None, found_date=NOW.date()),
-                 both(70, 70, NOW - 16 * H + timedelta(minutes=1)),
-                 id="searched before the found day (no exact time)"),
-    pytest.param(cache_deal(50, found_at=None), both(70, 70, NOW - H), id="found time unknown"),
+                 both(70, 70, NOW - 10 * H - timedelta(minutes=1)),
+                 id="searched before the first fetch (no exact found time)"),
     pytest.param(cache_deal(50), both(70, 70, NOW - H, airport="CDG"), id="another airport"),
     pytest.param(cache_deal(50, airport=None), both(70, 70, NOW - H, airport=None),
                  id="the deal's airport unknown"),
@@ -105,16 +108,41 @@ def test_the_newest_search_decides_an_older_dearer_one_does_not():
     pytest.param(cache_deal(50, source="ryanair"), both(70, 70, NOW - H), id="an airline source"),
     pytest.param(cache_deal(50, source=GF), both(70, 70, NOW - H), id="a comparison source"),
     pytest.param(cache_deal(50), both(70, 70, NOW + H), id="a search after now"),
+    pytest.param(cache_deal(50, transfers=1), both(70, 70, NOW - H), id="a deal with a stop"),
+    pytest.param(cache_deal(50, return_transfers=1), both(70, 70, NOW - H),
+                 id="a deal with a stop on the way back"),
+    pytest.param(cache_deal(50, transfers=None), both(70, 70, NOW - H), id="stops unknown"),
 ])
 def test_the_rule_never_fires_without_fresh_dearer_searches_of_every_engine(deal, readings):
     assert probe_contradiction(deal, readings, CFG, NOW) is None
 
 
-def test_the_margins_are_inclusive_and_the_found_day_counts_from_its_start():
-    found_day = cache_deal(50, found_at=None, found_date=NOW.date())
-    assert probe_contradiction(found_day, both(55, 55, NOW - H), CFG, NOW) is not None  # 10 %, 5 €
+def test_the_margins_are_inclusive():
+    assert probe_contradiction(cache_deal(50), both(55, 55, NOW - H), CFG, NOW) is not None  # 10 %, 5 €
     assert probe_contradiction(cache_deal(50, found_at=NOW - 20 * H), both(70, 70, NOW - 12 * H),
                                CFG, NOW) is not None                    # exactly 12 h old
+
+
+def test_without_an_exact_found_time_the_first_fetch_is_when_the_price_was_found():
+    """A deal detected this run has no `found_at` yet (the enrichment runs after `detect`): its
+    found day starts at 00:00 UTC, but the cache's price may have appeared at 14:00. A 06:00
+    search must not contradict it; the first fetch is never earlier than the real find."""
+    new = cache_deal(50, found_at=None, found_date=NOW.date(), fetched=NOW - H)      # 14:00
+    assert probe_contradiction(new, both(60, 60, NOW - 9 * H), CFG, NOW) is None     # 06:00
+    later = probe_contradiction(new, both(60, 60, NOW - H + timedelta(minutes=5)), CFG, NOW)
+    assert later is not None
+    # An exact found time is kept, even when earlier than the first fetch.
+    found = cache_deal(50, found_at=NOW - 12 * H, found_date=NOW.date(), fetched=NOW - H)
+    assert probe_contradiction(found, both(60, 60, NOW - 9 * H), CFG, NOW) is not None
+
+
+def test_a_cheaper_option_at_another_airport_neither_hides_nor_stands_in():
+    """The airport is filtered before each search's cheapest option is taken."""
+    at = NOW - 2 * H
+    readings = [trip_obs(GF, 40, at, oid=103, airport="CDG"),
+                trip_obs(GF, 62, at, oid=101), trip_obs(KAYAK, 60, at, oid=102)]
+    hit = probe_contradiction(cache_deal(50), readings, CFG, NOW)
+    assert [(x.engine, x.observation_id) for x in hit.searches] == [(GF, 101), (KAYAK, 102)]
 
 
 def test_disabled_or_a_single_engine_by_config():
@@ -203,17 +231,18 @@ def test_run_probe_expiry_takes_down_approved_and_waiting_cache_deals_only(ctx):
     approved, obs = detected_deal(ctx, conn)
     db.record_review(conn, approved, status="approved", note=None)     # on the site
     promotion = db.get_deal(conn, approved)[0].promotion_id
-    now = db.utcnow()
+    at = db.utcnow()                                   # the probe searched after the first fetch
+    now = at + 2 * H
     # Another cache offer of the trip (another carrier) awaiting review, and the airline's own
     # fare of it (D47), both at prices the probe contradicts as much.
     [cache_id] = store(conn, "travelpayouts", [
-        on_trip(obs, "travelpayouts", 60, now - 5 * H, airline="TP", deep_link="https://x/tp")])
+        on_trip(obs, "travelpayouts", 60, at - 5 * H, airline="TP", deep_link="https://x/tp")])
     [airline_id] = store(conn, "ryanair", [
-        on_trip(obs, "ryanair", 58, now - 5 * H, flight_number="FR1",
+        on_trip(obs, "ryanair", 58, at - 5 * H, flight_number="FR1",
                 deep_link="https://www.ryanair.com/x")])
     waiting = deal_on(conn, cache_id, "rendered")
     airline = deal_on(conn, airline_id, "rendered")
-    probe_rows(conn, obs, {GF: 75, KAYAK: 72}, now - 2 * H)
+    probe_rows(conn, obs, {GF: 75, KAYAK: 72}, at)
     before = run_path.fingerprint(ctx, conn, now)
 
     expired = pipeline.run_probe_expiry(ctx, conn, now)
@@ -235,15 +264,29 @@ def test_run_probe_expiry_takes_down_approved_and_waiting_cache_deals_only(ctx):
 def test_run_probe_expiry_needs_both_engines_and_the_config(ctx):
     conn = pipeline.open_db(ctx)
     deal_id, obs = detected_deal(ctx, conn)
-    now = db.utcnow()
-    probe_rows(conn, obs, {GF: 75}, now - H)                    # Kayak paused: no row of it
+    at = db.utcnow()
+    now = at + H
+    probe_rows(conn, obs, {GF: 75}, at)                         # Kayak paused: no row of it
     assert pipeline.run_probe_expiry(ctx, conn, now) == []
-    probe_rows(conn, obs, {KAYAK: 72}, now - H)
+    probe_rows(conn, obs, {KAYAK: 72}, at)
     ctx.config.detector.probe_expiry.enabled = False
     assert pipeline.run_probe_expiry(ctx, conn, now) == []
     ctx.config.detector.probe_expiry.enabled = True
     [(d, _, reason)] = pipeline.run_probe_expiry(ctx, conn, now)
     assert d.id == deal_id and d.status == "expired"
+
+
+@respx.mock
+def test_a_deal_detected_this_run_is_judged_from_its_first_fetch_not_its_found_day(ctx):
+    """The cache's offer has only a found day (yesterday) and no `found_at` until the
+    enrichment, which runs after `detect`: searches from before the pipeline first saw the
+    price cannot contradict it."""
+    conn = pipeline.open_db(ctx)
+    deal_id, obs = detected_deal(ctx, conn)
+    assert obs.found_at is None and obs.found_date < obs.fetched_at.date()
+    probe_rows(conn, obs, {GF: 75, KAYAK: 72}, obs.fetched_at - 2 * H)
+    assert pipeline.run_probe_expiry(ctx, conn, obs.fetched_at + H) == []
+    assert db.get_deal(conn, deal_id)[0].status == "new"
 
 
 @respx.mock
@@ -256,7 +299,7 @@ def test_the_detect_step_expires_a_deal_it_just_detected_when_the_probe_contradi
     pipeline.run_collect(ctx, conn)
     offer = next(o for o in db.observations_seen_since(conn, db.latest_completed_run_id(conn))
                  if o.route_key == "LIS-LON" and o.price == 58)
-    probe_rows(conn, offer, {GF: 80, KAYAK: 74}, db.utcnow() - H)
+    probe_rows(conn, offer, {GF: 80, KAYAK: 74}, db.utcnow())     # after the first fetch
     conn.close()
     monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
     out = CliRunner().invoke(cli.app, ["detect"], catch_exceptions=False).output
@@ -264,6 +307,27 @@ def test_the_detect_step_expires_a_deal_it_just_detected_when_the_probe_contradi
     [(deal, obs)] = db.deals_with_status(conn, *db.OPEN_STATUSES, "expired")
     assert obs.id == offer.id and (deal.status, deal.expired_kind) == ("expired", "contradicted")
     assert f"deal {deal.id} LIS-LON" in out and "desmentida pela sonda" in out
+
+
+@respx.mock
+def test_a_failing_probe_rule_never_fails_the_detect_step(ctx, monkeypatch):
+    """Like every probe step (D48), the rule's failure is a red line and the run goes on."""
+    conn = pipeline.open_db(ctx)
+    seed_history(conn, days=25, price=100)
+    mock_api()
+    pipeline.run_collect(ctx, conn)
+    conn.close()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(pipeline, "probe_contradiction", boom)
+    monkeypatch.setenv("ESCAPADINHA_HOME", str(ctx.root))
+    result = CliRunner().invoke(cli.app, ["detect"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "Probe expiry: failed (RuntimeError: boom)" in result.output
+    conn = pipeline.open_db(ctx)
+    [(deal, _)] = db.deals_with_status(conn, *db.OPEN_STATUSES, "expired")
+    assert deal.status == "new"                         # detection itself went through
 
 
 def test_an_exported_contradicted_promotion_passes_the_traceability_guard(ctx, tmp_path):
@@ -274,8 +338,8 @@ def test_an_exported_contradicted_promotion_passes_the_traceability_guard(ctx, t
         conn = pipeline.open_db(ctx)
         s = build_scenario(ctx, conn)
         obs = db.get_deal(conn, s.live_deal)[1]
-        probe_rows(conn, obs, {GF: 75, KAYAK: 70}, db.utcnow() - H)
-        [(d, _, reason)] = pipeline.run_probe_expiry(ctx, conn)
+        probe_rows(conn, obs, {GF: 75, KAYAK: 70}, db.utcnow())
+        [(d, _, reason)] = pipeline.run_probe_expiry(ctx, conn, db.utcnow() + H)
         assert d.id == s.live_deal and prices_in(reason) == []
         out = tmp_path / "site-data"
         site_data.export_site_data(ctx, conn, out)

@@ -1230,6 +1230,24 @@ def run_probe_expiry(ctx: Context, conn: sqlite3.Connection,
     return expired
 
 
+@dataclass(frozen=True)
+class ProbeExpiry(StepSummary):
+    """What the probe rule took down in a `detect` step (D65)."""
+
+    expired: list[tuple[Deal, Observation, str]]
+    errors: list[str] = field(default_factory=list)
+
+    def describe(self) -> str:
+        return f"Probe expiry: {len(self.expired)} contradicted"
+
+
+def probe_expiry_step(ctx: Context, conn: sqlite3.Connection,
+                      now: datetime | None = None) -> ProbeExpiry | StepFailed:
+    """`run_probe_expiry` under the run steps' guard: like every probe step (D48), it never
+    fails the run; an error is one red line."""
+    return guard("Probe expiry", lambda: ProbeExpiry(run_probe_expiry(ctx, conn, now)))
+
+
 def _mark_expired_outputs(ctx: Context, deal_id: int, reason: str, now: datetime) -> None:
     """Drop a NÃO PUBLICAR note into any already-rendered folder of this deal."""
     for folder in ctx.output_dir.glob(f"*/deal-*-{deal_id}"):

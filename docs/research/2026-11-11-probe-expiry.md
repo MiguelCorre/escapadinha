@@ -44,7 +44,16 @@ tests in `tests/test_backtest_probe.py`.
   `pct` **and** `€` above the deal's price, on any engine, on both engines, or on Google Flights
   alone. Two guards that are not in `also_seen`: `newer_than_price` (only searches made after the
   deal's price was found; on by default) and `same_airport` (only searches that landed at the
-  deal's arrival airport). The rule is judged at its first firing.
+  deal's arrival airport). The rule is judged at its first firing. *Amended the same day, after
+  review (D65):* "when the price was found" is the observation's exact `found_at` when known,
+  else **the first time the pipeline fetched it** (never earlier than the real find), no longer
+  the start of its found day: a deal detected in a run has no `found_at` until the enrichment,
+  which runs after detection. The shipped rule also judges nonstop deals only (the probe reads
+  only nonstop itineraries) and takes each search's cheapest option at the deal's airport. On
+  this copy the rerun changes no figure below: every fire, false positive, control count and
+  hour is the same; one probe reading's truth (deal 71, Google Flights 26/10 00:15, not a fire)
+  moved from unknown to real (cache), because the cache's re-found rows now count from their
+  first fetch too. All 17 compared deals are nonstop.
 - **Truth** (`truth_at`), the best evidence at the moment of the search that fired, in order:
   1. **airline** (strong): Ryanair's own fare (D47) for the same carrier, airport and dates,
      whose sightings cover the moment (else seen within 3 h of it). Real if it is within the

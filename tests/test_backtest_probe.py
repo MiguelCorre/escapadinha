@@ -27,12 +27,12 @@ def seen(source: str, price: float, at: datetime, *, last: datetime | None = Non
 def deal(*, probe=(), airline_seen=(), cache_seen=(), price: float = 50.0,
          expired_at: datetime | None = None, kind: str | None = None,
          last_seen_price: float | None = None, found: datetime | None = None,
-         approved: bool = True, deal_id: int = 1) -> CacheDeal:
+         approved: bool = True, deal_id: int = 1, nonstop: bool = True) -> CacheDeal:
     end = expired_at or DET + 72 * H
     return CacheDeal(
         deal_id=deal_id, route="LIS-LON", airport="STN", departure_date=date(2026, 11, 20),
         return_date=date(2026, 11, 23), price=price, airline="FR", seller="Kiwi.com",
-        nonstop=True, with_baggage=False, source="travelpayouts", found=found or DET - 2 * H,
+        nonstop=nonstop, with_baggage=False, source="travelpayouts", found=found or DET - 2 * H,
         detected_at=DET, approved_at=DET if approved else None,
         approver="rules" if approved else "none", status="expired" if expired_at else "approved",
         expired_at=expired_at, expired_kind=kind, last_seen_price=last_seen_price,
@@ -204,11 +204,12 @@ def test_the_loader_reads_a_cache_deal_and_its_trip_at_every_source(ctx, capsys)
 # --- the shipped rule (D65) is the production function -------------------------------------
 
 def as_observation(source: str, price: float, d: CacheDeal, *, at: datetime, last: datetime,
-                   airport: str | None, oid: int, found: datetime | None = None) -> Observation:
+                   airport: str | None, oid: int, found: datetime | None = None,
+                   transfers: int = 0) -> Observation:
     return Observation(source=source, origin="LIS", destination="LON", origin_airport="LIS",
                        destination_airport=airport, departure_date=d.departure_date,
                        return_date=d.return_date, price=price, currency="EUR", airline="FR",
-                       flight_number=None, transfers=0, return_transfers=0, deep_link=None,
+                       flight_number=None, transfers=transfers, return_transfers=0, deep_link=None,
                        fetched_at=at, last_seen_at=last, id=oid, found_at=found)
 
 
@@ -226,7 +227,11 @@ AGREEMENT_CASES = {
                    seen(KAYAK, 60, DET - H, last=DET + 8 * H, oid=2)],
     "newest decides": [seen(GF, 70, DET + H, oid=1), seen(KAYAK, 70, DET + H, oid=2),
                        seen(GF, 52, DET + 5 * H, oid=3)],
+    "cheaper elsewhere": [seen(GF, 40, DET + H, airport="LTN", oid=3), seen(GF, 62, DET + H, oid=1),
+                          seen(KAYAK, 60, DET + H, oid=2)],
+    "a deal with a stop": [seen(GF, 70, DET + H, oid=1), seen(KAYAK, 70, DET + H, oid=2)],
 }
+ONE_STOP = {"a deal with a stop"}         # the probe reads nonstop itineraries only
 
 
 def test_the_backtest_replays_the_shipped_rule_with_the_production_function():
@@ -240,9 +245,10 @@ def test_the_backtest_replays_the_shipped_rule_with_the_production_function():
             rule.newer_than_price) == (0.10, 5, 12, "both", True, True)
     fired = set()
     for name, probe in AGREEMENT_CASES.items():
-        d = deal(probe=probe, found=DET - 2 * H, price=50)
+        stops = int(name in ONE_STOP)
+        d = deal(probe=probe, found=DET - 2 * H, price=50, nonstop=not stops)
         deal_obs = as_observation("travelpayouts", 50, d, at=DET - 2 * H, last=DET - 2 * H,
-                                  airport=d.airport, oid=99, found=d.found)
+                                  airport=d.airport, oid=99, found=d.found, transfers=stops)
         rows = [as_observation(s.source, s.price, d, at=s.first, last=s.last, airport=s.airport,
                                oid=s.observation_id) for s in probe]
         t = max(s.last_usable for s in probe) + H          # every row imported by then
@@ -253,4 +259,4 @@ def test_the_backtest_replays_the_shipped_rule_with_the_production_function():
                     [(x.engine, x.observation_id, x.price, x.at) for x in prod.searches])), name
         if mine:
             fired.add(name)
-    assert fired == {"both above", "seen again"}
+    assert fired == {"both above", "seen again", "cheaper elsewhere"}

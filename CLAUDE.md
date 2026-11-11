@@ -355,12 +355,16 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `engines`), wired only by `pipeline.run_probe_expiry` (every open deal, approved too; readings
   = every probe row of the trip, `db.trip_observations`, never `also_seen`'s newest per seller;
   `db.expire_deal(kind="contradicted", statuses=db.OPEN_STATUSES)`, `close_empty_promotions`;
-  no run row) inside the CLI `detect` right after `run_reevaluate`, so before `run_auto_approve`.
+  no run row) inside the CLI `detect` right after `run_reevaluate`, so before `run_auto_approve`,
+  under `pipeline.probe_expiry_step` (the run steps' `guard`: it never fails the run).
   Only `recheck.CACHE_SOURCES` deals (never an airline or a comparison source); every engine of
   `engines` must have searched the trip at the deal's arrival airport (known) at or after its
-  price was found (`found_at`, else its found day; unknown: never) within `max_age_hours`, and
-  its newest such search's cheapest option (`cheapest_per_search`; a row is a search at
-  `fetched_at` and at a later `last_seen_at`) be `min_rise_pct` AND `min_rise_eur` above:
+  price was found (`recheck.found_moment`: `found_at`, else the first fetch, never the found
+  day's start: `found_at` arrives only with the enrichment, after `detect`) within
+  `max_age_hours`, and its newest such search's cheapest option at that airport (airport
+  filtered first, then `cheapest_per_search`; a row is a search at `fetched_at` and at a later
+  `last_seen_at`) be `min_rise_pct` AND `min_rise_eur` above. **Nonstop deals only**
+  (`is_nonstop`: the probe reads only nonstop; unknown stops: never):
   a missing, old or other-airport reading never expires anything. The reason comes only from
   `i18n_pt.probe_contradiction` (engines + Lisbon search time, **no euro amount**: it is
   exported on the expired page). The backtest's `probe` preset decides the shipped shape with
@@ -556,8 +560,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   the recheck within 24 h and in hindsight), `rule_sets` presets, `state`, `markdown`/`to_json`;
   the probe section (`cache_deals`, `ProbeRule`, `fires`, `probe_grid`, `probe_report`, D65)
 - `src/escapadinha/recheck.py`: `recheck` (D53 tolerance), `promotion_expiry` (D40) and the
-  probe rule (D65): `CACHE_SOURCES`, `probe_searches`, `cheapest_per_search`, `newest_search`,
-  `rises_above`, `contradicting`, `probe_contradiction` → `Contradiction`
+  probe rule (D65): `CACHE_SOURCES`, `probe_sightings`, `cheapest_per_search`, `found_moment`,
+  `is_nonstop`, `newest_search`, `rises_above`, `contradicting`, `probe_contradiction` →
+  `Contradiction`
 - `src/escapadinha/pipeline.py`: DB wiring per CLI step (`run_discover`, `run_dormancy`,
   `run_missing_photos`, ...), plus review actions (`live_check`, `approve`, ...). The run
   steps with their own run row that never fail the run (D63: `run_airlines`,

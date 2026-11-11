@@ -634,13 +634,16 @@ class CacheDeal:
         """The recheck's last price was above the deal's (a price rise, not the stale timer)."""
         return self.last_seen_price is not None and self.last_seen_price > self.price + detector.EPS
 
+    def sightings(self, engine: str | None = None) -> list[ProbeSearch]:
+        """Every sighting of the trip in the probe's rows, in row order (one per row and time)."""
+        return [ProbeSearch(s.source, at, usable, s.price, s.observation_id, s.seller, s.airline,
+                            s.airport)
+                for s in self.probe if engine is None or s.source == engine
+                for at, usable in s.sightings()]
+
     def searches(self, engine: str | None = None) -> list[ProbeSearch]:
         """Every probe search of the trip (each engine's cheapest option per search), oldest first."""
-        return cheapest_per_search(
-            ProbeSearch(s.source, at, usable, s.price, s.observation_id, s.seller, s.airline,
-                        s.airport)
-            for s in self.probe if engine is None or s.source == engine
-            for at, usable in s.sightings())
+        return cheapest_per_search(self.sightings(engine))
 
     def searches_in_life(self, engine: str | None = None) -> list[ProbeSearch]:
         return [x for x in self.searches(engine) if self.detected_at <= x.at < self.end]
@@ -808,9 +811,10 @@ def fires(deal: CacheDeal, rule: ProbeRule, t: datetime) -> tuple[ProbeSearch, .
 def _shipped_fires(deal: CacheDeal, rule: ProbeRule, t: datetime,
                    age: timedelta) -> tuple[ProbeSearch, ...]:
     """The production rule's verdict (`recheck.contradicting`) on the searches usable at `t`."""
-    usable = [x for x in deal.searches() if x.usable_at <= t]
-    return contradicting(deal.price, deal.airport, deal.found, usable, engines=PROBE_ENGINES,
-                         pct=rule.pct, eur=rule.eur, max_age=age, now=t) or ()
+    usable = [x for x in deal.sightings() if x.usable_at <= t]
+    return contradicting(deal.price, deal.airport, deal.found, deal.nonstop, usable,
+                         engines=PROBE_ENGINES, pct=rule.pct, eur=rule.eur, max_age=age,
+                         now=t) or ()
 
 
 def _engine_fires(engines: str, fresh: dict[str, ProbeSearch | None],
@@ -957,7 +961,7 @@ def cache_deals(conn: sqlite3.Connection, *, source: str = travelpayouts.SOURCE,
     rows = conn.execute(
         """SELECT d.*, o.origin, o.destination, o.destination_airport, o.departure_date,
                   o.return_date, o.price, o.airline, o.transfers, o.return_transfers, o.gate,
-                  o.with_baggage, o.found_at, o.found_date, o.source
+                  o.with_baggage, o.found_at, o.found_date, o.fetched_at, o.source
            FROM deals d JOIN price_observations o ON o.id = d.observation_id
            WHERE o.source = ? ORDER BY d.id""", (source,)).fetchall()
     return [_cache_deal(conn, r, load) for r in rows]
@@ -1028,8 +1032,8 @@ def _bool_or_none(value: int | None) -> bool | None:
 
 
 def _found(row: sqlite3.Row) -> datetime | None:
-    return found_moment(datetime.fromisoformat(row["found_at"]) if row["found_at"] else None,
-                        date.fromisoformat(row["found_date"]) if row["found_date"] else None)
+    """When the price was found, as the shipped rule assumes it (`recheck.found_moment`)."""
+    return found_moment(db._dt(row["found_at"]), db._dt(row["fetched_at"]))
 
 
 def _seen(row: sqlite3.Row, run_at: dict[int, datetime]) -> Seen:

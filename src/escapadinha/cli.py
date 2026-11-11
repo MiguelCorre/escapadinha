@@ -129,7 +129,16 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
     _print_expired(pipeline.run_reevaluate(ctx, conn), "[red]✗ expirado[/]")
     # The probe against the cache (D65): after the recheck and the probe's import, before the
     # full path's automatic approval, so a contradicted new deal never reaches the site.
-    _print_expired(pipeline.run_probe_expiry(ctx, conn), "[red]✗ desmentida pela sonda[/]")
+    _probe_expiry(ctx, conn)
+
+
+def _probe_expiry(ctx: Context, conn: sqlite3.Connection) -> None:
+    """The probe rule's expiries (D65), or its red "failed" line: it never fails the run."""
+    summary = pipeline.probe_expiry_step(ctx, conn)
+    if isinstance(summary, pipeline.StepFailed):
+        console.print(f"[red]{escape(summary.line())}[/]")
+        return
+    _print_expired(summary.expired, "[red]✗ desmentida pela sonda[/]")
 
 
 _DETECTION_LABELS = {"deals": "[green]deal[/]", "no_deal": "no deal",

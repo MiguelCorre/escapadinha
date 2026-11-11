@@ -3761,9 +3761,11 @@ so nothing has to be hosted.
   `contradicted` when, for **every** engine of `detector.probe_expiry.engines` (default both),
   that engine's newest search of the same trip that (a) landed at the deal's own arrival
   airport (known), (b) was made at or after the deal's price was found (`found_at`, else the
-  start of `found_date` in UTC; neither known: never) and (c) is no older than `max_age_hours`
-  (12) has its cheapest option at least `min_rise_pct` (10 %) **and** `min_rise_eur` (5 €)
-  above the deal's price. No reading, an old one, an engine missing (paused after a wall,
+  observation's first fetch, `recheck.found_moment`) and (c) is no older than `max_age_hours`
+  (12) has its cheapest option at that airport at least `min_rise_pct` (10 %) **and**
+  `min_rise_eur` (5 €) above the deal's price. **Nonstop deals only** (`transfers` and
+  `return_transfers` both 0; unknown: never): the probe reads only nonstop itineraries, so a
+  1-stop long-haul deal (long-haul routes allow a stop) is never set against a nonstop fare. No reading, an old one, an engine missing (paused after a wall,
   Kayak blocked: the pipeline only sees missing rows), a search before the price or at
   another airport: nothing expires. An airline-source deal (D47: the seller's own price,
   rechecked there) or a comparison source never expires by this rule. `enabled: false` turns
@@ -3777,11 +3779,18 @@ so nothing has to be hosted.
   `newest_search`, `rises_above` and `contradicting`. `last_seen_at` of a probe row the dedup
   bumped is the repeat's own search time (`results.to_observations` sets `fetched_at` to the
   search time and `db.insert_observations` moves `last_seen_at` to a repeat's `fetched_at`),
-  never the import's, so the age and the found-time guard read real search times. Wired by
+  never the import's, so the age and the found-time guard read real search times. The found
+  time falls back to the first fetch, not the found day's start: a cache observation gets
+  `found_at` only from the enrichment, which runs after `detect`, so a deal detected this run
+  has none, and its price may have appeared at 14:00 of a found day whose 06:00 probe search
+  must not contradict it. `contradicting` filters the deal's airport before taking each
+  search's cheapest option, so an option at another airport neither hides nor stands in. Wired by
   `pipeline.run_probe_expiry` (readings: every probe row of the trip, `db.trip_observations`,
   not `also_seen`'s newest per seller; `db.expire_deal(kind="contradicted",
   statuses=db.OPEN_STATUSES)`, `EXPIRADO.txt`, then `close_empty_promotions` once; no run row,
-  since it stores no observation) inside the CLI `detect`, right after `run_reevaluate`: after
+  since it stores no observation) inside the CLI `detect` under the run steps' guard
+  (`pipeline.probe_expiry_step`: an error is one red "Probe expiry: failed (…)" line and the
+  run goes on, as for every probe step, D48), right after `run_reevaluate`: after
   the probe's import and the recheck, and before the full path's render and
   `run_auto_approve`, so a deal detected in this run that the probe already saw dearer is
   expired before the automatic approval can see it. Not in `recheck.recheck`: the review
@@ -3816,6 +3825,10 @@ so nothing has to be hosted.
   `detect` expiring a deal it just detected; an exported contradicted promotion passing the
   export's traceability guard; a queued post cancelled), and the agreement test in
   `tests/test_backtest_probe.py`.
+- **Review fixes (same day):** an independent review found the nonstop gap (high), the
+  found-day fallback (medium), the airport filtered after the cheapest option and the missing
+  guard (low); all four are fixed above, test-first. The preset rerun on the backup copy
+  changes no figure of the note (one non-firing reading's truth moved from unknown to real).
 - **Consequences:** a stale cache price leaves the site a day or more earlier when the probe is
   running; with the PC off, nothing changes. A real agency fare 10 % and 5 € under both
   engines would be expired wrongly: that is what the rerun watches. The run order tests are

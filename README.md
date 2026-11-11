@@ -421,8 +421,10 @@ expires all of them (none of their months had 10 counted days; D40 has the repla
 **When the probe contradicts the cache (D65).** A deal from the Travelpayouts cache is
 rechecked only at the cache, which can keep a price for days after it stopped being bookable.
 Right after the re-evaluation, every run also sets each open cache deal (`new`, `rendered` and
-`approved`) against the PC probe's searches of the same trip (D48, D49): when **both** Google
-Flights and Kayak searched it at the deal's arrival airport after its price was found, each
+`approved`) against the PC probe's searches of the same trip (D48, D49): when the deal is
+nonstop both ways (the probe reads only nonstop itineraries) and **both** Google Flights and
+Kayak searched it at the deal's arrival airport after its price was found (its exact found time,
+else the first time the pipeline fetched it), each
 engine's newest such search is at most 12 h old, and its cheapest option is at least 10 % **and**
 5 € above the deal's price, the deal expires with kind `contradicted` and a reason that names the
 engines and the search time, never a price: *o Google Flights e o Kayak mostraram esta viagem bem
@@ -433,6 +435,7 @@ happens. A deal from an airline's own fare (D47) is never touched, and a probe p
 confirms, makes or links a promotion: it only takes one down. It runs inside `detect`, so a new
 deal the probe already saw dearer is expired before the automatic approval can publish it; an
 approval through the review Function (which sees no probe rows) is taken down by the next run.
+An error in the rule prints one red line and never stops the run.
 Measured with the backtest's `probe` preset (`docs/research/2026-11-11-probe-expiry.md`).
 
 ### A rise of a euro is not an expiry; a bounce is not a new deal (DECISIONS D53)
