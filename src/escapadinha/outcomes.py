@@ -5,9 +5,10 @@ that expires the deal, never parsed from its pt-PT reason at run time), so the s
 can tell a fare that went away from one that was only replaced by a better date.
 
 The survival report (#78): of the deals judged at 2, 6, 24 and 48 hours after detection (and
-after approval), the share the recheck found gone by then. Open deals and `superseded`/`rules`
-expiries count as surviving until their last check (censored), never as gone, so the numbers
-never overstate how fast fares vanish. Rows come from `pipeline.deal_outcomes`.
+after approval), the share found gone by then (`GONE_KINDS`: the recheck saw it go, or the
+probe contradicted it, D65). Open deals and `superseded`/`rules` expiries count as surviving
+until their last check (censored), never as gone, so the numbers never overstate how fast fares
+vanish. Rows come from `pipeline.deal_outcomes`.
 """
 
 from __future__ import annotations
@@ -25,11 +26,18 @@ from escapadinha.models import Deal, Observation
 # gone: the fare is no longer there at its source (price rose beyond the tolerance, trip
 # vanished, price stale); superseded: still there, but no longer a promotion by our rules
 # because of other data (a cheaper date is now the new low, the typical low moved or lost its
-# maturity); rules: the deal breaks a route rule (nights range, D52; nonstop or stop limit).
-EXPIRY_KINDS = ("gone", "superseded", "rules")
+# maturity); rules: the deal breaks a route rule (nights range, D52; nonstop or stop limit);
+# contradicted (D65): both probe engines recently saw the same trip clearly dearer than the
+# cache's price (pipeline-owned, a cache-source deal only).
+EXPIRY_KINDS = ("gone", "superseded", "rules", "contradicted")
 
 EXPIRY_KIND_PT = {"gone": "desaparecida", "superseded": "ultrapassada",
-                  "rules": "fora das regras da rota"}
+                  "rules": "fora das regras da rota", "contradicted": "desmentida pela sonda"}
+
+# The kinds the survival report counts as gone at their expiry (D65): the price was not
+# bookable any more, whoever saw it. `contradicted` joins `gone`: censoring it would make
+# "still valid after N h" too optimistic; it stays its own kind so the two can be told apart.
+GONE_KINDS = frozenset({"gone", "contradicted"})
 
 HORIZONS_H = (2, 6, 24, 48)
 PUBLISHED_HOURS = 24                       # the visitors' sentence judges approvals at this mark
@@ -184,7 +192,7 @@ def _hours(start: datetime, end: datetime) -> float:
 
 def _watch(o: Outcome, start: datetime) -> _Watch:
     checked = o.last_checked_at or start
-    gone = o.expired_kind == "gone" and o.expired_at is not None
+    gone = o.expired_kind in GONE_KINDS and o.expired_at is not None
     return _Watch(_hours(start, o.expired_at if gone else checked), gone,
                   _hours(start, o.expired_at or checked))
 
@@ -295,8 +303,9 @@ def markdown(r: Report) -> str:
         f"Deals detected {r.since:%Y-%m-%d %H:%M} – {r.now:%Y-%m-%d %H:%M} UTC: {a.deals}, "
         f"{r.open} still open. {a.approximate} of {a.deals} expiry times are approximate "
         "(backfilled at schema v19 from the deal's last check).", "",
-        "\"Gone ≤ x h\": of the deals judged at x h, the share the recheck found gone (the price "
-        "rose beyond the tolerance, the trip vanished, the price went stale) within x h; judged "
+        "\"Gone ≤ x h\": of the deals judged at x h, the share found gone (the recheck saw the "
+        "price rise beyond the tolerance, the trip vanish or the price go stale, or both probe "
+        "engines saw the trip clearly dearer: contradicted) within x h; judged "
         "= gone by then, or watched at least x h. Open deals and superseded or rules expiries "
         "count as surviving until their last check, never as gone. \"Median life\": detection "
         "(or approval) to expiry, or to the last check while open.", "",

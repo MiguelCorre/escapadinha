@@ -209,14 +209,17 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   reason "fora do intervalo de x–y noites da rota"), approved ones too. Changing a range is a
   detector rule change: measure it with the backtest's `stays` preset first and update the note.
 - **Expiry time and kind (D56):** every expiry writes `deals.expired_at` and `expired_kind`
-  (schema v19), one of `outcomes.EXPIRY_KINDS` (`gone` / `superseded` / `rules`; the SQL CHECK
-  is tested against it), set by the code path that expires the deal (`recheck.Recheck.kind`
+  (schema v19), one of `outcomes.EXPIRY_KINDS` (`gone` / `superseded` / `rules` /
+  `contradicted`, D65: both probe engines saw the trip clearly dearer; the SQL CHECK in
+  `schema.sql` and `db.DEALS_V20`, the v20 rebuild of `deals`, is tested against it; a new kind
+  is a new rebuild), set by the code path that expires the deal (`recheck.Recheck.kind`
   through `db.record_recheck`; the re-evaluation's `db.expire_deal`, always `superseded`, at its
-  own run's time), never parsed from the pt-PT reason at run time (only the v19 backfill reads
+  own run's time; `expire_deal(statuses=db.OPEN_STATUSES)` reaches approved deals), never parsed from the pt-PT reason at run time (only the v19 backfill reads
   the old reasons' prefixes). Backfilled times are approximate (`outcomes.approximate` against
   meta `outcomes.backfilled_before`). The survival report (`outcomes.py`, pure: `survival`,
-  `report`, `markdown`, `to_json`; rows from `pipeline.deal_outcomes`) counts only `gone` as
-  gone: open deals and `superseded`/`rules` expiries are censored at their last check. Bands,
+  `report`, `markdown`, `to_json`; rows from `pipeline.deal_outcomes`) counts only
+  `outcomes.GONE_KINDS` (`gone`, `contradicted`) as gone (the backtest's truth stays the cache's
+  own `gone`): open deals and `superseded`/`rules` expiries are censored at their last check. Bands,
   horizons and the breadth rule are constants there; never a second copy. The review pages'
   line (#79) comes only from `pipeline.review_survival` (config `review.outcomes_days`,
   `outcomes_min_n`) through `review_snapshot.survival_json` (snapshot `survival`, queue items

@@ -4,10 +4,12 @@ and the survival report built on it (#78, below)."""
 from __future__ import annotations
 
 import re
+import sqlite3
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 import respx
 
 from escapadinha import outcomes, pipeline
@@ -66,8 +68,10 @@ def test_a_reevaluation_expiry_stores_its_own_time_not_the_previous_rechecks(ctx
 
 
 def test_the_kind_check_in_sql_is_expiry_kinds():
+    """Fresh installs (schema.sql) and the newest migration that defines the CHECK (v20's
+    rebuilt table, D65): a new kind needs both, and a migration of its own."""
     schema = (Path(db.__file__).parent / "schema.sql").read_text("utf-8")
-    for sql in (schema, " ".join(s for s in db.MIGRATIONS[19] if isinstance(s, str))):
+    for sql in (schema, db.DEALS_V20):
         listed = re.search(r"expired_kind\s+TEXT\s+CHECK \(expired_kind IN \(([^)]*)\)\)", sql).group(1)
         assert tuple(re.findall(r"'([a-z]+)'", listed)) == outcomes.EXPIRY_KINDS
 
@@ -109,7 +113,7 @@ def test_upgrading_a_v18_database_backfills_time_and_kind_from_the_old_reasons(c
     conn.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 19
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 20
     for reason, kind in REASONS.items():
         deal = db.get_deal(conn, ids[reason])[0]
         assert deal.expired_kind == kind, reason
@@ -396,3 +400,100 @@ def test_the_outcomes_command_refuses_a_missing_file(ctx, monkeypatch, tmp_path)
     result = CliRunner().invoke(cli.app, ["outcomes", "--db", str(tmp_path / "nope.db")])
     assert result.exit_code == 1 and "nope.db" in " ".join(result.output.split())
     assert not (tmp_path / "nope.db").exists()
+
+
+# --- D65: contradicted, the fourth kind, and schema v20 ---------------------------------------
+
+def test_a_contradicted_deal_counts_as_gone_at_its_expiry_and_is_labelled():
+    """The probe's two engines saw the trip clearly dearer: the price was not bookable, so the
+    report counts it as gone (censoring it would flatter "still valid"), as its own kind."""
+    contradicted = [row(1, last_checked_at=h(3), expired_at=h(3), expired_kind="contradicted",
+                        approved_at=h(1), approver="rules"),
+                    row(2, last_checked_at=h(30))]
+    [everyone] = outcomes.survival(contradicted, by=outcomes.ALL)
+    #                                  2 h     6 h     24 h    48 h
+    assert shares(everyone.detection) == [(0, 2), (1, 2), (1, 2), (1, 1)]
+    assert outcomes.published(contradicted, min_n=1) == outcomes.Published(1, 0, 24)
+    assert outcomes.EXPIRY_KINDS == ("gone", "superseded", "rules", "contradicted")
+    assert outcomes.EXPIRY_KIND_PT["contradicted"] == "desmentida pela sonda"
+    assert outcomes.GONE_KINDS == {"gone", "contradicted"}
+
+
+def test_expire_deal_leaves_an_approved_deal_alone_unless_asked_for_every_open_status(ctx):  # noqa: F811
+    conn = pipeline.open_db(ctx)
+    approved = insert_deal(conn, "LIS-LON", NOV + timedelta(days=10), 50, status="approved",
+                           days=12, median=100)
+    at = db.utcnow()
+    db.expire_deal(conn, approved, "desmentida", kind="contradicted", at=at)
+    assert db.get_deal(conn, approved)[0].status == "approved"      # the default: D40's queue
+    db.expire_deal(conn, approved, "desmentida", kind="contradicted", at=at,
+                   statuses=db.OPEN_STATUSES)
+    deal = db.get_deal(conn, approved)[0]
+    assert (deal.status, deal.expired_kind, deal.expired_at) == ("expired", "contradicted", at)
+    with pytest.raises(ValueError, match="nonsense"):
+        db.expire_deal(conn, approved, "x", kind="nonsense")
+
+
+TS = "2026-10-20T08:00:00+00:00"
+# An expired, approved, grouped deal as v19 stored it: every column set.
+V19_DEAL = dict(
+    id=3, observation_id=1, rule="median", baseline_median=100, sample_size=12, discount_pct=0.5,
+    threshold=0.3, detected_at=TS, status="expired", affiliate_url="https://example.test/a",
+    affiliate_error="none", last_checked_at=TS, last_seen_price=70,
+    expired_reason="o preço subiu para 70 €", output_path="output/deals/3", reviewed_at=TS,
+    review_note="bom deal", published_at=TS, post_url="https://example.test/p",
+    baseline_span_days=11, baseline_lowest_obs_id=1, baseline_highest_obs_id=1,
+    confidence="high", new_low=1, partner_discount_pct=12, partner_offer_at=TS, promotion_id=7,
+    expired_at=TS, expired_kind="gone")
+
+
+def v19_database(path: Path) -> None:
+    """A file as schema v19 left it: the v7 schema and every step since, never today's tables
+    with `ALTER TABLE ... DROP COLUMN` (D64). One deal with its observation, its promotion and
+    a queued post that references it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = sqlite3.connect(path)
+    old.row_factory = sqlite3.Row
+    old.executescript((Path(__file__).parent / "fixtures" / "schema_v7.sql").read_text("utf-8"))
+    for version in range(8, 20):
+        for step in db.MIGRATIONS[version]:
+            step(old) if callable(step) else old.execute(step)
+    old.execute("INSERT INTO fetch_runs (id, source, started_at) VALUES (1, 'test', ?)", (TS,))
+    old.execute("""INSERT INTO price_observations (id, run_id, last_run_id, source, origin,
+                       destination, departure_date, return_date, nights, price, currency,
+                       fetched_at, last_seen_at, dedup_key)
+                   VALUES (1, 1, 1, 'test', 'LIS', 'LON', '2026-11-10', '2026-11-13', 3, 50,
+                           'EUR', ?, ?, 'k1')""", (TS, TS))
+    old.execute("INSERT INTO promotions (id, origin, destination, opened_at) "
+                "VALUES (7, 'LIS', 'LON', ?)", (TS,))
+    columns = [r["name"] for r in old.execute("PRAGMA table_info(deals)")]
+    assert set(columns) == set(V19_DEAL)
+    old.execute(f"INSERT INTO deals ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
+                [V19_DEAL[c] for c in columns])
+    old.execute("""INSERT INTO posting_queue (id, deal_id, channel, due_at, created_at, promotion_id)
+                   VALUES (5, 3, 'telegram', ?, ?, 7)""", (TS, TS))
+    old.execute("PRAGMA user_version = 19")
+    old.commit()
+    old.close()
+
+
+def test_upgrading_a_v19_database_rebuilds_deals_so_the_check_takes_contradicted(ctx):  # noqa: F811
+    v19_database(ctx.db_path)
+    conn = db.connect(ctx.db_path)                          # foreign keys on, as every run
+    db.init(conn)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 20
+    assert dict(conn.execute("SELECT * FROM deals WHERE id = 3").fetchone()) == V19_DEAL
+    fresh = db.connect(ctx.root / "fresh.db")
+    db.init(fresh)
+    for pragma in ("table_info", "foreign_key_list", "index_list"):
+        assert ([tuple(r) for r in conn.execute(f"PRAGMA {pragma}(deals)")]
+                == [tuple(r) for r in fresh.execute(f"PRAGMA {pragma}(deals)")]), pragma
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert conn.execute("SELECT d.id FROM posting_queue q JOIN deals d ON d.id = q.deal_id "
+                        "WHERE q.id = 5").fetchone()[0] == 3
+    with pytest.raises(sqlite3.IntegrityError):              # the reference is still enforced
+        conn.execute("INSERT INTO posting_queue (deal_id, channel, due_at, created_at) "
+                     "VALUES (99, 'instagram', ?, ?)", (TS, TS))
+    conn.execute("UPDATE deals SET expired_kind = 'contradicted' WHERE id = 3")
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("UPDATE deals SET expired_kind = 'nonsense' WHERE id = 3")

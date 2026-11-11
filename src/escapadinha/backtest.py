@@ -711,6 +711,8 @@ def truth_at(deal: CacheDeal, t: datetime, tolerance: float) -> Truth:
     if refound:
         s = min(refound, key=lambda s: s.found)
         return Truth("real", "cache", f"cache re-found {s.price:g} € (obs {s.observation_id})")
+    # The cache's own recheck only, never `contradicted` (D65): that expiry is the probe rule
+    # this backtest measures, so it can't be the evidence it is measured against.
     if deal.expired_kind == "gone" and deal.expired_at is not None and t < deal.expired_at <= t + TRUTH_WINDOW:
         return Truth("stale", "rose" if deal.rose else "timer",
                      f"gone {_hours(t, deal.expired_at):.0f} h later")
