@@ -120,31 +120,40 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
     table = Table(title=f"Detection for run #{run_id}")
     for col in ("Route", "Fresh", "Best offer", "Typical low", "Baseline", "Result", "Lows", "Deals"):
         table.add_column(col, no_wrap=True)
-    labels = {"deals": "[green]deal[/]", "no_deal": "no deal",
-              "insufficient_history": "[yellow]warming up[/]", "no_data": "[dim]no data[/]",
-              "no_fresh": "[dim]no fresh[/]"}
-    need = ctx.config.detector.min_baseline_days_promo     # promotions' maturity (D40)
     for r in results:
-        best = "–" if r.best is None else f"{r.best.price:g} € ({r.best.departure_date:%d/%m})"
-        low = "–" if r.baseline is None or r.baseline.median is None else f"{r.baseline.median:g} €"
-        days = ("–" if r.baseline is None
-                else f"{r.baseline.sample_size}/{need} days, span {r.baseline.span_days}, "
-                     f"{detector.confidence(r.baseline, ctx.config.detector)}")
-        table.add_row(r.route, str(r.fresh), best, low, days, labels.get(r.status, r.status),
-                      str(r.low_prices or "–"), ", ".join(map(str, r.deal_ids)) or "–")
+        table.add_row(*_detection_row(ctx, r))
     console.print(table)
     console.print(f"{sum(r.low_prices for r in results)} low prices, "
                   f"{sum(len(r.deal_ids) for r in results)} new promotion candidates.")
     # The queue against today's typical lows (D40): a deal that would not be detected now expires.
-    for deal, obs, reason in pipeline.run_reevaluate(ctx, conn):
-        console.print(f"  deal {deal.id} {obs.route_key} {obs.departure_date:%d/%m}–"
-                      f"{obs.return_date:%d/%m} @ {obs.price:g} €: [red]✗ expirado[/] "
-                      f"({escape(reason)})")
+    _print_expired(pipeline.run_reevaluate(ctx, conn), "[red]✗ expirado[/]")
     # The probe against the cache (D65): after the recheck and the probe's import, before the
     # full path's automatic approval, so a contradicted new deal never reaches the site.
-    for deal, obs, reason in pipeline.run_probe_expiry(ctx, conn):
+    _print_expired(pipeline.run_probe_expiry(ctx, conn), "[red]✗ desmentida pela sonda[/]")
+
+
+_DETECTION_LABELS = {"deals": "[green]deal[/]", "no_deal": "no deal",
+                     "insufficient_history": "[yellow]warming up[/]", "no_data": "[dim]no data[/]",
+                     "no_fresh": "[dim]no fresh[/]"}
+
+
+def _detection_row(ctx: Context, r: pipeline.RouteDetection) -> tuple[str, ...]:
+    """One route's line of `detect`'s table."""
+    need = ctx.config.detector.min_baseline_days_promo     # promotions' maturity (D40)
+    best = "–" if r.best is None else f"{r.best.price:g} € ({r.best.departure_date:%d/%m})"
+    low = "–" if r.baseline is None or r.baseline.median is None else f"{r.baseline.median:g} €"
+    days = ("–" if r.baseline is None
+            else f"{r.baseline.sample_size}/{need} days, span {r.baseline.span_days}, "
+                 f"{detector.confidence(r.baseline, ctx.config.detector)}")
+    return (r.route, str(r.fresh), best, low, days, _DETECTION_LABELS.get(r.status, r.status),
+            str(r.low_prices or "–"), ", ".join(map(str, r.deal_ids)) or "–")
+
+
+def _print_expired(expired: list[tuple[pipeline.Deal, pipeline.Observation, str]], verdict: str) -> None:
+    """Each deal a detect step expired, with `verdict` and the pt-PT reason."""
+    for deal, obs, reason in expired:
         console.print(f"  deal {deal.id} {obs.route_key} {obs.departure_date:%d/%m}–"
-                      f"{obs.return_date:%d/%m} @ {obs.price:g} €: [red]✗ desmentida pela sonda[/] "
+                      f"{obs.return_date:%d/%m} @ {obs.price:g} €: {verdict} "
                       f"({escape(reason)})")
 
 
