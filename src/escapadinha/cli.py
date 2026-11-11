@@ -1076,6 +1076,26 @@ def _warn_if_daily_pass_missed(report: list[str]) -> None:
     _warn(pipeline.missed_daily_pass_warning(ctx, conn, db.utcnow()), report)
 
 
+def _error(exc: Exception) -> str:
+    """An error as one report line: its type and the first line of its message."""
+    first_line = next(iter(str(exc).splitlines()), "")
+    return f"{type(exc).__name__}: {first_line[:300]}"
+
+
+def _render(report: list[str]) -> bool:
+    """The full path's render of the new deals. A render that raised (no browser on the runner,
+    D64) is one red line in the report and False: the deals stay unrendered, so not approved
+    and not public, and the site is still exported, built and deployed."""
+    try:
+        render_deals()
+    except Exception as exc:
+        line = pipeline.StepFailed("Render", _error(exc)).line()
+        console.print(f"[red]{escape(line)}[/]")
+        report.append(line)
+        return False
+    return True
+
+
 def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     _warn_if_late(report)                    # before this run's collection adds its own row
     routes_upkeep()
@@ -1105,8 +1125,7 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
     uploaded = pipeline.mirror_local_files(ctx, conn)     # what a runner lacks (D25)
     if uploaded:
         console.print(f"{len(uploaded)} local files uploaded to the object store.")
-    if render:
-        render_deals()
+    rendered = not render or _render(report)     # a failed render never stops the site (D64)
     report.extend(_auto_approve())           # D46: what passes the rules goes live in this deploy
     export = _export_site_data(None, new_links=True)   # → web/src/data (site.data_dir)
     if _site_build(until).installed:             # the Astro site → web/dist (D35)
@@ -1115,6 +1134,8 @@ def _pipeline_steps(render: bool, full: bool, report: list[str]) -> None:
         _site_deploy(force=False, until=until)
     else:
         console.print("[dim]Site not deployed: Cloudflare keys not set in .env[/]")
+    if not rendered:                         # the run fails and records no full path: the next
+        raise typer.Exit(1)                  # run takes it again and renders (D64)
     run_path.record_full_path(ctx, conn, export)   # what was exported, built and deployed
 
 
@@ -1172,8 +1193,7 @@ def run(render: Annotated[bool, typer.Option(help="Also render new deals")] = Tr
     except typer.Exit:                    # status already says why (lock held or collection failed)
         raise
     except Exception as exc:
-        first_line = next(iter(str(exc).splitlines()), "")
-        report.append(f"Error: {type(exc).__name__}: {first_line[:300]}")
+        report.append(f"Error: {_error(exc)}")
         raise
     finally:
         took = _duration(time.monotonic() - started)

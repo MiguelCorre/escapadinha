@@ -1,6 +1,7 @@
 """The scheduled run as GitHub Actions runs it (D25): fast or full path, a fresh runner
 with only the bucket, one route failing, the workflow file itself."""
 
+import subprocess
 import time
 import json
 import shutil
@@ -307,6 +308,65 @@ def test_chromium_is_installed_on_a_runner_only_when_slides_are_rendered(monkeyp
     assert renderer.ensure_browser(run=lambda cmd, check: calls.append(cmd)) is True
     assert renderer.ensure_browser(run=lambda cmd, check: calls.append(cmd)) is False   # once
     assert [c[1:] for c in calls] == [["-m", "playwright", "install", "--with-deps", "chromium"]]
+
+
+def test_chromium_is_installed_without_apt_when_the_system_packages_fail(monkeypatch):
+    """D64: on 2026-11-11 Ubuntu's mirrors did not resolve for two hours and `--with-deps` (nine
+    font packages the slides never use) failed four full paths. The browser alone is enough:
+    the runner image has Chromium's libraries. A browser that cannot be had still fails."""
+    calls = []
+
+    def apt_is_down(cmd, check):
+        calls.append(cmd[1:])
+        if "--with-deps" in cmd:
+            raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(renderer, "_installed", False)
+    monkeypatch.setenv(renderer.INSTALL_ENV, "1")
+    assert renderer.ensure_browser(run=apt_is_down) is True
+    assert calls == [["-m", "playwright", "install", "--with-deps", "chromium"],
+                     ["-m", "playwright", "install", "chromium"]]
+    assert renderer.ensure_browser(run=apt_is_down) is False             # once
+
+    def nothing_downloads(cmd, check):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(renderer, "_installed", False)
+    with pytest.raises(subprocess.CalledProcessError):
+        renderer.ensure_browser(run=nothing_downloads)
+    assert renderer._installed is False                                  # the next render retries
+
+
+class NoBrowser(FakeRenderer):
+    def __enter__(self):
+        raise RuntimeError("Chromium did not start\nCall log: ...")
+
+
+@respx.mock
+def test_a_failed_render_still_publishes_the_site_and_the_next_run_renders(home, monkeypatch):
+    """D64: the slides are one input of a new promotion, not of the site. A render that fails
+    leaves the new deal unrendered (so not approved, not public) while the export, the build and
+    the deploy go on: expiries and prices still reach the site. The run fails at its end and
+    records no full path, so the next run takes the full path again and renders."""
+    conn = pipeline.open_db(home)
+    seed_history(conn, days=25, price=100)
+    conn.close()
+    mock_api()
+    mock_links()
+    monkeypatch.setattr(pipeline, "SlideRenderer", NoBrowser)
+    out = " ".join(run_cli(code=1).split())
+    assert "Render: failed (RuntimeError: Chromium did not start)" in out
+    assert "Run failed" in out
+    assert (node.dist_dir(home) / "index.html").exists()             # exported and built
+    conn = pipeline.open_db(home)
+    assert len(db.deals_with_status(conn, "new")) == 1               # waits for a render
+    conn.close()
+
+    monkeypatch.setattr(pipeline, "SlideRenderer", FakeRenderer)
+    out = " ".join(run_cli().split())
+    assert "Path: full" in out and "✓ aprovado automaticamente" in out
+    conn = pipeline.open_db(home)
+    assert len(db.deals_with_status(conn, "approved")) == 1
 
 
 # --- a fresh runner has only the bucket (D21, D25) -------------------------------------------

@@ -39,12 +39,19 @@ _installed = False
 def ensure_browser(run=subprocess.run) -> bool:
     """On a CI runner, install Chromium and its system libraries the first time slides are
     rendered, so runs that render nothing (the fast path) never pay for it. The workflow
-    caches the browser download; the system libraries come from apt. Returns True when it ran
-    the installer. Elsewhere (Miguel's PC) a no-op: `playwright install chromium` is done once."""
+    caches the browser download; the system libraries come from apt. When apt fails (D64:
+    Ubuntu's mirrors, 2026-11-11) the browser is installed alone: the runner image has
+    Chromium's libraries, and the packages it lacks are fonts for scripts the slides never
+    use. Returns True when it ran the installer. Elsewhere (Miguel's PC) a no-op:
+    `playwright install chromium` is done once."""
     global _installed
     if _installed or not os.environ.get(INSTALL_ENV):
         return False
-    run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], check=True)
+    install = [sys.executable, "-m", "playwright", "install"]
+    try:
+        run([*install, "--with-deps", "chromium"], check=True)
+    except subprocess.CalledProcessError:
+        run([*install, "chromium"], check=True)
     _installed = True
     return True
 
