@@ -3726,6 +3726,16 @@ so nothing has to be hosted.
   export, the build and the deploy. Then the run exits 1 and does not call
   `record_full_path`: GitHub shows the failure, and the next run takes the full path again and
   renders (`tests/test_actions.py`). Every other failure of the full path stops it as before.
+- **What the first Linux runs found:** two tests that passed only on the PC. The export
+  command's test read "10 routes" across a line Rich wraps wherever the temporary path makes
+  it fall. And `test_upgrade_from_a_v15_database…` built its old database by dropping today's
+  columns from `deals`: the runner's system SQLite (as Debian's 3.40.1, where it was
+  reproduced) rewrites the stored table text wrongly when the last column goes and a comment
+  before it holds a comma ("incomplete input"; D46's comment in `schema.sql` has one). The
+  test now starts from `schema_v7.sql` and applies migrations 8–15, as the v13 test does. No
+  migration drops a column, so the product never met this; the tests that still drop
+  `expired_at` / `expired_kind` pass only because their comment has no comma, and a new test
+  of an upgrade should start from a fixture schema instead.
 - **Not done here:** a promotion image made without a browser (Pillow, or at the Astro build)
   would take Chromium out of the path altogether; that is a redesign of the slides, for its own
   ticket. Requiring the two checks before a merge needs a protected `master`, which is a
