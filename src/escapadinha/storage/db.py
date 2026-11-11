@@ -467,6 +467,21 @@ def trip_observations_by_source(conn: sqlite3.Connection,
     return out
 
 
+def trip_observations(conn: sqlite3.Connection, o: Observation,
+                      sources: frozenset[str] | set[str]) -> list[Observation]:
+    """Every stored row of `o`'s trip (route and dates, `trip_observations_by_source`'s match)
+    from `sources`, oldest first: all of them, not the newest per seller (D65's probe rule)."""
+    if not sources:
+        return []
+    rows = conn.execute(
+        f"""SELECT * FROM price_observations WHERE origin = ? AND destination = ?
+            AND departure_date = ? AND return_date = ?
+            AND source IN ({','.join('?' * len(sources))}) ORDER BY id""",
+        (o.origin, o.destination, o.departure_date.isoformat(), o.return_date.isoformat(),
+         *sorted(sources)))
+    return [_row_to_observation(r) for r in rows]
+
+
 def deal_observation_ids(conn: sqlite3.Connection) -> set[int]:
     """Observations that already became a deal (any status): never flagged twice."""
     return {r[0] for r in conn.execute("SELECT observation_id FROM deals")}

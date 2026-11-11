@@ -150,6 +150,26 @@ class ConfidenceConfig(BaseModel):
     high_max_cv: float = Field(0.25, gt=0)
 
 
+class ProbeExpiryConfig(BaseModel):
+    """When the probe takes a cache promotion down (D65, `recheck.probe_contradiction`): every
+    engine in `engines` searched the deal's trip at its arrival airport after its price was
+    found, its newest such search is at most `max_age_hours` old, and its cheapest option is at
+    least `min_rise_pct` and `min_rise_eur` above the deal's price. `enabled: false`: never."""
+
+    enabled: bool = True
+    min_rise_pct: float = Field(0.10, gt=0)
+    min_rise_eur: float = Field(5.0, ge=0)
+    max_age_hours: float = Field(12, gt=0)
+    engines: list[ProbeEngine] = ["google_flights", "kayak"]
+
+    @model_validator(mode="after")
+    def _engines(self):
+        if not self.engines or len(set(self.engines)) != len(self.engines):
+            raise ValueError("detector.probe_expiry.engines must name at least one probe engine, "
+                             "each once")
+        return self
+
+
 class DetectorConfig(BaseModel):
     """Two tiers (D24): low prices (>= low_threshold below the typical low, automatic on the
     site) and promotion candidates (>= threshold AND >= min_saving_eur below, reviewed).
@@ -186,6 +206,7 @@ class DetectorConfig(BaseModel):
     reflag_margin_pct: float = Field(0.05, ge=0, lt=1)
     reflag_margin_eur: float = Field(2, ge=0)
     baseline_min_lead_days: int = Field(7, ge=0)
+    probe_expiry: ProbeExpiryConfig = ProbeExpiryConfig()
 
     @model_validator(mode="after")
     def _tiers_nest(self):

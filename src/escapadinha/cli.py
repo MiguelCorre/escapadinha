@@ -140,6 +140,12 @@ def detect(run_id: Annotated[int | None, typer.Option(help="Run to evaluate (def
         console.print(f"  deal {deal.id} {obs.route_key} {obs.departure_date:%d/%m}–"
                       f"{obs.return_date:%d/%m} @ {obs.price:g} €: [red]✗ expirado[/] "
                       f"({escape(reason)})")
+    # The probe against the cache (D65): after the recheck and the probe's import, before the
+    # full path's automatic approval, so a contradicted new deal never reaches the site.
+    for deal, obs, reason in pipeline.run_probe_expiry(ctx, conn):
+        console.print(f"  deal {deal.id} {obs.route_key} {obs.departure_date:%d/%m}–"
+                      f"{obs.return_date:%d/%m} @ {obs.price:g} €: [red]✗ desmentida pela sonda[/] "
+                      f"({escape(reason)})")
 
 
 def _step(run: Callable[[Context, sqlite3.Connection], pipeline.StepSummary], *,

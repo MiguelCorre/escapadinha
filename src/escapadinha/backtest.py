@@ -24,16 +24,17 @@ import sqlite3
 import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from escapadinha import auto_review, detector, i18n_pt, outcomes, routes
 from escapadinha.collector import ryanair, travelpayouts
-from escapadinha.config import DetectorConfig, RoutesConfig
+from escapadinha.config import DetectorConfig, ProbeExpiryConfig, RoutesConfig
 from escapadinha.probe import google_flights as gf_engine
 from escapadinha.probe import kayak as kayak_engine
 from escapadinha.models import Observation, Route, RouteRules
-from escapadinha.recheck import recheck
+from escapadinha.recheck import (cheapest_per_search, contradicting, found_moment, newest_search,
+                                 recheck, rises_above)
 from escapadinha.storage import db
 
 EXPIRY_WINDOW = timedelta(hours=24)
@@ -634,16 +635,11 @@ class CacheDeal:
 
     def searches(self, engine: str | None = None) -> list[ProbeSearch]:
         """Every probe search of the trip (each engine's cheapest option per search), oldest first."""
-        best: dict[tuple[str, datetime], ProbeSearch] = {}
-        for s in self.probe:
-            if engine is not None and s.source != engine:
-                continue
-            for at, usable in s.sightings():
-                key = (s.source, at)
-                if key not in best or s.price < best[key].price:
-                    best[key] = ProbeSearch(s.source, at, usable, s.price, s.observation_id,
-                                            s.seller, s.airline, s.airport)
-        return sorted(best.values(), key=lambda x: (x.at, x.engine))
+        return cheapest_per_search(
+            ProbeSearch(s.source, at, usable, s.price, s.observation_id, s.seller, s.airline,
+                        s.airport)
+            for s in self.probe if engine is None or s.source == engine
+            for at, usable in s.sightings())
 
     def searches_in_life(self, engine: str | None = None) -> list[ProbeSearch]:
         return [x for x in self.searches(engine) if self.detected_at <= x.at < self.end]
@@ -741,6 +737,20 @@ class ProbeRule:
     newer_than_price: bool = True
 
     @property
+    def shipped(self) -> bool:
+        """The shape of the production rule (D65): every engine, the deal's airport, searches
+        after the price was found."""
+        return self.engines == "both" and self.same_airport and self.newer_than_price
+
+    @classmethod
+    def from_config(cls, cfg: ProbeExpiryConfig) -> ProbeRule:
+        """The configured rule (D65), when it asks every probe engine (the backtest's "both")."""
+        if set(cfg.engines) != set(PROBE_ENGINES):
+            raise ValueError("the backtest replays the probe rule with every engine only")
+        return cls(cfg.min_rise_pct, cfg.min_rise_eur, cfg.max_age_hours, "both",
+                   same_airport=True, newer_than_price=True)
+
+    @property
     def label(self) -> str:
         return (f"{self.engines}, ≥{self.pct:.0%} and ≥{self.eur:g} €, ≤{self.max_age_hours:g} h"
                 + (", same airport" if self.same_airport else "")
@@ -752,25 +762,24 @@ def latest_search(deal: CacheDeal, engine: str, t: datetime, max_age: timedelta,
     """The engine's newest search the pipeline had at `t`, if no older than `max_age` (and,
     with `since`, made at or after it)."""
     usable = [x for x in deal.searches(engine) if x.usable_at <= t
-              and (not same_airport or x.airport == deal.airport)
-              and (since is None or x.at >= since)]
-    if not usable:
-        return None
-    newest = max(usable, key=lambda x: x.at)
-    return newest if t - newest.at <= max_age else None
+              and (not same_airport or x.airport == deal.airport)]
+    return newest_search(usable, engine, t, max_age, since=since)
 
 
 def fires(deal: CacheDeal, rule: ProbeRule, t: datetime) -> tuple[ProbeSearch, ...]:
-    """The searches that make `rule` expire the deal at `t` (empty: it does not)."""
+    """The searches that make `rule` expire the deal at `t` (empty: it does not). The shipped
+    rule's shape (`ProbeRule.shipped`) is decided by the production code itself,
+    `recheck.contradicting` (D65), on the searches the pipeline had at `t`."""
     age = timedelta(hours=rule.max_age_hours)
+    if rule.shipped:
+        usable = [x for x in deal.searches() if x.usable_at <= t]
+        return contradicting(deal.price, deal.airport, deal.found, usable, engines=PROBE_ENGINES,
+                             pct=rule.pct, eur=rule.eur, max_age=age, now=t) or ()
     since = deal.found if rule.newer_than_price else None
     fresh = {e: latest_search(deal, e, t, age, same_airport=rule.same_airport, since=since)
              for e in PROBE_ENGINES}
     def higher(x: ProbeSearch | None) -> bool:
-        if x is None:
-            return False
-        euros, share = gap(deal, x.price)
-        return share >= rule.pct - detector.EPS and euros >= rule.eur - detector.EPS
+        return x is not None and rises_above(deal.price, x.price, rule.pct, rule.eur)
     if rule.engines == "any":
         return tuple(x for x in fresh.values() if higher(x))
     if rule.engines == "both":
@@ -946,12 +955,8 @@ def cache_deals(conn: sqlite3.Connection, *, source: str = travelpayouts.SOURCE,
 
 
 def _found(row: sqlite3.Row) -> datetime | None:
-    if row["found_at"]:
-        return datetime.fromisoformat(row["found_at"])
-    if row["found_date"]:
-        return datetime.combine(date.fromisoformat(row["found_date"]), datetime.min.time(),
-                                tzinfo=timezone.utc)
-    return None
+    return found_moment(datetime.fromisoformat(row["found_at"]) if row["found_at"] else None,
+                        date.fromisoformat(row["found_date"]) if row["found_date"] else None)
 
 
 def _seen(row: sqlite3.Row, run_at: dict[int, datetime]) -> Seen:

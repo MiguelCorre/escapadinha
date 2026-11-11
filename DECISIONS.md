@@ -3740,3 +3740,83 @@ so nothing has to be hosted.
   would take Chromium out of the path altogether; that is a redesign of the slides, for its own
   ticket. Requiring the two checks before a merge needs a protected `master`, which is a
   repository setting only Miguel changes.
+
+## D65: The probe may take a cache promotion down, never put one up (2026-11-11)
+- **Context:** a deal from the Travelpayouts cache is rechecked only at the cache (D47), and
+  the cache can keep returning a price for days after it stopped being bookable: the
+  stale-price timer (`max_offer_age_days`) was what finally expired such deals. The PC probe
+  (D48, D49) searches the same trips on Google Flights and Kayak and often saw them dearer.
+  The backtest's `probe` preset (`docs/research/2026-11-11-probe-expiry.md`, on the backup of
+  2026-11-11) found 17 cache deals the probe compared while open; the rule below fires on 5 of
+  them (163, 283, 408 stale by Ryanair's own fare; 412, 417 unknown, circumstantially stale),
+  4 of them approved and on the site (408 showed a price 60 % too low for 73 h), a median 38 h
+  before their real expiry, and on none of the 2 cache deals known to be real above the probe
+  (375, 414: the € floor leaves them out) nor any of the 214 Ryanair-source controls. The
+  plateau is wide (5–15 % with 5 €, any age give the same five deals). Confidence is low to
+  moderate: 3 strong truths, 2 known-real cases, and the agencies the cache sells through are
+  exactly the sellers the engines do not list. Rerun the preset in two or three weeks, before
+  any widening, and watch for new control fires and the 375/414 pattern.
+- **Decision:** an open deal (`db.OPEN_STATUSES`: new, rendered, approved) whose observation
+  comes from the cache (`recheck.CACHE_SOURCES` = `travelpayouts.SOURCE`) expires with kind
+  `contradicted` when, for **every** engine of `detector.probe_expiry.engines` (default both),
+  that engine's newest search of the same trip that (a) landed at the deal's own arrival
+  airport (known), (b) was made at or after the deal's price was found (`found_at`, else the
+  start of `found_date` in UTC; neither known: never) and (c) is no older than `max_age_hours`
+  (12) has its cheapest option at least `min_rise_pct` (10 %) **and** `min_rise_eur` (5 €)
+  above the deal's price. No reading, an old one, an engine missing (paused after a wall,
+  Kayak blocked: the pipeline only sees missing rows), a search before the price or at
+  another airport: nothing expires. An airline-source deal (D47: the seller's own price,
+  rechecked there) or a comparison source never expires by this rule. `enabled: false` turns
+  it off. This amends D47/D48's "a comparison, never a confirmation" in one direction only:
+  a probe price still never confirms, makes, prices or links a promotion; it can only take a
+  cache promotion down.
+- **Where it lives:** one pure function, `recheck.probe_contradiction(deal_obs, readings, cfg,
+  now) -> Contradiction | None` (the deciding searches: engine, observation id, price, search
+  time), over `probe_searches` (a stored row is a search at `fetched_at` and, when later, one
+  at `last_seen_at`; per engine and time the cheapest option, `cheapest_per_search`),
+  `newest_search`, `rises_above` and `contradicting`. `last_seen_at` of a probe row the dedup
+  bumped is the repeat's own search time (`results.to_observations` sets `fetched_at` to the
+  search time and `db.insert_observations` moves `last_seen_at` to a repeat's `fetched_at`),
+  never the import's, so the age and the found-time guard read real search times. Wired by
+  `pipeline.run_probe_expiry` (readings: every probe row of the trip, `db.trip_observations`,
+  not `also_seen`'s newest per seller; `db.expire_deal(kind="contradicted",
+  statuses=db.OPEN_STATUSES)`, `EXPIRADO.txt`, then `close_empty_promotions` once; no run row,
+  since it stores no observation) inside the CLI `detect`, right after `run_reevaluate`: after
+  the probe's import and the recheck, and before the full path's render and
+  `run_auto_approve`, so a deal detected in this run that the probe already saw dearer is
+  expired before the automatic approval can see it. Not in `recheck.recheck`: the review
+  Function's live-check port has no probe rows, so there is no port and
+  `live-check-cases.json` is unchanged; the Function can still approve a deal the rule later
+  expires, and the next run takes it down. The backtest decides the shipped shape (both
+  engines, the deal's airport, after the price) with the same `recheck.contradicting`
+  (`ProbeRule.shipped`, `ProbeRule.from_config`), and `CacheDeal.searches` /
+  `latest_search` use `cheapest_per_search` / `newest_search`: one copy of the logic, and
+  `tests/test_backtest_probe.py` checks the production function and `backtest.fires` agree.
+- **Approved deals are covered:** they are the ones on the site, and the stale ones the note
+  found were approved. A queued post of a contradicted promotion is cancelled by `run_publish`
+  like any expired one.
+- **Kind and report:** `contradicted` and schema v20 came first (92fce8c): the survival report
+  counts it as gone (`outcomes.GONE_KINDS`), the backtest's truth stays the cache's own `gone`.
+- **The reason** is built only by `i18n_pt.probe_contradiction`: the engines and the newest
+  deciding search in Lisbon time, e.g. *o Google Flights e o Kayak mostraram esta viagem bem
+  mais cara (pesquisa de 11/11 às 14:39)*, and **no euro amount**: the reason is exported on
+  the expired promotion's page, where the traceability guards (`tests/test_traceability.py`,
+  the export guard in `tests/test_site_data.py`, `web/test/trace.ts`) refuse a price they
+  cannot trace, and an expired page carries no `also_seen` to trace it to. The probe's prices
+  stay where each sits on its own observation: the review pages and a live promotion page.
+- **Unchanged:** the wanted list (the note: first search a median 5 h after detection, then a
+  visit every 8.5 h, so a 12 h age rarely starves the rule; a probe outage only delays it) and
+  the probe's own code (`src/escapadinha/probe/`), so the D50 Docker image needs no rebuild for
+  this; `posting.publishers` stay paused.
+- **Tests:** `tests/test_probe_expiry.py` (the pure rule's fire and every safety case, the
+  cheapest option of a search, a row's last sighting, the newest search deciding, the inclusive
+  margins, one engine by config, `enabled: false`, the reason, the config block and its
+  validation; `run_probe_expiry` on an approved and a waiting cache deal with an airline deal
+  of the same trip left open, the promotion closed and the fingerprint changed; the CLI
+  `detect` expiring a deal it just detected; an exported contradicted promotion passing the
+  export's traceability guard; a queued post cancelled), and the agreement test in
+  `tests/test_backtest_probe.py`.
+- **Consequences:** a stale cache price leaves the site a day or more earlier when the probe is
+  running; with the PC off, nothing changes. A real agency fare 10 % and 5 € under both
+  engines would be expired wrongly: that is what the rerun watches. The run order tests are
+  unchanged (the rule is inside `detect`).

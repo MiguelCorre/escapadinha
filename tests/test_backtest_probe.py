@@ -199,3 +199,58 @@ def test_the_loader_reads_a_cache_deal_and_its_trip_at_every_source(ctx, capsys)
     out = capsys.readouterr().out
     assert "Cache deals (source `travelpayouts`): 1; compared" in out
     assert "| trip | both | 12 | ≥10%, ≥5 € | 1 | 1 | 1 |" in out
+
+
+# --- the shipped rule (D65) is the production function -------------------------------------
+
+def as_observation(source: str, price: float, d: CacheDeal, *, at: datetime, last: datetime,
+                   airport: str | None, oid: int, found: datetime | None = None) -> Observation:
+    return Observation(source=source, origin="LIS", destination="LON", origin_airport="LIS",
+                       destination_airport=airport, departure_date=d.departure_date,
+                       return_date=d.return_date, price=price, currency="EUR", airline="FR",
+                       flight_number=None, transfers=0, return_transfers=0, deep_link=None,
+                       fetched_at=at, last_seen_at=last, id=oid, found_at=found)
+
+
+AGREEMENT_CASES = {
+    "both above": [seen(GF, 60, DET + H, oid=1), seen(KAYAK, 58, DET + H, oid=2)],
+    "one engine": [seen(GF, 70, DET + H, oid=1)],
+    "one engine old": [seen(GF, 70, DET + 12 * H, oid=1), seen(KAYAK, 70, DET - H, oid=2)],
+    "before the price": [seen(GF, 70, DET - 3 * H, oid=1), seen(KAYAK, 70, DET - 3 * H, oid=2)],
+    "another airport": [seen(GF, 70, DET + H, airport="LTN", oid=1),
+                        seen(KAYAK, 70, DET + H, airport="LTN", oid=2)],
+    "below the margin": [seen(GF, 54, DET + H, oid=1), seen(KAYAK, 70, DET + H, oid=2)],
+    "cheapest option": [seen(GF, 54, DET + H, oid=1), seen(GF, 70, DET + H, oid=3),
+                        seen(KAYAK, 70, DET + H, oid=2)],
+    "seen again": [seen(GF, 60, DET - H, last=DET + 8 * H, oid=1),
+                   seen(KAYAK, 60, DET - H, last=DET + 8 * H, oid=2)],
+    "newest decides": [seen(GF, 70, DET + H, oid=1), seen(KAYAK, 70, DET + H, oid=2),
+                       seen(GF, 52, DET + 5 * H, oid=3)],
+}
+
+
+def test_the_backtest_replays_the_shipped_rule_with_the_production_function():
+    """`backtest.fires` for the configured rule and `recheck.probe_contradiction` on the same
+    rows (as the pipeline stores them) agree at every moment, fire or not."""
+    from escapadinha.config import ProbeExpiryConfig
+    from escapadinha.recheck import probe_contradiction
+    cfg = ProbeExpiryConfig()
+    rule = ProbeRule.from_config(cfg)
+    assert (rule.pct, rule.eur, rule.max_age_hours, rule.engines, rule.same_airport,
+            rule.newer_than_price) == (0.10, 5, 12, "both", True, True)
+    fired = set()
+    for name, probe in AGREEMENT_CASES.items():
+        d = deal(probe=probe, found=DET - 2 * H, price=50)
+        deal_obs = as_observation("travelpayouts", 50, d, at=DET - 2 * H, last=DET - 2 * H,
+                                  airport=d.airport, oid=99, found=d.found)
+        rows = [as_observation(s.source, s.price, d, at=s.first, last=s.last, airport=s.airport,
+                               oid=s.observation_id) for s in probe]
+        t = max(s.last_usable for s in probe) + H          # every row imported by then
+        mine = backtest.fires(d, rule, t)
+        prod = probe_contradiction(deal_obs, rows, cfg, t)
+        assert ([(x.engine, x.observation_id, x.price, x.at) for x in mine]
+                == ([] if prod is None else
+                    [(x.engine, x.observation_id, x.price, x.at) for x in prod.searches])), name
+        if mine:
+            fired.add(name)
+    assert fired == {"both above", "seen again"}
