@@ -108,6 +108,10 @@ const trip = promotionLd(data, promotion, view, description);
           departure={promotion.offer.departure} det={data.meta.detector} />
       )}
 
+      {/* D66: on phones the button (and its disclosure, BookingCta) sits right under the price;
+          the one under the details stays for every screen. Expired: no cta, no button. */}
+      {cta && <div class="md:hidden" data-cta-early><BookingCta cta={cta} /></div>}
+
       {view.remote && view.arrivalName && (
         <p class="notice notice-warning mt-lg text-ink">Chegada a {arrival}, longe do centro de {view.city}. Conta com o transfer no tempo e no orçamento.</p>
       )}

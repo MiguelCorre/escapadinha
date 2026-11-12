@@ -200,11 +200,27 @@ describe("live promotion page", () => {
     expect(page(EXPIRED).querySelector("[data-outcomes]")).toBeNull();
   });
 
-  it("has one tracked booking button with the disclosure next to it", () => {
+  it("has its tracked booking button with the disclosure next to it, on phones right under the price (D66)", () => {
     const links = doc().querySelectorAll('a[rel~="sponsored"]');
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/parceiro/site-deal-412"]);
-    expect(links[0].getAttribute("rel")).toContain("nofollow");
-    expect(text(links[0].closest("[data-cta]")!)).toContain(SITE_DISCLOSURE);
+    // The phone's early button under the price block, then the one under the details (D66).
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(Array(2).fill("https://example.com/parceiro/site-deal-412"));
+    for (const link of links) {
+      expect(link.getAttribute("rel")).toContain("nofollow");
+      expect(text(link.closest("[data-cta]")!)).toContain(SITE_DISCLOSURE);
+    }
+    const early = doc().querySelector("[data-cta-early]")!;
+    expect(early.classList.contains("md:hidden")).toBe(true);           // phones only
+    expect(early.querySelector('a[rel~="sponsored"]')!.getAttribute("href")).toBe("https://example.com/parceiro/site-deal-412");
+    expect(text(early)).toContain(SITE_DISCLOSURE);
+    // Order in the page: price block, early button, the details table, the lower button.
+    const html = doc().querySelector("article")!.innerHTML;
+    const at = (needle: string) => html.indexOf(needle);
+    expect(at("price-block")).toBeGreaterThan(-1);
+    expect(at("price-block")).toBeLessThan(at("data-cta-early"));
+    expect(at("data-cta-early")).toBeLessThan(at("<dl"));
+    expect(at("<dl")).toBeLessThan(html.lastIndexOf("data-cta"));
+    expect(page(EXPIRED).querySelector("[data-cta-early]")).toBeNull();   // expired: no button
+    expect(page(EXPIRED).querySelector('a[rel~="sponsored"]')).toBeNull();
   });
 
   it("is indexable and shares the promotion's own OG image", () => {
@@ -246,5 +262,15 @@ describe("expired promotion page", () => {
     const price = doc().querySelector("main [data-obs='37258']")!;
     expect(text(price)).toBe("66,98 €");
     expect(text(price.querySelector("s")!)).toBe("66,98");
+  });
+});
+
+describe("header navigation (D66)", () => {
+  it("makes every link a 44 px tap target on phones and leaves the desktop look alone", () => {
+    const links = page("/").querySelectorAll('nav[aria-label="Principal"] a');
+    expect(links.length).toBe(3);
+    for (const a of links) expect(a.classList.contains("nav-link")).toBe(true);
+    const css = page("/").querySelectorAll("style").map((s) => s.textContent).join("\n");
+    expect(css).toMatch(/\.nav-link\{[^}]*min-height:44px/);
   });
 });

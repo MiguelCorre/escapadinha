@@ -3911,4 +3911,19 @@ so nothing has to be hosted.
   now takes its list from `expiredOnRoute` too, so both pages order and group it the one way.
   `web/test/expired-record.test.ts` checks the split, the order, each line's link and `data-obs`
   on LIS-FNC (19), LIS-PAR (3, all cards) and every `/promos/` group.
+- **5. The booking button within reach on a phone.** On `/promos/423-lisboa-praga/` at
+  375x812 the "Ver voo e reservar" button started at 1 405 px, under the whole details table,
+  and the header's links were 17 px tall. A live promotion page now has a second
+  `BookingCta` (the same `cta.ts` result, its disclosure and note beside it) right under the
+  price block and the price verdict, in a `md:hidden` wrapper (`data-cta-early`): phones only,
+  so the desktop page is as before; the button under the details stays for every screen. An
+  expired page has no `cta`, so neither button. On the fixture build at 375x812 the early
+  button starts at 686 px (inside the first screen), the lower one at 1 871 px. The header's
+  three links get `.nav-link` (`global.css`): `inline-flex`, `min-height: 44px` below `md`,
+  `inline` and no minimum from `md` up (measured: 44 px at 375 px, 17 px as before at 1280 px).
+  The `pages.test.ts` booking test now expects the two buttons, both with the disclosure in
+  their `[data-cta]`, the early one first and `md:hidden`, in the order price block → early
+  button → details → lower button, and none on the expired page; a header test checks the
+  class and the 44 px rule in the page's CSS. (Item 4 on the same build: `/voos/lisboa-madeira/`
+  is 8 318 px tall at 375 px.)
 
