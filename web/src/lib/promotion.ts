@@ -137,6 +137,10 @@ export function expiredByRoute(data: SiteData): RouteRecord[] {
   }).sort((a, b) => newest(a.latest, b.latest));
 }
 
+/** D66: a route's most recent expired promotions shown as cards on its route page and in its
+ * /promos/ group; the older ones are one line each in a <details> (ExpiredPromotions.astro). */
+export const EXPIRED_CARDS_PER_ROUTE = 3;
+
 /** The expired page promotions of one route, newest first (D60, /promos/). */
 export function expiredOnRoute(data: SiteData, route: string): Promotion[] {
   return pagePromotions(data).filter((p) => !p.live && p.route === route)

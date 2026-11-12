@@ -18,11 +18,12 @@ import MonthTable from "../../components/MonthTable.astro";
 import PriceCalendar from "../../components/PriceCalendar.astro";
 import PriceVerdict from "../../components/PriceVerdict.astro";
 import PromotionCard from "../../components/PromotionCard.astro";
+import ExpiredPromotions from "../../components/ExpiredPromotions.astro";
 import type { Route } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { eur, foundAt, nights, numericDate, shortDate } from "../../lib/format";
 import { routeIndexable } from "../../lib/indexable";
-import { pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
+import { expiredOnRoute, pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { demandView, routeLowPrices, rulesText, typicalLowRule } from "../../lib/routes";
 
 export const getStaticPaths = (() => {
@@ -44,7 +45,7 @@ const destination = data.destinations.destinations.find((d) => d.code === route.
 // left out of the low prices, since its promotion page lists it.
 const promotions = pagePromotions(data).filter((p) => p.route === route.key);
 const live = promotions.filter((p) => p.live);
-const expired = promotions.filter((p) => !p.live);
+const expired = expiredOnRoute(data, route.key);   // newest first; the older ones compact (D66)
 const liveDates = data.promotions.promotions.filter((p) => p.live && p.route === route.key);
 const lows = routeLowPrices(data, route, new Set(liveDates.map((p) => p.offer.obs)));
 const det = data.meta.detector;
@@ -157,9 +158,7 @@ const thin = demand?.thin === true && !cheapest;
   {expired.length > 0 && (
     <section class="mt-2xl" aria-labelledby="titulo-expiradas">
       <h2 id="titulo-expiradas" class="font-display text-headline">Promoções recentes (já expiradas)</h2>
-      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
-        {expired.map((p) => <PromotionCard promotion={p} view={promotionView(data, p)} />)}
-      </div>
+      <ExpiredPromotions promotions={expired} />
     </section>
   )}
 

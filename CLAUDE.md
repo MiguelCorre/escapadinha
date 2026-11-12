@@ -67,7 +67,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   rota" to the route page); `/promos/` is the full record of `meta.expired_promotions_days`,
   grouped by route, indexed only while a promotion is live, with an `ItemList` of the live ones
   (`structured-data.itemListLd`, no Offer); the grouping is only `promotion.expiredByRoute` /
-  `expiredOnRoute`, and `/promos/` has its stable key in `website/routing.STATIC`. Styles use only the generated
+  `expiredOnRoute`; a route's expired promotions (its route page, its `/promos/` group) are
+  only `ExpiredPromotions.astro` (D66: the newest `promotion.EXPIRED_CARDS_PER_ROUTE` as cards,
+  the rest one line each in a native `<details>`, each a link to its page, price on `data-obs`), and `/promos/` has its stable key in `website/routing.STATIC`. Styles use only the generated
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
   `tests/test_web_tokens.py` catches drift); `web/test/colours.test.ts` fails on any raw hex or
   rgb()/hsl() colour elsewhere in `web/src/` or `web/functions/`.

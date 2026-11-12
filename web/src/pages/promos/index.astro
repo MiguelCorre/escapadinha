@@ -7,6 +7,7 @@
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
 import PromotionCard from "../../components/PromotionCard.astro";
+import ExpiredPromotions from "../../components/ExpiredPromotions.astro";
 import { BRAND } from "../../lib/brand";
 import { expiredByRoute, expiredOnRoute, pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { itemListLd } from "../../lib/structured-data";
@@ -51,9 +52,7 @@ const list = live.length ? itemListLd(data, "Promoções ativas", live.map((x) =
       {groups.map((g) => (
         <section class="mt-xl" data-route-group={g.key} aria-labelledby={`rota-${g.key}`}>
           <h3 id={`rota-${g.key}`} class="font-display text-title">{g.route ? <a href={g.route.path} class="text-ink">{g.title}</a> : g.title} <span class="text-small text-muted">· {g.items.length}</span></h3>
-          <div class="mt-md grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
-            {g.items.map(({ promotion, view }) => <PromotionCard promotion={promotion} view={view} />)}
-          </div>
+          <ExpiredPromotions promotions={g.items.map((x) => x.promotion)} />
         </section>
       ))}
     </section>

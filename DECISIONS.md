@@ -3898,4 +3898,17 @@ so nothing has to be hosted.
   `_labels()` (it holds no database data; `test_affiliate_blocks` compares it with the export).
   `tests/test_place_names.py` fails when a fixture airline or arrival airport would show as a
   code; `web/test/place-names.test.ts` fails on "Chegada: XYZ" or "com a XY" on any built page.
+- **4. Expired promotions as a record, not a wall.** `/voos/lisboa-madeira/` showed 19 full
+  expired cards (14 795 px at phone width), most a euro apart on the same dates, and the home
+  page's "+ 18 promoções nesta rota" landed there; `/promos/` showed 34 cards. Now one
+  component, `ExpiredPromotions.astro`, shows a route's expired promotions on its route page
+  and in its `/promos/` group: the newest `EXPIRED_CARDS_PER_ROUTE` (3, a constant in
+  `promotion.ts`: a layout choice, not data, so no contract field) as cards, the older ones one
+  line each (dates as the link to its own page, the struck-through price on its `data-obs`,
+  "encontrado a …" with `data-found-at`) inside a native `<details>` ("16 promoções
+  anteriores"), closed, no JavaScript. Every expired page keeps a link from both pages, so no
+  URL loses its way in (the internal-link and traceability tests keep passing); the route page
+  now takes its list from `expiredOnRoute` too, so both pages order and group it the one way.
+  `web/test/expired-record.test.ts` checks the split, the order, each line's link and `data-obs`
+  on LIS-FNC (19), LIS-PAR (3, all cards) and every `/promos/` group.
 
