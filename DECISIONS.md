@@ -3966,4 +3966,25 @@ so nothing has to be hosted.
   Africa and Turkey; `web/test/place-names.test.ts` fails on any label starting "Europa" on a
   built page. Showing the country (store `city.country` on the route at discovery, export it)
   is left for its own change.
+- **8. The explorer: one date range, no links to empty pages.** The ponte filter read "Ponte
+  de 1 de dezembro (27 de novembro a 2 de dezembro)" (the travel window) while the list under
+  it read "28 de novembro a 1 de dezembro" (the days off), the same for the school breaks; and
+  the page linked every ponte and break times every origin (132 links on the live site), many
+  to `noindex` pages saying "Ainda não há preços baixos para estas datas". Now the filter's
+  options and the lists show the days off only (`days_off`, a break's `start`–`end`); the
+  window stays the filter's rule (`explorer.fitsPonte` / `fitsWindow`, unchanged) and is
+  explained once, in a line under the form (`data-window-rule`: from the evening before the
+  first day off to the day after the last); the break list's own "(da véspera ao dia
+  seguinte)" went with it. What a ponte or break page lists moved into
+  `explorer-data.ponteResults` / `breakResults` (the page's old `explore` call, a passed one
+  empty), which both those pages and the explorer read, so the explorer links an origin only
+  when its page has prices, at build time, by the same rule; the others are the origin's name
+  as plain text (`data-no-prices`), and the two lists' lines say so. The empty pages stay built
+  at their `pontes.json` / `school-holidays.json` paths (no 404). On the fixture build the
+  explorer's ponte list has 1 link and 62 plain names. Left as they were: the "other origins"
+  links on the ponte and break pages and the origin pages' list of school breaks, which also
+  reach empty pages; the same helpers would serve them. Tests: `explorer-pages.test.ts` (the
+  one link, every link's target has prices, the counts, one date range in the option and the
+  list, no window date on the page, the rule's line), `school-holidays.test.ts` (the configured
+  build's break without prices links nothing, its option shows the break's own days).
 

@@ -11,8 +11,7 @@ import Base from "../../../layouts/Base.astro";
 import ExplorerResults from "../../../components/ExplorerResults.astro";
 import type { SchoolHoliday } from "../../../lib/contract";
 import { BRAND } from "../../../lib/brand";
-import { NO_FILTERS, explore } from "../../../lib/explorer";
-import { demandFor, isPastBreak, placesFor } from "../../../lib/explorer-data";
+import { breakResults, isPastBreak, placesFor } from "../../../lib/explorer-data";
 import { dateRange, dayMonth, schoolHolidayName, schoolHolidayTitle } from "../../../lib/format";
 
 export const getStaticPaths = (() =>
@@ -31,8 +30,7 @@ const { holiday, origin } = Astro.props;
 const network = data.schoolHolidays.networks.find((n) => n.key === holiday.network);
 const networkName = network?.name ?? holiday.network;
 const past = isPastBreak(holiday, data);
-const rows = past ? [] : data.lowPrices[origin.iata]?.rows ?? [];
-const results = explore(rows, { ...NO_FILTERS, ferias: holiday.slug }, [], demandFor(data, origin.iata), [holiday]);
+const results = breakResults(data, holiday, origin.iata);   // the explorer's links read it too (D66)
 const names = Object.fromEntries(data.origins.origins.map((o) => [o.iata, o.name]));
 const originInfo = data.origins.origins.find((o) => o.iata === origin.iata) ?? { name: origin.iata };
 const title = schoolHolidayTitle(holiday.name, holiday.start, networkName, originInfo);

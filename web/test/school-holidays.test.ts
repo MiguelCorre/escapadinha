@@ -134,6 +134,11 @@ describe("break pages and the explorer's filter (configured build, reviewed cale
     expect(items).toEqual([WITH_PRICES.slug, EMPTY.slug]);
     expect(doc.querySelector(`#ferias-escolares a[href="${LISBOA(WITH_PRICES.slug)}"]`)!.getAttribute("aria-label"))
       .toBe("Férias de teste 2026 (Continente) desde Lisboa");
+    // D66: the break without a price links no origin (its pages stay built, noindex); the list
+    // and the filter show the break's own days, not the window a day wider on each side.
+    expect(doc.querySelectorAll(`[data-school-holiday="${EMPTY.slug}"] a`)).toHaveLength(0);
+    expect(doc.querySelectorAll(`[data-school-holiday="${EMPTY.slug}"] [data-no-prices]`).length).toBeGreaterThan(0);
+    expect(text(doc.querySelector(`select[name=ferias] option[value="${WITH_PRICES.slug}"]`)!)).toContain("(5 a 20 de dezembro)");
     // The island's config carries the same windows, so the filter works after a redraw.
     const config = JSON.parse(doc.querySelector("#explorer-config")!.textContent);
     expect(config.ferias.map((b: { slug: string }) => b.slug)).toEqual([WITH_PRICES.slug, EMPTY.slug]);

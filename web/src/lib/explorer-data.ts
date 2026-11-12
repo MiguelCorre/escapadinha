@@ -4,7 +4,7 @@
 import type { LowPriceRow, Ponte, SchoolHoliday, SiteData } from "./contract";
 import { bookingLink } from "./cta";
 import { lisbonDay } from "./dates";
-import type { BreakWindow, Demand, PonteWindow } from "./explorer";
+import { NO_FILTERS, explore, type BreakWindow, type Demand, type ExploreResult, type PonteWindow } from "./explorer";
 import type { Places } from "./low-prices";
 import { arrivalAirport } from "./promotion";
 
@@ -92,6 +92,20 @@ export function upcomingSchoolHolidays(data: SiteData): SchoolHoliday[] {
  * meta.generated_at): its pages stay, noindex, saying it has passed (D31). */
 export function isPastPonte(ponte: Ponte, data: SiteData): boolean {
   return ponte.window.end < lisbonDay(data.meta.generated_at);
+}
+
+/** What a ponte page lists for an origin (D31): its low prices whose departure and return fall
+ * inside the ponte's window (explorer.fitsPonte, the filter's rule); none once it has passed.
+ * The ponte page and the explorer's link list both read it (D66: no link to an empty page). */
+export function ponteResults(data: SiteData, ponte: Ponte, iata: string): ExploreResult[] {
+  const rows = isPastPonte(ponte, data) ? [] : data.lowPrices[iata]?.rows ?? [];
+  return explore(rows, { ...NO_FILTERS, ponte: ponte.slug }, [ponte], demandFor(data, iata));
+}
+
+/** The same for a school break (D61): explorer.fitsWindow on the break's window. */
+export function breakResults(data: SiteData, holiday: SchoolHoliday, iata: string): ExploreResult[] {
+  const rows = isPastBreak(holiday, data) ? [] : data.lowPrices[iata]?.rows ?? [];
+  return explore(rows, { ...NO_FILTERS, ferias: holiday.slug }, [], demandFor(data, iata), [holiday]);
 }
 
 /** The pontes the explorer offers: those not past yet, by date. */

@@ -639,7 +639,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `format.schoolHolidayName` / `schoolHolidayTitle`; dates in `docs/research/2026-11-05-ferias-escolares.md`
 - `src/escapadinha/pontes.py` + `content/holidays.yaml`: Portuguese holidays 2026–2027 and their
   long weekends (D31; pure `long_weekend`/`pontes`, exported as `pontes.json`, past ones too, raw
-  values only). The ponte rule (departure and return inside the window) and the weekend rule
+  values only). The explorer (D66) shows one date range per ponte and break, the days off, and
+  links an origin's ponte or break page only when `explorer-data.ponteResults` /
+  `breakResults` (what that page itself lists) is not empty; else the name is plain text and
+  the page stays built. The ponte rule (departure and return inside the window) and the weekend rule
   live in `web/src/lib/explorer.ts` (explorer + ponte pages); titles in `format.ponteTitle` with
   the article from config `origins_article` (`origins.json` `article`), never a map in code
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,
