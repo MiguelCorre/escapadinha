@@ -1157,7 +1157,8 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   Tailwind's default colours, fonts, sizes, radii and shadows (`src/lib/tokens.ts` is the same data
   for code: theme-color, the OG image, the review page; no other colour is allowed, a test checks
   it); fonts come from `assets/fonts/`
-  through Astro's Fonts API (metric-matched fallbacks), the logo from `assets/logo-light.svg`.
+  through Astro's Fonts API (metric-matched fallbacks, `font-display: optional`, the two roman
+  files preloaded on every page, D66), the logo from `assets/logo-light.svg`.
 - **CI:** `.github/workflows/web.yml` runs on pull requests touching `web/`, `contract/`, the
   tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, Lighthouse CI (reports kept as an
   artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all

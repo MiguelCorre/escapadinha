@@ -790,7 +790,7 @@ so nothing has to be hosted.
   on the PR runner the swap moved whole sections (CLS 0.19 on a destination hub, 0.26 on a ponte
   page). Since #14 the fonts use `font-display: optional`: the browser uses the web font only if it
   is there before first paint (from cache after the first page), otherwise the fallback for that
-  page, so a font never moves the layout on any system (2026-10-14). No font preload and no italic on first paint: Lighthouse's simulated
+  page, so a font never moves the layout on any system (2026-10-14). No font preload (amended by D66: the two roman files are preloaded) and no italic on first paint: Lighthouse's simulated
   throttling counts fonts fetched before the first paint against it (FCP 3.0 s → 2.4 s), and the
   slides keep the italic voice. The logo is `assets/logo-light.svg` inlined with its ink and sun
   recoloured to `currentColor` / accent, so one file works on paper and in dark mode.
@@ -3833,3 +3833,21 @@ so nothing has to be hosted.
   running; with the PC off, nothing changes. A real agency fare 10 % and 5 € under both
   engines would be expired wrongly: that is what the rerun watches. The run order tests are
   unchanged (the rule is inside `detect`).
+
+## D66: Site polish from the walk-through of 2026-11-12
+- **Context:** a walk through the live site on 2026-11-12 (desktop and a 375x812 phone) found
+  eight things a visitor sees wrong or hard to use. Each part below is one commit.
+- **1. The brand fonts preload (amends D28).** With `font-display: optional` and no preload,
+  the web fonts lost the first-paint race on most first visits: `/voos/lisboa-madeira/`,
+  `/destinos/` and the home page at phone width painted every heading in the fallback (Times
+  New Roman on that phone), while a later page had the fonts from the cache. Every page now
+  preloads the roman file of each family (`<Font … preload={FONT_PRELOAD}>` in `Base.astro`,
+  `[{ style: "normal" }]`: Fraunces-Roman 87 kB, SourceSerif4-Roman 224 kB); the italics are
+  not preloaded. `optional` stays: a preloaded optional font holds the first paint for its
+  short block period (Chrome since 83), so it is there on a normal load and a font that is
+  still late never swaps in and moves the layout (the CLS problem D28 met on Linux). The cost
+  D28 measured (FCP under Lighthouse's simulated throttling) is what Lighthouse CI on the pull
+  request checks (performance ≥ 0.9 on every page type); on the PC's run of `npm run lhci`
+  every page type scored 0.95–0.96 with CLS 0 and FCP 0.8–1.1 s. `web/test/fonts.test.ts` pins the
+  two preloads on every page, none italic, and `optional` on every web font.
+
