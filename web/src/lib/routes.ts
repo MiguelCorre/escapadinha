@@ -126,7 +126,7 @@ export function routeLowPrices(data: SiteData, route: Route, promoted: Set<numbe
 
 export interface OriginGroup {
   kind: Kind;
-  label: string;        // labels.json kinds: "Europa", "Portugal", "Longo curso"
+  label: string;        // labels.json kinds: "Curto e médio curso", "Portugal", "Longo curso" (D66)
   routes: Route[];
 }
 

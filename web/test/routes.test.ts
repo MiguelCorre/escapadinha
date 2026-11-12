@@ -222,7 +222,7 @@ describe("originGroups", () => {
     ];
     const groups = originGroups({ ...fixtures, routes: { version: 1, routes } }, "LIS");
     expect(groups.map((g) => [g.label, g.routes.map((r) => r.city)])).toEqual([
-      ["Europa", ["Amesterdão", "Atenas", "Paris"]],
+      ["Curto e médio curso", ["Amesterdão", "Atenas", "Paris"]],
       ["Portugal", ["Madeira"]],
     ]);
   });

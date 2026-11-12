@@ -192,7 +192,10 @@ def hashtag(text: str) -> str:
     return "#" + "".join(ch for ch in ascii_text.lower() if ch.isalnum())
 
 
-ROUTE_KIND = {"europe": "Europa", "long_haul": "Longo curso", "domestic": "Portugal"}
+# What a visitor reads for a route kind (D66): a label true for every member. Kind `europe` is
+# Europe plus North Africa and Turkey (discovery.EUROPE, NORTH_AFRICA), so it is not "Europa"
+# (Marraquexe, Tunes, Ancara are not); the kind itself stays a rule, never a region.
+ROUTE_KIND = {"europe": "Curto e médio curso", "long_haul": "Longo curso", "domestic": "Portugal"}
 ROUTE_STATUS = {"active": "ativa", "dormant": "adormecida"}
 
 

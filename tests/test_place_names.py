@@ -82,3 +82,14 @@ def test_the_slides_and_captions_name_a_single_airport_city_by_its_city():
                         origin_city="Lisboa", destination_city="Praga",
                         photo=PhotoCredit.from_photo(None, None), route_airports=("PRG",))
     assert v.arrival_airport == "Praga (PRG)"
+
+
+def test_a_route_kinds_label_is_true_for_every_member():
+    """D66: kind `europe` holds North Africa and Turkey too (discovery.EUROPE, NORTH_AFRICA), so
+    its visitor-facing label names no region; the kind stays a rule."""
+    from escapadinha import discovery
+    assert discovery.NORTH_AFRICA and "TR" in discovery.EUROPE
+    assert discovery.kind_of("MA") == discovery.kind_of("TR") == discovery.kind_of("FR") == "europe"
+    assert "Europa" not in pt.ROUTE_KIND["europe"]
+    assert pt.ROUTE_KIND == {"europe": "Curto e médio curso", "long_haul": "Longo curso",
+                             "domestic": "Portugal"}

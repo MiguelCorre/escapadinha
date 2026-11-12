@@ -25,4 +25,14 @@ describe("airline and airport names", () => {
     expect(arrivalAirport(data, "XQZ", ["XQZ", "XQY"], "Cidade")).toBeUndefined();   // not the only one
     expect(arrivalAirport(data, "XQZ", ["XQY"], "Cidade")).toBeUndefined();          // landed elsewhere
   });
+
+  it("never label a destination with a region it may not be in (D66)", () => {
+    const data = loadSiteData(FIXTURES_DIR);
+    expect(data.labels.kinds.europe).toBe("Curto e médio curso");
+    for (const path of builtPages()) {
+      for (const el of page(path).querySelectorAll(".label, .text-small")) {
+        expect(text(el), path).not.toMatch(/^Europa/);
+      }
+    }
+  });
 });

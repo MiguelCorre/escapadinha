@@ -202,7 +202,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
   config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list, seed,
   discovery origins and `city_names`. Discovery (`discovery.py`) is pure; its downloads live in
-  `collector/catalogue.py`. Routes are never deleted: they go `dormant` (D23).
+  `collector/catalogue.py`. Routes are never deleted: they go `dormant` (D23). A route's kind
+  is a rule, never a region: its visitor-facing label (`i18n_pt.ROUTE_KIND`, `labels.json`
+  `kinds`) must be true for every member (D66: `europe` holds North Africa and Turkey, so it
+  reads "Curto e médio curso").
 - **Stay length per destination (D52):** `routes.overrides` is keyed by route (`LIS-PAR`) or by
   destination (`PAR`, every route there; `routes.override_for`: the route key wins), and every
   destination with active routes has an entry with the min/max nights researched in

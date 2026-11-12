@@ -3951,4 +3951,19 @@ so nothing has to be hosted.
   twin. Tests: the contractions (masculine, feminine, plural, none, lists) in
   `format.test.ts`; `place-articles.test.ts` on the built pages, including that no page writes
   "para / em / de / desde" before the name of a destination that takes an article.
+- **7. No region a destination is not in.** `/destinos/` labelled Agadir, Argel, Casablanca,
+  Marraquexe, Rabat, Tânger, Tunes, Ancara, Esmirna and Istambul "Europa": the route kind
+  `europe` (Europe plus North Africa and Turkey, `discovery.EUROPE` / `NORTH_AFRICA`, a rule for
+  the nights range and the direct-only default) was printed as geography. The country would be
+  the better label, and the catalogue gives it at discovery (`discovery.City.country`), but no
+  route row stores it: showing it needs a schema step, an additive contract field and a
+  discovery run (monthly) before any page has it. So the fallback the walk-through allowed: the
+  kind's visitor-facing label (`i18n_pt.ROUTE_KIND`, exported as `labels.json` `kinds`, read by
+  the hub kicker, the route page kicker, `/destinos/` and the origin pages' groups) becomes
+  "Curto e médio curso", true for every member and the pair of "Longo curso"; `domestic` stays
+  "Portugal". The kind and its rules do not change. `labels.json` regenerated from `_labels()`.
+  `tests/test_place_names.py` pins that the label names no region while the kind holds North
+  Africa and Turkey; `web/test/place-names.test.ts` fails on any label starting "Europa" on a
+  built page. Showing the country (store `city.country` on the route at discovery, export it)
+  is left for its own change.
 
