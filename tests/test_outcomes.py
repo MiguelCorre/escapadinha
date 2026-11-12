@@ -113,7 +113,7 @@ def test_upgrading_a_v18_database_backfills_time_and_kind_from_the_old_reasons(c
     conn.close()
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 20
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 21
     for reason, kind in REASONS.items():
         deal = db.get_deal(conn, ids[reason])[0]
         assert deal.expired_kind == kind, reason
@@ -481,8 +481,10 @@ def test_upgrading_a_v19_database_rebuilds_deals_so_the_check_takes_contradicted
     v19_database(ctx.db_path)
     conn = db.connect(ctx.db_path)                          # foreign keys on, as every run
     db.init(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 20
-    assert dict(conn.execute("SELECT * FROM deals WHERE id = 3").fetchone()) == V19_DEAL
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 21
+    # v21 (D66) adds the rendered observation after the rebuild: NULL, read as observation_id.
+    assert (dict(conn.execute("SELECT * FROM deals WHERE id = 3").fetchone())
+            == V19_DEAL | {"rendered_observation_id": None})
     fresh = db.connect(ctx.root / "fresh.db")
     db.init(fresh)
     for pragma in ("table_info", "foreign_key_list", "index_list"):

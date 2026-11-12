@@ -1338,7 +1338,9 @@ only when needed** → push → unlock.
   site data exactly as the next build would read it (computed in memory, without the run id,
   timestamps and counters no page shows), routes (key, status, name), the Lisbon date, and the
   code, config and content (the Python package, `config.yaml`, `content/`, the web package's
-  sources and lockfile, the logo and fonts). If anything changed it takes the full path (render new deals → approve by the
+  sources and lockfile, the logo and fonts). If anything changed it takes the full path (render new deals, and again the slides of a
+  promotion whose page moved to a recheck's price, D66: `Render: 1 rendered again at their page's
+  price (deals 412)` → approve by the
   rules (D46) → export the site data → `site build` (Astro) → deploy when the content changed); otherwise it ends there.
   One exception (D46): a live promotion's "verificado a" moves on every recheck, so when the site
   data is the *only* change the site is rebuilt at most every `site.refresh_min_gap_minutes`

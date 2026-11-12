@@ -91,7 +91,9 @@ CREATE TABLE IF NOT EXISTS deals (
     promotion_id    INTEGER REFERENCES promotions(id),
     -- #77: when the deal expired and why (outcomes.EXPIRY_KINDS; contradicted since v20). NULL while open.
     expired_at      TEXT,
-    expired_kind    TEXT CHECK (expired_kind IN ('gone', 'superseded', 'rules', 'contradicted'))
+    expired_kind    TEXT CHECK (expired_kind IN ('gone', 'superseded', 'rules', 'contradicted')),
+    -- D66, v21: the observation the rendered slides show the price of (NULL: observation_id).
+    rendered_observation_id INTEGER REFERENCES price_observations(id)
 );
 
 -- D53: one promotion per route at a time: the group of deals (dates) one page, one review card

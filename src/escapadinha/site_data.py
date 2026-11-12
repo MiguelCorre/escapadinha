@@ -243,8 +243,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     low_links = pipeline.low_price_links(ctx, conn, [lp for v in kept.values() for lp in v],
                                          now, create=new_links).urls
 
-    deals = [(d, o) for d, o in public_deal_rows(conn)
-             if o.route_key in keys and _in_window(d, now, cfg.site.expired_promotions_days)]
+    deals = exported_deals(ctx, conn, now, keys)
     route_by_key = {r.key: r for r in all_routes}
     live = [(d, o) for d, o in deals if d.status in LIVE]
     deal_links = pipeline.website_links(ctx, conn, live, create=new_links) if live else {}
@@ -498,6 +497,17 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
     return out
 
 
+def exported_deals(ctx: Context, conn: sqlite3.Connection, now: datetime,
+                   keys: set[str] | None = None) -> list[tuple[Deal, Observation]]:
+    """The public deals `promotions.json` carries: live ones, and expired ones inside
+    `site.expired_promotions_days`, on the routes `keys` (default every route). The full path
+    renders again those whose slides show another price than their page (D66)."""
+    keys = {r.key for r in routes.all_routes(conn, ctx.config.routes)} if keys is None else keys
+    days = ctx.config.site.expired_promotions_days
+    return [(d, o) for d, o in public_deal_rows(conn)
+            if o.route_key in keys and _in_window(d, now, days)]
+
+
 def _in_window(deal: Deal, now: datetime, days: int) -> bool:
     """Live promotions always; expired ones until `days` after they expired: `expired_at` (D56,
     every expiry writes it; a re-evaluation's has its own time, later than the deal's last
@@ -510,9 +520,7 @@ def _in_window(deal: Deal, now: datetime, days: int) -> bool:
 
 def _latest_seen(conn: sqlite3.Connection, deal: Deal, o: Observation) -> dict | None:
     """The recheck's price with the stored observation of the same trip that has it."""
-    if deal.last_seen_price is None:
-        return None
-    seen = db.trip_observation_at(conn, o, deal.last_seen_price)
+    seen = pipeline.latest_seen(conn, deal, o)
     return {"obs": seen.id, "price": _eur(seen.price)} if seen else None
 
 

@@ -316,7 +316,7 @@ def test_upgrade_from_a_v15_database_adds_the_demand_columns_and_keeps_the_route
     v15_database(ctx.db_path)
 
     conn = pipeline.open_db(ctx)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 20
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 21
     columns = {r[1] for r in conn.execute("PRAGMA table_info(routes)")}
     assert {"demand_pax_month", "demand_period"} <= columns
     fresh = db.connect(ctx.root / "fresh.db")

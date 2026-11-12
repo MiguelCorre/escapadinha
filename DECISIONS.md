@@ -3850,4 +3850,26 @@ so nothing has to be hosted.
   request checks (performance ≥ 0.9 on every page type); on the PC's run of `npm run lhci`
   every page type scored 0.95–0.96 with CLS 0 and FCP 0.8–1.1 s. `web/test/fonts.test.ts` pins the
   two preloads on every page, none italic, and `optional` on every web font.
+- **2. The slides show the page's price.** A live promotion page shows the last recheck's
+  price on its own observation (`promotions.json` `latest`, D53: a rise held within
+  `recheck_tolerance_pct`), but the slides, and so the site's images (`website/images.py` from
+  `pipeline.deal_folder`), kept the price they were rendered with at detection: Lisboa → Praga
+  showed an image of 214 € beside 215 €, Lisboa → Milão 47,98 € beside 48,98 €. Now
+  `pipeline.shown_observation(conn, deal, obs)` is the one rule for the observation a page
+  shows (`latest_seen`, the stored observation of the trip at `last_seen_price`, while the deal
+  is open or live; the detected one once it expired, as the expired page shows), and
+  `site_data._latest_seen` reads the same `latest_seen`. Every render (`render_pairs`, behind
+  `run_render_deals`) draws the slides, caption and `meta.json` from that observation, with the
+  discount that price makes against the same typical low (`presentation._discount`, as the page
+  computes it), and records it on `deals.rendered_observation_id` (schema v21, an `ALTER`; NULL
+  for a render before v21 = `observation_id`). The full path, right after rendering the new
+  deals, renders again the site's deals (`site_data.exported_deals`: what `promotions.json`
+  carries) whose rendered observation is not the shown one (`stale_renders`,
+  `run_rerender_stale`), status unchanged, one report line. What the slides were made from
+  lives in the database, so a fresh runner (D25) decides it without the files. A held rise
+  changes the exported `latest`, so the run takes the full path anyway. Inside `cli._render`: a
+  re-render that raises is D64's failed render (the old slides stay, the site is still built and
+  deployed, the run exits 1 and the next one renders again). `tests/test_rerender.py`: a held
+  1 € rise makes the deal stale, the re-render records the new observation and its price in the
+  view and `meta.json`, nothing is stale after it, and an expiry renders the detected price back.
 

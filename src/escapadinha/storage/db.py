@@ -15,7 +15,7 @@ from escapadinha.models import Deal, Observation, Photo, Post, Promotion
 if TYPE_CHECKING:
     from escapadinha.demand import Demand
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 # Tracked links per (observation, Travelpayouts Project) for low prices on the website (D24):
 # created once through the partner links API, kept in the database because it is synced to
@@ -633,6 +633,7 @@ def _row_to_deal(row: sqlite3.Row) -> Deal:
         partner_offer_at=_dt(row["partner_offer_at"]),
         promotion_id=row["promotion_id"],
         expired_at=_dt(row["expired_at"]), expired_kind=row["expired_kind"],
+        rendered_observation_id=row["rendered_observation_id"],
     )
 
 
@@ -701,8 +702,11 @@ def deals_with_output(conn: sqlite3.Connection) -> list[Deal]:
     return [_row_to_deal(r) for r in rows]
 
 
-def set_deal_output_path(conn: sqlite3.Connection, deal_id: int, path: str) -> None:
-    conn.execute("UPDATE deals SET output_path = ? WHERE id = ?", (path, deal_id))
+def set_deal_output_path(conn: sqlite3.Connection, deal_id: int, path: str,
+                         observation_id: int | None = None) -> None:
+    """Where the deal's slides are and which observation's price they show (D66)."""
+    conn.execute("UPDATE deals SET output_path = ?, rendered_observation_id = ? WHERE id = ?",
+                 (path, observation_id, deal_id))
     conn.commit()
 
 
@@ -1311,11 +1315,14 @@ def _rebuild_deals(conn: sqlite3.Connection) -> None:
     those references again before the commit. A reference the rebuild broke (one the check
     did not find before) raises, and the version rolls back."""
     before = _deal_references_broken(conn)
-    columns = ", ".join(r[1] for r in conn.execute("PRAGMA table_info(deals)"))
+    old = [r[1] for r in conn.execute("PRAGMA table_info(deals)")]
     conn.execute("PRAGMA defer_foreign_keys = ON")       # off again at the commit
     conn.execute("CREATE TEMP TABLE deals_v19 AS SELECT * FROM deals")
     conn.execute("DROP TABLE deals")
     conn.execute(DEALS_V20)
+    # v19's columns (a test's old database made from today's schema has later ones: v21 adds them)
+    v20 = {r[1] for r in conn.execute("PRAGMA table_info(deals)")}
+    columns = ", ".join(c for c in old if c in v20)
     conn.execute(f"INSERT INTO deals ({columns}) SELECT {columns} FROM temp.deals_v19")
     conn.execute("DROP TABLE temp.deals_v19")
     broken = _deal_references_broken(conn) - before
@@ -1324,6 +1331,10 @@ def _rebuild_deals(conn: sqlite3.Connection) -> None:
 
 
 MIGRATIONS[20] = [_rebuild_deals]
+# D66: the observation a deal's slides were rendered from, so a price the page moved to (the
+# recheck's, D53) renders the slides again.
+MIGRATIONS[21] = ["ALTER TABLE deals ADD COLUMN rendered_observation_id INTEGER "
+                  "REFERENCES price_observations(id)"]
 
 
 def expiries_backfilled_before(conn: sqlite3.Connection) -> datetime | None:

@@ -559,10 +559,11 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     calls = []
     for name in ("apply_review_events", "_warn_if_late", "routes_upkeep",
                  "_warn_if_daily_pass_missed", "recheck_cmd", "detect", "_enrich", "_special_offers",
-                 "publish_due", "render_deals", "_auto_approve", "_export_site_data", "_site_build",
+                 "publish_due", "render_deals", "_rerender_stale", "_auto_approve", "_export_site_data", "_site_build",
                  "_site_deploy", "export_review_snapshot"):
         monkeypatch.setattr(cli, name, lambda *a, _n=name.lstrip("_"), **k: calls.append(_n)
-                            or ([] if _n == "auto_approve" else SimpleNamespace(installed=False)))
+                            or ([] if _n == "auto_approve" else None if _n == "rerender_stale"
+                     else SimpleNamespace(installed=False)))
     monkeypatch.setattr(cli, "_collect", lambda: SimpleNamespace(
         status="ok", n_requests=1, n_observations=1, n_new=0, errors=[],
         plan=SimpleNamespace(describe=lambda: "daily pass")))
@@ -575,9 +576,9 @@ def test_run_exports_the_site_data_in_the_full_path_right_before_the_site_build(
     cli._run_steps(render=True, full=True, report=[])
     assert calls == ["apply_review_events", "warn_if_late", "routes_upkeep",
                      "warn_if_daily_pass_missed", "recheck_cmd", "detect", "enrich", "special_offers",
-                     "publish_due", "render_deals", "auto_approve", "export_site_data", "site_build",
-                     "site_deploy", "record_full_path",
-                     "export_review_snapshot"]       # D25, D26, D27, D32, D41, D42, D43, D46
+                     "publish_due", "render_deals", "rerender_stale", "auto_approve",
+                     "export_site_data", "site_build", "site_deploy", "record_full_path",
+                     "export_review_snapshot"]       # D25, D26, D27, D32, D41, D42, D43, D46, D66
     calls.clear()
     cli._run_steps(render=False, full=True, report=[])
     assert calls[-5:] == ["export_site_data", "site_build", "site_deploy", "record_full_path",
