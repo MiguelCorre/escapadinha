@@ -495,6 +495,32 @@ origins_article:
   OPO: o
   FNC: a
   TER: a
+# The same for destinations, by city code (D66): "voos para a Madeira", "o que fazer no Dubai",
+# "desde a Madeira e a Terceira". Destinations not listed take none ("para Paris", "em Malta").
+# Every destination with active routes on 2026-11-12 that takes one in pt-PT; a city that is an
+# origin too takes the same article (tests/test_place_articles.py).
+destinations_article:
+  BVC: a     # a Boa Vista (Cabo Verde)
+  CPT: a     # a Cidade do Cabo
+  CVU: a     # a Ilha do Corvo
+  DXB: o     # o Dubai
+  FLW: a     # a Ilha das Flores
+  FNC: a     # a Madeira
+  GRW: a     # a Ilha Graciosa
+  HOR: a     # a Horta
+  LCG: a     # a Corunha
+  LPA: a     # a Gran Canária
+  LUX: o     # o Luxemburgo
+  MLE: as    # as Maldivas
+  OPO: o     # o Porto
+  OVD: as    # as Astúrias
+  PIX: a     # a Ilha do Pico
+  PXO: o     # o Porto Santo
+  REC: o     # o Recife
+  RIO: o     # o Rio de Janeiro
+  SID: a     # a Ilha do Sal
+  SJZ: a     # a Ilha de São Jorge
+  TER: a     # a Terceira
 
 # Route demand from Eurostat avia_par_pt (D45): passengers carried per month on each airport
 # pair, fetched once with the monthly discovery (no key; reuse authorised with the source

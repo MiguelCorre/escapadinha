@@ -167,6 +167,8 @@ export interface Destination {
   airports: string[];
   routes: string[];
   photo: Photo | null;
+  /** D66: the article the city takes in a sentence ("a" Madeira, "as" Maldivas); null or absent: none. */
+  article?: "o" | "a" | "os" | "as" | null;
 }
 
 export type LinkKind = "partner" | "airline";

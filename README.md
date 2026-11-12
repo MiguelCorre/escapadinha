@@ -351,6 +351,9 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
 - `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
 - `origins_article`: the article a name takes in a sentence (`OPO: o` → "desde o Porto", `FNC: a`,
   `TER: a`; unlisted origins take none), exported in `origins.json` for the site's titles.
+- `destinations_article` (D66): the same for destinations by city code (`FNC: a` → "para a
+  Madeira", "na Madeira"; `MLE: as`, `DXB: o`), exported in `destinations.json`; the site
+  contracts it with the preposition (`format.atPlace`: "do Porto", "na Madeira").
 - `detector`:
   - `threshold: 0.30` and `min_saving_eur: 15`: a promotion candidate needs
     `price ≤ typical_low × (1 − 0.30)` **and** `typical_low − price ≥ 15 €`.

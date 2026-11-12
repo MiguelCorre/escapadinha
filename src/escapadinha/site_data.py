@@ -273,7 +273,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     files["origins.json"] = {"version": VERSION, "origins": [
         _origin(ctx, code, all_routes, low_count, promo_count) for code in origin_codes]}
     files["destinations.json"] = {"version": VERSION, "destinations": _destinations(
-        conn, all_routes, published_destination_slugs(ctx, conn))}
+        conn, all_routes, published_destination_slugs(ctx, conn), ctx.config.destinations_article)}
     promotions = sorted(deals, key=lambda p: (p[0].detected_at, p[0].id), reverse=True)
     files["promotions.json"] = {"version": VERSION, "promotions": [
         _promotion(ctx, conn, d, o, route_by_key[o.route_key], deal_links.get(d.id),
@@ -472,7 +472,8 @@ def _origin(ctx: Context, code: str, all_routes: list[Route], low_count, promo_c
 
 
 def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
-                  published: dict[str, list[str]]) -> list[dict]:
+                  published: dict[str, list[str]], article_of: dict[str, str]) -> list[dict]:
+    """One hub per destination city; `article` from config `destinations_article` (D66)."""
     grouped: dict[str, list[Route]] = defaultdict(list)
     for r in all_routes:
         grouped[r.destination].append(r)
@@ -482,7 +483,7 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
         first = rs[0]
         photo = db.get_photo(conn, code)
         out.append({
-            "code": code, "city": first.city_pt,
+            "code": code, "city": first.city_pt, "article": article_of.get(code),
             "city_en": next((r.city_en for r in rs if r.city_en), None),
             "slug": slugs[code], "path": destination_path(slugs[code]),
             "kinds": sorted({r.kind for r in rs}),

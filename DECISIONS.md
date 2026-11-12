@@ -3926,4 +3926,29 @@ so nothing has to be hosted.
   button → details → lower button, and none on the expired page; a header test checks the
   class and the 44 px rule in the page's CSS. (Item 4 on the same build: `/voos/lisboa-madeira/`
   is 8 318 px tall at 375 px.)
+- **6. Destinations with their article.** The site wrote "Voos baratos de Lisboa para
+  Madeira", "O que fazer em Madeira" and "Ainda não acompanhamos voos para Madeira desde
+  Madeira, Terceira": pages built "para ${city}" / "em ${city}" by hand and only origins had an
+  article. Now config `destinations_article` (by city code, like `origins_article`: the 21
+  destinations with active routes on 2026-11-12 that take one in pt-PT: a Madeira, a Terceira,
+  a Horta, a Corunha, a Gran Canária, a Boa Vista, a Cidade do Cabo, the six "Ilha …", o Porto,
+  o Porto Santo, o Rio de Janeiro, o Recife, o Dubai, o Luxemburgo, as Maldivas, as Astúrias;
+  Malta, Ibiza, Menorca, Tenerife, Lanzarote, Santa Maria and the rest take none) is exported as
+  `destinations.json` `article` (optional, additive in v1, `null` for none; the schema says so).
+  The committed fixture got the field by hand on every destination, with the value a
+  regeneration writes (FNC a, OPO o, RIO o, the rest null), since regenerating would drop the
+  states the web tests build from (run 1711, D40); `tests/test_place_articles.py` checks it
+  against config. The contractions live only in `format.ts`: `atPlace(prep, place)` ("de" →
+  do/da/dos/das, "em" → no/na/nos/nas, "a partir de" → "a partir do", "para" and "desde" keep
+  the article), `atPlaces` (a list with "e" before the last: "desde a Madeira e a Terceira",
+  "de Lisboa e do Porto"), `placeName`, `listJoin`, `capitalized`; `fromPlace` is now
+  `atPlace("desde", …)`. Route pages ("Voos do Porto para a Madeira"), hubs (title, lead,
+  "Promoções para a Madeira", the unpriced and not-yet-followed lines, "Desde o Porto"),
+  origin pages ("Voos desde o Porto", "a partir do Porto"), the destinations index, the
+  itinerary line ("O que fazer na Madeira"), the related tips and the search widget's text use
+  them. A hub no longer lists itself among the origins not followed yet (Madeira is an origin
+  too). Captions and slides write "Lisboa → Madeira" and need no article, so `i18n_pt` has no
+  twin. Tests: the contractions (masculine, feminine, plural, none, lists) in
+  `format.test.ts`; `place-articles.test.ts` on the built pages, including that no page writes
+  "para / em / de / desde" before the name of a destination that takes an article.
 

@@ -3,17 +3,20 @@
 // the itineraries collection, D33); renders nothing otherwise.
 import { itineraries } from "../collections";
 import { itineraryFor } from "../lib/itinerary";
+import { atPlace } from "../lib/format";
 
 interface Props {
   destination: string;
   city: string;
+  /** D66: the city's article (destinations.json), for "na Madeira" / "para a Madeira". */
+  article?: string | null;
 }
 
-const { destination, city } = Astro.props;
+const { destination, city, article = null } = Astro.props;
 const itinerary = itineraryFor(destination, await itineraries());
 ---
 {itinerary && (
   <p class="notice mt-lg max-w-measure text-ink" data-itinerary>
-    O que fazer em {city}: <a href={itinerary.path}>{itinerary.title}</a>
+    O que fazer {atPlace("em", { name: city, article })}: <a href={itinerary.path}>{itinerary.title}</a>
   </p>
 )}

@@ -170,9 +170,55 @@ export function lisbonTimestamp(utc: string): string {
   return `${p.day}/${p.month}/${p.year} às ${p.hour}:${p.minute}`;
 }
 
+/** The definite article a place name takes in a sentence (origins.json and, D66,
+ * destinations.json `article`): "o" Porto, "a" Madeira, "as" Maldivas; null or absent: none. */
+export type PlaceArticle = "o" | "a" | "os" | "as" | null | undefined;
+export interface NamedPlace { name: string; article?: PlaceArticle | string | null }
+export type Preposition = "de" | "em" | "para" | "desde" | "a partir de";
+
+const CONTRACTED: Record<"de" | "em", Record<"o" | "a" | "os" | "as", string>> = {
+  de: { o: "do", a: "da", os: "dos", as: "das" },
+  em: { o: "no", a: "na", os: "nos", as: "nas" },
+};
+
+/** A preposition and a place, contracted the pt-PT way (D66): ("em", Madeira, "a") -> "na Madeira",
+ * ("de", Porto, "o") -> "do Porto", ("para", Maldivas, "as") -> "para as Maldivas",
+ * ("a partir de", Porto, "o") -> "a partir do Porto", ("em", Lisboa) -> "em Lisboa". */
+export function atPlace(prep: Preposition, place: NamedPlace): string {
+  const article = place.article as PlaceArticle;
+  if (!article) return `${prep} ${place.name}`;
+  if (prep === "de" || prep === "em") return `${CONTRACTED[prep][article]} ${place.name}`;
+  if (prep === "a partir de") return `a partir ${CONTRACTED.de[article]} ${place.name}`;
+  return `${prep} ${article} ${place.name}`;
+}
+
+/** A place with its article and no preposition: "a Madeira", "Lisboa". */
+export function placeName(place: NamedPlace): string {
+  return place.article ? `${place.article} ${place.name}` : place.name;
+}
+
+/** "a, b e c" (pt-PT: "e" before the last item, no comma before it). */
+export function listJoin(items: readonly string[]): string {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} e ${items.at(-1)}`;
+}
+
+/** A preposition and a list of places (D66): "desde a Madeira e a Terceira", "para Lisboa e o
+ * Porto"; with "de" / "em" every place takes the contracted preposition ("de Lisboa e do Porto"). */
+export function atPlaces(prep: Preposition, places: readonly NamedPlace[]): string {
+  if (places.length === 0) return "";
+  if (prep === "de" || prep === "em") return listJoin(places.map((p) => atPlace(prep, p)));
+  const [first, ...rest] = places;
+  return listJoin([atPlace(prep, first), ...rest.map(placeName)]);
+}
+
+/** "Desde o Porto": a sentence's first word. */
+export function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** ("Porto", "o") -> "desde o Porto", ("Lisboa", null) -> "desde Lisboa" (origins.json article). */
 export function fromPlace(name: string, article?: string | null): string {
-  return article ? `desde ${article} ${name}` : `desde ${name}`;
+  return atPlace("desde", { name, article });
 }
 
 /** A ponte page's title: "Ponte de 1 de dezembro desde o Porto". */
