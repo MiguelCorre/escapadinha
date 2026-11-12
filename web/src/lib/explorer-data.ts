@@ -4,8 +4,9 @@
 import type { LowPriceRow, Ponte, SchoolHoliday, SiteData } from "./contract";
 import { bookingLink } from "./cta";
 import { lisbonDay } from "./dates";
-import type { BreakWindow, Demand, PonteWindow } from "./explorer";
+import { NO_FILTERS, explore, type BreakWindow, type Demand, type ExploreResult, type PonteWindow } from "./explorer";
 import type { Places } from "./low-prices";
+import { arrivalAirport } from "./promotion";
 
 /** /explorar/dados/<ORIGIN>.json */
 export interface OriginFile {
@@ -50,7 +51,7 @@ export function placesFor(data: SiteData, iata: string,
     const route = data.routes.routes.find((x) => x.key === `${iata}-${r[1]}`);
     cities[r[1]] = route?.city ?? data.destinations.destinations.find((d) => d.code === r[1])?.city ?? r[1];
     if (route) paths[r[1]] = route.path;
-    const label = r[9] ? data.labels.airports[r[9]] : undefined;
+    const label = r[9] ? arrivalAirport(data, r[9], route?.airports ?? [], cities[r[1]]) : undefined;
     if (r[9] && label) airports[r[9]] = label;
     const airline = r[7] ? data.labels.airlines[r[7]] : undefined;
     if (r[7] && airline) airlines[r[7]] = airline;
@@ -91,6 +92,20 @@ export function upcomingSchoolHolidays(data: SiteData): SchoolHoliday[] {
  * meta.generated_at): its pages stay, noindex, saying it has passed (D31). */
 export function isPastPonte(ponte: Ponte, data: SiteData): boolean {
   return ponte.window.end < lisbonDay(data.meta.generated_at);
+}
+
+/** What a ponte page lists for an origin (D31): its low prices whose departure and return fall
+ * inside the ponte's window (explorer.fitsPonte, the filter's rule); none once it has passed.
+ * The ponte page and the explorer's link list both read it (D66: no link to an empty page). */
+export function ponteResults(data: SiteData, ponte: Ponte, iata: string): ExploreResult[] {
+  const rows = isPastPonte(ponte, data) ? [] : data.lowPrices[iata]?.rows ?? [];
+  return explore(rows, { ...NO_FILTERS, ponte: ponte.slug }, [ponte], demandFor(data, iata));
+}
+
+/** The same for a school break (D61): explorer.fitsWindow on the break's window. */
+export function breakResults(data: SiteData, holiday: SchoolHoliday, iata: string): ExploreResult[] {
+  const rows = isPastBreak(holiday, data) ? [] : data.lowPrices[iata]?.rows ?? [];
+  return explore(rows, { ...NO_FILTERS, ferias: holiday.slug }, [], demandFor(data, iata), [holiday]);
 }
 
 /** The pontes the explorer offers: those not past yet, by date. */

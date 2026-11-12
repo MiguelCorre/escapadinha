@@ -243,8 +243,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     low_links = pipeline.low_price_links(ctx, conn, [lp for v in kept.values() for lp in v],
                                          now, create=new_links).urls
 
-    deals = [(d, o) for d, o in public_deal_rows(conn)
-             if o.route_key in keys and _in_window(d, now, cfg.site.expired_promotions_days)]
+    deals = exported_deals(ctx, conn, now, keys)
     route_by_key = {r.key: r for r in all_routes}
     live = [(d, o) for d, o in deals if d.status in LIVE]
     deal_links = pipeline.website_links(ctx, conn, live, create=new_links) if live else {}
@@ -274,7 +273,7 @@ def build_export(ctx: Context, conn: sqlite3.Connection, now: datetime | None = 
     files["origins.json"] = {"version": VERSION, "origins": [
         _origin(ctx, code, all_routes, low_count, promo_count) for code in origin_codes]}
     files["destinations.json"] = {"version": VERSION, "destinations": _destinations(
-        conn, all_routes, published_destination_slugs(ctx, conn))}
+        conn, all_routes, published_destination_slugs(ctx, conn), ctx.config.destinations_article)}
     promotions = sorted(deals, key=lambda p: (p[0].detected_at, p[0].id), reverse=True)
     files["promotions.json"] = {"version": VERSION, "promotions": [
         _promotion(ctx, conn, d, o, route_by_key[o.route_key], deal_links.get(d.id),
@@ -473,7 +472,8 @@ def _origin(ctx: Context, code: str, all_routes: list[Route], low_count, promo_c
 
 
 def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
-                  published: dict[str, list[str]]) -> list[dict]:
+                  published: dict[str, list[str]], article_of: dict[str, str]) -> list[dict]:
+    """One hub per destination city; `article` from config `destinations_article` (D66)."""
     grouped: dict[str, list[Route]] = defaultdict(list)
     for r in all_routes:
         grouped[r.destination].append(r)
@@ -483,7 +483,7 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
         first = rs[0]
         photo = db.get_photo(conn, code)
         out.append({
-            "code": code, "city": first.city_pt,
+            "code": code, "city": first.city_pt, "article": article_of.get(code),
             "city_en": next((r.city_en for r in rs if r.city_en), None),
             "slug": slugs[code], "path": destination_path(slugs[code]),
             "kinds": sorted({r.kind for r in rs}),
@@ -498,6 +498,17 @@ def _destinations(conn: sqlite3.Connection, all_routes: list[Route],
     return out
 
 
+def exported_deals(ctx: Context, conn: sqlite3.Connection, now: datetime,
+                   keys: set[str] | None = None) -> list[tuple[Deal, Observation]]:
+    """The public deals `promotions.json` carries: live ones, and expired ones inside
+    `site.expired_promotions_days`, on the routes `keys` (default every route). The full path
+    renders again those whose slides show another price than their page (D66)."""
+    keys = {r.key for r in routes.all_routes(conn, ctx.config.routes)} if keys is None else keys
+    days = ctx.config.site.expired_promotions_days
+    return [(d, o) for d, o in public_deal_rows(conn)
+            if o.route_key in keys and _in_window(d, now, days)]
+
+
 def _in_window(deal: Deal, now: datetime, days: int) -> bool:
     """Live promotions always; expired ones until `days` after they expired: `expired_at` (D56,
     every expiry writes it; a re-evaluation's has its own time, later than the deal's last
@@ -510,9 +521,7 @@ def _in_window(deal: Deal, now: datetime, days: int) -> bool:
 
 def _latest_seen(conn: sqlite3.Connection, deal: Deal, o: Observation) -> dict | None:
     """The recheck's price with the stored observation of the same trip that has it."""
-    if deal.last_seen_price is None:
-        return None
-    seen = db.trip_observation_at(conn, o, deal.last_seen_price)
+    seen = pipeline.latest_seen(conn, deal, o)
     return {"obs": seen.id, "price": _eur(seen.price)} if seen else None
 
 

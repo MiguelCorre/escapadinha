@@ -17,14 +17,24 @@ export interface Place {
   headline: string;
 }
 
+/** An arrival airport's name (D66): the labels' when they have one, else the city's when the
+ * airport is the only one `airports` lists (the route's or the destination's): "Praga (PRG)",
+ * never a bare code there. Python's twin: `i18n_pt.airport_label(…, sole_of=)`. */
+export function arrivalAirport(data: SiteData, code: string, airports: readonly string[],
+  city: string): { name: string; remote: boolean } | undefined {
+  return data.labels.airports[code]
+    ?? (airports.length === 1 && airports[0] === code ? { name: city, remote: false } : undefined);
+}
+
 export function place(data: SiteData, offer: Offer): Place {
   const [origin, destination] = offer.route.split("-");
   const originName = data.origins.origins.find((o) => o.iata === origin)?.name ?? origin;
-  const city = data.routes.routes.find((r) => r.key === offer.route)?.city
+  const route = data.routes.routes.find((r) => r.key === offer.route);
+  const city = route?.city
     ?? data.destinations.destinations.find((d) => d.code === destination)?.city
     ?? destination;
   const code = offer.arrival_airport;
-  const airport = code ? data.labels.airports[code] : undefined;
+  const airport = code ? arrivalAirport(data, code, route?.airports ?? [], city) : undefined;
   const remote = airport?.remote ?? false;
   return {
     originName, city, arrivalCode: code, arrivalName: airport?.name ?? null, remote,
@@ -126,6 +136,10 @@ export function expiredByRoute(data: SiteData): RouteRecord[] {
     return { route, latest: sorted[0], count: sorted.length };
   }).sort((a, b) => newest(a.latest, b.latest));
 }
+
+/** D66: a route's most recent expired promotions shown as cards on its route page and in its
+ * /promos/ group; the older ones are one line each in a <details> (ExpiredPromotions.astro). */
+export const EXPIRED_CARDS_PER_ROUTE = 3;
 
 /** The expired page promotions of one route, newest first (D60, /promos/). */
 export function expiredOnRoute(data: SiteData, route: string): Promotion[] {

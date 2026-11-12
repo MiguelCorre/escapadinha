@@ -790,7 +790,7 @@ so nothing has to be hosted.
   on the PR runner the swap moved whole sections (CLS 0.19 on a destination hub, 0.26 on a ponte
   page). Since #14 the fonts use `font-display: optional`: the browser uses the web font only if it
   is there before first paint (from cache after the first page), otherwise the fallback for that
-  page, so a font never moves the layout on any system (2026-10-14). No font preload and no italic on first paint: Lighthouse's simulated
+  page, so a font never moves the layout on any system (2026-10-14). No font preload (amended by D66: the two roman files are preloaded) and no italic on first paint: Lighthouse's simulated
   throttling counts fonts fetched before the first paint against it (FCP 3.0 s → 2.4 s), and the
   slides keep the italic voice. The logo is `assets/logo-light.svg` inlined with its ink and sun
   recoloured to `currentColor` / accent, so one file works on paper and in dark mode.
@@ -3833,3 +3833,158 @@ so nothing has to be hosted.
   running; with the PC off, nothing changes. A real agency fare 10 % and 5 € under both
   engines would be expired wrongly: that is what the rerun watches. The run order tests are
   unchanged (the rule is inside `detect`).
+
+## D66: Site polish from the walk-through of 2026-11-12
+- **Context:** a walk through the live site on 2026-11-12 (desktop and a 375x812 phone) found
+  eight things a visitor sees wrong or hard to use. Each part below is one commit.
+- **1. The brand fonts preload (amends D28).** With `font-display: optional` and no preload,
+  the web fonts lost the first-paint race on most first visits: `/voos/lisboa-madeira/`,
+  `/destinos/` and the home page at phone width painted every heading in the fallback (Times
+  New Roman on that phone), while a later page had the fonts from the cache. Every page now
+  preloads the roman file of each family (`<Font … preload={FONT_PRELOAD}>` in `Base.astro`,
+  `[{ style: "normal" }]`: Fraunces-Roman 87 kB, SourceSerif4-Roman 224 kB); the italics are
+  not preloaded. `optional` stays: a preloaded optional font holds the first paint for its
+  short block period (Chrome since 83), so it is there on a normal load and a font that is
+  still late never swaps in and moves the layout (the CLS problem D28 met on Linux). The cost
+  D28 measured (FCP under Lighthouse's simulated throttling) is what Lighthouse CI on the pull
+  request checks (performance ≥ 0.9 on every page type); on the PC's run of `npm run lhci`
+  every page type scored 0.95–0.96 with CLS 0 and FCP 0.8–1.1 s. `web/test/fonts.test.ts` pins the
+  two preloads on every page, none italic, and `optional` on every web font.
+- **2. The slides show the page's price.** A live promotion page shows the last recheck's
+  price on its own observation (`promotions.json` `latest`, D53: a rise held within
+  `recheck_tolerance_pct`), but the slides, and so the site's images (`website/images.py` from
+  `pipeline.deal_folder`), kept the price they were rendered with at detection: Lisboa → Praga
+  showed an image of 214 € beside 215 €, Lisboa → Milão 47,98 € beside 48,98 €. Now
+  `pipeline.shown_observation(conn, deal, obs)` is the one rule for the observation a page
+  shows (`latest_seen`, the stored observation of the trip at `last_seen_price`, while the deal
+  is open or live; the detected one once it expired, as the expired page shows), and
+  `site_data._latest_seen` reads the same `latest_seen`. Every render (`render_pairs`, behind
+  `run_render_deals`) draws the slides, caption and `meta.json` from that observation, with the
+  discount that price makes against the same typical low (`presentation._discount`, as the page
+  computes it), and records it on `deals.rendered_observation_id` (schema v21, an `ALTER`; NULL
+  for a render before v21 = `observation_id`). The full path, right after rendering the new
+  deals, renders again the site's deals (`site_data.exported_deals`: what `promotions.json`
+  carries) whose rendered observation is not the shown one (`stale_renders`,
+  `run_rerender_stale`), status unchanged, one report line. What the slides were made from
+  lives in the database, so a fresh runner (D25) decides it without the files. A held rise
+  changes the exported `latest`, so the run takes the full path anyway. Inside `cli._render`: a
+  re-render that raises is D64's failed render (the old slides stay, the site is still built and
+  deployed, the run exits 1 and the next one renders again). `tests/test_rerender.py`: a held
+  1 € rise makes the deal stale, the re-render records the new observation and its price in the
+  view and `meta.json`, nothing is stale after it, and an expiry renders the detected price back.
+- **3. Names, not codes.** Visitors read "com a QS", "AD · 1 escala", "Chegada: PRG",
+  "Aeroportos de chegada: FNC": `i18n_pt.AIRLINES` had 28 airlines and `AIRPORTS` only the
+  airports of multi-airport cities, and both fall back to the code. The provider's catalogue
+  that discovery downloads (`data/airports.json`, and `data/airlines.json`) identifies every
+  code, but its names are English or mixed pt-BR ("Vaclav Havel Airport Prague", "Marraqueche
+  Menara", broken accents), so the site does not read it at run time: the maps grew by hand,
+  each code checked against the catalogue on 2026-11-12. `AIRLINES` + 48 (every airline in the
+  observations since 2026-10-01 but SZS, which the catalogue does not know and which no
+  observation since 2026-10-25 carries), named as the airline sells itself (QS Smartwings, AD
+  Azul, RK Ryanair, W9 Wizz Air). `AIRPORTS` + 18: every airport of the 16 destinations with
+  two or more (Schönefeld, Tegel, Düsseldorf, Weeze, Frankfurt, Glasgow, Prestwick,
+  Gardermoen, Rygge, Chisinau ×2, Guarulhos, Viracopos, Arlanda, Tenerife Norte / Sul, Marco
+  Polo, Chopin); Weeze, Prestwick, Rygge and Viracopos (50–100 km from their city) join
+  `REMOTE_AIRPORTS`. A single-airport city is named by its city, not by a name table of 150
+  more airports: `i18n_pt.airport_label(code, sole_of=…)` takes the city when the code is its
+  route's only arrival airport (`sole_city`), so the line reads "Praga (PRG)", "Madeira
+  (FNC)"; any other unknown code (a new route, an arrival somewhere else) is still the code.
+  The choice keeps the line rather than dropping it, because captions always name the arrival
+  airport (D11); the same rule runs in captions and slides (`build_deal_view`'s
+  `route_airports`, from `pipeline.route_airports`) and on the site (`promotion.arrivalAirport`,
+  used by the promotion card and page, every low-price row through `placesFor`, and the hub's
+  "Aeroporto(s) de chegada"). On the database copy of 2026-11-12 no active route's airport and
+  no observed airline since 2026-10-25 is left as a code. `labels.json` is regenerated from
+  `_labels()` (it holds no database data; `test_affiliate_blocks` compares it with the export).
+  `tests/test_place_names.py` fails when a fixture airline or arrival airport would show as a
+  code; `web/test/place-names.test.ts` fails on "Chegada: XYZ" or "com a XY" on any built page.
+- **4. Expired promotions as a record, not a wall.** `/voos/lisboa-madeira/` showed 19 full
+  expired cards (14 795 px at phone width), most a euro apart on the same dates, and the home
+  page's "+ 18 promoções nesta rota" landed there; `/promos/` showed 34 cards. Now one
+  component, `ExpiredPromotions.astro`, shows a route's expired promotions on its route page
+  and in its `/promos/` group: the newest `EXPIRED_CARDS_PER_ROUTE` (3, a constant in
+  `promotion.ts`: a layout choice, not data, so no contract field) as cards, the older ones one
+  line each (dates as the link to its own page, the struck-through price on its `data-obs`,
+  "encontrado a …" with `data-found-at`) inside a native `<details>` ("16 promoções
+  anteriores"), closed, no JavaScript. Every expired page keeps a link from both pages, so no
+  URL loses its way in (the internal-link and traceability tests keep passing); the route page
+  now takes its list from `expiredOnRoute` too, so both pages order and group it the one way.
+  `web/test/expired-record.test.ts` checks the split, the order, each line's link and `data-obs`
+  on LIS-FNC (19), LIS-PAR (3, all cards) and every `/promos/` group.
+- **5. The booking button within reach on a phone.** On `/promos/423-lisboa-praga/` at
+  375x812 the "Ver voo e reservar" button started at 1 405 px, under the whole details table,
+  and the header's links were 17 px tall. A live promotion page now has a second
+  `BookingCta` (the same `cta.ts` result, its disclosure and note beside it) right under the
+  price block and the price verdict, in a `md:hidden` wrapper (`data-cta-early`): phones only,
+  so the desktop page is as before; the button under the details stays for every screen. An
+  expired page has no `cta`, so neither button. On the fixture build at 375x812 the early
+  button starts at 686 px (inside the first screen), the lower one at 1 871 px. The header's
+  three links get `.nav-link` (`global.css`): `inline-flex`, `min-height: 44px` below `md`,
+  `inline` and no minimum from `md` up (measured: 44 px at 375 px, 17 px as before at 1280 px).
+  The `pages.test.ts` booking test now expects the two buttons, both with the disclosure in
+  their `[data-cta]`, the early one first and `md:hidden`, in the order price block → early
+  button → details → lower button, and none on the expired page; a header test checks the
+  class and the 44 px rule in the page's CSS. (Item 4 on the same build: `/voos/lisboa-madeira/`
+  is 8 318 px tall at 375 px.)
+- **6. Destinations with their article.** The site wrote "Voos baratos de Lisboa para
+  Madeira", "O que fazer em Madeira" and "Ainda não acompanhamos voos para Madeira desde
+  Madeira, Terceira": pages built "para ${city}" / "em ${city}" by hand and only origins had an
+  article. Now config `destinations_article` (by city code, like `origins_article`: the 21
+  destinations with active routes on 2026-11-12 that take one in pt-PT: a Madeira, a Terceira,
+  a Horta, a Corunha, a Gran Canária, a Boa Vista, a Cidade do Cabo, the six "Ilha …", o Porto,
+  o Porto Santo, o Rio de Janeiro, o Recife, o Dubai, o Luxemburgo, as Maldivas, as Astúrias;
+  Malta, Ibiza, Menorca, Tenerife, Lanzarote, Santa Maria and the rest take none) is exported as
+  `destinations.json` `article` (optional, additive in v1, `null` for none; the schema says so).
+  The committed fixture got the field by hand on every destination, with the value a
+  regeneration writes (FNC a, OPO o, RIO o, the rest null), since regenerating would drop the
+  states the web tests build from (run 1711, D40); `tests/test_place_articles.py` checks it
+  against config. The contractions live only in `format.ts`: `atPlace(prep, place)` ("de" →
+  do/da/dos/das, "em" → no/na/nos/nas, "a partir de" → "a partir do", "para" and "desde" keep
+  the article), `atPlaces` (a list with "e" before the last: "desde a Madeira e a Terceira",
+  "de Lisboa e do Porto"), `placeName`, `listJoin`, `capitalized`; `fromPlace` is now
+  `atPlace("desde", …)`. Route pages ("Voos do Porto para a Madeira"), hubs (title, lead,
+  "Promoções para a Madeira", the unpriced and not-yet-followed lines, "Desde o Porto"),
+  origin pages ("Voos desde o Porto", "a partir do Porto"), the destinations index, the
+  itinerary line ("O que fazer na Madeira"), the related tips and the search widget's text use
+  them. A hub no longer lists itself among the origins not followed yet (Madeira is an origin
+  too). Captions and slides write "Lisboa → Madeira" and need no article, so `i18n_pt` has no
+  twin. Tests: the contractions (masculine, feminine, plural, none, lists) in
+  `format.test.ts`; `place-articles.test.ts` on the built pages, including that no page writes
+  "para / em / de / desde" before the name of a destination that takes an article.
+- **7. No region a destination is not in.** `/destinos/` labelled Agadir, Argel, Casablanca,
+  Marraquexe, Rabat, Tânger, Tunes, Ancara, Esmirna and Istambul "Europa": the route kind
+  `europe` (Europe plus North Africa and Turkey, `discovery.EUROPE` / `NORTH_AFRICA`, a rule for
+  the nights range and the direct-only default) was printed as geography. The country would be
+  the better label, and the catalogue gives it at discovery (`discovery.City.country`), but no
+  route row stores it: showing it needs a schema step, an additive contract field and a
+  discovery run (monthly) before any page has it. So the fallback the walk-through allowed: the
+  kind's visitor-facing label (`i18n_pt.ROUTE_KIND`, exported as `labels.json` `kinds`, read by
+  the hub kicker, the route page kicker, `/destinos/` and the origin pages' groups) becomes
+  "Curto e médio curso", true for every member and the pair of "Longo curso"; `domestic` stays
+  "Portugal". The kind and its rules do not change. `labels.json` regenerated from `_labels()`.
+  `tests/test_place_names.py` pins that the label names no region while the kind holds North
+  Africa and Turkey; `web/test/place-names.test.ts` fails on any label starting "Europa" on a
+  built page. Showing the country (store `city.country` on the route at discovery, export it)
+  is left for its own change.
+- **8. The explorer: one date range, no links to empty pages.** The ponte filter read "Ponte
+  de 1 de dezembro (27 de novembro a 2 de dezembro)" (the travel window) while the list under
+  it read "28 de novembro a 1 de dezembro" (the days off), the same for the school breaks; and
+  the page linked every ponte and break times every origin (132 links on the live site), many
+  to `noindex` pages saying "Ainda não há preços baixos para estas datas". Now the filter's
+  options and the lists show the days off only (`days_off`, a break's `start`–`end`); the
+  window stays the filter's rule (`explorer.fitsPonte` / `fitsWindow`, unchanged) and is
+  explained once, in a line under the form (`data-window-rule`: from the evening before the
+  first day off to the day after the last); the break list's own "(da véspera ao dia
+  seguinte)" went with it. What a ponte or break page lists moved into
+  `explorer-data.ponteResults` / `breakResults` (the page's old `explore` call, a passed one
+  empty), which both those pages and the explorer read, so the explorer links an origin only
+  when its page has prices, at build time, by the same rule; the others are the origin's name
+  as plain text (`data-no-prices`), and the two lists' lines say so. The empty pages stay built
+  at their `pontes.json` / `school-holidays.json` paths (no 404). On the fixture build the
+  explorer's ponte list has 1 link and 62 plain names. Left as they were: the "other origins"
+  links on the ponte and break pages and the origin pages' list of school breaks, which also
+  reach empty pages; the same helpers would serve them. Tests: `explorer-pages.test.ts` (the
+  one link, every link's target has prices, the counts, one date range in the option and the
+  list, no window date on the page, the rule's line), `school-holidays.test.ts` (the configured
+  build's break without prices links nothing, its option shows the break's own days).
+

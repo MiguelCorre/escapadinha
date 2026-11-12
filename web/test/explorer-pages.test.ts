@@ -94,13 +94,31 @@ describe("explorer page", () => {
     expect(bytes).toBeLessThan(10_000);
   });
 
-  it("lists the upcoming pontes with a link per origin, titled in pt-PT", () => {
+  it("lists the upcoming pontes, linking an origin only to a page with prices, titled in pt-PT (D66)", () => {
     const links = doc().querySelectorAll("#pontes a");
-    expect(links.map((a) => a.getAttribute("href"))).toContain(PONTE);
-    expect(links.map((a) => a.getAttribute("href"))).not.toContain(PAST);
-    expect(links).toHaveLength(upcoming.length * data.origins.origins.length);
-    const porto = links.find((a) => a.getAttribute("href") === PONTE)!;
-    expect(porto.getAttribute("aria-label")).toBe("Ponte de 1 de dezembro desde o Porto");
+    // In the fixtures one trip fits an upcoming ponte (Porto, Carnaval 2027): its page is the one
+    // link; every other origin of every ponte is its name as plain text, never a link to a page
+    // that says "Ainda não há preços baixos para estas datas".
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([PRICED]);
+    expect(links[0].getAttribute("aria-label")).toBe("Ponte de Carnaval desde o Porto");
+    const plain = doc().querySelectorAll("#pontes [data-no-prices]");
+    expect(links.length + plain.length).toBe(upcoming.length * data.origins.origins.length);
+    expect(links.map((a) => a.getAttribute("href"))).not.toContain(PONTE);       // empty, still built
+    expect(builtPages()).toContain(PONTE);
+    for (const a of doc().querySelectorAll("#pontes a, #ferias-escolares a")) {
+      const target = page(a.getAttribute("href")!);
+      expect(target.querySelectorAll("#explorer-results > li").length, a.getAttribute("href")!).toBeGreaterThan(0);
+    }
+  });
+
+  it("shows one date range per ponte, the days off, in the filter and the list (D66)", () => {
+    const option = doc().querySelector('select[name=ponte] option[value="1-dezembro-2026"]')!;
+    expect(text(option)).toBe("Ponte de 1 de dezembro (28 de novembro a 1 de dezembro)");
+    const item = doc().querySelectorAll("#pontes li").find((li) => text(li).startsWith("Ponte de 1 de dezembro"))!;
+    expect(text(item)).toContain("28 de novembro a 1 de dezembro");
+    expect(text(doc().querySelector("main")!)).not.toContain("27 de novembro");   // the window, never shown
+    expect(text(doc().querySelector("[data-window-rule]")!))
+      .toBe("Nas pontes e nas férias escolares contam as viagens com partida a partir da véspera do primeiro dia livre e regresso até ao dia seguinte ao último.");
   });
 
   it("gives every ponte link a 24 px target with a gap between wrapped rows (WCAG 2.5.8)", () => {

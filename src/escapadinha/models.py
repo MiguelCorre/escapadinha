@@ -155,6 +155,9 @@ class Deal:
     # rows expired before schema v19 were backfilled from `last_checked_at` and the reason.
     expired_at: datetime | None = None
     expired_kind: str | None = None
+    # D66, v21: the observation the slides in `output_path` show the price of. None: rendered
+    # before v21, from `observation_id` (or not rendered yet).
+    rendered_observation_id: int | None = None
 
 
 @dataclass(frozen=True)

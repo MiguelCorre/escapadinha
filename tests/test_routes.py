@@ -222,7 +222,7 @@ def test_routes_list_prints_kind_rules_status_and_last_observed(ctx, monkeypatch
     monkeypatch.setenv("COLUMNS", "200")
     out = CliRunner().invoke(cli.app, ["routes", "list"]).output
     lines = {line.split("│")[1].strip(): line for line in out.splitlines() if "→" in line}
-    assert "Europa" in lines["LIS → LON"] and "só diretos" in lines["LIS → LON"]
+    assert "Curto e médio curso" in lines["LIS → LON"] and "só diretos" in lines["LIS → LON"]
     assert "2–10 noites" in lines["LIS → LON"] and "ativa" in lines["LIS → LON"]
     assert " às " in lines["LIS → LON"] and "nunca" in lines["LIS → PAR"]
     assert "Longo curso" in lines["LIS → TYO"] and "até 1 escala" in lines["LIS → TYO"]

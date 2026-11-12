@@ -1,0 +1,37 @@
+---
+// A route's expired promotions (D60, D66): the most recent EXPIRED_CARDS_PER_ROUTE as cards, the
+// rest as a compact record inside a native <details> (no JavaScript): one line each with its
+// dates, its price (data-obs, as on its card), when it was found and a link to its own page, so
+// every expired promotion stays one link away. `promotions` come from promotion.expiredOnRoute
+// (newest first); the grouping is never done here.
+import type { Promotion } from "../lib/contract";
+import { count, eur } from "../lib/format";
+import { EXPIRED_CARDS_PER_ROUTE, promotionView } from "../lib/promotion";
+import data from "virtual:site-data";
+import PromotionCard from "./PromotionCard.astro";
+
+interface Props {
+  promotions: Promotion[];
+}
+
+const { promotions } = Astro.props;
+const cards = promotions.slice(0, EXPIRED_CARDS_PER_ROUTE);
+const older = promotions.slice(EXPIRED_CARDS_PER_ROUTE).map((p) => promotionView(data, p));
+---
+<div class="mt-md grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
+  {cards.map((p) => <PromotionCard promotion={p} view={promotionView(data, p)} />)}
+</div>
+{older.length > 0 && (
+  <details class="mt-lg max-w-measure" data-expired-record>
+    <summary class="cursor-pointer text-small font-semibold">{count(older.length, "promoção anterior", "promoções anteriores")}</summary>
+    <ul class="mt-sm grid gap-xs text-small">
+      {older.map((v) => (
+        <li data-deal={v.id} class="border-t border-rule pt-xs">
+          <a href={v.path} class="num">{v.dates}</a>
+          <span class="text-muted"> · </span><span data-obs={v.obs} class="num font-semibold text-muted"><s>{eur(v.priceEur)}</s></span>
+          {v.foundOn && <span class="text-muted"> · encontrado a <span class="num" data-found-at={v.foundAtUtc ?? undefined}>{v.foundOn}</span></span>}
+        </li>
+      ))}
+    </ul>
+  </details>
+)}

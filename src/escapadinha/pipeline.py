@@ -776,6 +776,36 @@ def current_price(deal: Deal, obs: Observation) -> float:
     return obs.price if deal.last_seen_price is None else deal.last_seen_price
 
 
+def latest_seen(conn: sqlite3.Connection, deal: Deal, obs: Observation) -> Observation | None:
+    """The stored observation of the trip at the last recheck's price (D53), if any: what a live
+    promotion page shows instead of the detected price (`promotions.json` `latest`)."""
+    if deal.last_seen_price is None:
+        return None
+    return db.trip_observation_at(conn, obs, deal.last_seen_price)
+
+
+SHOWN_LATEST = (*db.OPEN_STATUSES, "published")   # the page shows their recheck's price
+
+
+def shown_observation(conn: sqlite3.Connection, deal: Deal, obs: Observation) -> Observation:
+    """The observation whose price the deal's page shows, and so its slides must (D66): the
+    recheck's (`latest_seen`) while the deal is open or live, else the detected one (an
+    expired page shows the price it was a promotion at)."""
+    if deal.status in SHOWN_LATEST:
+        return latest_seen(conn, deal, obs) or obs
+    return obs
+
+
+def stale_renders(conn: sqlite3.Connection, pairs: list[tuple[Deal, Observation]]
+                  ) -> list[tuple[Deal, Observation]]:
+    """The rendered deals among `pairs` whose slides show another observation than the one
+    their page shows (D66): a recheck held a rise within the tolerance, or the deal expired
+    after slides of its recheck's price. A deal rendered before v21 was rendered from its own
+    observation."""
+    return [(d, o) for d, o in pairs if d.output_path
+            and (d.rendered_observation_id or d.observation_id) != shown_observation(conn, d, o).id]
+
+
 def promotion_dates(conn: sqlite3.Connection, promotion_id: int,
                     statuses: tuple[str, ...] = PROMOTION_LIVE, *,
                     one_per_trip: bool = True) -> list[tuple[Deal, Observation]]:
@@ -2284,6 +2314,11 @@ def other_dates(conn: sqlite3.Connection, deal: Deal) -> tuple[OtherDate, ...]:
                  if d.id != deal.id)
 
 
+def route_airports(route: Route) -> tuple[str, ...]:
+    """The route's arrival airports ('LCY,LGW' -> ('LCY', 'LGW')), as `routes.json` `airports`."""
+    return tuple(a for a in (route.destination_airports or "").split(",") if a)
+
+
 def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal,
               obs: Observation) -> tuple[DealView, Path | None]:
     """What a deal's slides and caption show (with its destination photo, if cached)."""
@@ -2291,7 +2326,8 @@ def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal,
     credit, photo_path = _photo(ctx, conn, obs.destination)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=credit,
-                           other_dates=other_dates(conn, deal))
+                           other_dates=other_dates(conn, deal),
+                           route_airports=route_airports(route))
     return view, photo_path
 
 
@@ -2302,7 +2338,8 @@ def text_view(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
     return build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt,
                            photo=PhotoCredit.from_photo(db.get_photo(conn, obs.destination), None),
-                           other_dates=other_dates(conn, deal))
+                           other_dates=other_dates(conn, deal),
+                           route_airports=route_airports(route))
 
 
 def deal_caption_text(ctx: Context, view: DealView) -> str:
@@ -2330,6 +2367,20 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
                      deal_id: int | None = None) -> list[tuple[Path, Deal]]:
     """Render slides + caption + meta per deal. Returns (folder, deal) to report link status."""
     pairs = [db.get_deal(conn, deal_id)] if deal_id else db.deals_with_status(conn, status)
+    return render_pairs(ctx, conn, pairs)
+
+
+def run_rerender_stale(ctx: Context, conn: sqlite3.Connection,
+                       pairs: list[tuple[Deal, Observation]]) -> list[tuple[Path, Deal]]:
+    """Render again the deals among `pairs` (the site's, `site_data.exported_deals`) whose
+    slides show another price than their page (D66, `stale_renders`); their status stays."""
+    return render_pairs(ctx, conn, stale_renders(conn, pairs))
+
+
+def render_pairs(ctx: Context, conn: sqlite3.Connection,
+                 pairs: list[tuple[Deal, Observation]]) -> list[tuple[Path, Deal]]:
+    """Slides, caption and meta of each deal at the price its page shows (`shown_observation`,
+    D66), recorded with that observation; a new deal becomes rendered."""
     pairs = [db.get_deal(conn, d.id) for d, _ in pairs]   # fresh rows (status may have moved)
     if not pairs:
         return []
@@ -2337,7 +2388,8 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
     out_root = ctx.output_dir / lisbon_today().isoformat()
     written = []
     with SlideRenderer(ctx.assets_dir, ctx.config.brand) as renderer:
-        for deal, obs in pairs:
+        for deal, detected in pairs:
+            obs = shown_observation(conn, deal, detected)
             view, photo_path = deal_view(ctx, conn, deal, obs)
             out_dir = out_root / f"deal-{obs.origin}-{obs.destination}-{deal.id}"
             renderer.render_deal(view, photo_path, out_dir)
@@ -2346,7 +2398,7 @@ def run_render_deals(ctx: Context, conn: sqlite3.Connection, status: str = "new"
             meta["archive_key"] = db.run_archive_key(conn, obs.run_id)   # raw payload of run_id
             _write_text(out_dir / "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
             output_files(ctx).put_tree(out_dir)            # the site build may run elsewhere
-            db.set_deal_output_path(conn, deal.id, str(out_dir))
+            db.set_deal_output_path(conn, deal.id, str(out_dir), obs.id)
             if deal.status == "new":
                 db.set_deal_status(conn, deal.id, "rendered")
             written.append((out_dir, deal))

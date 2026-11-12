@@ -14,6 +14,9 @@ import { lisbonTimestamp } from "../lib/format";
 import { BRAND } from "../lib/brand";
 import { TOKENS } from "../lib/tokens";
 
+/** The font files every page preloads (D66): the roman of each family, never the italic. */
+const FONT_PRELOAD = [{ style: "normal" as const }];
+
 interface Props {
   title: string;
   description: string;
@@ -64,8 +67,8 @@ const headRefs = Object.fromEntries(Object.entries(refs).map(([k, v]) => [`data-
   <meta name="theme-color" content={TOKENS.themes.light.bg} media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content={TOKENS.themes.dark.bg} media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <Font cssVariable="--pn-font-display" />
-  <Font cssVariable="--pn-font-text" />
+  <Font cssVariable="--pn-font-display" preload={FONT_PRELOAD} />
+  <Font cssVariable="--pn-font-text" preload={FONT_PRELOAD} />
   {jsonLd.map((block) => <JsonLd data={block.data} refs={block.refs} />)}
   {analytics && <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon={analytics}></script>}
   <script>
@@ -81,10 +84,11 @@ const headRefs = Object.fromEntries(Object.entries(refs).map(([k, v]) => [`data-
     <div class="flex flex-wrap items-center justify-between gap-md pb-sm">
       <a href="/" class="text-ink" aria-label={`${BRAND}: início`}><Logo /></a>
       <nav aria-label="Principal">
+        {/* D66: on phones each link is a 44 px tap target; from md up the look is unchanged. */}
         <ul class="flex gap-lg">
-          <li><a class="label text-ink underline decoration-accent decoration-2 underline-offset-8" href="/#promocoes">Promoções</a></li>
-          <li><a class="label text-ink no-underline hover:underline" href="/destinos/">Destinos</a></li>
-          <li><a class="label text-ink no-underline hover:underline" href="/explorar/">Explorar</a></li>
+          <li><a class="nav-link label text-ink underline decoration-accent decoration-2 underline-offset-8" href="/#promocoes">Promoções</a></li>
+          <li><a class="nav-link label text-ink no-underline hover:underline" href="/destinos/">Destinos</a></li>
+          <li><a class="nav-link label text-ink no-underline hover:underline" href="/explorar/">Explorar</a></li>
         </ul>
       </nav>
     </div>

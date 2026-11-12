@@ -3,6 +3,7 @@
 import data from "virtual:site-data";
 import Base from "../../layouts/Base.astro";
 import { BRAND } from "../../lib/brand";
+import { capitalized, fromPlace } from "../../lib/format";
 
 const destinations = [...data.destinations.destinations].sort((a, b) => a.city.localeCompare(b.city, "pt"));
 ---
@@ -19,7 +20,7 @@ const destinations = [...data.destinations.destinations].sort((a, b) => a.city.l
   <section class="mt-xl" aria-labelledby="titulo-partidas">
     <h2 id="titulo-partidas" class="font-display text-title">Por aeroporto de partida</h2>
     <ul class="mt-sm flex flex-wrap gap-x-lg gap-y-xs">
-      {data.origins.origins.map((o) => <li><a href={o.path}>Desde {o.name}</a></li>)}
+      {data.origins.origins.map((o) => <li><a href={o.path}>{capitalized(fromPlace(o.name, o.article))}</a></li>)}
     </ul>
   </section>
 

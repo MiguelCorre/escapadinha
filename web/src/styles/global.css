@@ -32,6 +32,8 @@
   .wrap { @apply mx-auto w-full max-w-page px-md; }
   .num { font-variant-numeric: lining-nums tabular-nums; }
   .label { @apply text-label font-text uppercase; }
+  /* D66: the header's links are 44 px tap targets on phones (WCAG 2.5.5); unchanged from md up. */
+  .nav-link { @apply inline-flex min-h-[44px] items-center md:inline md:min-h-0; }
   .double-rule { border-top: 3px double var(--pn-ink); }
   .tag { @apply inline-block rounded-sm px-xs py-2xs text-small font-semibold; }
   .tag-success { @apply bg-success-bg text-success; }

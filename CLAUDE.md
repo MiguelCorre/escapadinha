@@ -55,7 +55,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   (`web/test/traceability.test.ts`), booking buttons only via `src/lib/cta.ts` (live + https link,
   with `labels.disclosure.site`), low-price rows only via `src/lib/low-prices.ts` (route pages,
   explorer, ponte pages and the island share it; no link yet → `NO_LINK_NOTE`), expired promotions `noindex` without a button (for `site.expired_promotions_days`, then a 301 to their route page, D35), pt-PT formats (every month/weekday
-  word, price, date and trip text) only from `src/lib/format.ts` and day arithmetic only from
+  word, price, date and trip text, and every "de / em / para / desde / a partir de" + place
+  name, contracted with its article: `format.atPlace` / `atPlaces`, the articles from config
+  `origins_article` / `destinations_article` as `origins.json` / `destinations.json` `article`,
+  D66) only from `src/lib/format.ts` and day arithmetic only from
   `src/lib/dates.ts` (`web/test/format.test.ts` fails on month or weekday names elsewhere), copy passes `web/test/pt-lint.test.ts`.
   When a price was found (D59): `format.foundAt(found_at, found_date)` prints the exact Lisbon
   hour when the contract has `found_at` (offers and low-price rows, from the observation), else
@@ -67,7 +70,9 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   rota" to the route page); `/promos/` is the full record of `meta.expired_promotions_days`,
   grouped by route, indexed only while a promotion is live, with an `ItemList` of the live ones
   (`structured-data.itemListLd`, no Offer); the grouping is only `promotion.expiredByRoute` /
-  `expiredOnRoute`, and `/promos/` has its stable key in `website/routing.STATIC`. Styles use only the generated
+  `expiredOnRoute`; a route's expired promotions (its route page, its `/promos/` group) are
+  only `ExpiredPromotions.astro` (D66: the newest `promotion.EXPIRED_CARDS_PER_ROUTE` as cards,
+  the rest one line each in a native `<details>`, each a link to its page, price on `data-obs`), and `/promos/` has its stable key in `website/routing.STATIC`. Styles use only the generated
   tokens (`src/styles/tokens.css` for CSS, `src/lib/tokens.ts` `TOKENS` for code; `npm run tokens`;
   `tests/test_web_tokens.py` catches drift); `web/test/colours.test.ts` fails on any raw hex or
   rgb()/hsl() colour elsewhere in `web/src/` or `web/functions/`.
@@ -197,7 +202,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
 - Routes come from the `routes` table via `routes.py` (`active_routes`, `get_route`), never from
   config. config.yaml only holds per-kind defaults, overrides, exclusions, long-haul list, seed,
   discovery origins and `city_names`. Discovery (`discovery.py`) is pure; its downloads live in
-  `collector/catalogue.py`. Routes are never deleted: they go `dormant` (D23).
+  `collector/catalogue.py`. Routes are never deleted: they go `dormant` (D23). A route's kind
+  is a rule, never a region: its visitor-facing label (`i18n_pt.ROUTE_KIND`, `labels.json`
+  `kinds`) must be true for every member (D66: `europe` holds North Africa and Turkey, so it
+  reads "Curto e médio curso").
 - **Stay length per destination (D52):** `routes.overrides` is keyed by route (`LIS-PAR`) or by
   destination (`PAR`, every route there; `routes.override_for`: the route key wins), and every
   destination with active routes has an entry with the min/max nights researched in
@@ -282,7 +290,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   (D32, every run: posting never waits for a full path) →
   `run_path.decide` (D46: site data the only change and the last full path under
   `site.refresh_min_gap_minutes` old → fast) → full path only, its Node commands inside one
-  deadline (`node.deadline()`, D35) (render → `run_auto_approve` (D46) → `export site-data`
+  deadline (`node.deadline()`, D35) (render: the new deals, then
+  `pipeline.run_rerender_stale` over `site_data.exported_deals`, the slides of a deal whose
+  `rendered_observation_id` is not the observation its page shows, `pipeline.shown_observation`,
+  D66 → `run_auto_approve` (D46) → `export site-data`
   (D27, → `web/src/data`; keep the
   returned `Export`) → `site build` (Astro, D35: npm ci if needed, astro build, promotion images,
   `_redirects`/`_headers` → `web/dist`; the paths it implies go to `site.paths.pending`) →
@@ -305,6 +316,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   all use them. The web package never builds a page path: it uses the contract's `path` fields.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
+  An airport's name comes from `i18n_pt.AIRPORTS`, else (D66) its city's when it is its
+  route's only airport (`airport_label(…, sole_of=sole_city(…))`; the site's twin
+  `promotion.arrivalAirport`), else the bare code; airlines from `i18n_pt.AIRLINES`. A new
+  airline or an airport of a multi-airport destination gets its name there, checked against
+  the provider's catalogue (`tests/test_place_names.py`, `web/test/place-names.test.ts`).
 - **Baggage only from the GraphQL answer, never guessed** (D43): `with_baggage`, `baggage_code`,
   `gate` and `found_at` on an observation come only from `collector/graphql.py`'s `match` or,
   for an airline source, from the airline's own payload at insertion (D47: `gate` = the
@@ -623,7 +639,10 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   `format.schoolHolidayName` / `schoolHolidayTitle`; dates in `docs/research/2026-11-05-ferias-escolares.md`
 - `src/escapadinha/pontes.py` + `content/holidays.yaml`: Portuguese holidays 2026–2027 and their
   long weekends (D31; pure `long_weekend`/`pontes`, exported as `pontes.json`, past ones too, raw
-  values only). The ponte rule (departure and return inside the window) and the weekend rule
+  values only). The explorer (D66) shows one date range per ponte and break, the days off, and
+  links an origin's ponte or break page only when `explorer-data.ponteResults` /
+  `breakResults` (what that page itself lists) is not empty; else the name is plain text and
+  the page stays built. The ponte rule (departure and return inside the window) and the weekend rule
   live in `web/src/lib/explorer.ts` (explorer + ponte pages); titles in `format.ponteTitle` with
   the article from config `origins_article` (`origins.json` `article`), never a map in code
 - `src/escapadinha/site_data.py`: website data contract v1 (`export_site_data` → `site.data_dir`,

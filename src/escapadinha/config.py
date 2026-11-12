@@ -694,6 +694,9 @@ class AppConfig(BaseModel):
     # The definite article an origin's name takes in a sentence ("desde o Porto", "desde a
     # Madeira"); none for the others ("desde Lisboa"). Exported in origins.json for the site.
     origins_article: dict[str, Literal["o", "a", "os", "as"]] = {}
+    # D66: the same for destinations, by city code ("para a Madeira", "no Dubai"); exported in
+    # destinations.json for the site.
+    destinations_article: dict[str, Literal["o", "a", "os", "as"]] = {}
     photos: PhotosConfig = PhotosConfig()
     demand: DemandConfig = DemandConfig()
     affiliate: AffiliateConfig = AffiliateConfig()
@@ -716,6 +719,9 @@ class AppConfig(BaseModel):
 
     def origin_article(self, iata: str) -> str | None:
         return self.origins_article.get(iata)
+
+    def destination_article(self, code: str) -> str | None:
+        return self.destinations_article.get(code)
 
 
 class Context:

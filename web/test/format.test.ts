@@ -17,6 +17,10 @@ import {
   eurPlain,
   foundAt,
   fromPlace,
+  atPlace,
+  atPlaces,
+  capitalized,
+  listJoin,
   ponteTitle,
   lisbonTimestamp,
   timeAgo,
@@ -94,6 +98,35 @@ describe("pt-PT formats", () => {
     expect(fromPlace("Faro")).toBe("desde Faro");
     expect(ponteTitle("Ponte de 1 de dezembro", { name: "Terceira", article: "a" }))
       .toBe("Ponte de 1 de dezembro desde a Terceira");
+  });
+
+  it("contracts a preposition with a place's article, the pt-PT way (D66)", () => {
+    const madeira = { name: "Madeira", article: "a" }, porto = { name: "Porto", article: "o" };
+    const maldivas = { name: "Maldivas", article: "as" }, lisboa = { name: "Lisboa", article: null };
+    const acores = { name: "Açores", article: "os" };
+    // feminine, masculine, plural, none
+    expect(["de", "em", "para", "desde", "a partir de"].map((p) => atPlace(p as never, madeira)))
+      .toEqual(["da Madeira", "na Madeira", "para a Madeira", "desde a Madeira", "a partir da Madeira"]);
+    expect(["de", "em", "para", "desde", "a partir de"].map((p) => atPlace(p as never, porto)))
+      .toEqual(["do Porto", "no Porto", "para o Porto", "desde o Porto", "a partir do Porto"]);
+    expect([atPlace("de", maldivas), atPlace("em", maldivas), atPlace("para", maldivas)])
+      .toEqual(["das Maldivas", "nas Maldivas", "para as Maldivas"]);
+    expect([atPlace("de", acores), atPlace("em", acores)]).toEqual(["dos Açores", "nos Açores"]);
+    expect(["de", "em", "para", "desde", "a partir de"].map((p) => atPlace(p as never, lisboa)))
+      .toEqual(["de Lisboa", "em Lisboa", "para Lisboa", "desde Lisboa", "a partir de Lisboa"]);
+    expect(atPlace("em", { name: "Paris" })).toBe("em Paris");
+  });
+
+  it("joins places with \"e\" before the last, each with its article (D66)", () => {
+    const madeira = { name: "Madeira", article: "a" }, terceira = { name: "Terceira", article: "a" };
+    const lisboa = { name: "Lisboa", article: null }, porto = { name: "Porto", article: "o" };
+    expect(atPlaces("desde", [madeira, terceira])).toBe("desde a Madeira e a Terceira");
+    expect(atPlaces("desde", [lisboa, porto, { name: "Faro" }])).toBe("desde Lisboa, o Porto e Faro");
+    expect(atPlaces("de", [lisboa, porto])).toBe("de Lisboa e do Porto");
+    expect(atPlaces("desde", [porto])).toBe("desde o Porto");
+    expect(atPlaces("desde", [])).toBe("");
+    expect(listJoin(["a", "b", "c"])).toBe("a, b e c");
+    expect(capitalized("desde o Porto")).toBe("Desde o Porto");
   });
 
   it("counts nights", () => {

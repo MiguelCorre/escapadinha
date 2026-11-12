@@ -18,11 +18,12 @@ import MonthTable from "../../components/MonthTable.astro";
 import PriceCalendar from "../../components/PriceCalendar.astro";
 import PriceVerdict from "../../components/PriceVerdict.astro";
 import PromotionCard from "../../components/PromotionCard.astro";
+import ExpiredPromotions from "../../components/ExpiredPromotions.astro";
 import type { Route } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
-import { eur, foundAt, nights, numericDate, shortDate } from "../../lib/format";
+import { atPlace, eur, foundAt, fromPlace, nights, numericDate, shortDate } from "../../lib/format";
 import { routeIndexable } from "../../lib/indexable";
-import { pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
+import { expiredOnRoute, pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { demandView, routeLowPrices, rulesText, typicalLowRule } from "../../lib/routes";
 
 export const getStaticPaths = (() => {
@@ -44,28 +45,31 @@ const destination = data.destinations.destinations.find((d) => d.code === route.
 // left out of the low prices, since its promotion page lists it.
 const promotions = pagePromotions(data).filter((p) => p.route === route.key);
 const live = promotions.filter((p) => p.live);
-const expired = promotions.filter((p) => !p.live);
+const expired = expiredOnRoute(data, route.key);   // newest first; the older ones compact (D66)
 const liveDates = data.promotions.promotions.filter((p) => p.live && p.route === route.key);
 const lows = routeLowPrices(data, route, new Set(liveDates.map((p) => p.offer.obs)));
 const det = data.meta.detector;
 const cheapest = route.cheapest;
 const dormant = route.status === "dormant";
-const name = `${origin.name} para ${route.city}`;
+// D66: "de Lisboa para a Madeira", "do Porto para Paris" (format.atPlace, the articles of
+// origins.json and destinations.json).
+const there = { name: route.city, article: destination.article };
+const name = `${atPlace("de", origin)} ${atPlace("para", there)}`;
 const demand = demandView(route, data.meta.demand);
 const thin = demand?.thin === true && !cheapest;
 ---
 <Base
-  title={`Voos baratos de ${name} · ${BRAND}`}
-  description={`Preço mínimo habitual por mês de partida, calendário dos preços mais baixos encontrados e preços baixos recentes de ida e volta de ${name}.`}
+  title={`Voos baratos ${name} · ${BRAND}`}
+  description={`Preço mínimo habitual por mês de partida, calendário dos preços mais baixos encontrados e preços baixos recentes de ida e volta ${name}.`}
   path={route.path}
   noindex={!routeIndexable(route)}
 >
-  <Breadcrumbs crumbs={[{ name: `Voos desde ${origin.name}`, path: origin.path },
+  <Breadcrumbs crumbs={[{ name: `Voos ${fromPlace(origin.name, origin.article)}`, path: origin.path },
     { name: route.city, path: destination.path }, { name: `${origin.name} → ${route.city}`, path: route.path }]} />
 
   <header class="mt-lg max-w-measure">
     <p class="label text-accent">{data.labels.kinds[route.kind]}</p>
-    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Voos de {name}</h1>
+    <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Voos {name}</h1>
     <p class="mt-md text-lead text-muted">Acompanhamos esta rota várias vezes por dia. Aqui estão as promoções, os preços baixos encontrados nos últimos dias, o calendário dos preços mais baixos e o preço mínimo habitual de ida e volta, para saberes se um preço é mesmo bom.</p>
     <p class="mt-xs text-small text-muted">Contamos {rulesText(route)}.</p>
     {demand && (
@@ -152,14 +156,12 @@ const thin = demand?.thin === true && !cheapest;
     )}
   </section>
 
-  <SearchWidget about={`de ${name}`} />
+  <SearchWidget about={name} />
 
   {expired.length > 0 && (
     <section class="mt-2xl" aria-labelledby="titulo-expiradas">
       <h2 id="titulo-expiradas" class="font-display text-headline">Promoções recentes (já expiradas)</h2>
-      <div class="mt-lg grid gap-xl sm:grid-cols-2 lg:grid-cols-3">
-        {expired.map((p) => <PromotionCard promotion={p} view={promotionView(data, p)} />)}
-      </div>
+      <ExpiredPromotions promotions={expired} />
     </section>
   )}
 
@@ -167,8 +169,8 @@ const thin = demand?.thin === true && !cheapest;
     <h2 id="titulo-mais" class="font-display text-title">Mais sobre esta rota</h2>
     <ul class="mt-sm grid gap-xs">
       <li><a href={destination.path}>{route.city}: voos desde todo o país e os melhores meses</a></li>
-      <li><a href={origin.path}>Todos os destinos desde {origin.name}</a></li>
+      <li><a href={origin.path}>Todos os destinos {fromPlace(origin.name, origin.article)}</a></li>
     </ul>
-    <ItineraryLink destination={route.destination} city={route.city} />
+    <ItineraryLink destination={route.destination} city={route.city} article={destination.article} />
   </section>
 </Base>

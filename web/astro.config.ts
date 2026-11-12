@@ -14,8 +14,9 @@ const tokens = JSON.parse(readFileSync(new URL("../docs/design/tokens.json", imp
 
 // The self-hosted OFL fonts shared with the slides (assets/fonts/, D22), served through Astro's
 // Fonts API so it adds metric-matched fallbacks (size-adjust). font-display: optional (D28): the
-// web font is used only when it arrives before first paint (from cache after the first page), so
-// it never moves the layout. Family names and fallback stacks come from tokens.json; the Tailwind theme
+// web font is used only when it arrives before first paint, so it never moves the layout. Every
+// page preloads the two roman files (Base.astro, D66): a preloaded optional font holds the first
+// paint for its short block period, so it shows on a first visit too; the italics are not preloaded. Family names and fallback stacks come from tokens.json; the Tailwind theme
 // (src/styles/tokens.css) points font-display / font-text at these variables.
 const FONT_FILES: Record<string, { normal: string; italic: string; weight: string }> = {
   display: { normal: "Fraunces-Roman.woff2", italic: "Fraunces-Italic.woff2", weight: "100 900" },

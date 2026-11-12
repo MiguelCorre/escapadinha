@@ -351,6 +351,9 @@ own `enrich` run (`escapadinha enrich` prints "N GraphQL requests, M of K offers
 - `origins_pt`: origin names in captions (LIS Lisboa … FNC Madeira, PDL Ponta Delgada, TER Terceira).
 - `origins_article`: the article a name takes in a sentence (`OPO: o` → "desde o Porto", `FNC: a`,
   `TER: a`; unlisted origins take none), exported in `origins.json` for the site's titles.
+- `destinations_article` (D66): the same for destinations by city code (`FNC: a` → "para a
+  Madeira", "na Madeira"; `MLE: as`, `DXB: o`), exported in `destinations.json`; the site
+  contracts it with the preposition (`format.atPlace`: "do Porto", "na Madeira").
 - `detector`:
   - `threshold: 0.30` and `min_saving_eur: 15`: a promotion candidate needs
     `price ≤ typical_low × (1 − 0.30)` **and** `typical_low − price ≥ 15 €`.
@@ -1157,7 +1160,8 @@ npm run tokens             # regenerate src/styles/tokens.css + src/lib/tokens.t
   Tailwind's default colours, fonts, sizes, radii and shadows (`src/lib/tokens.ts` is the same data
   for code: theme-color, the OG image, the review page; no other colour is allowed, a test checks
   it); fonts come from `assets/fonts/`
-  through Astro's Fonts API (metric-matched fallbacks), the logo from `assets/logo-light.svg`.
+  through Astro's Fonts API (metric-matched fallbacks, `font-display: optional`, the two roman
+  files preloaded on every page, D66), the logo from `assets/logo-light.svg`.
 - **CI:** `.github/workflows/web.yml` runs on pull requests touching `web/`, `contract/`, the
   tokens, fonts or logo: `npm ci`, `npm run typecheck`, `npm test`, fixture build, Lighthouse CI (reports kept as an
   artifact). Measured locally on 2026-10-13: performance 0.94, accessibility 1, SEO 1 on all
@@ -1337,7 +1341,9 @@ only when needed** → push → unlock.
   site data exactly as the next build would read it (computed in memory, without the run id,
   timestamps and counters no page shows), routes (key, status, name), the Lisbon date, and the
   code, config and content (the Python package, `config.yaml`, `content/`, the web package's
-  sources and lockfile, the logo and fonts). If anything changed it takes the full path (render new deals → approve by the
+  sources and lockfile, the logo and fonts). If anything changed it takes the full path (render new deals, and again the slides of a
+  promotion whose page moved to a recheck's price, D66: `Render: 1 rendered again at their page's
+  price (deals 412)` → approve by the
   rules (D46) → export the site data → `site build` (Astro) → deploy when the content changed); otherwise it ends there.
   One exception (D46): a live promotion's "verificado a" moves on every recheck, so when the site
   data is the *only* change the site is rebuilt at most every `site.refresh_min_gap_minutes`

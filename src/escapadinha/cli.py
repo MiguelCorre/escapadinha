@@ -1106,12 +1106,30 @@ def _error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {first_line[:300]}"
 
 
+def _rerender_stale() -> str | None:
+    """D66: the slides of the site's deals whose page shows another observation than they do
+    (a recheck's held rise, an expiry) rendered again; the report line, or None."""
+    from escapadinha import site_data
+    ctx, conn = _ctx()
+    again = pipeline.run_rerender_stale(ctx, conn,
+                                        site_data.exported_deals(ctx, conn, db.utcnow()))
+    if not again:
+        return None
+    return (f"Render: {len(again)} rendered again at their page's price "
+            f"(deals {', '.join(str(d.id) for _, d in again)})")
+
+
 def _render(report: list[str]) -> bool:
-    """The full path's render of the new deals. A render that raised (no browser on the runner,
-    D64) is one red line in the report and False: the deals stay unrendered, so not approved
-    and not public, and the site is still exported, built and deployed."""
+    """The full path's render of the new deals, then of the site's deals whose slides show
+    another price than their page (D66). A render that raised (no browser on the runner, D64)
+    is one red line in the report and False: the deals stay unrendered (so not approved and not
+    public) or keep their old slides, and the site is still exported, built and deployed."""
     try:
         render_deals()
+        again = _rerender_stale()
+        if again:
+            console.print(again)
+            report.append(again)
     except Exception as exc:
         line = pipeline.StepFailed("Render", _error(exc)).line()
         console.print(f"[red]{escape(line)}[/]")

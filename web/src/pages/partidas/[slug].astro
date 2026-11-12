@@ -10,7 +10,7 @@ import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import type { Origin } from "../../lib/contract";
 import { BRAND } from "../../lib/brand";
 import { upcomingSchoolHolidays } from "../../lib/explorer-data";
-import { count, eur, schoolHolidayName, shortDate } from "../../lib/format";
+import { atPlace, count, eur, fromPlace, schoolHolidayName, shortDate } from "../../lib/format";
 import { routeIndexable } from "../../lib/indexable";
 import { originGroups } from "../../lib/routes";
 
@@ -38,15 +38,15 @@ const ferias = upcomingSchoolHolidays(data).flatMap((b) => {
 });
 ---
 <Base
-  title={`Voos baratos desde ${origin.name}: todos os destinos · ${BRAND}`}
-  description={`Os ${total} destinos que acompanhamos a partir de ${origin.name}, cada um com o preço de ida e volta mais baixo encontrado agora e a página da rota.`}
+  title={`Voos baratos ${fromPlace(origin.name, origin.article)}: todos os destinos · ${BRAND}`}
+  description={`Os ${total} destinos que acompanhamos ${atPlace("a partir de", origin)}, cada um com o preço de ida e volta mais baixo encontrado agora e a página da rota.`}
   path={origin.path}
 >
   <Breadcrumbs crumbs={[{ name: "Partidas", path: "/partidas/" }, { name: origin.name, path: origin.path }]} />
 
   <header class="mt-lg max-w-measure">
-    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Voos desde {origin.name}</h1>
-    <p class="mt-md text-lead text-muted">{count(total, "destino", "destinos")} que acompanhamos a partir de {origin.name}, com o preço de ida e volta mais baixo encontrado por viajantes nos últimos {data.meta.detector.max_offer_age_days} dias. Abre uma rota para veres o calendário de preços e o que é habitual em cada mês.</p>
+    <h1 class="font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">Voos {fromPlace(origin.name, origin.article)}</h1>
+    <p class="mt-md text-lead text-muted">{count(total, "destino", "destinos")} que acompanhamos {atPlace("a partir de", origin)}, com o preço de ida e volta mais baixo encontrado por viajantes nos últimos {data.meta.detector.max_offer_age_days} dias. Abre uma rota para veres o calendário de preços e o que é habitual em cada mês.</p>
     {ferias.length > 0 && (
       <p data-school-holidays class="mt-sm flex flex-wrap gap-x-md gap-y-xs text-small"><span class="font-semibold">Férias escolares:</span>
         {ferias.map((f) => <a class="inline-flex min-h-6 min-w-6 items-center" href={f.path}>{f.label}</a>)}

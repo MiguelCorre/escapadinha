@@ -185,22 +185,34 @@ def _direct(o: Observation) -> bool | None:
     return o.transfers == 0 and o.return_transfers == 0
 
 
+def _discount(deal: Deal, o: Observation) -> float:
+    """The deal's discount at `o`'s price: the detected one on its own observation, else the
+    one that price makes against the same typical low (D66: slides of the recheck's price, as
+    the page computes it)."""
+    if o.id == deal.observation_id or not deal.baseline_median:
+        return deal.discount_pct
+    return 1 - o.price / float(deal.baseline_median)
+
+
 def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination_city: str,
-                    photo: PhotoCredit, other_dates: tuple[OtherDate, ...] = ()) -> DealView:
+                    photo: PhotoCredit, other_dates: tuple[OtherDate, ...] = (),
+                    route_airports: tuple[str, ...] = ()) -> DealView:
     direct = _direct(o)
     return DealView(
         deal_id=deal.id, observation_id=o.id,
         origin_iata=o.origin, destination_iata=o.destination,
         origin_city=origin_city, destination_city=destination_city,
         arrival_code=o.destination_airport.upper() if o.destination_airport else None,
-        arrival_airport=pt.airport_label(o.destination_airport),
+        arrival_airport=pt.airport_label(
+            o.destination_airport,
+            sole_of=pt.sole_city(o.destination_airport, route_airports or (), destination_city)),
         remote_airport=(o.destination_airport or "").upper() in pt.REMOTE_AIRPORTS,
         price=pt.eur(o.price), price_compact=pt.eur_compact(o.price),
         dates=pt.date_range(o.departure_date, o.return_date),
         departure_month=pt.MONTHS[o.departure_date.month - 1],
         departure_short=pt.short_date(o.departure_date), return_short=pt.short_date(o.return_date),
         nights=pt.nights(o.nights), airline=pt.airline_name(o.airline), direct=direct,
-        discount_pct=None if deal.discount_pct is None else round(deal.discount_pct * 100),
+        discount_pct=None if deal.discount_pct is None else round(_discount(deal, o) * 100),
         found_on=pt.numeric_date(o.found_date) if o.found_date else None,
         checked_at=pt.lisbon_timestamp(o.fetched_at),
         source_label=SOURCE_LABELS.get(o.source, o.source),
