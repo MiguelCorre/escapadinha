@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Collection
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,19 @@ AIRLINES = {
     "SN": "Brussels Airlines", "OS": "Austrian", "EI": "Aer Lingus", "FI": "Icelandair",
     "S4": "Azores Airlines", "SP": "SATA Air Açores", "NI": "Portugália", "BT": "airBaltic",
     "DY": "Norwegian", "D8": "Norwegian", "V7": "Volotea", "LS": "Jet2",
+    # D66: every airline the site met on 2026-11-12, each code checked against the provider's
+    # catalogue (api.travelpayouts.com/data/airlines.json), named as the airline sells itself.
+    "2L": "Helvetic Airways", "4Y": "Discover Airlines", "5F": "FlyOne", "A0": "BA Euroflyer",
+    "A3": "Aegean Airlines", "AA": "American Airlines", "AC": "Air Canada", "AD": "Azul",
+    "AH": "Air Algérie", "AL": "Alpavia", "AT": "Royal Air Maroc", "AY": "Finnair",
+    "DE": "Condor", "DI": "Marabu", "DS": "easyJet", "DT": "TAAG", "E4": "Enter Air",
+    "ET": "Ethiopian Airlines", "EY": "Etihad Airways", "G3": "GOL", "GQ": "Sky Express",
+    "JJ": "LATAM", "JU": "Air Serbia", "KE": "Korean Air", "LA": "LATAM", "LG": "Luxair",
+    "LO": "LOT", "LW": "Lauda Europe", "MW": "Malta Air", "NT": "Binter", "PC": "Pegasus",
+    "QR": "Qatar Airways", "QS": "Smartwings", "RK": "Ryanair", "RR": "Buzz",
+    "SA": "South African Airways", "SK": "SAS", "TS": "Air Transat", "UA": "United Airlines",
+    "VR": "Cabo Verde Airlines", "VS": "Virgin Atlantic", "W9": "Wizz Air", "WK": "Edelweiss",
+    "X3": "TUI fly", "X5": "Air Europa", "YU": "EuroAtlantic Airways", "YW": "Air Nostrum",
 }
 
 
@@ -33,16 +47,33 @@ AIRPORTS = {
     "AMS": "Schiphol", "EIN": "Eindhoven", "MXP": "Malpensa", "LIN": "Linate", "BGY": "Bérgamo",
     "BER": "Brandenburg", "CRL": "Charleroi", "BRU": "Bruxelas", "NYO": "Skavsta",
     "TSF": "Treviso", "HHN": "Hahn", "WMI": "Modlin", "TRF": "Torp",
+    # D66: every airport of a destination with two or more (routes on 2026-11-12), each code
+    # checked against the provider's catalogue (api.travelpayouts.com/data/airports.json).
+    "SXF": "Schönefeld", "TXL": "Tegel", "DUS": "Düsseldorf", "NRN": "Weeze",
+    "FRA": "Frankfurt", "GLA": "Glasgow", "PIK": "Prestwick", "OSL": "Gardermoen",
+    "RYG": "Rygge", "KIV": "Chisinau", "RMO": "Chisinau", "GRU": "Guarulhos",
+    "VCP": "Viracopos", "ARN": "Arlanda", "TFN": "Tenerife Norte", "TFS": "Tenerife Sul",
+    "VCE": "Marco Polo", "WAW": "Chopin",
 }
-REMOTE_AIRPORTS = {"BVA", "BGY", "GRO", "REU", "EIN", "CRL", "NYO", "TSF", "HHN", "WMI", "TRF", "SEN"}
+REMOTE_AIRPORTS = {"BVA", "BGY", "GRO", "REU", "EIN", "CRL", "NYO", "TSF", "HHN", "WMI", "TRF", "SEN",
+                   "NRN", "PIK", "RYG", "VCP"}
 
 
-def airport_label(code: str | None) -> str | None:
-    """'Beauvais (BVA)'; unknown codes are shown as the bare code."""
+def airport_label(code: str | None, *, sole_of: str | None = None) -> str | None:
+    """'Beauvais (BVA)'. `sole_of`: the city the airport is the only one of (its route's single
+    arrival airport, D66), whose name stands in when the map has none: 'Praga (PRG)'. Any
+    other unknown code is shown as the bare code. The site's twin is `place` in promotion.ts."""
     if not code:
         return None
-    name = AIRPORTS.get(code.upper())
+    name = AIRPORTS.get(code.upper()) or sole_of
     return f"{name} ({code.upper()})" if name else code.upper()
+
+
+def sole_city(code: str | None, route_airports: Collection[str], city: str) -> str | None:
+    """`city` when `code` is the route's only arrival airport, else None (D66)."""
+    if code and {a.upper() for a in route_airports} == {code.upper()}:
+        return city
+    return None
 
 
 def eur(amount: float) -> str:

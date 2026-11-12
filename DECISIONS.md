@@ -3872,4 +3872,30 @@ so nothing has to be hosted.
   deployed, the run exits 1 and the next one renders again). `tests/test_rerender.py`: a held
   1 € rise makes the deal stale, the re-render records the new observation and its price in the
   view and `meta.json`, nothing is stale after it, and an expiry renders the detected price back.
+- **3. Names, not codes.** Visitors read "com a QS", "AD · 1 escala", "Chegada: PRG",
+  "Aeroportos de chegada: FNC": `i18n_pt.AIRLINES` had 28 airlines and `AIRPORTS` only the
+  airports of multi-airport cities, and both fall back to the code. The provider's catalogue
+  that discovery downloads (`data/airports.json`, and `data/airlines.json`) identifies every
+  code, but its names are English or mixed pt-BR ("Vaclav Havel Airport Prague", "Marraqueche
+  Menara", broken accents), so the site does not read it at run time: the maps grew by hand,
+  each code checked against the catalogue on 2026-11-12. `AIRLINES` + 48 (every airline in the
+  observations since 2026-10-01 but SZS, which the catalogue does not know and which no
+  observation since 2026-10-25 carries), named as the airline sells itself (QS Smartwings, AD
+  Azul, RK Ryanair, W9 Wizz Air). `AIRPORTS` + 18: every airport of the 16 destinations with
+  two or more (Schönefeld, Tegel, Düsseldorf, Weeze, Frankfurt, Glasgow, Prestwick,
+  Gardermoen, Rygge, Chisinau ×2, Guarulhos, Viracopos, Arlanda, Tenerife Norte / Sul, Marco
+  Polo, Chopin); Weeze, Prestwick, Rygge and Viracopos (50–100 km from their city) join
+  `REMOTE_AIRPORTS`. A single-airport city is named by its city, not by a name table of 150
+  more airports: `i18n_pt.airport_label(code, sole_of=…)` takes the city when the code is its
+  route's only arrival airport (`sole_city`), so the line reads "Praga (PRG)", "Madeira
+  (FNC)"; any other unknown code (a new route, an arrival somewhere else) is still the code.
+  The choice keeps the line rather than dropping it, because captions always name the arrival
+  airport (D11); the same rule runs in captions and slides (`build_deal_view`'s
+  `route_airports`, from `pipeline.route_airports`) and on the site (`promotion.arrivalAirport`,
+  used by the promotion card and page, every low-price row through `placesFor`, and the hub's
+  "Aeroporto(s) de chegada"). On the database copy of 2026-11-12 no active route's airport and
+  no observed airline since 2026-10-25 is left as a code. `labels.json` is regenerated from
+  `_labels()` (it holds no database data; `test_affiliate_blocks` compares it with the export).
+  `tests/test_place_names.py` fails when a fixture airline or arrival airport would show as a
+  code; `web/test/place-names.test.ts` fails on "Chegada: XYZ" or "com a XY" on any built page.
 

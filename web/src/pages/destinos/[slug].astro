@@ -20,7 +20,7 @@ import { BRAND } from "../../lib/brand";
 import { eur, shortDate } from "../../lib/format";
 import { hubIndexable, routeIndexable } from "../../lib/indexable";
 import { itineraryFor } from "../../lib/itinerary";
-import { pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
+import { arrivalAirport, pagePromotions, promotionDates, promotionView } from "../../lib/promotion";
 import { bestMonths, byPriceThenDemand, demandView } from "../../lib/routes";
 
 export const getStaticPaths = (() => {
@@ -49,7 +49,7 @@ const indexable = hubIndexable(byOrigin.map((x) => x.route), itineraryFor(destin
 const without = data.origins.origins.filter((o) => !byOrigin.some((x) => x.origin.iata === o.iata));
 const live = pagePromotions(data).filter((p) => p.live && keys.has(p.route));   // D53: one card per promotion
 const airports = destination.airports.map((code) => {
-  const known = data.labels.airports[code];
+  const known = arrivalAirport(data, code, destination.airports, destination.city);
   return { label: known ? `${known.name} (${code})` : code, remote: known?.remote ?? false };
 });
 const city = destination.city;
@@ -69,7 +69,7 @@ const fromText = fromNames.length > 1 ? `${fromNames.slice(0, -1).join(", ")} e 
     <h1 class="mt-xs font-display text-[clamp(2.25rem,8vw,3.5rem)] leading-[1.05] font-medium">{city}</h1>
     <p class="mt-md text-lead text-muted">Voos de ida e volta para {city} desde {fromText}: o preço mais baixo encontrado agora e os meses em que costuma ser mais barato ir, segundo os preços que acompanhamos.</p>
     {airports.length > 0 && (
-      <p class="mt-xs text-small text-muted">Aeroportos de chegada: {airports.map((a, i) => <>{i > 0 && ", "}{a.label}{a.remote && <> <span class="tag tag-warning">longe do centro</span></>}</>)}</p>
+      <p class="mt-xs text-small text-muted">{airports.length > 1 ? "Aeroportos" : "Aeroporto"} de chegada: {airports.map((a, i) => <>{i > 0 && ", "}{a.label}{a.remote && <> <span class="tag tag-warning">longe do centro</span></>}</>)}</p>
     )}
   </header>
 

@@ -2314,6 +2314,11 @@ def other_dates(conn: sqlite3.Connection, deal: Deal) -> tuple[OtherDate, ...]:
                  if d.id != deal.id)
 
 
+def route_airports(route: Route) -> tuple[str, ...]:
+    """The route's arrival airports ('LCY,LGW' -> ('LCY', 'LGW')), as `routes.json` `airports`."""
+    return tuple(a for a in (route.destination_airports or "").split(",") if a)
+
+
 def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal,
               obs: Observation) -> tuple[DealView, Path | None]:
     """What a deal's slides and caption show (with its destination photo, if cached)."""
@@ -2321,7 +2326,8 @@ def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal,
     credit, photo_path = _photo(ctx, conn, obs.destination)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=credit,
-                           other_dates=other_dates(conn, deal))
+                           other_dates=other_dates(conn, deal),
+                           route_airports=route_airports(route))
     return view, photo_path
 
 
@@ -2332,7 +2338,8 @@ def text_view(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observati
     return build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt,
                            photo=PhotoCredit.from_photo(db.get_photo(conn, obs.destination), None),
-                           other_dates=other_dates(conn, deal))
+                           other_dates=other_dates(conn, deal),
+                           route_airports=route_airports(route))
 
 
 def deal_caption_text(ctx: Context, view: DealView) -> str:

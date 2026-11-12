@@ -195,14 +195,17 @@ def _discount(deal: Deal, o: Observation) -> float:
 
 
 def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination_city: str,
-                    photo: PhotoCredit, other_dates: tuple[OtherDate, ...] = ()) -> DealView:
+                    photo: PhotoCredit, other_dates: tuple[OtherDate, ...] = (),
+                    route_airports: tuple[str, ...] = ()) -> DealView:
     direct = _direct(o)
     return DealView(
         deal_id=deal.id, observation_id=o.id,
         origin_iata=o.origin, destination_iata=o.destination,
         origin_city=origin_city, destination_city=destination_city,
         arrival_code=o.destination_airport.upper() if o.destination_airport else None,
-        arrival_airport=pt.airport_label(o.destination_airport),
+        arrival_airport=pt.airport_label(
+            o.destination_airport,
+            sole_of=pt.sole_city(o.destination_airport, route_airports or (), destination_city)),
         remote_airport=(o.destination_airport or "").upper() in pt.REMOTE_AIRPORTS,
         price=pt.eur(o.price), price_compact=pt.eur_compact(o.price),
         dates=pt.date_range(o.departure_date, o.return_date),

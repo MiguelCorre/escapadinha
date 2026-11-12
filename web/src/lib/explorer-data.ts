@@ -6,6 +6,7 @@ import { bookingLink } from "./cta";
 import { lisbonDay } from "./dates";
 import type { BreakWindow, Demand, PonteWindow } from "./explorer";
 import type { Places } from "./low-prices";
+import { arrivalAirport } from "./promotion";
 
 /** /explorar/dados/<ORIGIN>.json */
 export interface OriginFile {
@@ -50,7 +51,7 @@ export function placesFor(data: SiteData, iata: string,
     const route = data.routes.routes.find((x) => x.key === `${iata}-${r[1]}`);
     cities[r[1]] = route?.city ?? data.destinations.destinations.find((d) => d.code === r[1])?.city ?? r[1];
     if (route) paths[r[1]] = route.path;
-    const label = r[9] ? data.labels.airports[r[9]] : undefined;
+    const label = r[9] ? arrivalAirport(data, r[9], route?.airports ?? [], cities[r[1]]) : undefined;
     if (r[9] && label) airports[r[9]] = label;
     const airline = r[7] ? data.labels.airlines[r[7]] : undefined;
     if (r[7] && airline) airlines[r[7]] = airline;

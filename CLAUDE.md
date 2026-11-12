@@ -308,6 +308,11 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   all use them. The web package never builds a page path: it uses the contract's `path` fields.
 - Captions must distinguish `found_date` (when a traveller saw the price) from `fetched_at`,
   and always name the arrival airport (remote ones in the headline).
+  An airport's name comes from `i18n_pt.AIRPORTS`, else (D66) its city's when it is its
+  route's only airport (`airport_label(…, sole_of=sole_city(…))`; the site's twin
+  `promotion.arrivalAirport`), else the bare code; airlines from `i18n_pt.AIRLINES`. A new
+  airline or an airport of a multi-airport destination gets its name there, checked against
+  the provider's catalogue (`tests/test_place_names.py`, `web/test/place-names.test.ts`).
 - **Baggage only from the GraphQL answer, never guessed** (D43): `with_baggage`, `baggage_code`,
   `gate` and `found_at` on an observation come only from `collector/graphql.py`'s `match` or,
   for an airline source, from the airline's own payload at insertion (D47: `gate` = the
