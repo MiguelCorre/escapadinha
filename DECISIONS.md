@@ -3872,6 +3872,16 @@ so nothing has to be hosted.
   deployed, the run exits 1 and the next one renders again). `tests/test_rerender.py`: a held
   1 € rise makes the deal stale, the re-render records the new observation and its price in the
   view and `meta.json`, nothing is stale after it, and an expiry renders the detected price back.
+  *Amended 2026-11-13, after the live check:* only the **price** moves to the shown
+  observation, as on the page. The first version drew the whole view from it, so Lisboa → Milão's
+  slide read "Encontrado por um viajante a 13/11/2026" (the recheck's newest row) beside a page
+  that read 12/11 (the detected observation's `found_at`), and a recheck row without a baggage
+  answer would have dropped the slide's baggage line while the page kept it. Now
+  `build_deal_view(deal, detected, priced=shown)` takes the price, its discount, the traced
+  `observation_id` and `checked_at` from `priced` and the found day, airline, airport and
+  baggage from the detected observation; `meta.json` keeps the priced observation and adds
+  `detected_observation_id`. A slide rendered in between corrects itself at its next render
+  (a new shown observation, or the expiry); no migration for it.
 - **3. Names, not codes.** Visitors read "com a QS", "AD · 1 escala", "Chegada: PRG",
   "Aeroportos de chegada: FNC": `i18n_pt.AIRLINES` had 28 airlines and `AIRPORTS` only the
   airports of multi-airport cities, and both fall back to the code. The provider's catalogue

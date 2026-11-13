@@ -3,6 +3,7 @@ tolerance (D53) moves the page to its own observation, and the full path renders
 again from that observation; an expiry moves both back to the price it was a promotion at."""
 
 import json
+from datetime import date
 from pathlib import Path
 
 import respx
@@ -16,9 +17,13 @@ from test_review import price_api
 from test_website import approved_deal
 
 
+LATER = date(2026, 12, 30)      # a found day no fixture observation has
+
+
 class CapturingRenderer:
-    """Stands in for Chromium: writes small real PNGs and keeps the price each view showed."""
+    """Stands in for Chromium: writes small real PNGs and keeps each view (and its price)."""
     prices: list[str] = []
+    views: list = []
 
     def __init__(self, assets_dir, brand):
         pass
@@ -31,6 +36,7 @@ class CapturingRenderer:
 
     def render_deal(self, view, photo_path, out_dir: Path):
         CapturingRenderer.prices.append(view.price)
+        CapturingRenderer.views.append(view)
         out_dir.mkdir(parents=True, exist_ok=True)
         for n in (1, 2, 3):
             Image.new("RGB", (108, 135), (200, 80, 60)).save(out_dir / f"slide_{n:02d}.png")
@@ -50,7 +56,7 @@ def page_price(conn, deal_id) -> tuple[int, float]:
 @respx.mock
 def test_a_held_rise_renders_the_slides_again_at_the_pages_price(ctx, monkeypatch):
     monkeypatch.setattr(pipeline, "SlideRenderer", CapturingRenderer)
-    CapturingRenderer.prices = []
+    CapturingRenderer.prices, CapturingRenderer.views = [], []
     conn = pipeline.open_db(ctx)
     deal_id = approved_deal(ctx, conn)                     # 58 €, rendered from its observation
     assert pipeline.stale_renders(conn, site_deals(ctx, conn)) == []
@@ -62,6 +68,11 @@ def test_a_held_rise_renders_the_slides_again_at_the_pages_price(ctx, monkeypatc
     assert deal.status == "approved" and deal.last_seen_price == 59
     latest_obs, latest_price = page_price(conn, deal_id)
     assert latest_obs != obs.id and latest_price == 59
+    # The recheck's row was found a day later and has no baggage answer; the detected one has.
+    conn.execute("UPDATE price_observations SET found_date = ?, with_baggage = NULL WHERE id = ?",
+                 (LATER.isoformat(), latest_obs))
+    conn.execute("UPDATE price_observations SET with_baggage = 0 WHERE id = ?", (obs.id,))
+    conn.commit()
     # The mismatch the walk-through saw: slides of 58 € beside a page of 59 €.
     assert [d.id for d, _ in pipeline.stale_renders(conn, site_deals(ctx, conn))] == [deal_id]
 
@@ -74,6 +85,14 @@ def test_a_held_rise_renders_the_slides_again_at_the_pages_price(ctx, monkeypatc
     assert (meta["observation_id"], meta["price"]) == (latest_obs, 59)
     assert pipeline.stale_renders(conn, site_deals(ctx, conn)) == []
     assert pipeline.run_rerender_stale(ctx, conn, site_deals(ctx, conn)) == []   # once only
+
+    # Only the price moved (D66): like the page, the slides keep the found day, the airline and
+    # the baggage of the detected observation, though the recheck's own row has others.
+    view = CapturingRenderer.views[-1]
+    assert (view.observation_id, view.price) == (latest_obs, pt.eur(59))
+    assert view.found_on == pt.numeric_date(obs.found_date) != pt.numeric_date(LATER)
+    assert view.baggage_line == pt.baggage_line(False)
+    assert meta["detected_observation_id"] == obs.id
 
     # Expired, the page shows the price it was a promotion at again: so do the slides.
     db.record_recheck(conn, deal_id, valid=False, latest_price=80, reason="subiu", kind="gone")

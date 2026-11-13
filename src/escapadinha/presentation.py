@@ -148,10 +148,12 @@ class DealView:
         return f"o preço mais baixo que vimos nesta rota para partidas em {self.departure_month}"
 
     def meta(self, deal: Deal, observation: Observation, booking_base: str) -> dict:
-        """Traceability record written next to the slides."""
+        """Traceability record written next to the slides: the observation of the price they
+        show, and (D66) the detected one their found day, airline and baggage come from."""
         return {
             "deal_id": deal.id,
             "observation_id": observation.id,
+            "detected_observation_id": deal.observation_id,
             "run_id": observation.run_id,
             "source": observation.source,
             "fetched_at_utc": observation.fetched_at.isoformat(),
@@ -196,10 +198,17 @@ def _discount(deal: Deal, o: Observation) -> float:
 
 def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination_city: str,
                     photo: PhotoCredit, other_dates: tuple[OtherDate, ...] = (),
-                    route_airports: tuple[str, ...] = ()) -> DealView:
+                    route_airports: tuple[str, ...] = (),
+                    priced: Observation | None = None) -> DealView:
+    """What a deal's slides and caption show, from its detected observation `o`. `priced`
+    (D66): the observation whose price the page shows instead (the recheck's held price, D53).
+    Only the price moves to it, as on the page: the price, its discount, the id it traces to
+    and when we fetched it; the found day, the airline, the airport and the baggage stay `o`'s
+    (the recheck's row is not enriched, and the page prints the detected ones)."""
     direct = _direct(o)
+    p = priced or o
     return DealView(
-        deal_id=deal.id, observation_id=o.id,
+        deal_id=deal.id, observation_id=p.id,
         origin_iata=o.origin, destination_iata=o.destination,
         origin_city=origin_city, destination_city=destination_city,
         arrival_code=o.destination_airport.upper() if o.destination_airport else None,
@@ -207,14 +216,14 @@ def build_deal_view(deal: Deal, o: Observation, *, origin_city: str, destination
             o.destination_airport,
             sole_of=pt.sole_city(o.destination_airport, route_airports or (), destination_city)),
         remote_airport=(o.destination_airport or "").upper() in pt.REMOTE_AIRPORTS,
-        price=pt.eur(o.price), price_compact=pt.eur_compact(o.price),
+        price=pt.eur(p.price), price_compact=pt.eur_compact(p.price),
         dates=pt.date_range(o.departure_date, o.return_date),
         departure_month=pt.MONTHS[o.departure_date.month - 1],
         departure_short=pt.short_date(o.departure_date), return_short=pt.short_date(o.return_date),
         nights=pt.nights(o.nights), airline=pt.airline_name(o.airline), direct=direct,
-        discount_pct=None if deal.discount_pct is None else round(_discount(deal, o) * 100),
+        discount_pct=None if deal.discount_pct is None else round(_discount(deal, p) * 100),
         found_on=pt.numeric_date(o.found_date) if o.found_date else None,
-        checked_at=pt.lisbon_timestamp(o.fetched_at),
+        checked_at=pt.lisbon_timestamp(p.fetched_at),
         source_label=SOURCE_LABELS.get(o.source, o.source),
         affiliate_url=deal.affiliate_url,
         photo=photo,
