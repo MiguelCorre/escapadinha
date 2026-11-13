@@ -2319,15 +2319,16 @@ def route_airports(route: Route) -> tuple[str, ...]:
     return tuple(a for a in (route.destination_airports or "").split(",") if a)
 
 
-def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal,
-              obs: Observation) -> tuple[DealView, Path | None]:
-    """What a deal's slides and caption show (with its destination photo, if cached)."""
+def deal_view(ctx: Context, conn: sqlite3.Connection, deal: Deal, obs: Observation,
+              priced: Observation | None = None) -> tuple[DealView, Path | None]:
+    """What a deal's slides and caption show (with its destination photo, if cached); `priced`:
+    the observation of the price shown, when it is not the detected one (D66)."""
     route = route_for(ctx, conn, obs.route_key)
     credit, photo_path = _photo(ctx, conn, obs.destination)
     view = build_deal_view(deal, obs, origin_city=ctx.config.origin_name(obs.origin),
                            destination_city=route.city_pt, photo=credit,
                            other_dates=other_dates(conn, deal),
-                           route_airports=route_airports(route))
+                           route_airports=route_airports(route), priced=priced)
     return view, photo_path
 
 
@@ -2380,7 +2381,8 @@ def run_rerender_stale(ctx: Context, conn: sqlite3.Connection,
 def render_pairs(ctx: Context, conn: sqlite3.Connection,
                  pairs: list[tuple[Deal, Observation]]) -> list[tuple[Path, Deal]]:
     """Slides, caption and meta of each deal at the price its page shows (`shown_observation`,
-    D66), recorded with that observation; a new deal becomes rendered."""
+    D66), recorded with that observation; everything but the price stays the detected
+    observation's, as on the page. A new deal becomes rendered."""
     pairs = [db.get_deal(conn, d.id) for d, _ in pairs]   # fresh rows (status may have moved)
     if not pairs:
         return []
@@ -2390,7 +2392,7 @@ def render_pairs(ctx: Context, conn: sqlite3.Connection,
     with SlideRenderer(ctx.assets_dir, ctx.config.brand) as renderer:
         for deal, detected in pairs:
             obs = shown_observation(conn, deal, detected)
-            view, photo_path = deal_view(ctx, conn, deal, obs)
+            view, photo_path = deal_view(ctx, conn, deal, detected, priced=obs)
             out_dir = out_root / f"deal-{obs.origin}-{obs.destination}-{deal.id}"
             renderer.render_deal(view, photo_path, out_dir)
             _write_text(out_dir / "caption.txt", deal_caption_text(ctx, view))

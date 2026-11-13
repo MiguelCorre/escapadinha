@@ -293,7 +293,8 @@ v2 work is tracked as GitHub Issues (spec #1, tickets #2–#24): conventions in 
   deadline (`node.deadline()`, D35) (render: the new deals, then
   `pipeline.run_rerender_stale` over `site_data.exported_deals`, the slides of a deal whose
   `rendered_observation_id` is not the observation its page shows, `pipeline.shown_observation`,
-  D66 → `run_auto_approve` (D46) → `export site-data`
+  D66; only the price moves to it, `build_deal_view(…, priced=)`: the found day, airline,
+  airport and baggage stay the detected observation's, as on the page → `run_auto_approve` (D46) → `export site-data`
   (D27, → `web/src/data`; keep the
   returned `Export`) → `site build` (Astro, D35: npm ci if needed, astro build, promotion images,
   `_redirects`/`_headers` → `web/dist`; the paths it implies go to `site.paths.pending`) →
