@@ -142,6 +142,18 @@ agendada continua a precisar da tua sessão iniciada, porque o Docker Desktop vi
    schtasks /Create /TN "Pontonomada sonda" /SC MINUTE /MO 30 /ST 00:05 /TR "cmd /c cd /d C:\Users\DESKTOP\Downloads\escapadinha && docker compose -f docker\probe\compose.yaml run --rm probe run >> %USERPROFILE%\.pontonomada\sonda.log 2>&1" /F
    ```
 
+   Desde 14 Nov 2026 a tarefa corre **sem janela**: a ação passou a ser o `pythonw.exe`, que
+   lança a mesma linha de comando escondida e devolve o código de saída ao Agendador (o
+   `conhost --headless` também esconde, mas devolve sempre 0). O comando `schtasks` acima repõe
+   a janela `cmd`; para a esconder outra vez, no PowerShell:
+
+   ```powershell
+   $py = "$env:LOCALAPPDATA\Programs\Python\Python313\pythonw.exe"
+   $cmd = (Get-ScheduledTask -TaskName 'Pontonomada sonda').Actions[0].Arguments -replace '^/c ', ''
+   $arg = '-c "import subprocess,sys;sys.exit(subprocess.call(r''' + $cmd + ''',shell=True,creationflags=0x08000000))"'
+   Set-ScheduledTask -TaskName 'Pontonomada sonda' -Action (New-ScheduledTaskAction -Execute $py -Argument $arg)
+   ```
+
 - O perfil e o `state.json` local do contentor vivem no volume `pontonomada-probe`
   (`docker volume ls`); apagá-lo (`docker volume rm pontonomada-probe`) é começar do zero
   (volta ao passo 2). O estado da sonda que conta continua a ser o do bucket (`probe/state.json`).
